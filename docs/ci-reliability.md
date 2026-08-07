@@ -32,7 +32,7 @@ Superseded pull-request CI is cancelled by pull-request number. Preview
 transactions, release publication, signing, and Production deployment are not
 cancelled mid-operation.
 
-The trusted release-entry workflow stays separate because pull-request code
+The trusted release-intent workflow stays separate because pull-request code
 must not be able to alter the validator behind its normal `Release decision`
 Actions job. A ready pull request is checked immediately and later head changes
 are rechecked. If infrastructure interrupts that job, rerun the original
@@ -49,7 +49,7 @@ bun run ci:preflight --base origin/main --head HEAD --pull-request 466 --format 
 The preflight uses the same changed-path selection as `Fast CI`. The ordinary
 path therefore avoids docs, mobile, Go, workflow, and platform work when those
 surfaces are untouched. A pull-request number enables exact PR-owned release
-entry validation; without one, the current release catalog is checked.
+intent validation; without one, the historical release catalog is checked.
 
 The report records exact base and head commits, changed paths, selected lanes,
 commands, durations, conclusions, and relevant protected remote-only gates. It
@@ -94,28 +94,24 @@ ability to preserve sanitized evidence when a workflow itself is cancelled.
 Project Space has one Production environment and no permanent development,
 staging, or release branch.
 
-An ordinary approved merge to `main` dispatches Production for that exact
-commit without manufacturing a new GitHub Release or rebuilding every tool.
-The Production target is the VPS at `projects.os-home.net`, never Vercel.
+Every pull request adds one immutable `none`, `patch`, `minor`, or `major`
+intent and keeps the concrete package version unchanged. One global,
+non-cancelling queue walks first-parent `main` history from the latest
+published signed release. It always selects the oldest release-bearing merge,
+derives the next version only after merge, reserves that exact tag, and
+dispatches `release.yml` once. Concurrent pull requests therefore cannot claim
+the same version or block one another before merge.
 
-Versioned Project CLI, connector, installer, and machine-tool publication uses
-a short-lived release pull request. A true release pull request is prepared and
-merged on `main`; `release-from-main.yml` creates its exact version tag and
-explicitly dispatches `release.yml` once. `release.yml` is manual tag-dispatch
-only, so a tag push cannot start a duplicate release.
-
-Each `main` push keeps its own non-cancelling handoff. An hourly or manual
-reconciliation pass also walks the release entries on `main`, validates their
-exact addition commits, and resumes the oldest missing or failed exact-tag
-Release run before moving to the next version.
-Older unpublished entries below an already published version stay superseded.
-This makes runner or webhook outages recoverable without duplicating a Release
-or Production dispatch.
+`release.yml` is manual tag-dispatch only, so a tag push cannot start a
+duplicate release. Publication wakes the queue again; the queue continues with
+the next intent, or dispatches Production for current `main` using the latest
+compatible published signed version once it is drained. The scheduled and
+manual wake-ups use the same durable tag and run recovery rules, making runner
+or webhook outages recoverable without duplicating Release or Production.
 
 The immutable Release run retains full platform builds, isolated no-checkout
 signing jobs, artifact provenance, digest and manifest verification, GitHub
-publication, and the protected Production handoff where required. The previous
-one-step release-to-production wrapper is inlined into the owning flow.
+publication, and the protected Production handoff where required.
 
 Release-critical runtime changes must remain backward compatible or inactive
 until their matching signed tools are available. Rollback redeploys a

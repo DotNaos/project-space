@@ -5,9 +5,9 @@ Project Space production runs on the VPS and is served at
 
 ## Automatic path
 
-Every push to `main` starts `.github/workflows/deploy-production.yml`. The
-workflow uses one non-cancelling concurrency lane named
-`project-space-production`:
+The serial release queue starts `.github/workflows/deploy-production.yml` only
+after all merged release intents have been published. The workflow uses one
+non-cancelling concurrency lane named `project-space-production`:
 
 1. Check that the requested value is a full SHA and still equals current
    `main`.
@@ -16,7 +16,7 @@ workflow uses one non-cancelling concurrency lane named
 3. Enter the GitHub `Production` environment.
 4. Load only the required deployment credentials from 1Password and join
    Tailscale as the ephemeral `tag:ci-project-space-deploy` identity.
-5. Run `project deploy --env prod --commit <sha> --format json` over pinned SSH.
+5. Run `project deploy --env prod --commit <sha> --release-version <version> --format json` over pinned SSH.
 6. Independently compare GitHub `main`, the VPS checkout, running build
    metadata, service health, `/api/health`, and the live page.
 
@@ -38,22 +38,24 @@ The machine-readable flow reports `checking`, `validating`, `lock`, `deploy`,
 - `rollback_failed`: neither the requested release nor rollback passed the full
   verification contract. Investigate immediately.
 
-The last verified SHA is stored atomically on the VPS under
-`/opt/platform/state/project-space-prod/verified.sha`. Rollback cannot accept an
-arbitrary stale SHA; it is restricted to that server-recorded release and stays
-inside the same kernel lock as the failed rollout.
+The last verified SHA and its independently assigned signed version are stored
+atomically on the VPS under
+`/opt/platform/state/project-space-prod/verified.release`; `verified.sha`
+remains as compatibility evidence. Rollback cannot accept an arbitrary stale
+SHA or guess its version from `package.json`: it is restricted to that
+server-recorded release and stays inside the same kernel lock as the failed
+rollout.
 
 ## Manual recovery
 
-The normal recovery entry is GitHub Actions **Deploy production → Run
-workflow**, selecting `main`. The optional `commit` input must be the full,
-current `main` SHA; a stale value is safely superseded.
+The normal recovery entry is GitHub Actions **Publish merged release → Run
+workflow**, selecting `main`. It recomputes the oldest pending release and the
+latest compatible signed version before starting or recovering Production.
 
 Using the GitHub CLI:
 
 ```sh
-commit="$(gh api repos/DotNaos/project-space/commits/main --jq .sha)"
-gh workflow run deploy-production.yml --ref main -f commit="$commit"
+gh workflow run release-from-main.yml --ref main
 ```
 
 An operator with the existing VPS deployment access can use the identical
@@ -61,7 +63,8 @@ server-side contract:
 
 ```sh
 commit="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-./bin/project deploy --env prod --commit "$commit" --format json
+version="<published-compatible-version>"
+./bin/project deploy --env prod --commit "$commit" --release-version "$version" --format json
 ./bin/project deploy status --env prod --format json
 ```
 

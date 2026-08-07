@@ -18,7 +18,10 @@ describe('release verification policy', () => {
       fullMatrix: false,
       reason: 'ordinary pull request keeps the current version and uses changed-path extras',
     });
-    expect(fastCiSelection(patch.changedPaths, false)).toEqual({
+    expect(fastCiSelection([
+      ...patch.changedPaths,
+      '.github/release-intents/4a35123b-2783-4f15-a29b-05da1aa6630a.json',
+    ], false)).toEqual({
       cliDocs: false,
       docs: false,
       go: false,
@@ -35,6 +38,7 @@ describe('release verification policy', () => {
     ['release workflow', { ...patch, changedPaths: ['.github/workflows/release.yml'] }],
     ['release quality action', { ...patch, changedPaths: ['.github/actions/release-quality/action.yml'] }],
     ['verification policy', { ...patch, changedPaths: ['scripts/release-verification-policy.ts'] }],
+    ['release queue', { ...patch, changedPaths: ['scripts/release-queue-state.ts'] }],
     ['verification policy test', { ...patch, changedPaths: ['tests/release-verification-policy.test.ts'] }],
     ['Windows source', { ...patch, changedPaths: ['cmd/project/example_windows.go'] }],
     ['Windows test', { ...patch, changedPaths: ['cmd/project/prepare_windows_test.go'] }],
@@ -82,7 +86,7 @@ describe('release verification policy', () => {
 
     expect(workflow).toContain('on:\n  workflow_dispatch:');
     expect(workflow).not.toContain('pull_request:');
-    expect(workflow).toContain('group: release-${{ github.ref }}');
+    expect(workflow).toContain('group: project-space-release-publication');
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).toContain(
       'full-matrix: ${{ steps.classify.outputs.full-matrix }}',

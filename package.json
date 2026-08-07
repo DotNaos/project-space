@@ -32,7 +32,6 @@
     "ci:inventory:open-prs": "bun scripts/report-open-pr-ci.ts",
     "docs:release:check": "bun scripts/validate-release-pr.ts --catalog",
     "docs:release:pr": "bun scripts/validate-release-pr.ts",
-    "release:prepare": "bun scripts/prepare-release-pr.ts",
     "docs:cli:check": "bun scripts/generate-cli-docs.ts --check",
     "docs:cli:generate": "bun scripts/generate-cli-docs.ts",
     "machine-power:mqtt-acl:check": "bun scripts/generate-machine-power-mqtt-acl.ts --check",

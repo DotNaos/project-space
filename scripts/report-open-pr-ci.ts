@@ -30,8 +30,9 @@ export function classifyPullRequest(
   pr: PullRequestInventoryInput,
   generatedAt = new Date(),
 ) {
-  const entryPath = `apps/docs/content/docs/releases/entries/${pr.number}.mdx`;
-  const ownsReleaseEntry = pr.files.some(({ path }) => path === entryPath);
+  const ownsReleaseIntent = pr.files.some(({ path }) =>
+    /^\.github\/release-intents\/[0-9a-f-]+\.json$/.test(path),
+  );
   const releaseChecks = [...pr.statusCheckRollup].reverse();
   const releaseCheck = releaseChecks.find(({ name }) => name === 'Release decision') ??
     releaseChecks.find(({ name }) => name === 'Versioned release entry');
@@ -46,22 +47,21 @@ export function classifyPullRequest(
   if (pr.isDraft) {
     return {
       classification: 'neutral_draft' as const,
-      ownsReleaseEntry,
+      ownsReleaseIntent,
       previewFailures,
       releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',
       recommendedAction:
-        'Keep neutral until ready; the exact head will declare whether it requests a versioned release.',
+        'Keep neutral until ready; the exact head will declare one release intent.',
     };
   }
   if (releaseCheck?.conclusion === 'SUCCESS') {
     return {
       classification: 'ready_valid' as const,
-      ownsReleaseEntry,
+      ownsReleaseIntent,
       previewFailures,
       releaseCheck: releaseCheck.conclusion,
-      recommendedAction: ownsReleaseEntry
-        ? 'The requested versioned release is valid for this exact head.'
-        : 'This exact head is valid as an ordinary non-release pull request.',
+      recommendedAction:
+        'The immutable release intent is valid for this exact head.',
     };
   }
   const ageDays = Math.floor(
@@ -70,7 +70,7 @@ export function classifyPullRequest(
   if (!Number.isFinite(ageDays) || ageDays > 30) {
     return {
       classification: 'ready_needs_owner_decision' as const,
-      ownsReleaseEntry,
+      ownsReleaseIntent,
       previewFailures,
       releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',
       recommendedAction:
@@ -79,7 +79,7 @@ export function classifyPullRequest(
   }
   return {
     classification: 'ready_needs_migration' as const,
-    ownsReleaseEntry,
+    ownsReleaseIntent,
     previewFailures,
     releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',
     recommendedAction:
@@ -170,7 +170,7 @@ function markdown(report: {
   ];
   for (const pr of report.pullRequests) {
     lines.push(
-      `| [#${pr.number}](${pr.url}) | ${pr.classification} | ${pr.ownsReleaseEntry ? 'versioned' : 'ordinary'} | ${pr.releaseCheck} | ${pr.previewFailures.length ? escapeCell(pr.previewFailures.join(', ')) : 'none'} | ${escapeCell(pr.recommendedAction)} |`,
+      `| [#${pr.number}](${pr.url}) | ${pr.classification} | ${pr.ownsReleaseIntent ? 'declared' : 'missing'} | ${pr.releaseCheck} | ${pr.previewFailures.length ? escapeCell(pr.previewFailures.join(', ')) : 'none'} | ${escapeCell(pr.recommendedAction)} |`,
     );
   }
   return lines.join('\n');

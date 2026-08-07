@@ -10,7 +10,7 @@ describe('production deployment workflow contract', () => {
 
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).toContain(
-      'run-name: Production · ${{ inputs.commit || github.sha }}',
+      'run-name: Production · ${{ inputs.commit || github.sha }} · v${{ inputs.release_version }}',
     );
     expect(workflow).not.toContain('push:\n    branches: [main]');
     expect(workflow).not.toContain('release:\n    types: [published]');

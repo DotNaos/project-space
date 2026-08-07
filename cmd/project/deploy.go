@@ -12,19 +12,20 @@ import (
 )
 
 type deployOptions struct {
-	Environment   string
-	AllEnvs       bool
-	Format        string
-	Host          string
-	RemotePath    string
-	Branch        string
-	ProjectDomain string
-	APIDomain     string
-	AcmeEmail     string
-	Secrets       map[string]deploySecretValue
-	DryRun        bool
-	Commit        string
-	LockTimeout   time.Duration
+	Environment    string
+	AllEnvs        bool
+	Format         string
+	Host           string
+	RemotePath     string
+	Branch         string
+	ProjectDomain  string
+	APIDomain      string
+	AcmeEmail      string
+	Secrets        map[string]deploySecretValue
+	DryRun         bool
+	Commit         string
+	ReleaseVersion string
+	LockTimeout    time.Duration
 }
 
 type deployProject struct {
@@ -122,6 +123,7 @@ func addDeployFlags(cmd *cobra.Command, options *deployOptions) {
 	cmd.Flags().StringVar(&options.AcmeEmail, "email", "", "Traefik ACME email")
 	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "print planned remote actions without changing the VPS")
 	cmd.Flags().StringVar(&options.Commit, "commit", "", "full Git commit SHA to deploy")
+	cmd.Flags().StringVar(&options.ReleaseVersion, "release-version", "", "signed release version approved for this commit")
 	cmd.Flags().DurationVar(&options.LockTimeout, "lock-timeout", 15*time.Minute, "maximum time to wait for the remote deployment lock")
 	must(cmd.RegisterFlagCompletionFunc("env", fixedValuesCompletion("prod", "beta")))
 	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "json")))

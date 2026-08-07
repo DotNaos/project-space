@@ -1,33 +1,35 @@
 ---
-title: Release authoring
-description: Prepare a short-lived pull request for a versioned tools release.
+title: Release intent
+description: Declare whether a merged pull request needs a tools release.
 ---
 
-Ordinary pull requests keep the current package version and add no versioned
-release entry. Their trusted exact-head check proves that the release identity
-remained unchanged.
+Every pull request adds one immutable file directly under
+`.github/release-intents/`. Name it with a new lowercase UUID and use this
+strict shape:
 
-A pull request that intentionally publishes new Project CLI, connector,
-installer, or machine-tool artifacts owns exactly one file at
-`apps/docs/content/docs/releases/entries/<PR>.mdx`. Its filename,
-`pullRequest`, expected Semantic Version, and release pull request must agree.
+```json
+{
+  "schema": "project-space.release-intent/v1",
+  "intent": "patch"
+}
+```
 
-Copy `apps/docs/content/docs/releases/entry-template.mdx.template`, replace
-every example value with real release information, and save it under the
-public release pull request number. The trusted release check validates the
-file again against the latest `main` before merge.
+The pull request does not choose a concrete version. After merge, one serial
+queue reads intents in main-branch order, derives the next version from the
+latest published signed release, reserves the exact Git tag, and starts the
+existing signed publication pipeline. Concurrent pull requests therefore
+cannot claim or collide on the same version.
 
 ## Authoring rules
 
-- Use `patch` for the normal compatible correction or small improvement.
+- Use `none` when no new CLI, connector, installer, or machine-tool artifact is
+  needed. The trusted gate rejects `none` for release-sensitive paths.
+- Use `patch` for a compatible correction or small improvement.
 - Use `minor` for a compatible new capability.
 - Use `major` only for an intentionally incompatible release.
-- Summarize all user-visible changes included since the preceding release.
-- Put exact Preview checks inside `PreviewOnly`; they are not published.
-- Never add imports, exports, executable expressions, raw HTML, images,
-  credentials, placeholder text, or unsafe links.
-- Keep `No manual action is required.` exactly when `upgrade` is `none`.
+- Keep `package.json` version unchanged and never edit a historical file under
+  `apps/docs/content/docs/releases/entries/`.
 
-The validator never writes or fabricates a passing entry. It reports each
-missing or contradictory field so the pull request author can correct the
-source.
+The queue publishes GitHub-generated release notes for the exact tag range.
+Historical hand-authored release entries remain available in Project Docs but
+are no longer part of pull-request authoring.

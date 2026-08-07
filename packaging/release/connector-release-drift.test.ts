@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   connectorReleaseSensitivePaths,
   isConnectorReleaseSensitivePath
-} from './connector-release-drift';
+} from './connector-release-paths';
 
 describe('connector release drift gate', () => {
   test('allows app-only descendants to reuse their signed ancestor release', () => {

@@ -71,6 +71,9 @@ test('validates one exact current PR head from trusted latest main', () => {
   expect(validator).not.toContain(
     'release-entries.generated.json',
   );
-  expect(validator).toContain('validateReleaseIdentityBundle');
-  expect(validator).toContain('releaseIdentityPaths.map');
+  expect(validator).toContain("'--name-status'");
+  expect(validator).toContain('`${baseRef}...${headRef}`');
+  expect(validator).not.toContain('findGitHubRelease');
+  expect(validator).not.toContain('validateReleaseIdentityBundle');
+  expect(validator).not.toContain('releaseIdentityPaths.map');
 });

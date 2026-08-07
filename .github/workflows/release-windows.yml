@@ -81,16 +81,13 @@ jobs:
         id: version
         shell: powershell
         run: |
-          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ($packageVersion -ne '${{ inputs.version }}') {
-            throw "Windows release version $packageVersion does not match the proven version."
-          }
+          $releaseVersion = '${{ inputs.version }}'
           if ((git rev-parse HEAD) -ne '${{ inputs.source-sha }}') {
             throw "Checked-out Windows source does not match the proven source."
           }
-          "VERSION=$packageVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "version=$packageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "artifact-name=project-space-machine-tools-windows-x64-v$packageVersion" |
+          "VERSION=$releaseVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "version=$releaseVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "artifact-name=project-space-machine-tools-windows-x64-v$releaseVersion" |
             Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Install dependencies

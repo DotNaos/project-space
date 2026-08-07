@@ -23,6 +23,7 @@ const releaseCriticalPaths = [
   /^internal\/machineconnect\//,
   /^internal\/selfupdate\//,
   /^server\/connector-/,
+  /^scripts\/(?:publish-merged-release|release-handoff-state|release-queue-state)\.ts$/,
   /^tests\/connector-/,
   /^cmd\/project\/connector/,
   /(?:^|\/)[^/]+_(?:darwin|linux|unix|windows)(?:_[^/]*)?\.go$/,
@@ -40,7 +41,7 @@ const releaseWorkflowPaths = [
   /^internal\/(?:approvalsigner|machineconnect|projectrun|selfupdate)\//,
   /^packaging\//,
   /^server\//,
-  /^scripts\/(?:ci-preflight|prepare-release-pr|release-identity|release-verification-policy)\.ts$/,
+  /^scripts\/(?:ci-preflight|publish-merged-release|release-handoff-state|release-queue-state|release-verification-policy)\.ts$/,
   /^tests\//,
 ];
 
@@ -76,7 +77,7 @@ export function fastCiSelection(
     ),
     mobile: changedPaths.some((path) => /^apps\/mobile\//.test(path)),
     workflow: changedPaths.some((path) =>
-      /^(?:\.github\/|deploy\/|packaging\/|scripts\/.*\.(?:sh|ts)$)/.test(path),
+      /^(?:\.github\/(?!release-intents\/)|deploy\/|packaging\/|scripts\/.*\.(?:sh|ts)$)/.test(path),
     ),
   };
 }

@@ -1436,6 +1436,12 @@
             "type": "string",
             "description": "remote project directory",
             "inherited": false
+          },
+          {
+            "name": "release-version",
+            "type": "string",
+            "description": "signed release version approved for this commit",
+            "inherited": false
           }
         ],
         "commands": [
@@ -1849,6 +1855,12 @@
                 "name": "path",
                 "type": "string",
                 "description": "remote project directory",
+                "inherited": false
+              },
+              {
+                "name": "release-version",
+                "type": "string",
+                "description": "signed release version approved for this commit",
                 "inherited": false
               }
             ],
