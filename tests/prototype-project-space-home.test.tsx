@@ -36,6 +36,7 @@ import {
   projectChatMachineCounts,
 } from '../apps/prototype/src/project-space-pages/project-chat-model';
 import { TaskDevelopmentServerFrame } from '../apps/prototype/src/project-space-pages/task-development-server-frame';
+import { createMockTask } from '../apps/prototype/src/project-space-pages/task-model';
 
 describe('project space home prototype', () => {
   test('embeds the local development server fixture in a real iframe', () => {
@@ -420,6 +421,7 @@ describe('project space home prototype', () => {
     expect(html).toContain('Planning');
     expect(html).toContain('Codex is implementing the selected prototype direction.');
     expect(html).toContain('Finish setup');
+    expect(html).toContain('data-testid="task-mobile-primary-action"');
     expect(html).toContain('Working context');
     expect(html).toContain('Development details');
     expect(html).toContain('Agent run · Local');
@@ -427,6 +429,27 @@ describe('project space home prototype', () => {
     expect(html).toContain('Discussion');
     expect(html).toContain('Activity history');
     expect(html).toContain('Add Task comment');
+  });
+
+  test('keeps the start-development action reachable on narrow task layouts', () => {
+    const task = createMockTask({
+      body: 'Create a linked branch and draft pull request.',
+      labels: [],
+      number: 494,
+      title: 'Start development safely',
+      type: 'Bug'
+    });
+    const html = renderToStaticMarkup(
+      <ProjectTaskDetailPage
+        onAction={() => undefined}
+        onBack={() => undefined}
+        projectName="project-space"
+        task={task}
+      />
+    );
+
+    expect(html).toContain('data-testid="task-mobile-primary-action"');
+    expect(html).toContain('Start development');
   });
 
   test('shows delivery first and reveals execution context when a task needs attention', () => {
