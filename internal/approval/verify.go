@@ -7,120 +7,247 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
-	"time"
 )
 
 func Verify(root, policyPath, trustPath string) (Report, error) {
-	if err := requireExternalTrustRoot(root, trustPath); err != nil {
-		return Report{}, err
-	}
-	policy, _, policyDigest, err := LoadPolicy(root, policyPath)
+	return VerifyWithCheckpoint(root, policyPath, trustPath, os.Getenv("PROJECT_APPROVAL_CHECKPOINT"))
+}
+
+func VerifyWithCheckpoint(root, policyPath, trustPath, checkpointPath string) (Report, error) {
+	context, err := loadVerificationContext(root, policyPath, trustPath, checkpointPath)
+	return verifyContext(context, err)
+}
+
+func VerifyWithCheckpointAndMonotonic(root, policyPath, trustPath, checkpointPath string, monotonic MonotonicCheckpointProvider) (Report, error) {
+	context, err := loadVerificationContextWithMonotonic(root, policyPath, trustPath, checkpointPath, monotonic)
+	return verifyContext(context, err)
+}
+
+func verifyContext(context verificationContext, err error) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	trust, err := LoadTrustRoot(trustPath)
-	if err != nil {
-		return Report{}, err
-	}
-	if trust.Repository != policy.Repository || trust.PolicyID != policy.PolicyID || trust.PolicyDigest != policyDigest {
-		return Report{}, fmt.Errorf("external trust root does not authorize this repository policy")
-	}
-	key, err := parsePublicKey(trust)
-	if err != nil {
-		return Report{}, err
-	}
-	report := Report{Repository: policy.Repository, PolicyID: policy.PolicyID, OK: true}
-	for _, scope := range policy.Scopes {
-		status := verifyScope(root, policy, policyDigest, trust, key, scope)
+	report := Report{Version: CheckpointVersion, Repository: context.policy.Repository, PolicyID: context.policy.PolicyID, OK: true}
+	for _, scope := range context.policy.Scopes {
+		status := verifyScope(context, scope)
 		report.Scopes = append(report.Scopes, status)
-		if status.State != "approved" {
+		if status.State != StateApproved {
 			report.OK = false
 		}
 	}
 	return report, nil
 }
 
-func verifyScope(root string, policy Policy, digest string, trust TrustRoot, key *ecdsa.PublicKey, scope Scope) ScopeStatus {
-	status := ScopeStatus{ID: scope.ID, Label: scope.Label, State: "invalid", Attestation: scope.Attestation}
-	path, err := confinedPath(root, scope.Attestation)
+func Prepare(root, policyPath, trustPath, checkpointPath, scopeID string) (Preparation, error) {
+	context, err := loadVerificationContext(root, policyPath, trustPath, checkpointPath)
+	return prepareContext(context, scopeID, err)
+}
+
+func PrepareWithMonotonic(root, policyPath, trustPath, checkpointPath, scopeID string, monotonic MonotonicCheckpointProvider) (Preparation, error) {
+	context, err := loadVerificationContextWithMonotonic(root, policyPath, trustPath, checkpointPath, monotonic)
+	return prepareContext(context, scopeID, err)
+}
+
+func prepareContext(context verificationContext, scopeID string, err error) (Preparation, error) {
+	if err != nil {
+		return Preparation{}, err
+	}
+	scope, err := context.scope(scopeID)
+	if err != nil {
+		return Preparation{}, err
+	}
+	current, err := BuildPayload(context.root, context.policy, context.policyDigest, scope, context.trust.SignerID)
+	if err != nil {
+		return Preparation{}, err
+	}
+	status := verifyScope(context, scope)
+	nextSequence, previous := nextEventPosition(context, scope, status)
+	return Preparation{
+		Version: CheckpointVersion, Repository: context.policy.Repository, PolicyID: context.policy.PolicyID,
+		PolicyDigest: context.policyDigest, Scope: PreparedScope{ID: scope.ID, Label: scope.Label}, State: status.State,
+		ContentDigest: current.ContentDigest, Files: current.Files, SignerID: context.trust.SignerID,
+		KeyFingerprint: context.trust.KeyFingerprint, NextSequence: nextSequence, PreviousEventDigest: previous,
+		Attestation: scope.Attestation,
+	}, nil
+}
+
+func verifyScope(context verificationContext, scope Scope) ScopeStatus {
+	status := ScopeStatus{
+		ID: scope.ID, Label: scope.Label, State: StateInvalidTampered, Attestation: scope.Attestation,
+		SignerID: context.trust.SignerID, Files: make([]FileHash, 0),
+	}
+	current, currentErr := BuildPayload(context.root, context.policy, context.policyDigest, scope, context.trust.SignerID)
+	if currentErr == nil {
+		status.ContentDigest = current.ContentDigest
+	}
+	anchor, anchorBody, anchorExists, anchorErr := readMonotonicAnchor(context, scope)
+	if anchorErr != nil {
+		status.Reason = anchorErr.Error()
+		return status
+	}
+	record, err := loadScopeRecord(context.root, scope)
 	if err != nil {
 		status.Reason = err.Error()
 		return status
 	}
-	if err := rejectSymlinkComponents(root, path); err != nil {
-		status.Reason = err.Error()
+	checkpoint, checkpointExpected := ScopeCheckpoint{}, false
+	if context.checkpoint != nil {
+		checkpoint, checkpointExpected = context.checkpoint.Scopes[scope.ID]
+	}
+	if !record.Exists {
+		status.State = StateMissingHistory
+		if anchorExists {
+			status.Reason = "signed history is missing but the protected monotonic checkpoint records an accepted event"
+		} else if checkpointExpected {
+			status.Reason = "signed history is missing but the external checkpoint records an accepted event"
+		} else {
+			status.Reason = "signed approval history is missing"
+		}
 		return status
 	}
-	body, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		status.State = "missing"
-		status.Reason = "attestation is missing"
-		return status
+	if record.Legacy != nil {
+		status.Files = append([]FileHash(nil), record.Legacy.Payload.Files...)
+		if checkpointExpected || anchorExists {
+			status.State = StateReplayCheckpointMismatch
+			status.Reason = "legacy approval cannot replace checkpointed signed history"
+			return status
+		}
+		return verifyLegacy(status, *record.Legacy, current, currentErr, context)
 	}
+	digests, err := validateHistory(*record.History, context, scope)
 	if err != nil {
 		status.Reason = err.Error()
 		return status
 	}
-	var att Attestation
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&att); err != nil {
-		status.Reason = "attestation cannot be parsed"
+	latest := record.History.Events[len(record.History.Events)-1]
+	latestDigest := digests[len(digests)-1]
+	status.Operation = latest.Payload.Operation
+	status.Sequence = latest.Payload.Sequence
+	status.EventDigest = latestDigest
+	status.Files = append([]FileHash(nil), latest.Payload.Files...)
+	if !checkpointExpected {
+		status.State = StateMissingHistory
+		status.Reason = "external checkpoint is missing for signed history"
 		return status
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		status.Reason = "attestation must contain exactly one JSON object"
+	if checkpoint.Sequence != latest.Payload.Sequence || checkpoint.EventDigest != latestDigest || checkpoint.Operation != latest.Payload.Operation || checkpoint.ContentDigest != latest.Payload.ContentDigest {
+		status.State = StateReplayCheckpointMismatch
+		status.Reason = "signed history tip does not match the external checkpoint"
 		return status
 	}
-	if err := requireDecoderEOF(decoder.Decode); err != nil {
-		status.Reason = "attestation contains trailing data"
+	if context.monotonic != nil {
+		if !anchorExists {
+			status.State = StateMissingHistory
+			status.Reason = "protected monotonic checkpoint is missing for signed history"
+			return status
+		}
+		_, expectedAnchor, buildErr := buildMonotonicAnchor(latest.Payload)
+		if buildErr != nil {
+			status.Reason = buildErr.Error()
+			return status
+		}
+		if !bytes.Equal(anchorBody, expectedAnchor) || anchor.Sequence != latest.Payload.Sequence {
+			status.State = StateReplayCheckpointMismatch
+			status.Reason = "signed history tip does not match the protected monotonic checkpoint"
+			return status
+		}
+	}
+	if latest.Payload.Operation == OperationRevoke {
+		status.State = StateRevoked
 		return status
 	}
-	expected, err := BuildPayload(root, policy, digest, scope, trust.SignerID)
-	if err != nil {
-		status.Reason = err.Error()
+	if currentErr != nil || current.ContentDigest != latest.Payload.ContentDigest || !equalFileHashes(current.Files, latest.Payload.Files) {
+		status.State = StateStale
+		status.Reason = "covered content changed after approval"
 		return status
 	}
-	if att.Version != AttestationVersion || att.Payload.Version != AttestationVersion {
-		status.Reason = "attestation version is unsupported"
+	status.State = StateApproved
+	return status
+}
+
+func verifyLegacy(status ScopeStatus, attestation Attestation, current Payload, currentErr error, context verificationContext) ScopeStatus {
+	if attestation.Version != AttestationVersion || attestation.Payload.Version != AttestationVersion || attestation.Payload.IssuedAt.IsZero() {
+		status.Reason = "legacy attestation version or issue time is invalid"
 		return status
 	}
-	if att.Payload.IssuedAt.IsZero() {
-		status.Reason = "attestation issuedAt is missing"
+	if currentErr != nil {
+		status.State = StateStale
+		status.Reason = "covered content changed after approval"
 		return status
 	}
-	expected.IssuedAt = att.Payload.IssuedAt
-	if att.Payload.Repository != expected.Repository || att.Payload.PolicyID != expected.PolicyID || att.Payload.ScopeID != expected.ScopeID || att.Payload.SignerID != expected.SignerID {
-		status.Reason = "attestation belongs to another repository, policy, scope, or signer"
-		return status
-	}
+	expected := current
+	expected.IssuedAt = attestation.Payload.IssuedAt
 	expectedBody, _ := CanonicalPayload(expected)
-	actualBody, _ := CanonicalPayload(att.Payload)
+	actualBody, _ := CanonicalPayload(attestation.Payload)
 	if string(expectedBody) != string(actualBody) {
-		status.State = "stale"
+		status.State = StateStale
 		status.Reason = "content, policy, repository, scope, or signer changed"
 		return status
 	}
-	signature, err := base64.StdEncoding.DecodeString(att.Signature)
+	signature, err := base64.StdEncoding.DecodeString(attestation.Signature)
 	if err != nil {
 		status.Reason = "signature is not valid base64"
 		return status
 	}
 	hash := sha256.Sum256(actualBody)
-	if !ecdsa.VerifyASN1(key, hash[:], signature) {
+	if !ecdsa.VerifyASN1(context.key, hash[:], signature) {
 		status.Reason = "signature verification failed"
 		return status
 	}
-	status.State = "approved"
-	status.Reason = ""
+	status.State = StateApproved
+	status.Operation = OperationApprove
+	status.Files = append([]FileHash(nil), attestation.Payload.Files...)
 	return status
+}
+
+func nextEventPosition(context verificationContext, scope Scope, status ScopeStatus) (uint64, string) {
+	if status.State == StateInvalidTampered || status.State == StateReplayCheckpointMismatch {
+		return 0, ""
+	}
+	record, err := loadScopeRecord(context.root, scope)
+	if err != nil {
+		return 0, ""
+	}
+	checkpointExpected := false
+	if context.checkpoint != nil {
+		_, checkpointExpected = context.checkpoint.Scopes[scope.ID]
+	}
+	if !record.Exists {
+		if checkpointExpected {
+			return 0, ""
+		}
+		return 1, ""
+	}
+	if record.Legacy != nil {
+		if checkpointExpected {
+			return 0, ""
+		}
+		return 1, ""
+	}
+	if !checkpointExpected || record.History == nil || len(record.History.Events) == 0 {
+		return 0, ""
+	}
+	latest := record.History.Events[len(record.History.Events)-1]
+	digest, err := eventDigest(latest)
+	if err != nil {
+		return 0, ""
+	}
+	return latest.Payload.Sequence + 1, digest
+}
+
+func equalFileHashes(left, right []FileHash) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func parsePublicKey(root TrustRoot) (*ecdsa.PublicKey, error) {
@@ -142,90 +269,4 @@ func parsePublicKey(root TrustRoot) (*ecdsa.PublicKey, error) {
 		return nil, fmt.Errorf("external signer fingerprint mismatch")
 	}
 	return key, nil
-}
-
-func Sign(root, policyPath, trustPath, scopeID string, signer SignatureProvider) (string, error) {
-	if err := requireExternalTrustRoot(root, trustPath); err != nil {
-		return "", err
-	}
-	policy, _, digest, err := LoadPolicy(root, policyPath)
-	if err != nil {
-		return "", err
-	}
-	trust, err := LoadTrustRoot(trustPath)
-	if err != nil {
-		return "", err
-	}
-	if trust.Repository != policy.Repository || trust.PolicyID != policy.PolicyID || trust.PolicyDigest != digest {
-		return "", fmt.Errorf("external trust root does not authorize this repository policy")
-	}
-	signerID, err := signer.SignerID()
-	if err != nil {
-		return "", err
-	}
-	publicKey, err := signer.PublicKeyPEM()
-	if err != nil {
-		return "", err
-	}
-	if signerID != trust.SignerID || publicKey != trust.PublicKeyPEM {
-		return "", fmt.Errorf("Secure Enclave signer does not match external trust root")
-	}
-	var scope *Scope
-	for i := range policy.Scopes {
-		if policy.Scopes[i].ID == scopeID {
-			scope = &policy.Scopes[i]
-			break
-		}
-	}
-	if scope == nil {
-		return "", fmt.Errorf("unknown approval scope %q", scopeID)
-	}
-	payload, err := BuildPayload(root, policy, digest, *scope, signerID)
-	if err != nil {
-		return "", err
-	}
-	payload.IssuedAt = time.Now().UTC()
-	canonical, _ := CanonicalPayload(payload)
-	signature, err := signer.SignPayload(canonical, "Approve "+scope.Label+" in "+policy.Repository)
-	if err != nil {
-		return "", err
-	}
-	att := Attestation{Version: AttestationVersion, Payload: payload, Signature: base64.StdEncoding.EncodeToString(signature)}
-	body, err := json.MarshalIndent(att, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	body = append(body, '\n')
-	path, _ := confinedPath(root, scope.Attestation)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	if err := rejectSymlinkComponents(root, path); err != nil {
-		return "", err
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".approval-*.tmp")
-	if err != nil {
-		return "", err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if _, err := temporary.Write(body); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if err := temporary.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return "", err
-	}
-	return path, nil
 }

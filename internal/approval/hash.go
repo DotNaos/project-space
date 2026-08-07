@@ -19,28 +19,45 @@ func BuildPayload(root string, policy Policy, policyDigest string, scope Scope, 
 	if err != nil {
 		return Payload{}, err
 	}
-	content, err := json.Marshal(files)
+	digest, err := digestFiles(files)
 	if err != nil {
 		return Payload{}, err
 	}
-	sum := sha256.Sum256(content)
-	return Payload{Version: AttestationVersion, Repository: policy.Repository, PolicyID: policy.PolicyID, PolicyDigest: policyDigest, ScopeID: scope.ID, ContentDigest: hex.EncodeToString(sum[:]), Files: files, SignerID: signerID}, nil
+	return Payload{Version: AttestationVersion, Repository: policy.Repository, PolicyID: policy.PolicyID, PolicyDigest: policyDigest, ScopeID: scope.ID, ContentDigest: digest, Files: files, SignerID: signerID}, nil
 }
 
 func CanonicalPayload(payload Payload) ([]byte, error) { return json.Marshal(payload) }
 
+func digestFiles(files []FileHash) (string, error) {
+	content, err := json.Marshal(files)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func hashScope(root string, policy Policy, scope Scope) ([]FileHash, error) {
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer rootHandle.Close()
 	byPath := map[string]FileHash{}
 	attestations := make(map[string]bool, len(policy.Scopes))
 	for _, declaredScope := range policy.Scopes {
-		attestations[filepath.ToSlash(declaredScope.Attestation)] = true
+		attestations[filepath.ToSlash(filepath.Clean(declaredScope.Attestation))] = true
 	}
 	for _, declared := range scope.Paths {
 		path, err := confinedPath(root, declared)
 		if err != nil {
 			return nil, err
 		}
-		info, err := os.Lstat(path)
+		if err := rejectSymlinkComponents(root, path); err != nil {
+			return nil, fmt.Errorf("scope %s path %s: %w", scope.ID, declared, err)
+		}
+		declared = filepath.Clean(declared)
+		info, err := rootHandle.Lstat(declared)
 		if err != nil {
 			return nil, fmt.Errorf("scope %s path %s: %w", scope.ID, declared, err)
 		}
@@ -48,12 +65,12 @@ func hashScope(root string, policy Policy, scope Scope) ([]FileHash, error) {
 			return nil, fmt.Errorf("scope %s path %s is a symlink", scope.ID, declared)
 		}
 		if !info.IsDir() {
-			if err := addFileHash(root, path, attestations, scope.Ignore, byPath); err != nil {
+			if err := addFileHash(rootHandle, filepath.ToSlash(declared), attestations, scope.Ignore, byPath); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		err = filepath.WalkDir(path, func(current string, entry fs.DirEntry, walkErr error) error {
+		err = fs.WalkDir(rootHandle.FS(), filepath.ToSlash(declared), func(current string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
 			}
@@ -63,7 +80,7 @@ func hashScope(root string, policy Policy, scope Scope) ([]FileHash, error) {
 			if entry.IsDir() {
 				return nil
 			}
-			return addFileHash(root, current, attestations, scope.Ignore, byPath)
+			return addFileHash(rootHandle, current, attestations, scope.Ignore, byPath)
 		})
 		if err != nil {
 			return nil, err
@@ -80,12 +97,8 @@ func hashScope(root string, policy Policy, scope Scope) ([]FileHash, error) {
 	return files, nil
 }
 
-func addFileHash(root, filePath string, attestations map[string]bool, ignore []string, result map[string]FileHash) error {
-	rel, err := filepath.Rel(root, filePath)
-	if err != nil {
-		return err
-	}
-	rel = filepath.ToSlash(rel)
+func addFileHash(root *os.Root, rel string, attestations map[string]bool, ignore []string, result map[string]FileHash) error {
+	rel = filepath.ToSlash(filepath.Clean(rel))
 	if attestations[rel] {
 		return nil
 	}
@@ -94,7 +107,7 @@ func addFileHash(root, filePath string, attestations map[string]bool, ignore []s
 			return nil
 		}
 	}
-	file, err := os.Open(filePath)
+	file, err := root.Open(rel)
 	if err != nil {
 		return err
 	}
