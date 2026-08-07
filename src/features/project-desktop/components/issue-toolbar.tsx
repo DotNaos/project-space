@@ -1,6 +1,11 @@
-import { Columns3, GitBranch, List, ListChecks, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, Columns3, GitBranch, List, ListChecks, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import {
   Button,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownPopover,
+  DropdownTrigger,
   SearchField,
   SearchFieldClearButton,
   SearchFieldGroup,
@@ -10,7 +15,7 @@ import {
   ToggleButton,
   ToggleButtonGroup
 } from '@/app/dotnaos-ui';
-import type { IssueViewMode } from './issue-board-model';
+import type { IssueSortMode, IssueViewMode } from './issue-board-model';
 import { useMobileVisualViewportInset } from './mobile-visual-viewport';
 
 interface IssueToolbarProps {
@@ -21,10 +26,51 @@ interface IssueToolbarProps {
   onCreate(): void;
   onFilter(): void;
   onQueryChange(query: string): void;
+  onSortModeChange(sortMode: IssueSortMode): void;
   onViewModeChange(viewMode: IssueViewMode): void;
   query: string;
+  sortMode: IssueSortMode;
   totalCount: number;
   viewMode: IssueViewMode;
+}
+
+const issueSortLabels: Record<IssueSortMode, string> = {
+  priority: 'Priority',
+  updated: 'Recently updated',
+  number: 'Newest'
+};
+
+function IssueSortMenu({
+  onSortModeChange,
+  sortMode
+}: Pick<IssueToolbarProps, 'onSortModeChange' | 'sortMode'>) {
+  const modes: IssueSortMode[] = ['priority', 'updated', 'number'];
+
+  return (
+    <Dropdown>
+      <DropdownTrigger
+        aria-label={`Sort issues: ${issueSortLabels[sortMode]}`}
+        className="min-h-8 gap-1.5 rounded-lg border-neutral-800 bg-neutral-900/70 px-2.5 text-xs text-neutral-300"
+      >
+        <SlidersHorizontal className="size-3.5 text-neutral-500" />
+        <span className="hidden lg:inline">Sort</span>
+        <span className="font-medium text-neutral-100">{issueSortLabels[sortMode]}</span>
+        <ChevronDown className="size-3.5 text-neutral-500" />
+      </DropdownTrigger>
+      <DropdownPopover className="w-48">
+        <DropdownMenu aria-label="Issue sort options">
+          {modes.map((mode) => (
+            <DropdownItem key={mode} onPress={() => onSortModeChange(mode)}>
+              <span className="inline-flex w-full items-center justify-between gap-3">
+                {issueSortLabels[mode]}
+                {sortMode === mode ? <Check className="size-3.5" /> : null}
+              </span>
+            </DropdownItem>
+          ))}
+        </DropdownMenu>
+      </DropdownPopover>
+    </Dropdown>
+  );
 }
 
 function ViewSwitch({
@@ -116,6 +162,10 @@ export function IssueToolbar(props: IssueToolbarProps) {
           <SlidersHorizontal className="size-4" />
           Filter
         </Button>
+        <IssueSortMenu
+          onSortModeChange={props.onSortModeChange}
+          sortMode={props.sortMode}
+        />
         <ViewSwitch viewMode={props.viewMode} onViewModeChange={props.onViewModeChange} />
         <Button
           size="sm"
