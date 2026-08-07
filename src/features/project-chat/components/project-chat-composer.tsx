@@ -66,12 +66,12 @@ export function ProjectChatComposer({
   }
 
   return (
-    <footer className="shrink-0 border-t border-neutral-900 bg-neutral-950/95 px-4 pb-2 pt-2.5 sm:px-5">
+    <footer className="shrink-0 border-t border-neutral-800/70 pb-2 pt-3">
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-xl border border-neutral-700/80 bg-neutral-900/80 px-3 py-2 shadow-2xl shadow-black/30 focus-within:border-neutral-500">
+        <div className="flex items-end gap-2 rounded-2xl bg-white/[.05] px-3 py-2 transition focus-within:bg-white/[.07]">
           <textarea
             aria-label={`Message ${channelName}`}
-            className="max-h-28 min-h-5 w-full resize-none bg-transparent text-sm leading-5 text-neutral-100 outline-none placeholder:text-neutral-400"
+            className="max-h-28 min-h-6 w-full resize-none bg-transparent py-1 text-sm leading-6 text-neutral-100 outline-none placeholder:text-neutral-600"
             disabled={disabled || isSending}
             maxLength={PROJECT_CHAT_MAX_BODY_LENGTH}
             onChange={(event) => setBody(event.currentTarget.value)}
@@ -81,12 +81,36 @@ export function ProjectChatComposer({
             rows={1}
             value={body}
           />
-          <div className="mt-1.5 flex min-w-0 items-center gap-2">
-            <Text className="hidden text-[10px] text-neutral-400 sm:block">Shift ↵ for new line</Text>
+          <Button
+            aria-label="Send message"
+            isDisabled={disabled || isSending || !body.trim()}
+            isIconOnly
+            onPress={() => void send()}
+            size="sm"
+            variant="primary"
+            // `cn` only joins, so the button's own `rounded-lg` needs overriding.
+            className="size-8 min-h-0 shrink-0 !rounded-full"
+          >
+            {isSending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-4" />}
+          </Button>
+        </div>
+
+        {error ? (
+          <div
+            aria-live="polite"
+            className="mt-2 flex items-center gap-1.5 text-[11px] text-red-300/90"
+            role="alert"
+          >
+            <CircleAlert className="size-3.5 shrink-0" />
+            {error}
+          </div>
+        ) : (
+          <div className="mt-2 flex min-w-0 items-center gap-3 text-[11px] text-neutral-600">
+            <span className="hidden sm:inline">Enter sends · Shift ↵ starts a new line</span>
             {onEditProfile ? (
               <button
                 aria-label={`Edit profile for ${viewerName}`}
-                className="ml-auto flex min-h-11 min-w-0 items-center gap-1.5 text-[10px] text-neutral-400 hover:text-neutral-100"
+                className="ml-auto flex min-w-0 items-center gap-1.5 transition hover:text-neutral-300"
                 onClick={onEditProfile}
                 type="button"
               >
@@ -94,32 +118,11 @@ export function ProjectChatComposer({
                 <UserRoundPen className="size-3.5 shrink-0" />
               </button>
             ) : (
-              <Text className="ml-auto truncate text-[10px] text-neutral-400">
+              <Text className="ml-auto truncate">
                 Sending as {viewerName} · {viewerRole}
               </Text>
             )}
-            <Button
-              aria-label="Send message"
-              isDisabled={disabled || isSending || !body.trim()}
-              isIconOnly
-              onPress={() => void send()}
-              size="sm"
-              variant="primary"
-              className="size-8 min-h-0 rounded-full"
-            >
-              {isSending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
-            </Button>
           </div>
-        </div>
-        {error ? (
-          <div aria-live="polite" className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-red-300" role="alert">
-            <CircleAlert className="size-3" />
-            {error}
-          </div>
-        ) : (
-          <Text className="mt-1.5 block text-center text-[10px] leading-4 text-neutral-400">
-            Shared and low priority. Native thread messages remain user-authored.
-          </Text>
         )}
       </div>
     </footer>

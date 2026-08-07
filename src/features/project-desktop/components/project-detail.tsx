@@ -420,9 +420,7 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'chat' ? (
-          <div className="h-full min-h-0 overflow-hidden rounded-xl border border-neutral-800/80">
-            {chat}
-          </div>
+          <div className="h-full min-h-0 overflow-hidden">{chat}</div>
         ) : null}
 
         {tab === 'history' ? (

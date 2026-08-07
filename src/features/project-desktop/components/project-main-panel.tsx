@@ -492,7 +492,7 @@ export function ProjectMainPanel({
   }
 
   return (
-    <Surface variant="transparent" className="flex min-h-0 flex-col rounded-none bg-app-panel">
+    <Surface variant="transparent" className="flex h-full min-h-0 flex-col rounded-none bg-app-panel">
       {useWorkspaceChrome ? null : <div className="relative flex h-14 shrink-0 items-center justify-between gap-3 pr-4 pl-4 sm:pr-6 sm:pl-6">
         <div className="app-drag absolute inset-0" />
 

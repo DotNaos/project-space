@@ -158,7 +158,7 @@ export function ProjectChatWorkspace({
 
   if (!selectedChannel) {
     return (
-      <div className="grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)]">
+      <div className="grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)]">
         {showChannelNavigation && channels.length > 0 ? (
           <ProjectChatSidebar
             channels={channels}
@@ -168,17 +168,19 @@ export function ProjectChatWorkspace({
             selectedChannelId=""
           />
         ) : null}
-        <div className="flex min-h-0 flex-col">
-          <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-5">
-            <Hash className="size-4 text-neutral-500" />
-            <Text className="text-sm font-semibold text-neutral-200">Project room</Text>
+        <div className={`flex min-h-0 flex-col ${showChannelNavigation ? 'px-4 sm:px-6' : ''}`}>
+          <header className="shrink-0 border-b border-neutral-800/70 pb-4 pt-1">
+            <Text as="h1" className="block text-2xl font-semibold tracking-[-.02em] text-neutral-50">
+              Chat
+            </Text>
           </header>
           <div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
-            <div>
-              <Text as="h1" className="text-base font-semibold text-neutral-100">
+            <div className="max-w-sm">
+              <Hash className="mx-auto size-6 text-neutral-700" strokeWidth={1.6} />
+              <Text className="mt-3 block text-sm font-medium text-neutral-300">
                 {channelsLoading ? 'Opening project room…' : 'Project room unavailable'}
               </Text>
-              <Text className="mt-2 block max-w-sm text-sm leading-6 text-neutral-500">
+              <Text className="mt-1 block text-sm leading-6 text-neutral-500">
                 {channelsLoading
                   ? 'Checking the room and its project access.'
                   : channelError || 'This project is no longer available to this account.'}

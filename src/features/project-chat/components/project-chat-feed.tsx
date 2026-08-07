@@ -58,24 +58,26 @@ function FeedState({
         ? { Icon: CircleAlert, copy: errorMessage ?? 'Project Chat could not be loaded.', title: 'Something went wrong' }
         : state === 'offline'
           ? { Icon: WifiOff, copy: 'Reconnect Project Space to read or send messages.', title: 'Project Chat is offline' }
-        : { Icon: Hash, copy: 'Messages from people and agents will appear here in order.', title: 'No messages yet' };
+        : { Icon: Hash, copy: 'Write the first message. People and agents in this room see it in order.', title: 'No messages yet' };
   const Icon = configuration.Icon;
 
   return (
     <div
       aria-live="polite"
-      className="grid min-h-0 flex-1 place-items-center px-6 py-16 text-center"
+      className="grid min-h-0 flex-1 place-items-center gap-3 px-6 py-16 text-center"
       role={state === 'error' || state === 'denied' ? 'alert' : 'status'}
     >
-      <div className="max-w-xs">
+      <div className="max-w-sm">
         <Icon
-          className={state === 'loading' ? 'mx-auto size-5 animate-spin text-neutral-400' : 'mx-auto size-5 text-neutral-500'}
+          className={state === 'loading'
+            ? 'mx-auto size-6 animate-spin text-neutral-600'
+            : 'mx-auto size-6 text-neutral-700'}
           strokeWidth={1.6}
         />
-        <Text className="mt-4 block text-sm font-medium text-neutral-200">{configuration.title}</Text>
-        <Text className="mt-1 block text-xs leading-5 text-neutral-400">{configuration.copy}</Text>
+        <Text className="mt-3 block text-sm font-medium text-neutral-300">{configuration.title}</Text>
+        <Text className="mt-1 block text-sm leading-6 text-neutral-500">{configuration.copy}</Text>
         {(state === 'error' || state === 'offline') && onRetry ? (
-          <Button className="mt-4" onPress={onRetry} size="sm" variant="outline">Retry</Button>
+          <Button className="mt-4" onPress={onRetry} size="sm" variant="ghost">Retry</Button>
         ) : null}
       </div>
     </div>
@@ -84,10 +86,10 @@ function FeedState({
 
 function MessageText({ message }: { message: ProjectChatMessageRecord }) {
   return (
-    <p className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-neutral-300">
+    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-neutral-300">
       {projectChatTextSegments(message).map((segment, index) =>
         segment.kind === 'mention' ? (
-          <strong className="font-semibold text-neutral-50" key={`${segment.memberId}-${index}`}>
+          <strong className="font-medium text-sky-300" key={`${segment.memberId}-${index}`}>
             {segment.value}
           </strong>
         ) : (
@@ -120,7 +122,7 @@ function ChatMessage({
 
   return (
     <article
-      className="group grid grid-cols-[34px_minmax(0,1fr)] gap-3 py-2.5 [contain-intrinsic-size:auto_72px] [content-visibility:auto]"
+      className="group grid grid-cols-[2rem_minmax(0,1fr)] gap-3 py-3 [contain-intrinsic-size:auto_84px] [content-visibility:auto]"
       data-project-chat-message-id={message.id}
     >
       <ParticipantVisual
@@ -134,27 +136,29 @@ function ChatMessage({
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <button
-            className="truncate text-xs font-semibold text-neutral-200 hover:text-white hover:underline"
+            className="truncate text-sm font-medium text-neutral-200 transition hover:text-white"
             onClick={() => onSelect(message)}
             type="button"
           >
             {identity.displayName}
           </button>
-          <span className="border border-neutral-800 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-neutral-400">
-            {message.sender.role}
-          </span>
-          {message.sender.role === 'agent' ? <PresenceDot state={state} /> : null}
-          <time className="text-[10px] text-neutral-400" dateTime={message.createdAt}>
+          {message.sender.role === 'agent' ? (
+            <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-neutral-600">
+              <PresenceDot state={state} />
+              Agent
+            </span>
+          ) : null}
+          <time className="text-[11px] text-neutral-600" dateTime={message.createdAt}>
             {formatProjectChatTime(message.createdAt)}
           </time>
           {mentionedViewer ? (
-            <span className="text-[9px] font-medium text-neutral-400">mentioned you</span>
+            <span className="shrink-0 text-[11px] font-medium text-sky-300/90">mentioned you</span>
           ) : null}
         </div>
         <MessageText message={message} />
         {message.sender.origin ? (
           <button
-            className="mt-1.5 block max-w-full truncate font-mono text-[10px] text-neutral-400 hover:text-neutral-200"
+            className="mt-1.5 block max-w-full truncate font-mono text-[11px] text-neutral-700 transition hover:text-neutral-400"
             onClick={() => onSelect(message)}
             type="button"
           >
@@ -248,7 +252,7 @@ export function ProjectChatFeed({
       aria-label="Project Chat messages"
       aria-live="polite"
       aria-relevant="additions text"
-      className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [overflow-anchor:none] sm:px-6"
+      className="min-h-0 flex-1 overflow-y-auto py-2 [overflow-anchor:none]"
       onScroll={(event) => {
         const element = event.currentTarget;
         shouldStickToBottomRef.current =
@@ -258,19 +262,31 @@ export function ProjectChatFeed({
       ref={scrollRef}
       role="log"
     >
-      <div className="mx-auto max-w-3xl">
+      {/* A short conversation sits on the composer instead of floating at the top. */}
+      <div className="mx-auto flex min-h-full max-w-3xl flex-col justify-end">
         {state === 'offline' ? (
-          <div aria-live="polite" className="mb-4 flex items-center gap-2 border-y border-amber-400/15 py-2 text-[11px] text-amber-100/70" role="status">
+          <div
+            aria-live="polite"
+            className="mb-3 flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[.07] px-3 py-2 text-xs text-amber-200/90"
+            role="status"
+          >
             <WifiOff className="size-3.5 shrink-0" />
             Showing cached messages. Sending resumes when Project Space reconnects.
-            {onRetry ? <button className="ml-auto text-neutral-200 underline" onClick={onRetry} type="button">Retry</button> : null}
+            {onRetry ? (
+              <button className="ml-auto shrink-0 underline" onClick={onRetry} type="button">Retry</button>
+            ) : null}
           </div>
         ) : null}
         {state === 'error' ? (
-          <div className="mb-4 flex items-center gap-2 border-y border-red-400/20 py-2 text-[11px] text-red-200" role="alert">
+          <div
+            className="mb-3 flex items-center gap-2 rounded-xl border border-red-500/25 bg-red-500/[.07] px-3 py-2 text-xs text-red-200/90"
+            role="alert"
+          >
             <CircleAlert className="size-3.5 shrink-0" />
             <span className="truncate">{errorMessage ?? 'Project Chat could not refresh.'}</span>
-            {onRetry ? <button className="ml-auto shrink-0 underline" onClick={onRetry} type="button">Retry</button> : null}
+            {onRetry ? (
+              <button className="ml-auto shrink-0 underline" onClick={onRetry} type="button">Retry</button>
+            ) : null}
           </div>
         ) : null}
         {sortedMessages.map((message) => {
@@ -280,10 +296,10 @@ export function ProjectChatFeed({
           return (
             <div key={message.id}>
               {showDivider ? (
-                <div className="flex items-center gap-3 py-3" role="separator">
-                  <span className="h-px flex-1 bg-neutral-900" />
-                  <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-neutral-400">{dateLabel}</span>
-                  <span className="h-px flex-1 bg-neutral-900" />
+                <div className="flex items-center gap-3 py-4" role="separator">
+                  <span className="h-px flex-1 bg-neutral-800/70" />
+                  <span className="text-[11px] font-medium text-neutral-600">{dateLabel}</span>
+                  <span className="h-px flex-1 bg-neutral-800/70" />
                 </div>
               ) : null}
               <ChatMessage

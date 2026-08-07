@@ -118,6 +118,27 @@ export function ProjectChatPage({
   const activeAgentCount = members.filter(
     (member) => member.role === 'agent' && effectiveProjectChatPresence(member, now) === 'working'
   ).length;
+  /**
+   * A quiet room has nothing to inspect. Reserving the columns anyway used to
+   * fill a third of the page with stacked empty states, so both side columns
+   * only exist once they carry something.
+   */
+  const hasInspectorContent = mentionMessages.length > 0 ||
+    threads.length > 0 ||
+    members.some((member) => member.role === 'agent');
+  const reservesInspectorColumn = hasInspectorContent;
+  const reservesThreadColumn = hasInspectorContent && Boolean(selectedThread);
+  const gridColumns = showChannelNavigation
+    ? reservesThreadColumn
+      ? 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_236px] min-[1360px]:grid-cols-[224px_minmax(0,1fr)_236px_278px]'
+      : reservesInspectorColumn
+        ? 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_236px]'
+        : 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)]'
+    : reservesThreadColumn
+      ? 'grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[minmax(0,1fr)_236px] min-[1360px]:grid-cols-[minmax(0,1fr)_236px_278px]'
+      : reservesInspectorColumn
+        ? 'grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[minmax(0,1fr)_236px]'
+        : 'grid-cols-[minmax(0,1fr)]';
 
   useEffect(() => {
     const currentThread = threads.find((thread) => thread.id === selectedThreadKey);
@@ -169,6 +190,8 @@ export function ProjectChatPage({
   }, [compactDetailsOpen, inspectorOpen]);
 
   useEffect(() => {
+    // The overlay only duplicates what the reserved columns already show.
+    if (!reservesThreadColumn) return;
     const wideViewport = window.matchMedia('(min-width: 1360px)');
     const closeAtWideViewport = () => {
       if (wideViewport.matches) {
@@ -179,10 +202,11 @@ export function ProjectChatPage({
     wideViewport.addEventListener('change', closeAtWideViewport);
     closeAtWideViewport();
     return () => wideViewport.removeEventListener('change', closeAtWideViewport);
-  }, []);
+  }, [reservesThreadColumn]);
 
   function usesCompactDetails() {
-    return typeof window !== 'undefined' && window.matchMedia('(max-width: 1359px)').matches;
+    return !reservesThreadColumn ||
+      (typeof window !== 'undefined' && window.matchMedia('(max-width: 1359px)').matches);
   }
 
   function closeInspector() {
@@ -329,9 +353,7 @@ export function ProjectChatPage({
   );
 
   return (
-    <div className={showChannelNavigation
-      ? 'relative grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_236px] min-[1360px]:grid-cols-[224px_minmax(0,1fr)_236px_278px]'
-      : 'relative grid h-full min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden bg-[#080808] text-neutral-100 min-[1100px]:grid-cols-[minmax(0,1fr)_236px] min-[1360px]:grid-cols-[minmax(0,1fr)_236px_278px]'}>
+    <div className={`relative grid h-full min-h-0 overflow-hidden text-neutral-100 ${gridColumns}`}>
       <div className="contents" inert={inspectorOpen || profileOpen || registryOpen || channelDrawerOpen || undefined}>
         {showChannelNavigation && onSelectChannel ? (
           <ProjectChatSidebar
@@ -345,49 +367,49 @@ export function ProjectChatPage({
           />
         ) : null}
 
-      <section className="flex min-h-0 min-w-0 flex-col bg-neutral-950/25">
-        <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-4 sm:px-5">
-          {showChannelNavigation ? (
-            <button
-              aria-label="Open project room list"
-              className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-neutral-900 min-[720px]:hidden"
-              onClick={() => setChannelDrawerOpen(true)}
-              type="button"
-            >
-              <Hash className="size-4 shrink-0 text-neutral-400" strokeWidth={1.8} />
-              <ChevronDown className="size-3.5 shrink-0 text-neutral-500" />
-            </button>
-          ) : null}
-          {showChannelNavigation ? (
-            <Hash className="hidden size-4 shrink-0 text-neutral-400 min-[720px]:block" strokeWidth={1.8} />
-          ) : (
-            <Hash className="size-4 shrink-0 text-neutral-400" strokeWidth={1.8} />
-          )}
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Text as="h1" className="truncate text-sm font-semibold text-neutral-100">{channel.displayName}</Text>
-              <span className="border border-neutral-800 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-neutral-400">
-                Append only
-              </span>
+      <section className={`flex min-h-0 min-w-0 flex-col ${showChannelNavigation ? 'px-4 sm:px-6' : ''}`}>
+        <header className="flex shrink-0 flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-neutral-800/70 pb-4 pt-1">
+          <div className="flex min-w-0 items-center gap-2">
+            {showChannelNavigation ? (
+              <button
+                aria-label="Open project room list"
+                className="flex shrink-0 items-center gap-1 rounded-lg py-1 text-left text-neutral-500 transition hover:text-neutral-200 min-[720px]:hidden"
+                onClick={() => setChannelDrawerOpen(true)}
+                type="button"
+              >
+                <Hash className="size-4" strokeWidth={1.8} />
+                <ChevronDown className="size-3.5" />
+              </button>
+            ) : null}
+            <div className="min-w-0">
+              <Text as="h1" className="block text-2xl font-semibold tracking-[-.02em] text-neutral-50">
+                Chat
+              </Text>
+              <Text className="mt-1 block truncate text-sm text-neutral-500">
+                #{channel.displayName} · {channel.description}
+              </Text>
             </div>
-            <Text className="mt-0.5 block truncate text-[11px] text-neutral-400">{channel.description}</Text>
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             {taskPreview}
-            <span className="hidden items-center gap-1.5 text-[10px] text-neutral-400 sm:flex">
-              <span className="size-1.5 rounded-full bg-emerald-400" />
-              {activeAgentCount} active {activeAgentCount === 1 ? 'agent' : 'agents'}
-            </span>
-            <Button
-              aria-label="Open Project Chat details"
-              isIconOnly
-              onPress={openInspector}
-              size="sm"
-              variant="ghost"
-              className="size-8 min-h-0 min-[1100px]:hidden"
-            >
-              <PanelRight className="size-4" />
-            </Button>
+            {activeAgentCount > 0 ? (
+              <span className="hidden items-center gap-1.5 text-[11px] text-neutral-500 sm:flex">
+                <span className="size-1.5 rounded-full bg-emerald-400" />
+                {activeAgentCount} active {activeAgentCount === 1 ? 'agent' : 'agents'}
+              </span>
+            ) : null}
+            {hasInspectorContent ? (
+              <Button
+                aria-label="Open Project Chat details"
+                isIconOnly
+                onPress={openInspector}
+                size="sm"
+                variant="ghost"
+                className={`size-8 min-h-0 ${reservesInspectorColumn ? 'min-[1100px]:hidden' : ''}`}
+              >
+                <PanelRight className="size-4" />
+              </Button>
+            ) : null}
             {registryEntries.length > 0 ? (
               <Button
                 aria-label="Open agent name registry"
@@ -428,16 +450,20 @@ export function ProjectChatPage({
         />
       </section>
 
-      <div className="hidden min-h-0 min-[1100px]:block">{inspector}</div>
-      <div className="hidden min-h-0 min-[1360px]:block">
-        <ProjectChatThreadDetails
-          members={members}
-          messages={messages}
-          now={now}
-          onOpenThread={onOpenThread}
-          thread={selectedThread}
-        />
-      </div>
+      {reservesInspectorColumn ? (
+        <div className="hidden min-h-0 min-[1100px]:block">{inspector}</div>
+      ) : null}
+      {reservesThreadColumn ? (
+        <div className="hidden min-h-0 min-[1360px]:block">
+          <ProjectChatThreadDetails
+            members={members}
+            messages={messages}
+            now={now}
+            onOpenThread={onOpenThread}
+            thread={selectedThread}
+          />
+        </div>
+      ) : null}
 
       {channelDrawerOpen && showChannelNavigation && onSelectChannel && typeof document !== 'undefined'
         ? createPortal((
@@ -493,7 +519,7 @@ export function ProjectChatPage({
         <div
           aria-label={compactDetailsOpen ? 'Project Chat thread details' : 'Project Chat activity'}
           aria-modal="true"
-          className="fixed inset-0 z-[70] min-[1360px]:hidden"
+          className={`fixed inset-0 z-[70] ${reservesThreadColumn ? 'min-[1360px]:hidden' : ''}`}
           onKeyDown={handleDialogKeyDown}
           ref={dialogRef}
           role="dialog"
