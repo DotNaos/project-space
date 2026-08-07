@@ -184,6 +184,15 @@ function associationHostId(association: EnvironmentHostAssociation) {
   return 'hostId' in association ? association.hostId : undefined;
 }
 
+function associationHostIds(association: EnvironmentHostAssociation) {
+  const references = new Set<string>();
+  if ('hostId' in association && association.hostId) references.add(association.hostId);
+  if ('expectedHostId' in association && association.expectedHostId) {
+    references.add(association.expectedHostId);
+  }
+  return [...references];
+}
+
 function duplicates(values: readonly string[]) {
   const seen = new Set<string>();
   const duplicate = new Set<string>();
@@ -257,12 +266,13 @@ export function validateComputeInventory(
       violations.push({ code: 'environment_platform_missing', id: environment.id });
     }
     const hostId = associationHostId(environment.hostAssociation);
-    if (hostId) {
-      const host = hostsById.get(hostId);
-      if (!host) violations.push({ code: 'environment_host_missing', id: environment.id });
-      else if (host.platformId !== environment.platformId) {
-        violations.push({ code: 'environment_host_platform_mismatch', id: environment.id });
-      }
+    const referencedHosts = associationHostIds(environment.hostAssociation)
+      .map((referencedHostId) => hostsById.get(referencedHostId));
+    if (referencedHosts.some((host) => !host)) {
+      violations.push({ code: 'environment_host_missing', id: environment.id });
+    }
+    if (referencedHosts.some((host) => host && host.platformId !== environment.platformId)) {
+      violations.push({ code: 'environment_host_platform_mismatch', id: environment.id });
     }
     if (environment.parentEnvironmentId) {
       const parent = environmentsById.get(environment.parentEnvironmentId);
@@ -383,7 +393,7 @@ function resolveResourceCapacityOwner(
 ): string {
   const hostId = associationHostId(environment.hostAssociation);
   if (hostId) return `host:${hostId}`;
-  if (environment.resourceMode === 'dedicated') return `environment:${environment.id}`;
+  if (environment.resourceMode !== 'shared') return `environment:${environment.id}`;
   if (environment.parentEnvironmentId) {
     if (visited.has(environment.id)) throw new Error('Environment parent cycle');
     visited.add(environment.id);

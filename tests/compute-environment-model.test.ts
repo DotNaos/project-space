@@ -167,6 +167,20 @@ describe('compute hierarchy and connector invariants', () => {
     ]);
   });
 
+  test('validates every host reference carried by a conflicted association', () => {
+    const conflicted = environment('conflicted', {
+      hostAssociation: {
+        evidence: 'host_broker',
+        expectedHostId: 'missing-host',
+        resolution: 'conflict'
+      }
+    });
+
+    expect(validateComputeInventory(inventory({ environments: [conflicted] }))).toEqual([
+      { code: 'environment_host_missing', id: 'conflicted' }
+    ]);
+  });
+
   test('rejects cyclic nesting instead of dropping it from the inventory tree', () => {
     const first = environment('first', { parentEnvironmentId: 'second' });
     const second = environment('second', { parentEnvironmentId: 'first' });
@@ -205,5 +219,23 @@ describe('compute hierarchy and connector invariants', () => {
       .toBe(1);
     expect(resourceCapacityOwner(workload, [providerParent, workload]))
       .toBe('platform:kubernetes:shared');
+  });
+
+  test('keeps unresolved exclusive environment capacity distinct', () => {
+    const first = environment('unresolved-first', {
+      hostAssociation: { evidence: 'none', resolution: 'unresolved' }
+    });
+    const second = environment('unresolved-second', {
+      hostAssociation: {
+        evidence: 'host_broker',
+        expectedHostId: 'pc',
+        resolution: 'conflict'
+      }
+    });
+
+    expect(resourceCapacityOwner(first, [first, second]))
+      .toBe('environment:unresolved-first');
+    expect(resourceCapacityOwner(second, [first, second]))
+      .toBe('environment:unresolved-second');
   });
 });
