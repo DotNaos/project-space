@@ -9,6 +9,7 @@ FROM oven/bun:1 AS build
 WORKDIR /workspace
 COPY --from=deps /workspace/apps/docs/node_modules /workspace/apps/docs/node_modules
 COPY package.json /workspace/package.json
+COPY packaging/release/connector-release-paths.ts /workspace/packaging/release/connector-release-paths.ts
 COPY apps/docs /workspace/apps/docs
 WORKDIR /workspace/apps/docs
 RUN bun run build
