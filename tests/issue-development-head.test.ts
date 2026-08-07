@@ -62,15 +62,26 @@ describe('issue development head resolution', () => {
   });
 
   test('falls back to one verified linked branch when no open PR exists', () => {
+    const issue473 = { ...issue, number: 473 };
+    const issue473Head = 'e'.repeat(40);
     const result = resolveIssueDevelopmentHead({
-      branches: [branch()],
-      issue,
-      pullRequests: [pullRequest(499, { state: 'closed' })],
+      branches: [{
+        commitSha: issue473Head,
+        isDefault: false,
+        linkedIssueNumbers: [473],
+        name: 'issue-473-release-tag-queue-no-conflicts'
+      }],
+      issue: issue473,
+      pullRequests: [],
       repositoryFullName
     });
 
     expect(result).toMatchObject({
-      branch: { commitSha: headSha, name: 'issue-408-graph' },
+      branch: {
+        commitSha: issue473Head,
+        name: 'issue-473-release-tag-queue-no-conflicts'
+      },
+      expectedHeadSha: issue473Head,
       source: 'linked-branch',
       state: 'verified'
     });

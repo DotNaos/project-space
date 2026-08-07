@@ -93,8 +93,8 @@ describe('GitHub catalog HTTP contract', () => {
     const payload = {
       expectedHeadSha: 'a'.repeat(40),
       fullName: 'DotNaos/project-space',
-      headBranch: 'feature/issue-408',
-      limit: 8
+      headBranch: 'issue-473-release-tag-queue-no-conflicts',
+      limit: 1
     };
 
     expect(await route(

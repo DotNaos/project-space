@@ -88,13 +88,57 @@ describe('GitHub branch comparison', () => {
     })).toBe(true);
     expect(isGitHubBranchComparisonRequest({
       fullName: 'DotNaos/project-space',
+      headBranch: 'issue-473-release-tag-queue-no-conflicts',
+      limit: 1
+    })).toBe(true);
+    expect(isGitHubBranchComparisonRequest({
+      fullName: 'DotNaos/project-space',
       headBranch: 'feature/issue-408',
       limit: 9
+    })).toBe(false);
+    expect(isGitHubBranchComparisonRequest({
+      fullName: 'DotNaos/project-space',
+      headBranch: 'feature/issue-408',
+      limit: 0
     })).toBe(false);
     expect(isGitHubBranchComparisonRequest({
       fullName: 'not-a-repository',
       headBranch: 'feature'
     })).toBe(false);
+  });
+
+  test('honors the one-commit pre-PR comparison request', async () => {
+    const paths: string[] = [];
+    const result = await loadGitHubBranchComparison(
+      {
+        expectedHeadSha: headSha,
+        fullName: 'DotNaos/project-space',
+        headBranch: 'feature/issue-408',
+        limit: 1
+      },
+      'token',
+      {
+        request: comparisonRequester({
+          aheadBy: 1,
+          behindBy: 0,
+          defaultHead: baseSha,
+          defaultHistory: [apiCommit(baseSha)],
+          head: headSha,
+          headHistory: [apiCommit(headSha, [baseSha])],
+          mergeBase: baseSha,
+          paths
+        })
+      }
+    );
+
+    expect(result).toMatchObject({
+      aheadBy: 1,
+      freshness: 'current',
+      status: 'connected'
+    });
+    expect(result.commits).toHaveLength(1);
+    expect(paths).toContain(`/repos/DotNaos/project-space/commits?sha=${headSha}&per_page=1&page=1`);
+    expect(paths).toContain(`/repos/DotNaos/project-space/commits?sha=${baseSha}&per_page=1&page=1`);
   });
 
   test('reports all four divergence states from exact immutable SHAs', async () => {
