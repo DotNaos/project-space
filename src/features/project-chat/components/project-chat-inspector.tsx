@@ -1,7 +1,8 @@
-import { useMemo, type Key } from 'react';
-import { AtSign, Bot, CircleAlert, Clock3, MessageSquareText } from 'lucide-react';
-import { Tab, TabList, Tabs, Text } from '@/app/dotnaos-ui';
+import { useMemo, useState, type Key } from 'react';
+import { AtSign, Bot, CircleAlert, Clock3, Hash, MessageSquareText, Radio, Search } from 'lucide-react';
+import { Button, Tab, TabList, Tabs, Text } from '@/app/dotnaos-ui';
 import type {
+  ProjectChatChannelRecord,
   ProjectChatMemberRecord,
   ProjectChatMessageRecord
 } from '@/shared/project-chat-api';
@@ -15,13 +16,18 @@ import {
   shortProjectChatId,
   type ProjectChatThreadSummary
 } from '../project-chat-model';
+import {
+  generalProjectChatChannel,
+  projectChatChannelGroups
+} from '../project-chat-channel-model';
 import { ParticipantVisual, PresenceDot } from './participant-visual';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 
-export type ProjectChatInspectorTab = 'agents' | 'mentions' | 'threads';
+export type ProjectChatInspectorTab = 'agents' | 'mentions' | 'rooms';
 
-function SectionLabel({ children }: { children: string }) {
+function SectionLabel({ children, className = 'px-4' }: { children: string; className?: string }) {
   return (
-    <Text className="block px-4 pb-1 pt-5 text-[11px] font-medium text-neutral-600">
+    <Text className={`block pb-1 pt-5 text-[11px] font-medium text-neutral-600 ${className}`}>
       {children}
     </Text>
   );
@@ -31,14 +37,116 @@ function EmptyNote({ children }: { children: string }) {
   return <Text className="block px-4 py-4 text-sm text-neutral-600">{children}</Text>;
 }
 
+function RoomButton({
+  channel,
+  onSelect,
+  selected
+}: {
+  channel: ProjectChatChannelRecord;
+  onSelect(channel: ProjectChatChannelRecord): void;
+  selected: boolean;
+}) {
+  return (
+    <button
+      aria-current={selected ? 'page' : undefined}
+      aria-label={`Open the ${channel.displayName} room`}
+      className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
+        selected
+          ? 'bg-neutral-800/80 text-neutral-100'
+          : 'text-neutral-400 hover:bg-neutral-900/60 hover:text-neutral-200'
+      }`}
+      onClick={() => onSelect(channel)}
+      type="button"
+    >
+      <Hash className="size-3.5 shrink-0 text-neutral-600" strokeWidth={1.8} />
+      <span className="min-w-0 flex-1 truncate">{channel.displayName}</span>
+    </button>
+  );
+}
+
+function RoomRows({
+  channels,
+  onSelectChannel,
+  recentProjectIds,
+  selectedChannelId
+}: {
+  channels: ProjectChatChannelRecord[];
+  onSelectChannel?(channel: ProjectChatChannelRecord): void;
+  recentProjectIds: string[];
+  selectedChannelId: string;
+}) {
+  const [query, setQuery] = useState('');
+  const general = generalProjectChatChannel(channels);
+  const groups = projectChatChannelGroups(channels, query, recentProjectIds);
+  const hasProjectRooms = channels.some((channel) => channel.kind === 'project');
+
+  if (!onSelectChannel) {
+    return <EmptyNote>This room is pinned to the current project.</EmptyNote>;
+  }
+
+  return (
+    <div className="px-2 pb-4 pt-2">
+      <label className="flex h-9 items-center gap-2 rounded-full bg-neutral-900/80 px-3">
+        <Search className="size-3.5 shrink-0 text-neutral-600" />
+        <span className="sr-only">Find rooms</span>
+        <input
+          aria-label="Find rooms"
+          className="min-w-0 flex-1 bg-transparent text-sm text-neutral-100 outline-none placeholder:text-neutral-600"
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder="Search rooms"
+          type="search"
+          value={query}
+        />
+      </label>
+
+      {general ? (
+        <div className="mt-3">
+          <SectionLabel className="px-2">Lobby</SectionLabel>
+          <RoomButton
+            channel={general}
+            onSelect={onSelectChannel}
+            selected={selectedChannelId === general.channelId}
+          />
+        </div>
+      ) : null}
+
+      {groups.map((group) => (
+        <div key={group.label}>
+          <SectionLabel className="px-2">{group.label}</SectionLabel>
+          <div className="space-y-0.5">
+            {group.channels.map((channel) => (
+              <RoomButton
+                channel={channel}
+                key={channel.channelId}
+                onSelect={onSelectChannel}
+                selected={selectedChannelId === channel.channelId}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {groups.length === 0 ? (
+        <Text className="block px-2 py-4 text-sm leading-6 text-neutral-600">
+          {hasProjectRooms
+            ? `No rooms match “${query.trim()}”.`
+            : 'No project rooms are available.'}
+        </Text>
+      ) : null}
+    </div>
+  );
+}
+
 function AgentRows({
   members,
   now,
+  onOpenThread,
   onSelectMember,
   selectedMemberId
 }: {
   members: ProjectChatMemberRecord[];
   now: Date;
+  onOpenThread?(target: CodexSessionTarget): void;
   onSelectMember(memberId: string): void;
   selectedMemberId?: string;
 }) {
@@ -59,33 +167,53 @@ function AgentRows({
         const agentName = projectChatAgentNameIdentity(member);
         const presence = effectiveProjectChatPresence(member, now);
         const selected = selectedMemberId === member.memberId;
+        const origin = member.origin;
         return (
-          <button
-            aria-pressed={selected}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition hover:bg-neutral-900/50 aria-pressed:bg-neutral-900/70"
+          <div
+            className="flex w-full items-center gap-1 pr-2 transition hover:bg-neutral-900/50 aria-pressed:bg-neutral-900/70"
             key={member.memberId}
-            onClick={() => onSelectMember(member.memberId)}
-            type="button"
           >
-            <ParticipantVisual
-              active={presence === 'working'}
-              agentCategory={agentName?.category}
-              agentName={agentName?.name}
-              role="agent"
-              selected={selected}
-              size={24}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm text-neutral-300">{member.displayName}</span>
-              <span className="block truncate text-[11px] text-neutral-600">
-                {member.origin?.taskTitle ?? `@${member.handle}`}
+            <button
+              aria-pressed={selected}
+              className="flex min-w-0 flex-1 items-center gap-2.5 py-2.5 pl-4 text-left"
+              onClick={() => onSelectMember(member.memberId)}
+              type="button"
+            >
+              <ParticipantVisual
+                active={presence === 'working'}
+                agentCategory={agentName?.category}
+                agentName={agentName?.name}
+                role="agent"
+                selected={selected}
+                size={24}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-neutral-300">{member.displayName}</span>
+                <span className="block truncate text-[11px] text-neutral-600">
+                  {origin?.taskTitle ?? `@${member.handle}`}
+                </span>
               </span>
-            </span>
-            <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-neutral-600">
-              {projectChatPresenceLabel(presence)}
-              <PresenceDot state={presence} />
-            </span>
-          </button>
+              <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-neutral-600">
+                {projectChatPresenceLabel(presence)}
+                <PresenceDot state={presence} />
+              </span>
+            </button>
+            {onOpenThread && origin ? (
+              <Button
+                aria-label={`Open the Codex thread of ${member.displayName}`}
+                className="size-8 min-h-0 shrink-0"
+                isIconOnly
+                onPress={() => onOpenThread({
+                  machineId: origin.machineId,
+                  threadId: origin.threadId
+                })}
+                size="sm"
+                variant="ghost"
+              >
+                <Radio className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -164,31 +292,43 @@ function MentionRows({
 
 export function ProjectChatInspector({
   activeTab,
+  canSwitchRooms = false,
+  channels,
   members,
   mentionError,
   mentionMessages,
   messages,
   now,
+  onOpenThread,
+  onSelectChannel,
   onSelectMember,
   onSelectMessage,
   onSelectTab,
   onSelectThread,
   onRetryMention,
+  recentProjectIds = [],
+  selectedChannelId,
   selectedMemberId,
   selectedThreadKey,
   unreadMentionCount
 }: {
   activeTab: ProjectChatInspectorTab;
+  canSwitchRooms?: boolean;
+  channels: ProjectChatChannelRecord[];
   members: ProjectChatMemberRecord[];
   mentionError?: string;
   mentionMessages: ProjectChatMessageRecord[];
   messages: ProjectChatMessageRecord[];
   now: Date;
+  onOpenThread?(target: CodexSessionTarget): void;
+  onSelectChannel?(channel: ProjectChatChannelRecord): void;
   onSelectMember(memberId: string): void;
   onSelectMessage(message: ProjectChatMessageRecord): void;
   onSelectTab(tab: ProjectChatInspectorTab): void;
   onSelectThread(thread: ProjectChatThreadSummary): void;
   onRetryMention?(): void;
+  recentProjectIds?: string[];
+  selectedChannelId: string;
   selectedMemberId?: string;
   selectedThreadKey?: string;
   unreadMentionCount: number;
@@ -206,8 +346,9 @@ export function ProjectChatInspector({
         onSelectionChange={(key: Key) => onSelectTab(String(key) as ProjectChatInspectorTab)}
         selectedKey={activeTab}
       >
-        <TabList className="flex w-full items-center gap-1">
-          <Tab className="min-w-0 flex-1 gap-1.5 rounded-full px-2 text-xs" id="mentions">
+        <TabList className="flex w-full items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {canSwitchRooms ? <Tab className="shrink-0 !px-2 text-xs" id="rooms">Rooms</Tab> : null}
+          <Tab className="shrink-0 gap-1 !px-2 text-xs" id="mentions">
             Mentions
             {unreadMentionCount > 0 ? (
               <span className="grid min-w-4 place-items-center rounded-full bg-sky-400/15 px-1 text-[10px] font-medium text-sky-300">
@@ -215,8 +356,7 @@ export function ProjectChatInspector({
               </span>
             ) : null}
           </Tab>
-          <Tab className="min-w-0 flex-1 rounded-full px-2 text-xs" id="agents">Agents</Tab>
-          <Tab className="min-w-0 flex-1 rounded-full px-2 text-xs" id="threads">Threads</Tab>
+          <Tab className="shrink-0 !px-2 text-xs" id="agents">Agents</Tab>
         </TabList>
       </Tabs>
 
@@ -235,13 +375,21 @@ export function ProjectChatInspector({
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {activeTab === 'rooms' && canSwitchRooms ? (
+          <RoomRows
+            channels={channels}
+            onSelectChannel={onSelectChannel}
+            recentProjectIds={recentProjectIds}
+            selectedChannelId={selectedChannelId}
+          />
+        ) : null}
         {activeTab === 'mentions' ? (
           <>
             <MentionRows messages={mentionMessages} onSelectMessage={onSelectMessage} />
             {agentMembers.length > 0 ? (
               <>
                 <SectionLabel>Active agents</SectionLabel>
-                <AgentRows members={members} now={now} onSelectMember={onSelectMember} selectedMemberId={selectedMemberId} />
+                <AgentRows members={members} now={now} onOpenThread={onOpenThread} onSelectMember={onSelectMember} selectedMemberId={selectedMemberId} />
               </>
             ) : null}
             {threads.length > 0 ? (
@@ -253,20 +401,27 @@ export function ProjectChatInspector({
           </>
         ) : null}
         {activeTab === 'agents' ? (
-          <AgentRows members={members} now={now} onSelectMember={onSelectMember} selectedMemberId={selectedMemberId} />
-        ) : null}
-        {activeTab === 'threads' ? (
-          <ThreadRows onSelectThread={onSelectThread} selectedThreadKey={selectedThreadKey} threads={threads} />
+          <>
+            <AgentRows members={members} now={now} onOpenThread={onOpenThread} onSelectMember={onSelectMember} selectedMemberId={selectedMemberId} />
+            {threads.length > 0 ? (
+              <>
+                <SectionLabel>Origin threads</SectionLabel>
+                <ThreadRows onSelectThread={onSelectThread} selectedThreadKey={selectedThreadKey} threads={threads} />
+              </>
+            ) : null}
+          </>
         ) : null}
       </div>
 
       <div className="flex items-center gap-1.5 border-t border-neutral-800/70 px-4 py-3 text-[11px] text-neutral-600">
-        {activeTab === 'agents' ? <Bot className="size-3.5" /> : activeTab === 'threads' ? <MessageSquareText className="size-3.5" /> : <Clock3 className="size-3.5" />}
-        {activeTab === 'mentions'
-          ? 'Unread mentions only'
-          : activeTab === 'agents'
-            ? `${agentMembers.length} ${agentMembers.length === 1 ? 'agent' : 'agents'} · presence expires when stale`
-            : `${threads.length} ${threads.length === 1 ? 'origin thread' : 'origin threads'}`}
+        {activeTab === 'rooms' ? <Hash className="size-3.5" />
+          : activeTab === 'agents' ? <Bot className="size-3.5" />
+          : <Clock3 className="size-3.5" />}
+        {activeTab === 'rooms'
+          ? `${channels.length} ${channels.length === 1 ? 'room' : 'rooms'}`
+          : activeTab === 'mentions'
+            ? 'Unread mentions only'
+            : `${agentMembers.length} ${agentMembers.length === 1 ? 'agent' : 'agents'} · open a thread to connect`}
       </div>
     </aside>
   );

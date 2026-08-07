@@ -99,7 +99,12 @@ export function ProjectChatPage({
   viewer
 }: ProjectChatPageProps) {
   const threads = useMemo(() => projectChatThreads(messages, members), [members, messages]);
-  const [activeTab, setActiveTab] = useState<ProjectChatInspectorTab>('mentions');
+  // The left rail already lists rooms on the standalone route, so the panel
+  // only takes that job over when it is the page's single navigation surface.
+  const roomSwitcher = showChannelNavigation ? undefined : onSelectChannel;
+  const [activeTab, setActiveTab] = useState<ProjectChatInspectorTab>(
+    () => roomSwitcher && channels.length > 1 ? 'rooms' : 'mentions'
+  );
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -119,25 +124,27 @@ export function ProjectChatPage({
     (member) => member.role === 'agent' && effectiveProjectChatPresence(member, now) === 'working'
   ).length;
   /**
-   * A quiet room has nothing to inspect. Reserving the columns anyway used to
-   * fill a third of the page with stacked empty states, so both side columns
-   * only exist once they carry something.
+   * The panel earns its column once it can navigate somewhere: other rooms to
+   * open, agents to connect to, or mentions and threads to follow. A quiet room
+   * with a single pinned channel keeps the full width for the conversation.
    */
-  const hasInspectorContent = mentionMessages.length > 0 ||
+  const canSwitchRooms = Boolean(roomSwitcher) && channels.length > 1;
+  const hasInspectorContent = canSwitchRooms ||
+    mentionMessages.length > 0 ||
     threads.length > 0 ||
     members.some((member) => member.role === 'agent');
   const reservesInspectorColumn = hasInspectorContent;
   const reservesThreadColumn = hasInspectorContent && Boolean(selectedThread);
   const gridColumns = showChannelNavigation
     ? reservesThreadColumn
-      ? 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_236px] min-[1360px]:grid-cols-[224px_minmax(0,1fr)_236px_278px]'
+      ? 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_268px] min-[1360px]:grid-cols-[224px_minmax(0,1fr)_268px_278px]'
       : reservesInspectorColumn
-        ? 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_236px]'
+        ? 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[224px_minmax(0,1fr)_268px]'
         : 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)]'
     : reservesThreadColumn
-      ? 'grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[minmax(0,1fr)_236px] min-[1360px]:grid-cols-[minmax(0,1fr)_236px_278px]'
+      ? 'grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[minmax(0,1fr)_268px] min-[1360px]:grid-cols-[minmax(0,1fr)_268px_278px]'
       : reservesInspectorColumn
-        ? 'grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[minmax(0,1fr)_236px]'
+        ? 'grid-cols-[minmax(0,1fr)] min-[1100px]:grid-cols-[minmax(0,1fr)_268px]'
         : 'grid-cols-[minmax(0,1fr)]';
 
   useEffect(() => {
@@ -336,15 +343,21 @@ export function ProjectChatPage({
   const inspector = (
     <ProjectChatInspector
       activeTab={activeTab}
+      channels={channels}
       members={members}
       mentionError={mentionError}
       mentionMessages={mentionMessages}
       messages={messages}
       now={now}
+      canSwitchRooms={canSwitchRooms}
+      onOpenThread={onOpenThread}
+      onSelectChannel={roomSwitcher}
       onSelectMember={selectMember}
       onSelectMessage={selectMessage}
       onSelectTab={setActiveTab}
       onSelectThread={selectThread}
+      recentProjectIds={recentProjectIds}
+      selectedChannelId={channel.channelId}
       selectedMemberId={selectedMemberId}
       selectedThreadKey={selectedThreadKey}
       onRetryMention={onRetryMention}

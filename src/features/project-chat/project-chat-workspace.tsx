@@ -77,18 +77,25 @@ function connectionStateForFailure(error: unknown): ProjectChatConnectionState {
 
 export function ProjectChatWorkspace({
   client,
+  defaultProjectId,
   fixedProjectId,
   onOpenThread,
   recentProjectIds = [],
   showChannelNavigation = fixedProjectId === undefined,
+  syncRoute = fixedProjectId === undefined,
   taskTitles = [],
   taskPreview
 }: {
   client: ProjectChatClient;
+  /** Room to open on first render. Unlike `fixedProjectId` it can be left. */
+  defaultProjectId?: string;
+  /** Restricts the workspace to a single room and hides every other one. */
   fixedProjectId?: string;
   onOpenThread?: ProjectChatPageProps['onOpenThread'];
   recentProjectIds?: string[];
   showChannelNavigation?: boolean;
+  /** Whether switching rooms writes the `/chat` route. */
+  syncRoute?: boolean;
   taskTitles?: readonly ProjectChatTaskTitle[];
   taskPreview?: ReactNode;
 }) {
@@ -96,8 +103,9 @@ export function ProjectChatWorkspace({
     ? { matches: true as const, projectId: undefined }
     : parseProjectChatRoute(window.location.pathname);
   const [selectedProjectId, setSelectedProjectId] = useState(
-    () => fixedProjectId ?? initialRoute.projectId
+    () => fixedProjectId ?? (syncRoute ? initialRoute.projectId : defaultProjectId)
   );
+  const appliedDefaultProjectId = useRef(defaultProjectId);
   const [channels, setChannels] = useState<ProjectChatChannelRecord[]>([]);
   const [channelError, setChannelError] = useState('');
   const [channelsLoading, setChannelsLoading] = useState(true);
@@ -129,15 +137,24 @@ export function ProjectChatWorkspace({
     if (fixedProjectId) setSelectedProjectId(fixedProjectId);
   }, [fixedProjectId]);
 
+  // `defaultProjectId` only seeds the first render, so a later workspace project
+  // switch has to move the room too. Comparing against the last applied default
+  // keeps a room the reader picked themselves.
   useEffect(() => {
-    if (fixedProjectId || typeof window === 'undefined') return;
+    if (fixedProjectId || appliedDefaultProjectId.current === defaultProjectId) return;
+    appliedDefaultProjectId.current = defaultProjectId;
+    setSelectedProjectId(defaultProjectId);
+  }, [defaultProjectId, fixedProjectId]);
+
+  useEffect(() => {
+    if (!syncRoute || typeof window === 'undefined') return;
     const handlePopState = () => {
       const route = parseProjectChatRoute(window.location.pathname);
       if (route.matches) setSelectedProjectId(route.projectId);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [fixedProjectId]);
+  }, [syncRoute]);
 
   const selectedChannel = selectedProjectId
     ? channels.find((channel) => channel.projectId === selectedProjectId)
@@ -146,7 +163,7 @@ export function ProjectChatWorkspace({
   function selectChannel(channel: ProjectChatChannelRecord) {
     const projectId = channel.kind === 'project' ? channel.projectId : undefined;
     setSelectedProjectId(projectId);
-    if (!fixedProjectId && typeof window !== 'undefined') {
+    if (syncRoute && typeof window !== 'undefined') {
       const nextPath = projectChatRoute(projectId);
       window.history.pushState(
         null,
@@ -158,7 +175,11 @@ export function ProjectChatWorkspace({
 
   if (!selectedChannel) {
     return (
-      <div className="grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden text-neutral-100 max-[719px]:grid-cols-[minmax(0,1fr)]">
+      <div className={`grid h-full min-h-0 overflow-hidden text-neutral-100 ${
+        showChannelNavigation && channels.length > 0
+          ? 'grid-cols-[224px_minmax(0,1fr)] max-[719px]:grid-cols-[minmax(0,1fr)]'
+          : 'grid-cols-[minmax(0,1fr)]'
+      }`}>
         {showChannelNavigation && channels.length > 0 ? (
           <ProjectChatSidebar
             channels={channels}
@@ -199,7 +220,7 @@ export function ProjectChatWorkspace({
       client={client}
       key={selectedChannel.channelId}
       onOpenThread={onOpenThread}
-      onSelectChannel={showChannelNavigation ? selectChannel : undefined}
+      onSelectChannel={fixedProjectId ? undefined : selectChannel}
       projectId={selectedChannel.projectId}
       recentProjectIds={recentProjectIds}
       showChannelNavigation={showChannelNavigation}

@@ -548,9 +548,11 @@ export function ProjectMainPanel({
             chat={(
               <ProjectChatWorkspace
                 client={projectChatClient}
-                fixedProjectId={projectChatProjectId(project, selectedChatRepository)}
+                defaultProjectId={projectChatProjectId(project, selectedChatRepository)}
                 onOpenThread={onOpenCodex}
+                recentProjectIds={recentProjectIds}
                 showChannelNavigation={false}
+                syncRoute={false}
                 taskTitles={projectCodexTaskTitles}
                 taskPreview={(
                   <ProjectCodexTasks
