@@ -125,7 +125,7 @@ async function parseNameStatus(
           source:
             status !== 'deleted' &&
               path.startsWith(`${releaseIntentDirectory}/`)
-              ? await gitText('show', `${headRef}:${path}`)
+              ? await gitTextValidationRaw('show', `${headRef}:${path}`)
               : undefined,
           status,
         };
@@ -172,6 +172,10 @@ async function gitText(...args: string[]) {
 
 async function gitTextValidation(...args: string[]) {
   return (await run(['git', ...args], 'validation')).trim();
+}
+
+async function gitTextValidationRaw(...args: string[]) {
+  return run(['git', ...args], 'validation');
 }
 
 async function run(

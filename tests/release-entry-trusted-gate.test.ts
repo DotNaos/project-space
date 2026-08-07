@@ -66,6 +66,9 @@ test('validates one exact current PR head from trusted latest main', () => {
     "await gitTextValidation('show', `${headRef}:package.json`)",
   );
   expect(validator).toContain(
+    "await gitTextValidationRaw('show', `${headRef}:${path}`)",
+  );
+  expect(validator).toContain(
     "await gitText('show', `${baseRef}:package.json`)",
   );
   expect(validator).not.toContain(
