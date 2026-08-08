@@ -1,13 +1,63 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"regexp"
 	"strings"
 )
 
 var fullGitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+const githubAPIBaseURL = "https://api.github.com"
+
+// previewGitHubRequester calls the GitHub REST API directly over HTTPS using the caller's
+// already-connected OAuth token, rather than shelling out to the gh CLI: the trusted-runtime
+// server that dispatches previews has no gh binary installed (and no interactive `gh auth`
+// session to give it one), so gh calls fail with "executable file not found in $PATH".
+type previewGitHubRequester func(method string, path string, body []byte) ([]byte, error)
+
+// requestGitHubAPI is the production previewGitHubRequester. The token comes from the
+// GITHUB_TOKEN environment variable, which the trusted-runtime server (server/preview-hub-service.ts)
+// sets from the caller's stored GitHub OAuth connection before spawning this binary.
+func requestGitHubAPI(method string, path string, body []byte) ([]byte, error) {
+	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	if token == "" {
+		return nil, errors.New("GITHUB_TOKEN is not set; connect your GitHub account to dispatch previews")
+	}
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	request, err := http.NewRequest(method, githubAPIBaseURL+path, reader)
+	if err != nil {
+		return nil, fmt.Errorf("build GitHub API request: %w", err)
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("call GitHub API: %w", err)
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read GitHub API response: %w", err)
+	}
+	if response.StatusCode >= 300 {
+		return nil, fmt.Errorf("GitHub API request failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	return responseBody, nil
+}
 
 type previewGitHubRepository struct {
 	FullName      string `json:"full_name"`
@@ -50,7 +100,7 @@ func dispatchPreviewWithOptions(projectRoot string, operation string, options pr
 	if err != nil {
 		return previewDispatchResult{}, err
 	}
-	repositoryRecord, err := loadPreviewRepository(projectRoot, repository, deps.run)
+	repositoryRecord, err := loadPreviewRepository(repository, deps.githubAPI)
 	if err != nil {
 		return previewDispatchResult{}, err
 	}
@@ -63,7 +113,7 @@ func dispatchPreviewWithOptions(projectRoot string, operation string, options pr
 	if !repositoryRecord.Permissions.Push {
 		return previewDispatchResult{}, fmt.Errorf("GitHub write permission is required to dispatch preview deployments")
 	}
-	pull, err := loadPreviewPullRequest(projectRoot, repository, pullRequest, deps.run)
+	pull, err := loadPreviewPullRequest(repository, pullRequest, deps.githubAPI)
 	if err != nil {
 		return previewDispatchResult{}, err
 	}
@@ -74,10 +124,13 @@ func dispatchPreviewWithOptions(projectRoot string, operation string, options pr
 	if err != nil {
 		return previewDispatchResult{}, err
 	}
-	args := []string{"--repo", repository, "--ref", previewWorkflowRef, "-f", "action=" + operation,
-		"-f", fmt.Sprintf("pr=%d", pullRequest), "-f", "operation_id=" + operationID}
+	inputs := map[string]string{
+		"action":       operation,
+		"pr":           fmt.Sprintf("%d", pullRequest),
+		"operation_id": operationID,
+	}
 	if operation == "start" || operation == "stop" || operation == "touch" {
-		args = append(args, "-f", "requested_head_sha="+pull.Head.SHA)
+		inputs["requested_head_sha"] = pull.Head.SHA
 	}
 	if operation == "start" {
 		// Replacement details are passed only after the caller has explicitly selected
@@ -88,15 +141,22 @@ func dispatchPreviewWithOptions(projectRoot string, operation string, options pr
 			{"replacement_repository", options.ReplacementRepository},
 			{"replacement_head_sha", options.ReplacementHeadSHA},
 		} {
-			if value.value != "" && value.value != "0" { args = append(args, "-f", value.key+"="+value.value) }
+			if value.value != "" && value.value != "0" { inputs[value.key] = value.value }
 		}
 	}
-	return dispatchPreviewWorkflow(projectRoot, repository, operation, pullRequest, pull, operationID, args, deps)
+	return dispatchPreviewWorkflow(repository, operation, pullRequest, pull, operationID, inputs, deps)
 }
 
-func dispatchPreviewWorkflow(projectRoot, repository, operation string, pullRequest int, pull previewGitHubPullRequest, operationID string, args []string, deps previewDependencies) (previewDispatchResult, error) {
-	workflowArgs := append([]string{"workflow", "run", previewWorkflowFile}, args...)
-	if _, err := deps.run(projectRoot, nil, "gh", workflowArgs...); err != nil {
+func dispatchPreviewWorkflow(repository, operation string, pullRequest int, pull previewGitHubPullRequest, operationID string, inputs map[string]string, deps previewDependencies) (previewDispatchResult, error) {
+	payload, err := json.Marshal(struct {
+		Ref    string            `json:"ref"`
+		Inputs map[string]string `json:"inputs"`
+	}{Ref: previewWorkflowRef, Inputs: inputs})
+	if err != nil {
+		return previewDispatchResult{}, fmt.Errorf("encode preview workflow dispatch: %w", err)
+	}
+	dispatchPath := fmt.Sprintf("/repos/%s/actions/workflows/%s/dispatches", repository, previewWorkflowFile)
+	if _, err := deps.githubAPI(http.MethodPost, dispatchPath, payload); err != nil {
 		return previewDispatchResult{}, fmt.Errorf("dispatch trusted preview workflow: %w", err)
 	}
 	return previewDispatchResult{
@@ -123,25 +183,25 @@ func resolvePreviewRepository(projectRoot string, run previewCommandRunner) (str
 	return repository, nil
 }
 
-func loadPreviewRepository(projectRoot string, repository string, run previewCommandRunner) (previewGitHubRepository, error) {
-	output, err := run(projectRoot, nil, "gh", "api", "repos/"+repository)
+func loadPreviewRepository(repository string, api previewGitHubRequester) (previewGitHubRepository, error) {
+	output, err := api(http.MethodGet, "/repos/"+repository, nil)
 	if err != nil {
 		return previewGitHubRepository{}, fmt.Errorf("load GitHub repository permissions: %w", err)
 	}
 	var record previewGitHubRepository
-	if err := json.Unmarshal([]byte(output), &record); err != nil {
+	if err := json.Unmarshal(output, &record); err != nil {
 		return previewGitHubRepository{}, fmt.Errorf("decode GitHub repository response: %w", err)
 	}
 	return record, nil
 }
 
-func loadPreviewPullRequest(projectRoot string, repository string, pullRequest int, run previewCommandRunner) (previewGitHubPullRequest, error) {
-	output, err := run(projectRoot, nil, "gh", "api", fmt.Sprintf("repos/%s/pulls/%d", repository, pullRequest))
+func loadPreviewPullRequest(repository string, pullRequest int, api previewGitHubRequester) (previewGitHubPullRequest, error) {
+	output, err := api(http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d", repository, pullRequest), nil)
 	if err != nil {
 		return previewGitHubPullRequest{}, fmt.Errorf("load GitHub pull request #%d: %w", pullRequest, err)
 	}
 	var record previewGitHubPullRequest
-	if err := json.Unmarshal([]byte(output), &record); err != nil {
+	if err := json.Unmarshal(output, &record); err != nil {
 		return previewGitHubPullRequest{}, fmt.Errorf("decode GitHub pull request response: %w", err)
 	}
 	return record, nil

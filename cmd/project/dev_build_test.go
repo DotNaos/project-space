@@ -13,26 +13,26 @@ func TestDispatchDevBuildUsesExactCurrentPRHeadAndSelectedPlatforms(t *testing.T
 	headSHA := strings.Repeat("a", 40)
 	runner := func(_ string, _ []byte, name string, args ...string) (string, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
-		switch command {
-		case "git -c safe.directory=/repo remote get-url origin":
+		switch {
+		case command == "git -c safe.directory=/repo remote get-url origin":
 			return "git@github.com:DotNaos/project-space.git\n", nil
-		case "gh api repos/DotNaos/project-space":
-			return `{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`, nil
-		case "gh api repos/DotNaos/project-space/pulls/466":
-			return previewPullRequestJSON(466, "open", "main", "DotNaos/project-space", headSHA), nil
+		case strings.HasPrefix(command, "gh workflow run "):
+			workflowArgs = append([]string(nil), args...)
+			return "", nil
 		default:
-			if strings.HasPrefix(command, "gh workflow run ") {
-				workflowArgs = append([]string(nil), args...)
-				return "", nil
-			}
 			return "", fmt.Errorf("unexpected command: %s", command)
 		}
 	}
+	api := previewGitHubTestRequester(
+		`{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`,
+		previewPullRequestJSON(466, "open", "main", "DotNaos/project-space", headSHA),
+		nil,
+	)
 
 	result, err := dispatchDevBuild("/repo", devBuildOptions{
 		PullRequest: 466,
 		Platforms:   []string{"windows-x64", "linux-x64"},
-	}, previewDependencies{run: runner, random: bytes.NewReader(nil), now: time.Now})
+	}, previewDependencies{run: runner, githubAPI: api, random: bytes.NewReader(nil), now: time.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,13 +75,14 @@ func TestDispatchDevBuildRejectsUnsafeSourceAndPlatforms(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			runner := devBuildGitHubTestRunner(
+			api := previewGitHubTestRequester(
 				`{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`,
 				test.pull,
+				nil,
 			)
 			_, err := dispatchDevBuild("/repo", devBuildOptions{
 				PullRequest: 466, Platforms: test.platforms,
-			}, previewDependencies{run: runner})
+			}, previewDependencies{run: devBuildGitHubTestGitRunner, githubAPI: api})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want containing %q", err, test.want)
 			}
@@ -91,10 +92,12 @@ func TestDispatchDevBuildRejectsUnsafeSourceAndPlatforms(t *testing.T) {
 
 func TestDevBuildCommandDefaultsToLinuxAndPrintsJSON(t *testing.T) {
 	var output bytes.Buffer
-	cmd := newDevBuildCreateCommand(previewDependencies{run: devBuildGitHubTestRunner(
+	api := previewGitHubTestRequester(
 		`{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`,
 		previewPullRequestJSON(466, "open", "main", "DotNaos/project-space", strings.Repeat("a", 40)),
-	)})
+		nil,
+	)
+	cmd := newDevBuildCreateCommand(previewDependencies{run: devBuildGitHubTestGitRunner, githubAPI: api})
 	cmd.SetOut(&output)
 	cmd.SetArgs([]string{"--pr", "466", "--format", "json"})
 	if err := cmd.Execute(); err != nil {
@@ -106,24 +109,19 @@ func TestDevBuildCommandDefaultsToLinuxAndPrintsJSON(t *testing.T) {
 	}
 }
 
-func devBuildGitHubTestRunner(repositoryJSON string, pullJSON string) previewCommandRunner {
-	return func(_ string, _ []byte, name string, args ...string) (string, error) {
-		command := strings.Join(append([]string{name}, args...), " ")
-		switch {
-		// The safe.directory value is the caller's projectRoot, which varies across the two
-		// callers of this helper (a fixed "/repo" in one test, the resolved test cwd in
-		// another), so match the git invocation shape rather than a single hardcoded path.
-		case strings.HasPrefix(command, "git -c safe.directory=") && strings.HasSuffix(command, " remote get-url origin"):
-			return "https://github.com/DotNaos/project-space.git", nil
-		case command == "gh api repos/DotNaos/project-space":
-			return repositoryJSON, nil
-		case command == "gh api repos/DotNaos/project-space/pulls/466":
-			return pullJSON, nil
-		default:
-			if strings.HasPrefix(command, "gh workflow run build-pr-tools.yml ") {
-				return "", nil
-			}
-			return "", fmt.Errorf("unexpected command: %s", command)
-		}
+// devBuildGitHubTestGitRunner mocks the git/gh-workflow commands dispatchDevBuild still shells
+// out to (its own workflow dispatch is unchanged; only the shared repository/PR permission
+// lookups moved to previewGitHubRequester). The safe.directory value is the caller's
+// projectRoot, which varies across the callers of this helper (a fixed "/repo" in one test, the
+// resolved test cwd in another), so match the git invocation shape rather than a hardcoded path.
+func devBuildGitHubTestGitRunner(_ string, _ []byte, name string, args ...string) (string, error) {
+	command := strings.Join(append([]string{name}, args...), " ")
+	switch {
+	case strings.HasPrefix(command, "git -c safe.directory=") && strings.HasSuffix(command, " remote get-url origin"):
+		return "https://github.com/DotNaos/project-space.git", nil
+	case strings.HasPrefix(command, "gh workflow run build-pr-tools.yml "):
+		return "", nil
+	default:
+		return "", fmt.Errorf("unexpected command: %s", command)
 	}
 }
