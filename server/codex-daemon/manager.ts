@@ -221,7 +221,6 @@ export class CodexDaemonManager {
         'Doctor will not create a managed Codex installation from an unpinned runtime.'
       );
     }
-    if (await this.managedBinaryInstalled()) return;
     const codexHome = resolveCodexHome(this.environment);
     const managedPath = join(codexHome, 'packages', 'standalone', 'current', 'codex');
     const managedDirectory = dirname(managedPath);
@@ -230,17 +229,28 @@ export class CodexDaemonManager {
       if (error.code === 'ENOENT') return undefined;
       throw error;
     });
-    if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
+    if (existing && !existing.isFile() && !existing.isSymbolicLink()) {
       throw new Error('The managed Codex binary path is not a regular file.');
     }
+    if (existing?.isFile()) {
+      const currentVersion = await this.binaryVersion(managedPath);
+      const expectedVersion = await this.binaryVersion(binaryPath);
+      if (currentVersion && expectedVersion && currentVersion === expectedVersion) return;
+    }
+    const safeManagedSymlink = existing?.isSymbolicLink()
+      ? await this.managedBinaryInstalled()
+      : false;
     const temporaryPath = join(
       managedDirectory,
       `.project-space-codex-${randomBytes(12).toString('hex')}.tmp`
     );
+    const replacementPath = safeManagedSymlink
+      ? await realpath(managedPath)
+      : managedPath;
     try {
       await copyFile(binaryPath, temporaryPath, constants.COPYFILE_EXCL);
       await chmod(temporaryPath, 0o755);
-      await rename(temporaryPath, managedPath);
+      await rename(temporaryPath, replacementPath);
     } finally {
       await rm(temporaryPath, { force: true }).catch(() => undefined);
     }

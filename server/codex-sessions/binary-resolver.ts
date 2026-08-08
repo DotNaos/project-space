@@ -27,9 +27,9 @@ export function resolveCodexBinary(options: {
   const attempted: string[] = [];
   const candidates: string[] = [];
   const platform = options.platform ?? process.platform;
-  const managedLinux = platform === 'linux' &&
+  const managedRuntime = (platform === 'linux' || platform === 'darwin') &&
     environment.PROJECT_SPACE_INSTALL_SOURCE === 'managed';
-  if (managedLinux) {
+  if (managedRuntime) {
     let runtimeExecutable: string;
     try {
       runtimeExecutable = options.runtimeExecutable ?? realpathSync(process.execPath);
@@ -55,14 +55,14 @@ export function resolveCodexBinary(options: {
     attempted.push(candidate);
     const safe = options.executable
       ? executable(candidate)
-      : managedLinux
+      : managedRuntime
         ? isSecureManagedExecutable(candidate)
         : executable(candidate);
     if (!safe) continue;
     const valid = options.validate
       ? validate(candidate)
-      : managedLinux
-        ? isPinnedManagedCodex(candidate)
+        : managedRuntime
+          ? isPinnedManagedCodex(candidate)
         : validate(candidate);
     if (valid) return { attempted, path: candidate };
   }

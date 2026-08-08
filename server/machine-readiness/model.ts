@@ -289,6 +289,16 @@ function evaluateConnector(
       operation };
   }
   if (capabilities.includes(codexRuntimeCapability)) {
+    if (action?.kind === 'update-connector' &&
+        update?.availableCapabilities?.includes(codexRuntimeCapability)) {
+      if (!canRepair) {
+        return { check: { ...common, state: 'authorization-required',
+          summary: 'Only the machine owner may authorize this managed update.' },
+          operation };
+      }
+      return { action, check: { ...common, state: 'repairable',
+        summary: 'A signed managed update can refresh the Codex runtime.' }, operation };
+    }
     return { check: { ...common, state: 'uncertain',
       summary: 'The managed Codex runtime is available, but its account status is uncertain.' },
       operation };

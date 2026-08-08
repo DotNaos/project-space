@@ -148,7 +148,7 @@ function expectedArtifacts(version: string): ExpectedArtifact[] {
   return [
     {
       assetName: `project-space-machine-tools-darwin-arm64-v${version}.tar.gz`,
-      capabilities: [...runtimeCapabilities],
+      capabilities: [...managedCodexCapabilities],
       target: 'darwin-arm64'
     },
     {

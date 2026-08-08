@@ -312,7 +312,12 @@ describe('authenticated connector runtime release manifest', () => {
                 'runtime.restart',
                 'runtime.update'
               ]
-            : ['runtime.restart', 'runtime.update']
+            : [
+                'codex.account.device-login.v1',
+                'codex.runtime.v1',
+                'runtime.restart',
+                'runtime.update'
+              ]
       );
       expect(artifact.protocolVersion).toBe('2');
       expect(artifact.downloadUrl).toBe(

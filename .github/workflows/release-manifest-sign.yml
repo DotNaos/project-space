@@ -308,8 +308,8 @@ jobs:
                   []
                   if target == "windows-x64"
                   else ["codex.account.device-login.v1", "codex.runtime.v1", "runtime.restart", "runtime.update"]
-                  if target == "linux-x64"
-                  else ["runtime.restart", "runtime.update"]
+                  if target in {"darwin-arm64", "linux-x64"}
+                  else []
               )
               if (
                   set(artifact) != artifact_keys

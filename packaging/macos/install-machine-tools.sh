@@ -43,7 +43,8 @@ fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 for required in \
-  SHA256SUMS.txt VERSION project project-space-connector \
+  SHA256SUMS.txt VERSION project project-space-connector codex \
+  CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
   connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
     echo "The release bundle is incomplete: $required is missing." >&2
@@ -59,9 +60,14 @@ if [[ ! $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   echo "The release bundle contains an invalid version." >&2
   exit 65
 fi
+codex_version=$(tr -d '\r\n' < "${bundle_root}/CODEX-VERSION")
+if [[ ! $codex_version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "The release bundle contains an invalid Codex version." >&2
+  exit 65
+fi
 
 verify_installed_pair() {
-  local binary output version_pattern
+  local binary output version_pattern codex_version_pattern
   version_pattern=${version//./\\.}
   for binary in project project-space-connector; do
     if ! output=$("${install_directory}/${binary}" --version 2>&1) ||
@@ -70,6 +76,12 @@ verify_installed_pair() {
       return 1
     fi
   done
+  codex_version_pattern=${codex_version//./\.}
+  if ! output=$("${install_directory}/.project-space-machine-tools/current/codex" --version 2>&1) ||
+    [[ ! $output =~ ^codex-cli[[:space:]]${codex_version_pattern}$ ]]; then
+    echo "The installed managed Codex runtime does not report the bundled version." >&2
+    return 1
+  fi
 }
 
 files_match() {
@@ -239,16 +251,20 @@ trap cleanup EXIT
 
 staged_release="${transaction_root}/${release_id}"
 mkdir -m 0700 -- "$staged_release"
-for name in project project-space-connector; do
+for name in project project-space-connector codex; do
   install -m 0755 -- "${bundle_root}/${name}" "${staged_release}/${name}"
 done
+for name in CODEX-LICENSE CODEX-NOTICE; do
+  install -m 0644 -- "${bundle_root}/${name}" "${staged_release}/${name}"
+done
+install -m 0600 -- "${bundle_root}/CODEX-VERSION" "${staged_release}/CODEX-VERSION"
 for name in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   install -m 0644 -- "${bundle_root}/${name}" "${staged_release}/${name}"
 done
 install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 if [[ -d $release_directory ]]; then
   for member in \
-    project project-space-connector \
+    project project-space-connector codex CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
     connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
     VERSION; do
     if ! files_match "${staged_release}/${member}" "${release_directory}/${member}"; then

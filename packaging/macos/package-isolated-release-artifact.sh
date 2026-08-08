@@ -56,11 +56,22 @@ assert_exact_files() {
   done
 }
 
+assert_matching_files() {
+  local left=$1 right=$2 left_digest right_digest
+  assert_safe_file "$left" 419430400
+  assert_safe_file "$right" 419430400
+  left_digest=$(/usr/bin/shasum -a 256 "$left" | awk '{print $1}')
+  right_digest=$(/usr/bin/shasum -a 256 "$right" | awk '{print $1}')
+  [[ -n $left_digest && $left_digest == "$right_digest" ]]
+}
+
 temporary_root=$(/usr/bin/mktemp -d)
 trap '/bin/rm -rf "$temporary_root"' EXIT
 
 assert_exact_files "$runtime_directory" \
-  project-space-connector:157286400 RUNTIME-RECEIPT.txt:4096 SHA256SUMS.txt:4096
+  project-space-connector:157286400 codex:419430400 \
+  CODEX-LICENSE:65536 CODEX-NOTICE:8192 CODEX-VERSION:128 \
+  RUNTIME-RECEIPT.txt:4096 SHA256SUMS.txt:4096
 assert_exact_files "$trust_directory" \
   connector-command-signing-public-key.pem:8192 \
   release-manifest-signing-public-key.pem:8192
@@ -68,10 +79,12 @@ assert_exact_files "$trust_directory" \
 runtime_connector_sha=$(/usr/bin/shasum -a 256 "$runtime_directory/project-space-connector")
 runtime_connector_sha=${runtime_connector_sha%% *}
 /usr/bin/printf '%s\n' \
-  'schema=project-space-macos-runtime-v1' \
+  'schema=project-space-macos-runtime-v2' \
   "source_sha=$source_sha" \
   "version=$version" \
   "connector_sha256=$runtime_connector_sha" \
+  "codex_sha256=$(/usr/bin/shasum -a 256 "$runtime_directory/codex" | awk '{print $1}')" \
+  "codex_version=$(tr -d '\r\n' < "$runtime_directory/CODEX-VERSION")" \
   > "$temporary_root/expected-runtime-receipt"
 /usr/bin/cmp "$temporary_root/expected-runtime-receipt" \
   "$runtime_directory/RUNTIME-RECEIPT.txt"
@@ -79,6 +92,10 @@ runtime_receipt_sha=$(/usr/bin/shasum -a 256 "$runtime_directory/RUNTIME-RECEIPT
 runtime_receipt_sha=${runtime_receipt_sha%% *}
 /usr/bin/printf '%s  %s\n' \
   "$runtime_connector_sha" project-space-connector \
+  "$(/usr/bin/shasum -a 256 "$runtime_directory/codex" | awk '{print $1}')" codex \
+  "$(/usr/bin/shasum -a 256 "$runtime_directory/CODEX-LICENSE" | awk '{print $1}')" CODEX-LICENSE \
+  "$(/usr/bin/shasum -a 256 "$runtime_directory/CODEX-NOTICE" | awk '{print $1}')" CODEX-NOTICE \
+  "$(/usr/bin/shasum -a 256 "$runtime_directory/CODEX-VERSION" | awk '{print $1}')" CODEX-VERSION \
   "$runtime_receipt_sha" RUNTIME-RECEIPT.txt \
   > "$temporary_root/expected-runtime-checksums"
 /usr/bin/cmp "$temporary_root/expected-runtime-checksums" "$runtime_directory/SHA256SUMS.txt"
@@ -97,6 +114,11 @@ release_root_sha=${release_root_sha%% *}
 /bin/mkdir -m 0700 "$staging_directory"
 /usr/bin/install -m 0755 "$runtime_directory/project-space-connector" \
   "$staging_directory/project-space-connector"
+/usr/bin/install -m 0755 "$runtime_directory/codex" "$staging_directory/codex"
+for codex_member in CODEX-LICENSE CODEX-NOTICE; do
+  /usr/bin/install -m 0644 "$runtime_directory/$codex_member" "$staging_directory/$codex_member"
+done
+/usr/bin/install -m 0600 "$runtime_directory/CODEX-VERSION" "$staging_directory/CODEX-VERSION"
 /usr/bin/install -m 0644 "$trust_directory/connector-command-signing-public-key.pem" \
   "$staging_directory/connector-command-signing-public-key.pem"
 /usr/bin/install -m 0644 "$trust_directory/release-manifest-signing-public-key.pem" \
@@ -135,7 +157,8 @@ gtar_path=$(command -v gtar)
 "$gtar_path" -xzf "$archive_path" -C "$extracted_root"
 bundle_root="$extracted_root/project-space-machine-tools-darwin-arm64-v${version}"
 assert_exact_files "$bundle_root" \
-  project:157286400 project-space-connector:157286400 project-approval-signer:0:0 \
+  project:157286400 project-space-connector:157286400 codex:419430400 \
+  CODEX-LICENSE:65536 CODEX-NOTICE:8192 CODEX-VERSION:128 project-approval-signer:0:0 \
   connector-command-signing-public-key.pem:8192 release-manifest-signing-public-key.pem:8192 \
   install.sh:1048576 VERSION:128 SHA256SUMS.txt:4096
 [[ $(<"$bundle_root/VERSION") == "$version" ]]
@@ -145,6 +168,10 @@ assert_exact_files "$bundle_root" \
 )
 /usr/bin/cmp "$staging_directory/project" "$bundle_root/project"
 /usr/bin/cmp "$staging_directory/project-space-connector" "$bundle_root/project-space-connector"
+assert_matching_files "$staging_directory/codex" "$bundle_root/codex"
+for codex_member in CODEX-LICENSE CODEX-NOTICE CODEX-VERSION; do
+  /usr/bin/cmp "$staging_directory/$codex_member" "$bundle_root/$codex_member"
+done
 /usr/bin/cmp /dev/null "$bundle_root/project-approval-signer"
 /usr/bin/cmp "$staging_directory/connector-command-signing-public-key.pem" \
   "$bundle_root/connector-command-signing-public-key.pem"
