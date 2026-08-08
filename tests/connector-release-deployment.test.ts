@@ -238,7 +238,7 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain('workflow.get("id") == int(sys.argv[6])');
     expect(sign).toContain('Prepared release manifest is not the exact canonical signing payload.');
     expect(sign).toContain(
-      'else ["codex.account.device-login.v1", "codex.runtime.v1", "runtime.restart", "runtime.update"]'
+      'if target in {"darwin-arm64", "linux-x64"}'
     );
     expect(sign).toContain('openssl pkeyutl -sign -rawin');
     expect(sign).toContain('signature-size=64');

@@ -68,6 +68,17 @@ fi
 printf '%s\n' 'connector $label'
 EOF
   chmod 0755 "$directory/project-space-connector"
+  cat > "$directory/codex" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == --version ]]; then
+  printf '%s\n' 'codex-cli 0.145.0'
+  exit 0
+fi
+EOF
+  chmod 0755 "$directory/codex"
+  printf '%s\n' 'codex license' > "$directory/CODEX-LICENSE"
+  printf '%s\n' 'codex notice' > "$directory/CODEX-NOTICE"
+  printf '%s\n' '0.145.0' > "$directory/CODEX-VERSION"
   write_trust_roots "$directory"
 }
 
@@ -83,7 +94,7 @@ cmp "$temporary_root/first/$archive" "$temporary_root/second/$archive"
 mkdir "$temporary_root/extracted-v1"
 gtar -xzf "$temporary_root/first/$archive" -C "$temporary_root/extracted-v1"
 bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64-v${version}"
-expected_members=$'SHA256SUMS.txt\nVERSION\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-approval-signer\nproject-space-connector\nrelease-manifest-signing-public-key.pem'
+expected_members=$'CODEX-LICENSE\nCODEX-NOTICE\nCODEX-VERSION\nSHA256SUMS.txt\nVERSION\ncodex\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-approval-signer\nproject-space-connector\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
 [[ $actual_members == "$expected_members" ]]
 [[ ! -s $bundle_v1/project-approval-signer ]]
@@ -109,6 +120,7 @@ export PROJECT_FIXTURE_LAUNCHCTL_LOG="$launchctl_log"
 "$bundle_v1/install.sh" --install-dir "$install_root" >/dev/null
 [[ $($install_root/project) == v1 ]]
 [[ -L $install_root/project && -L $install_root/project-space-connector ]]
+[[ $($install_root/.project-space-machine-tools/current/codex --version) == 'codex-cli 0.145.0' ]]
 [[ ! -e $install_root/project-approval-signer && ! -L $install_root/project-approval-signer ]]
 first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $first_current == versions/${version}-* ]]

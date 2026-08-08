@@ -113,10 +113,15 @@ jobs:
           bun packaging/release/build-connector.ts \
             bun-darwin-arm64 \
             dist/project-space-connector
+          packaging/macos/prepare-codex-runtime.sh \
+            "$RUNNER_TEMP/project-space-macos-codex"
+          bun packaging/linux/smoke-codex-runtime.ts \
+            "$RUNNER_TEMP/project-space-macos-codex/codex"
           bash packaging/macos/prepare-unsigned-release-artifact.sh \
             '${{ inputs.version }}' \
             '${{ inputs.source-sha }}' \
             dist/project-space-connector \
+            "$RUNNER_TEMP/project-space-macos-codex" \
             "$RUNNER_TEMP/project-space-macos-runtime"
 
       - name: Upload immutable runtime

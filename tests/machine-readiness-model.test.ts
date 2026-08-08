@@ -198,6 +198,23 @@ describe('canonical machine readiness model', () => {
         capabilities: ['codex.runtime.v1', 'runtime.update']
       }
     }).state).toBe('uncertain');
+    const runtimeUpdate = {
+      ...status('update-required'),
+      capabilities: ['codex.runtime.v1', 'runtime.update'],
+      update: {
+        ...status('update-required').update,
+        availableCapabilities: ['codex.runtime.v1', 'runtime.update']
+      }
+    };
+    expect(diagnose({
+      connector: connector({ capabilities: ['codex.runtime.v1', 'runtime.update'] }),
+      runtimeStatus: runtimeUpdate
+    }).state).toBe('repairable');
+    expect(diagnose({
+      canRepair: false,
+      connector: connector({ capabilities: ['codex.runtime.v1', 'runtime.update'] }),
+      runtimeStatus: runtimeUpdate
+    }).state).toBe('authorization-required');
     expect(diagnose({}).state).toBe('uncertain');
     expect(diagnose({
       connector: connector({ status: 'offline' }),
