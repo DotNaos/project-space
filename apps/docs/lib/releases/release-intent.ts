@@ -10,6 +10,9 @@ export const releaseIntentEnforcementPath =
   `${releaseIntentDirectory}/.enforced`;
 export const releaseIntentEnforcementSource =
   `${releaseIntentSchema}\n`;
+/** One-time compatibility file carried by the changelog migration PR. */
+export const legacyReleaseIntentMigrationPath =
+  `${releaseIntentDirectory}/00000000-0000-4000-8000-000000000524.json`;
 
 export type ReleaseIntent = (typeof releaseIntentValues)[number];
 

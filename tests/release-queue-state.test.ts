@@ -13,12 +13,12 @@ const published: PublishedRelease = {
 };
 
 function merge(
-  intent: QueuedMerge['intent'],
+  bump: NonNullable<QueuedMerge['bump']>,
   pullRequest: number,
 ): QueuedMerge {
   return {
     commit: pullRequest.toString(16).padStart(40, '0'),
-    intent,
+    bump,
     pullRequest,
   };
 }
@@ -39,7 +39,7 @@ describe('serial release queue decisions', () => {
       alreadyEnforced: false,
       commits: ['unowned'],
       enforcementIndex: -1,
-    })).toThrow('no release-intent enforcement marker');
+    })).toThrow('no release queue enforcement marker');
   });
 
   test.each([
@@ -54,7 +54,7 @@ describe('serial release queue decisions', () => {
       published,
       reservations: [],
     })).toEqual({
-      intent,
+      bump: intent,
       item,
       kind: 'release',
       tag: `v${version}`,
@@ -63,7 +63,11 @@ describe('serial release queue decisions', () => {
   });
 
   test('always selects the oldest release-bearing merge', () => {
-    const none = merge('none', 11);
+    const none: QueuedMerge = {
+      commit: '000000000000000000000000000000000000000b',
+      intent: 'none',
+      pullRequest: 11,
+    };
     const first = merge('patch', 12);
     const second = merge('minor', 13);
     const decision = releaseQueueDecision({
@@ -102,8 +106,12 @@ describe('serial release queue decisions', () => {
     })).toThrow();
   });
 
-  test('deploys current main only after the queue contains no release intent', () => {
-    const current = merge('none', 17);
+  test('deploys current main only after legacy history contains no release intent', () => {
+    const current: QueuedMerge = {
+      commit: merge('patch', 17).commit,
+      intent: 'none',
+      pullRequest: 17,
+    };
     expect(releaseQueueDecision({
       currentMain: current.commit,
       merges: [current],

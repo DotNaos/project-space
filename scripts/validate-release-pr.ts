@@ -2,6 +2,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { prChangelogDirectory } from '../apps/docs/lib/changelog/pr-file';
 import { parseReleaseCatalog } from '../apps/docs/lib/releases/catalog';
 import { releaseIntentDirectory } from
   '../apps/docs/lib/releases/release-intent';
@@ -64,7 +65,7 @@ async function main() {
   if (!result.ok) fail(result.errors);
 
   console.log(
-    `Release gate passed: PR #${pullRequest} declares ${result.intent} and keeps concrete version ${basePackageVersion} unassigned.`,
+    `Changelog gate passed: PR #${pullRequest} declares a ${result.bump} release and keeps concrete version ${basePackageVersion} unassigned.`,
   );
 }
 
@@ -124,7 +125,8 @@ async function parseNameStatus(
           path,
           source:
             status !== 'deleted' &&
-              path.startsWith(`${releaseIntentDirectory}/`)
+              (path.startsWith(`${prChangelogDirectory}/`) ||
+                path.startsWith(`${releaseIntentDirectory}/`))
               ? await gitTextValidationRaw('show', `${headRef}:${path}`)
               : undefined,
           status,

@@ -1,35 +1,34 @@
 ---
-title: Release intent
-description: Declare whether a merged pull request needs a tools release.
+title: Changelog authoring
+description: Add the required raw changelog for every pull request.
 ---
 
-Every pull request adds one immutable file directly under
-`.github/release-intents/`. Name it with a new lowercase UUID and use this
-strict shape:
+Every pull request that changes the product must add exactly one immutable
+Markdown file at `changelog/<PR-number>.md`. The filename is the pull request
+number, not the issue number and not a generated UUID.
 
-```json
-{
-  "schema": "project-space.release-intent/v1",
-  "intent": "patch"
-}
+```md
+---
+bump: patch
+---
+
+# Short summary
+
+Explain what changed and why it matters.
 ```
 
-The pull request does not choose a concrete version. After merge, one serial
-queue reads intents in main-branch order, derives the next version from the
-latest published signed release, reserves the exact Git tag, and starts the
-existing signed publication pipeline. Concurrent pull requests therefore
-cannot claim or collide on the same version.
+`bump` is required and must be `patch`, `minor`, or `major`. There is no
+`none`: every merged pull request receives a concrete version. The pull
+request keeps `package.json` unchanged; after merge, the serial release queue
+assigns the next version in main-branch order.
 
-## Authoring rules
+The raw file is the source record. It is shown in the Docs **Unreleased**
+Inbox until the release queue can associate it with a published version. This
+means a release-documentation problem cannot make a changelog disappear.
 
-- Use `none` when no new CLI, connector, installer, or machine-tool artifact is
-  needed. The trusted gate rejects `none` for release-sensitive paths.
-- Use `patch` for a compatible correction or small improvement.
-- Use `minor` for a compatible new capability.
-- Use `major` only for an intentionally incompatible release.
-- Keep `package.json` version unchanged and never edit a historical file under
-  `apps/docs/content/docs/releases/entries/`.
+Do not edit another pull request's changelog file or historical files under
+`apps/docs/content/docs/releases/entries/`.
 
-The queue publishes GitHub-generated release notes for the exact tag range.
-Historical hand-authored release entries remain available in Project Docs but
-are no longer part of pull-request authoring.
+The rollout PR may carry one matching legacy release-intent file solely so the
+trusted validator from the previous `main` revision can recognize the
+migration. New pull requests must not add release-intent files.
