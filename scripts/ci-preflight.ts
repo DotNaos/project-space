@@ -40,7 +40,7 @@ export function preflightPlan(input: {
     { id: 'package-manager-policy', command: ['bun', 'run', 'check:package-manager'] },
     { id: 'locked-root-dependencies', command: ['bun', 'install', '--frozen-lockfile'] },
     {
-      id: 'release-intent',
+      id: 'changelog',
       command: input.pullRequest
         ? [
             'bun',
@@ -272,7 +272,7 @@ async function runLane(lane: PreflightLane, baseSha: string, headSha: string) {
   const child = Bun.spawn(actualCommand, {
     cwd: workingDirectory,
     env:
-      lane.id === 'release-intent'
+      lane.id === 'changelog'
         ? {
             ...process.env,
             RELEASE_BASE_SHA: baseSha,
