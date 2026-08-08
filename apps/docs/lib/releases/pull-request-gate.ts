@@ -6,6 +6,7 @@ import {
 } from '../changelog/pr-file';
 import {
   isReleaseIntentFileName,
+  legacyReleaseIntentMigrationPath,
   parseReleaseIntent,
   releaseIntentDirectory,
 } from './release-intent';
@@ -97,8 +98,13 @@ export function validateReleasePullRequest(
   }
 
   if (changedLegacyIntents.length > 0) {
-    if (changedLegacyIntents.length !== 1) {
-      errors.push('At most one legacy release intent may accompany the migration changelog.');
+    if (
+      changedLegacyIntents.length !== 1 ||
+      changedLegacyIntents[0].path !== legacyReleaseIntentMigrationPath
+    ) {
+      errors.push(
+        'Only the one-time migration compatibility intent may accompany this changelog.',
+      );
     } else {
       const legacy = changedLegacyIntents[0];
       const legacyName = legacy.path.slice(`${releaseIntentDirectory}/`.length);

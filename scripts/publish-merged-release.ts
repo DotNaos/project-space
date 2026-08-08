@@ -13,6 +13,7 @@ import {
   releaseIntentDirectory,
   releaseIntentEnforcementPath,
   releaseIntentEnforcementSource,
+  legacyReleaseIntentMigrationPath,
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
 import {
@@ -255,7 +256,10 @@ async function queuedMerges(
         );
       }
       if (intentPaths.length > 0) {
-        if (intentPaths.length !== 1) {
+        if (
+          intentPaths.length !== 1 ||
+          intentPaths[0] !== legacyReleaseIntentMigrationPath
+        ) {
           throw new Error(
             `Merged commit ${commit} may carry at most one legacy release intent during changelog migration.`,
           );
