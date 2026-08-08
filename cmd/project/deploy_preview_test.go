@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,40 +13,56 @@ import (
 )
 
 func TestDispatchPreviewUsesTrustedMainWorkflowAndValidatedPR(t *testing.T) {
-	var workflowArgs []string
 	runner := func(_ string, _ []byte, name string, args ...string) (string, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
-		switch {
-		case command == "git -c safe.directory=/repo remote get-url origin":
+		if command == "git -c safe.directory=/repo remote get-url origin" {
 			return "git@github.com:DotNaos/project-space.git\n", nil
-		case command == "gh api repos/DotNaos/project-space":
-			return `{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`, nil
-		case command == "gh api repos/DotNaos/project-space/pulls/263":
-			return previewPullRequestJSON(263, "open", "main", "DotNaos/project-space", strings.Repeat("a", 40)), nil
-		case strings.HasPrefix(command, "gh workflow run "):
-			workflowArgs = append([]string(nil), args...)
-			return "", nil
-		default:
-			return "", fmt.Errorf("unexpected command: %s", command)
 		}
+		return "", fmt.Errorf("unexpected command: %s", command)
 	}
+	var dispatchedPath string
+	var dispatchedBody []byte
+	api := previewGitHubTestRequester(
+		`{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`,
+		previewPullRequestJSON(263, "open", "main", "DotNaos/project-space", strings.Repeat("a", 40)),
+		func(method, path string, body []byte) ([]byte, error) {
+			if method != http.MethodPost {
+				return nil, fmt.Errorf("unexpected dispatch method: %s", method)
+			}
+			dispatchedPath = path
+			dispatchedBody = body
+			return nil, nil
+		},
+	)
 	result, err := dispatchPreview("/repo", "deploy", 263, previewDependencies{
-		run: runner, random: bytes.NewReader(bytes.Repeat([]byte{0x12}, 16)), now: time.Now,
+		run: runner, githubAPI: api, random: bytes.NewReader(bytes.Repeat([]byte{0x12}, 16)), now: time.Now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := []string{
-		"workflow", "run", "deploy-preview.yml", "--repo", "DotNaos/project-space", "--ref", "main",
-		"-f", "action=deploy", "-f", "pr=263", "-f", "operation_id=preview-12121212121212121212121212121212",
+	if dispatchedPath != "/repos/DotNaos/project-space/actions/workflows/deploy-preview.yml/dispatches" {
+		t.Fatalf("dispatch path = %q", dispatchedPath)
 	}
-	if strings.Join(workflowArgs, "\x00") != strings.Join(wantArgs, "\x00") {
-		t.Fatalf("workflow args = %#v, want %#v", workflowArgs, wantArgs)
+	var payload struct {
+		Ref    string            `json:"ref"`
+		Inputs map[string]string `json:"inputs"`
 	}
-	joined := strings.Join(workflowArgs, " ")
+	if err := json.Unmarshal(dispatchedBody, &payload); err != nil {
+		t.Fatal(err)
+	}
+	wantInputs := map[string]string{"action": "deploy", "pr": "263", "operation_id": "preview-12121212121212121212121212121212"}
+	if payload.Ref != "main" || len(payload.Inputs) != len(wantInputs) {
+		t.Fatalf("dispatch payload = %#v", payload)
+	}
+	for key, value := range wantInputs {
+		if payload.Inputs[key] != value {
+			t.Fatalf("dispatch payload = %#v, want %v", payload, wantInputs)
+		}
+	}
+	body := string(dispatchedBody)
 	for _, untrusted := range []string{strings.Repeat("a", 40), "feature/preview", "projects.os-home.net"} {
-		if strings.Contains(joined, untrusted) {
-			t.Fatalf("workflow dispatch included untrusted or derived value %q: %s", untrusted, joined)
+		if strings.Contains(body, untrusted) {
+			t.Fatalf("workflow dispatch included untrusted or derived value %q: %s", untrusted, body)
 		}
 	}
 	if result.ExpectedLiveURL != "https://pr-263.projects.os-home.net" || result.Workflow.Ref != "main" || result.Workflow.State != "queued" {
@@ -125,8 +142,12 @@ func TestDispatchPreviewRejectsUnsafePullRequestsAndPermissions(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			runner := previewGitHubTestRunner(test.repository, test.pull)
-			_, err := dispatchPreview("/repo", "deploy", 263, previewDependencies{run: runner, random: bytes.NewReader(make([]byte, 16)), now: time.Now})
+			_, err := dispatchPreview("/repo", "deploy", 263, previewDependencies{
+				run:       previewGitHubTestGitRunner,
+				githubAPI: previewGitHubTestRequester(test.repository, test.pull, nil),
+				random:    bytes.NewReader(make([]byte, 16)),
+				now:       time.Now,
+			})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want containing %q", err, test.want)
 			}
@@ -328,18 +349,28 @@ func TestPreviewCommandRejectsUnknownFormatBeforeExternalCommands(t *testing.T) 
 	}
 }
 
-func previewGitHubTestRunner(repositoryJSON string, pullJSON string) previewCommandRunner {
-	return func(_ string, _ []byte, name string, args ...string) (string, error) {
-		command := strings.Join(append([]string{name}, args...), " ")
-		switch command {
-		case "git -c safe.directory=/repo remote get-url origin":
-			return "https://github.com/DotNaos/project-space.git", nil
-		case "gh api repos/DotNaos/project-space":
-			return repositoryJSON, nil
-		case "gh api repos/DotNaos/project-space/pulls/263":
-			return pullJSON, nil
+func previewGitHubTestGitRunner(_ string, _ []byte, name string, args ...string) (string, error) {
+	command := strings.Join(append([]string{name}, args...), " ")
+	if command == "git -c safe.directory=/repo remote get-url origin" {
+		return "https://github.com/DotNaos/project-space.git", nil
+	}
+	return "", fmt.Errorf("unexpected command: %s", command)
+}
+
+// previewGitHubTestRequester builds a previewGitHubRequester that serves the repository and pull
+// request GET calls dispatchPreviewWithOptions makes before dispatching a workflow. Any POST
+// (the workflow_dispatch call) is forwarded to onDispatch if provided, or rejected otherwise.
+func previewGitHubTestRequester(repositoryJSON string, pullJSON string, onDispatch func(method, path string, body []byte) ([]byte, error)) previewGitHubRequester {
+	return func(method, path string, body []byte) ([]byte, error) {
+		switch {
+		case method == http.MethodGet && path == "/repos/DotNaos/project-space":
+			return []byte(repositoryJSON), nil
+		case method == http.MethodGet && strings.HasPrefix(path, "/repos/DotNaos/project-space/pulls/"):
+			return []byte(pullJSON), nil
+		case onDispatch != nil:
+			return onDispatch(method, path, body)
 		default:
-			return "", fmt.Errorf("unexpected command: %s", command)
+			return nil, fmt.Errorf("unexpected GitHub API request: %s %s", method, path)
 		}
 	}
 }
