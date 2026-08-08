@@ -72,6 +72,126 @@ function backend() {
         status: 'connected' as const
       };
     },
+    async getGitHubRepositoryDetails() {
+      return {
+        branches: [{
+          commitSha: 'abc123',
+          isDefault: false,
+          linkedIssueNumbers: [480],
+          name: 'task/480',
+          url: 'https://github.com/DotNaos/project-space/tree/task/480'
+        }],
+        checkedAt: '2026-08-07T00:00:00.000Z',
+        issues: [{
+          author: 'oli',
+          body: 'Build the MCP task discovery flow.',
+          id: 9001,
+          labels: ['enhancement'],
+          number: 480,
+          state: 'open' as const,
+          title: 'Add GitHub task discovery',
+          updatedAt: '2026-08-07T12:00:00.000Z',
+          url: 'https://github.com/DotNaos/project-space/issues/480'
+        }, {
+          author: 'oli',
+          body: 'Already completed.',
+          id: 9002,
+          labels: [],
+          number: 479,
+          state: 'closed' as const,
+          title: 'Old task',
+          updatedAt: '2026-08-06T12:00:00.000Z',
+          url: 'https://github.com/DotNaos/project-space/issues/479'
+        }],
+        pullRequests: [{
+          author: { login: 'oli' },
+          baseBranch: 'main',
+          checksStatus: 'passing' as const,
+          headBranch: 'task/480',
+          headSha: 'abc123',
+          isDraft: true,
+          linkedIssueNumbers: [480],
+          number: 482,
+          state: 'open' as const,
+          title: 'Task 480 implementation',
+          url: 'https://github.com/DotNaos/project-space/pull/482'
+        }],
+        status: 'connected' as const
+      };
+    },
+    async getGitHubPipelineStatus() {
+      return {
+        checkedAt: '2026-08-07T13:30:00.000Z',
+        pagination: { hasNext: false, page: 1, perPage: 20 },
+        runs: [{
+          branch: 'task/480',
+          conclusion: 'success' as const,
+          createdAt: '2026-08-07T13:20:00.000Z',
+          displayTitle: 'Task 480 implementation',
+          headSha: 'abc123',
+          id: 8001,
+          kind: 'ci' as const,
+          name: 'CI',
+          status: 'completed' as const,
+          updatedAt: '2026-08-07T13:30:00.000Z',
+          url: 'https://github.com/DotNaos/project-space/actions/runs/8001'
+        }],
+        status: 'connected' as const
+      };
+    },
+    async createGitHubIssue(request: { body?: string; fullName: string; labels?: string[]; operationId: string; title: string }) {
+      return {
+        creationState: 'complete' as const,
+        issue: {
+          author: 'oli',
+          body: request.body,
+          labels: request.labels ?? [],
+          number: 481,
+          state: 'open' as const,
+          title: request.title,
+          url: `https://github.com/${request.fullName}/issues/481`
+        },
+        status: 'connected' as const
+      };
+    },
+    async updateGitHubIssue(request: { body?: string; fullName: string; labels?: string[]; number: number; state?: 'open' | 'closed'; title?: string }) {
+      return {
+        issue: {
+          author: 'oli',
+          body: request.body,
+          labels: request.labels ?? [],
+          number: request.number,
+          state: request.state ?? 'open',
+          title: request.title ?? 'Updated task',
+          url: `https://github.com/${request.fullName}/issues/${request.number}`
+        },
+        status: 'connected' as const
+      };
+    },
+    async getGitHubIssueComments() {
+      return {
+        comments: [{
+          author: 'oli',
+          body: 'Looks good.',
+          createdAt: '2026-08-07T13:00:00.000Z',
+          id: 7001,
+          url: 'https://github.com/DotNaos/project-space/issues/480#issuecomment-7001'
+        }],
+        status: 'connected' as const
+      };
+    },
+    async createGitHubIssueComment(request: { body: string; fullName: string; number: number }) {
+      return {
+        comment: {
+          author: 'oli',
+          body: request.body,
+          createdAt: '2026-08-07T14:00:00.000Z',
+          id: 7002,
+          url: `https://github.com/${request.fullName}/issues/${request.number}#issuecomment-7002`
+        },
+        status: 'connected' as const
+      };
+    },
     async loadProjectDiscovery() {
       return {
         groups: [],
@@ -106,7 +226,21 @@ function runtime(calls: Array<{ kind: string; request: unknown; userId: string }
       },
       async start(actor: { userId: string }, request: unknown) {
         calls.push({ kind: 'start', request, userId: actor.userId });
-        return { apiVersion: 1, operationId: 'start-test', state: 'ready' };
+        if ((request as { dryRun?: boolean }).dryRun) {
+          return { apiVersion: 1, operationId: 'start-test', state: 'ready' };
+        }
+        return {
+          apiVersion: 1,
+          operationId: 'start-test-confirmed',
+          state: 'confirmed',
+          task: {
+            canonicalTaskUrl: 'https://projects.os-home.net/tasks/test',
+            issue: { number: 480, url: 'https://github.com/DotNaos/project-space/issues/480' },
+            repository: { id: '480', nameWithOwner: 'DotNaos/project-space' },
+            threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c',
+            worktree: { branch: 'task/480', id: 'worktree-480' }
+          }
+        };
       }
     },
     sessions: {
@@ -244,6 +378,13 @@ describe('Project Space remote MCP server', () => {
     const listed = await client.listTools();
     expect(listed.tools.map((entry) => entry.name)).toEqual([
       'list_projects',
+      'list_tasks',
+      'get_task',
+      'get_task_status',
+      'create_task',
+      'update_task',
+      'list_task_comments',
+      'add_task_comment',
       'list_machines',
       'list_codex_tasks',
       'read_codex_task',
@@ -263,10 +404,128 @@ describe('Project Space remote MCP server', () => {
     });
     expect(JSON.stringify(projects)).not.toContain('/not-exposed');
 
+    const tasks = await client.callTool({
+      name: 'list_tasks',
+      arguments: { repositoryId: '480' }
+    });
+    expect(tasks.structuredContent).toMatchObject({
+      result: {
+        status: 'connected',
+        tasks: [{
+          id: 'github:DotNaos/project-space:480',
+          provider: 'github',
+          repository: 'DotNaos/project-space',
+          state: 'open',
+          title: 'Add GitHub task discovery'
+        }]
+      }
+    });
+
+    const allTasks = await client.callTool({
+      name: 'list_tasks',
+      arguments: { limit: 1, repositoryId: '480', state: 'all' }
+    });
+    expect(allTasks.structuredContent).toMatchObject({
+      result: { tasks: [{ number: 480 }], truncated: true }
+    });
+
+    const searchedTasks = await client.callTool({
+      name: 'list_tasks',
+      arguments: { repositoryId: '480', search: 'completed', state: 'all' }
+    });
+    expect(searchedTasks.structuredContent).toMatchObject({
+      result: { tasks: [{ number: 479, state: 'closed' }] }
+    });
+
+    const unknownRepository = await client.callTool({
+      name: 'list_tasks',
+      arguments: { repositoryId: 'unknown/repository' }
+    });
+    expect(unknownRepository.structuredContent).toMatchObject({
+      result: { catalogStatus: 'connected', repositoryId: 'unknown/repository' }
+    });
+
+    const task = await client.callTool({
+      name: 'get_task',
+      arguments: { repositoryId: 'DotNaos/project-space', task: 480 }
+    });
+    expect(task.structuredContent).toMatchObject({
+      result: { task: { number: 480, title: 'Add GitHub task discovery' } }
+    });
+
+    const taskStatus = await client.callTool({
+      name: 'get_task_status',
+      arguments: { repositoryId: '480', task: 480 }
+    });
+    expect(taskStatus.structuredContent).toMatchObject({
+      result: {
+        branches: [{ name: 'task/480' }],
+        pipeline: { runs: [{ id: 8001, branch: 'task/480' }] },
+        pullRequests: [{ number: 482, state: 'open' }]
+      }
+    });
+
+    const createdTask = await client.callTool({
+      name: 'create_task',
+      arguments: {
+        body: 'New task body',
+        labels: ['enhancement'],
+        operationId: '019f6d33-6aad-4302-a45e-bb7a33fc399c',
+        repositoryId: '480',
+        title: 'New task'
+      }
+    });
+    expect(createdTask.structuredContent).toMatchObject({
+      result: { creationState: 'complete', task: { number: 481, provider: 'github', title: 'New task' } }
+    });
+    expect(JSON.stringify(createdTask)).not.toContain('"issue"');
+
+    const updatedTask = await client.callTool({
+      name: 'update_task',
+      arguments: { repositoryId: 'DotNaos/project-space', state: 'closed', task: 480, title: 'Updated task' }
+    });
+    expect(updatedTask.structuredContent).toMatchObject({
+      result: { status: 'connected', task: { number: 480, state: 'closed', title: 'Updated task' } }
+    });
+
+    const comments = await client.callTool({
+      name: 'list_task_comments',
+      arguments: { repositoryId: '480', task: 480 }
+    });
+    expect(comments.structuredContent).toMatchObject({
+      result: { comments: [{ id: 7001, body: 'Looks good.' }], task: 480 }
+    });
+
+    const addedComment = await client.callTool({
+      name: 'add_task_comment',
+      arguments: { body: 'Ship it.', repositoryId: '480', task: 480 }
+    });
+    expect(addedComment.structuredContent).toMatchObject({
+      result: { comment: { id: 7002, body: 'Ship it.' }, task: 480 }
+    });
+
+    const missingTask = await client.callTool({
+      name: 'get_task',
+      arguments: { repositoryId: '480', task: 404 }
+    });
+    expect(missingTask.isError).toBe(true);
+
+    const missingTaskUpdate = await client.callTool({
+      name: 'update_task',
+      arguments: { repositoryId: '480', state: 'closed', task: 404 }
+    });
+    expect(missingTaskUpdate.isError).toBe(true);
+
+    const missingOperationId = await client.callTool({
+      name: 'create_task',
+      arguments: { repositoryId: '480', title: 'Unsafe retry' }
+    });
+    expect(missingOperationId.isError).toBe(true);
+
     await client.callTool({ name: 'list_codex_tasks', arguments: {} });
     const started = await client.callTool({
       name: 'start_codex_task',
-      arguments: { dryRun: true, issue: 480, repositoryId: '480' }
+      arguments: { dryRun: true, task: 480, repositoryId: '480' }
     });
     expect(started.isError).not.toBe(true);
     expect(calls).toMatchObject([
@@ -278,6 +537,28 @@ describe('Project Space remote MCP server', () => {
       }
     ]);
     expect((calls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
+
+    const confirmed = await client.callTool({
+      name: 'start_codex_task',
+      arguments: { repositoryId: '480', task: 480 }
+    });
+    expect(confirmed.structuredContent).toMatchObject({
+      result: { state: 'confirmed', task: { source: { number: 480, provider: 'github' } } }
+    });
+    expect(JSON.stringify(confirmed)).not.toContain('"issue"');
+
+    const invalidDryRun = await client.callTool({
+      name: 'start_codex_task',
+      arguments: { dryRun: true, repositoryId: '480', task: 404 }
+    });
+    expect(invalidDryRun.isError).toBe(true);
+    expect(calls.filter((call) => call.kind === 'start')).toHaveLength(2);
+
+    const invalidUpdate = await client.callTool({
+      name: 'update_task',
+      arguments: { repositoryId: '480', task: 480 }
+    });
+    expect(invalidUpdate.isError).toBe(true);
   });
 
   test('logs MCP tool failures with a client-visible request ID', async () => {
@@ -352,11 +633,21 @@ describe('Project Space remote MCP server', () => {
       requestInit: { headers: { Authorization: `Bearer ${readOnlyToken}` } }
     }));
     const rejectedWrite = await readOnlyClient.callTool({
-      arguments: { dryRun: true, issue: 480, repositoryId: '480' },
+      arguments: { dryRun: true, task: 480, repositoryId: '480' },
       name: 'start_codex_task'
     });
     expect(rejectedWrite.isError).toBe(true);
     expect(rejectedWrite._meta).toMatchObject({ 'mcp/www_authenticate': [expect.stringContaining('project-space:write')] });
+    const rejectedTaskWrite = await readOnlyClient.callTool({
+      arguments: {
+        operationId: '019f6d33-6aad-4302-a45e-bb7a33fc399d',
+        repositoryId: '480',
+        title: 'Nope'
+      },
+      name: 'create_task'
+    });
+    expect(rejectedTaskWrite.isError).toBe(true);
+    expect(rejectedTaskWrite._meta).toMatchObject({ 'mcp/www_authenticate': [expect.stringContaining('project-space:write')] });
 
     const unsafeRegistration = await fetch(`${origin}/register`, {
       body: JSON.stringify({

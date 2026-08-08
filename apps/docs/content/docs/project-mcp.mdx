@@ -16,9 +16,21 @@ Project Space provides the OAuth 2.1 authorization server itself. ChatGPT Work d
 1. In ChatGPT Work, add a custom MCP server.
 2. Enter `https://projects.os-home.net/mcp` as the server URL.
 3. Sign in to Project Space and approve the requested read/write access.
-4. Use `list_projects`, `list_machines`, or `list_codex_tasks` before selecting a target.
+4. Use `list_projects` and `list_machines` before selecting a repository or machine.
 
-The server also exposes `read_codex_task`, `start_codex_task`, and `send_codex_message`. Starting a task creates a Project-managed worktree from a GitHub issue. Sending a message continues an existing Codex task. Both actions are marked as consequential tool calls so ChatGPT can request confirmation before invoking them.
+The server exposes these task tools:
+
+- `list_tasks` lists open GitHub tasks in an authorized repository. Use `get_task` to read one task.
+- `get_task_status` reads linked branches, pull requests, and workflow runs for a task.
+- `create_task` creates a GitHub task. It requires a UUID `operationId`; reuse it only to safely retry the same draft.
+- `update_task` changes a task title, body, labels, or open/closed state.
+- `list_task_comments` reads comments and `add_task_comment` adds one. Comments are not idempotent; do not automatically retry an add after an unknown network result.
+- `list_codex_tasks` lists Codex tasks already running on connector machines.
+- `read_codex_task` reads a Codex task transcript.
+- `start_codex_task` starts a Codex task from a GitHub task number and repository id, creating a Project-managed worktree. Set `dryRun: true` to validate the open task and target without starting Codex.
+- `send_codex_message` sends a follow-up message to an existing Codex task.
+
+Assignees are not exposed yet because the current Project Space GitHub backend does not support them. GitHub is the only task provider in this iteration. Azure DevOps is reserved for a later provider addition. Creating or changing a task, starting a task, or sending a message are marked as consequential tool calls so ChatGPT can request confirmation before invoking them.
 
 ## Connect Codex
 

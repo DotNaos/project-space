@@ -46,7 +46,15 @@ const maximumSessions = 100;
 
 type McpBackend = Pick<
   ProjectSpaceBackend,
-  'getConnectorOverview' | 'getGitHubCatalog' | 'loadProjectDiscovery'
+  | 'createGitHubIssue'
+  | 'createGitHubIssueComment'
+  | 'getConnectorOverview'
+  | 'getGitHubCatalog'
+  | 'getGitHubIssueComments'
+  | 'getGitHubPipelineStatus'
+  | 'getGitHubRepositoryDetails'
+  | 'loadProjectDiscovery'
+  | 'updateGitHubIssue'
 >;
 
 export interface ProjectSpaceMcpOptions {
@@ -79,6 +87,44 @@ const selectorSchema = z.object({
 
 const toolSchemas = {
   list_projects: z.object({ search: z.string().trim().max(200).optional() }),
+  list_tasks: z.object({
+    limit: z.number().int().min(1).max(100).optional(),
+    repositoryId: z.string().trim().min(1),
+    search: z.string().trim().max(200).optional(),
+    state: z.enum(['open', 'closed', 'all']).optional()
+  }),
+  get_task: z.object({
+    repositoryId: z.string().trim().min(1),
+    task: z.number().int().positive()
+  }),
+  get_task_status: z.object({
+    repositoryId: z.string().trim().min(1),
+    task: z.number().int().positive()
+  }),
+  create_task: z.object({
+    body: z.string().trim().max(100_000).optional(),
+    labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+    operationId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+    repositoryId: z.string().trim().min(1),
+    title: z.string().trim().min(1).max(1_000)
+  }),
+  update_task: z.object({
+    body: z.string().trim().max(100_000).optional(),
+    labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+    repositoryId: z.string().trim().min(1),
+    state: z.enum(['open', 'closed']).optional(),
+    task: z.number().int().positive(),
+    title: z.string().trim().min(1).max(1_000).optional()
+  }),
+  list_task_comments: z.object({
+    repositoryId: z.string().trim().min(1),
+    task: z.number().int().positive()
+  }),
+  add_task_comment: z.object({
+    body: z.string().trim().min(1).max(100_000),
+    repositoryId: z.string().trim().min(1),
+    task: z.number().int().positive()
+  }),
   list_machines: z.object({}),
   list_codex_tasks: z.object({
     connectorId: z.string().trim().min(1).optional(),
@@ -91,9 +137,9 @@ const toolSchemas = {
   }),
   start_codex_task: selectorSchema.extend({
     dryRun: z.boolean().optional(),
-    issue: z.number().int().positive(),
     operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/).optional(),
-    repositoryId: z.string().trim().min(1).optional()
+    repositoryId: z.string().trim().min(1),
+    task: z.number().int().positive()
   }),
   send_codex_message: selectorSchema.extend({
     last: z.number().int().min(1).max(100).optional(),
@@ -108,6 +154,58 @@ const tools: OAuthTool[] = [
   tool('list_projects', 'List projects', 'List the Project Space projects and GitHub repositories available to the signed-in user.', {
     type: 'object', properties: { search: { type: 'string', description: 'Optional case-insensitive name filter.' } }, additionalProperties: false
   }, { readOnlyHint: true, openWorldHint: false }),
+  tool('list_tasks', 'List tasks', 'List GitHub tasks in an authorized repository. Use list_projects first to select the repository.', {
+    type: 'object', required: ['repositoryId'], properties: {
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+      repositoryId: { type: 'string', description: 'Repository id or full name, for example DotNaos/project-space.' },
+      search: { type: 'string', description: 'Optional case-insensitive search across task title, body, and labels.' },
+      state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Defaults to open.' }
+    }, additionalProperties: false
+  }, { readOnlyHint: true, openWorldHint: true }),
+  tool('get_task', 'Get task', 'Read one GitHub task from an authorized repository.', {
+    type: 'object', required: ['repositoryId', 'task'], properties: {
+      repositoryId: { type: 'string', description: 'Repository id or full name.' },
+      task: { type: 'integer', minimum: 1, description: 'GitHub task number.' }
+    }, additionalProperties: false
+  }, { readOnlyHint: true, openWorldHint: true }),
+  tool('get_task_status', 'Get task status', 'Read the linked GitHub branches, pull requests, and workflow runs for a task.', {
+    type: 'object', required: ['repositoryId', 'task'], properties: {
+      repositoryId: { type: 'string', description: 'Repository id or full name.' },
+      task: { type: 'integer', minimum: 1, description: 'GitHub task number.' }
+    }, additionalProperties: false
+  }, { readOnlyHint: true, openWorldHint: true }),
+  tool('create_task', 'Create task', 'Create a GitHub task in an authorized repository. Reuse operationId only for the same task draft.', {
+    type: 'object', required: ['operationId', 'repositoryId', 'title'], properties: {
+      body: { type: 'string' },
+      labels: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+      operationId: { type: 'string', format: 'uuid', description: 'Idempotency key. Reuse it only for the same task draft.' },
+      repositoryId: { type: 'string', description: 'Repository id or full name.' },
+      title: { type: 'string', description: 'Task title.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }),
+  tool('update_task', 'Update task', 'Update the title, body, labels, or open/closed state of a GitHub task.', {
+    type: 'object', required: ['repositoryId', 'task'], properties: {
+      body: { type: 'string' },
+      labels: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+      repositoryId: { type: 'string', description: 'Repository id or full name.' },
+      state: { type: 'string', enum: ['open', 'closed'] },
+      task: { type: 'integer', minimum: 1, description: 'GitHub task number.' },
+      title: { type: 'string' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }),
+  tool('list_task_comments', 'List task comments', 'Read comments on one GitHub task.', {
+    type: 'object', required: ['repositoryId', 'task'], properties: {
+      repositoryId: { type: 'string', description: 'Repository id or full name.' },
+      task: { type: 'integer', minimum: 1, description: 'GitHub task number.' }
+    }, additionalProperties: false
+  }, { readOnlyHint: true, openWorldHint: true }),
+  tool('add_task_comment', 'Add task comment', 'Add a comment to a GitHub task.', {
+    type: 'object', required: ['body', 'repositoryId', 'task'], properties: {
+      body: { type: 'string' },
+      repositoryId: { type: 'string', description: 'Repository id or full name.' },
+      task: { type: 'integer', minimum: 1, description: 'GitHub task number.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: false, openWorldHint: true, readOnlyHint: false }),
   tool('list_machines', 'List machines', 'List the Project Space connector machines available to the signed-in user.', {
     type: 'object', properties: {}, additionalProperties: false
   }, { readOnlyHint: true, openWorldHint: false }),
@@ -122,11 +220,11 @@ const tools: OAuthTool[] = [
       last: { type: 'integer', minimum: 1, maximum: 100 }, threadId: { type: 'string', format: 'uuid' }
     }, additionalProperties: false
   }, { readOnlyHint: true, openWorldHint: false }),
-  tool('start_codex_task', 'Start Codex task', 'Start a Codex task from a GitHub issue. This creates a Project-managed worktree and starts Codex on the selected machine.', {
-    type: 'object', required: ['issue'], properties: {
+  tool('start_codex_task', 'Start Codex task', 'Start a Codex task from a GitHub task. This creates a Project-managed worktree and starts Codex on the selected machine.', {
+    type: 'object', required: ['repositoryId', 'task'], properties: {
       connectorId: { type: 'string' }, physicalMachineId: { type: 'string' }, physicalMachineName: { type: 'string' },
       dryRun: { type: 'boolean', description: 'Validate and resolve the target without starting Codex.' },
-      issue: { type: 'integer', minimum: 1 }, operationId: { type: 'string' }, repositoryId: { type: 'string' }
+      operationId: { type: 'string' }, repositoryId: { type: 'string' }, task: { type: 'integer', minimum: 1, description: 'GitHub task number.' }
     }, additionalProperties: false
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }),
   tool('send_codex_message', 'Send Codex message', 'Send a follow-up message to an existing Codex task.', {
@@ -348,6 +446,202 @@ async function callTool(
         physicalMachines: overview.physicalMachines ?? []
       });
     }
+    case 'list_tasks': {
+      const input = toolSchemas.list_tasks.parse(rawArguments);
+      const { catalog, repository } = await resolveGitHubRepository(backend, input.repositoryId);
+      if (!repository) {
+        return toolResult({
+          catalogStatus: catalog.status,
+          message: catalog.message ?? 'The GitHub repository is not available.',
+          repositoryId: input.repositoryId,
+          tasks: undefined
+        });
+      }
+      const details = await backend.getGitHubRepositoryDetails(repository.fullName);
+      if (details.status !== 'connected') {
+        return toolResult({
+          checkedAt: details.checkedAt,
+          message: details.message ?? 'GitHub task details are unavailable.',
+          repository: sanitizeRepository(repository),
+          status: details.status,
+          tasks: undefined
+        });
+      }
+      const state = input.state ?? 'open';
+      const search = input.search?.toLowerCase();
+      const matchingTasks = details.issues
+        .filter((task) => state === 'all' || task.state === state)
+        .filter((task) => !search || [task.title, task.body, ...task.labels]
+          .some((value) => value?.toLowerCase().includes(search)))
+        .sort((left, right) => (right.updatedAt ?? '').localeCompare(left.updatedAt ?? ''));
+      const limit = input.limit ?? 50;
+      return toolResult({
+        checkedAt: details.checkedAt,
+        repository: sanitizeRepository(repository),
+        status: details.status,
+        tasks: matchingTasks.slice(0, limit).map((task) => sanitizeGitHubTask(task, repository)),
+        truncated: matchingTasks.length > limit
+      });
+    }
+    case 'get_task': {
+      const input = toolSchemas.get_task.parse(rawArguments);
+      const { catalog, repository } = await resolveGitHubRepository(backend, input.repositoryId);
+      if (!repository) {
+        return toolResult({
+          catalogStatus: catalog.status,
+          message: catalog.message ?? 'The GitHub repository is not available.',
+          repositoryId: input.repositoryId,
+          task: undefined
+        });
+      }
+      const details = await backend.getGitHubRepositoryDetails(repository.fullName);
+      if (details.status !== 'connected') {
+        return toolResult({
+          checkedAt: details.checkedAt,
+          message: details.message ?? 'GitHub task details are unavailable.',
+          repository: sanitizeRepository(repository),
+          status: details.status,
+          task: undefined
+        });
+      }
+      const task = details.issues.find((candidate) => candidate.number === input.task);
+      if (!task) return toolError('The GitHub task was not found.', currentRequestId());
+      return toolResult({
+        checkedAt: details.checkedAt,
+        repository: sanitizeRepository(repository),
+        status: details.status,
+        task: sanitizeGitHubTask(task, repository)
+      });
+    }
+    case 'get_task_status': {
+      const input = toolSchemas.get_task_status.parse(rawArguments);
+      const { catalog, details, repository, task } = await resolveGitHubTask(backend, input.repositoryId, input.task);
+      if (!repository) {
+        return toolError(catalog.message ?? 'The GitHub repository is not available.', currentRequestId());
+      }
+      if (details?.status !== 'connected') {
+        return toolError(details?.message ?? 'GitHub task details are unavailable.', currentRequestId());
+      }
+      if (!task) return toolError('The GitHub task was not found.', currentRequestId());
+      const linkedBranches = details.branches.filter((branch) => branch.linkedIssueNumbers?.includes(input.task));
+      const linkedPullRequests = details.pullRequests.filter((pullRequest) => pullRequest.linkedIssueNumbers?.includes(input.task));
+      const branchNames = new Set(linkedBranches.map((branch) => branch.name));
+      for (const pullRequest of linkedPullRequests) {
+        if (pullRequest.headBranch) branchNames.add(pullRequest.headBranch);
+      }
+      const pipeline = await backend.getGitHubPipelineStatus(repository.fullName, { page: 1, perPage: 20 });
+      return toolResult({
+        branches: linkedBranches.map(sanitizeGitHubBranch),
+        checkedAt: details.checkedAt,
+        pipeline: {
+          checkedAt: pipeline.checkedAt,
+          pagination: pipeline.pagination,
+          runs: pipeline.runs
+            .filter((run) => (run.branch ? branchNames.has(run.branch) : false))
+            .map(sanitizeGitHubWorkflowRun),
+          status: pipeline.status
+        },
+        pullRequests: linkedPullRequests.map(sanitizeGitHubPullRequest),
+        repository: sanitizeRepository(repository),
+        status: details.status,
+        task: sanitizeGitHubTask(task, repository)
+      }, pipeline.status !== 'connected');
+    }
+    case 'create_task': {
+      const input = toolSchemas.create_task.parse(rawArguments);
+      const { catalog, repository } = await resolveGitHubRepository(backend, input.repositoryId);
+      if (!repository) {
+        return toolError(
+          catalog.message ?? 'The GitHub repository is not available.',
+          currentRequestId()
+        );
+      }
+      const result = await backend.createGitHubIssue({
+        body: input.body,
+        fullName: repository.fullName,
+        labels: input.labels,
+        operationId: input.operationId,
+        title: input.title
+      });
+      return toolResult(
+        sanitizeGitHubIssueMutation(result, repository),
+        result.status !== 'connected' || result.creationState === 'uncertain'
+      );
+    }
+    case 'update_task': {
+      const input = toolSchemas.update_task.parse(rawArguments);
+      if (input.title === undefined && input.body === undefined && input.labels === undefined && input.state === undefined) {
+        return toolError('At least one task field must be provided for an update.', currentRequestId());
+      }
+      const { catalog, details, repository, task: sourceTask } = await resolveGitHubTask(backend, input.repositoryId, input.task);
+      if (!repository) {
+        return toolError(
+          catalog.message ?? 'The GitHub repository is not available.',
+          currentRequestId()
+        );
+      }
+      if (details?.status !== 'connected') {
+        return toolError(details?.message ?? 'GitHub task details are unavailable.', currentRequestId());
+      }
+      if (!sourceTask) return toolError('The GitHub task was not found.', currentRequestId());
+      const result = await backend.updateGitHubIssue({
+        body: input.body,
+        fullName: repository.fullName,
+        labels: input.labels,
+        number: input.task,
+        state: input.state,
+        title: input.title
+      });
+      return toolResult(sanitizeGitHubIssueMutation(result, repository), result.status !== 'connected');
+    }
+    case 'list_task_comments': {
+      const input = toolSchemas.list_task_comments.parse(rawArguments);
+      const { catalog, details, repository, task: sourceTask } = await resolveGitHubTask(backend, input.repositoryId, input.task);
+      if (!repository) {
+        return toolError(
+          catalog.message ?? 'The GitHub repository is not available.',
+          currentRequestId()
+        );
+      }
+      if (details?.status !== 'connected') {
+        return toolError(details?.message ?? 'GitHub task details are unavailable.', currentRequestId());
+      }
+      if (!sourceTask) return toolError('The GitHub task was not found.', currentRequestId());
+      const result = await backend.getGitHubIssueComments(repository.fullName, input.task);
+      return toolResult({
+        comments: result.comments.map(sanitizeGitHubComment),
+        message: result.message,
+        repository: sanitizeRepository(repository),
+        status: result.status,
+        task: input.task
+      }, result.status !== 'connected');
+    }
+    case 'add_task_comment': {
+      const input = toolSchemas.add_task_comment.parse(rawArguments);
+      const { catalog, details, repository, task: sourceTask } = await resolveGitHubTask(backend, input.repositoryId, input.task);
+      if (!repository) {
+        return toolError(
+          catalog.message ?? 'The GitHub repository is not available.',
+          currentRequestId()
+        );
+      }
+      if (details?.status !== 'connected') {
+        return toolError(details?.message ?? 'GitHub task details are unavailable.', currentRequestId());
+      }
+      if (!sourceTask) return toolError('The GitHub task was not found.', currentRequestId());
+      const result = await backend.createGitHubIssueComment({
+        body: input.body,
+        fullName: repository.fullName,
+        number: input.task
+      });
+      return toolResult({
+        comment: result.comment ? sanitizeGitHubComment(result.comment) : undefined,
+        message: result.message,
+        repository: sanitizeRepository(repository),
+        status: result.status,
+        task: input.task
+      }, result.status !== 'connected');
+    }
     case 'list_codex_tasks': {
       const input = toolSchemas.list_codex_tasks.parse(rawArguments);
       const configured = await runtime();
@@ -380,13 +674,39 @@ async function callTool(
       return toolResult(sanitizeTaskRead(result));
     }
     case 'start_codex_task': {
-      const input = toolSchemas.start_codex_task.parse(rawArguments);
+      const input = toolSchemas.start_codex_task.parse({
+        ...rawArguments,
+        task: rawArguments.task ?? rawArguments.issue
+      });
+      const { task, ...request } = input;
+      if (input.dryRun) {
+        const { catalog, repository } = await resolveGitHubRepository(backend, input.repositoryId);
+        if (!repository) {
+          return toolError(
+            catalog.message ?? 'The GitHub repository is not available.',
+            currentRequestId()
+          );
+        }
+        const details = await backend.getGitHubRepositoryDetails(repository.fullName);
+        if (details.status !== 'connected') {
+          return toolError(
+            details.message ?? 'GitHub task details are unavailable.',
+            currentRequestId()
+          );
+        }
+        const sourceTask = details.issues.find((candidate) => candidate.number === task);
+        if (!sourceTask) return toolError('The GitHub task was not found.', currentRequestId());
+        if (sourceTask.state !== 'open') {
+          return toolError('Only open GitHub tasks can be started.', currentRequestId());
+        }
+      }
       const result = await (await runtime()).service.start({ userId }, {
-        ...input,
+        ...request,
+        issue: task,
         dryRun: input.dryRun ?? false,
         operationId: input.operationId ?? `mcp:start:${randomUUID()}`
       });
-      return toolResult(result);
+      return toolResult(sanitizeCodexTaskStartResult(result));
     }
     case 'send_codex_message': {
       const input = toolSchemas.send_codex_message.parse(rawArguments);
@@ -400,6 +720,30 @@ async function callTool(
     default:
       return toolError(`Unknown tool: ${name}`, currentRequestId());
   }
+}
+
+async function resolveGitHubRepository(backend: McpBackend, repositoryId: string) {
+  const catalog = await backend.getGitHubCatalog();
+  const repository = catalog.status === 'connected'
+    ? catalog.repositories.find((candidate) => (
+      String(candidate.id) === repositoryId || candidate.fullName === repositoryId
+    ))
+    : undefined;
+  return { catalog, repository };
+}
+
+async function resolveGitHubTask(
+  backend: McpBackend,
+  repositoryId: string,
+  taskNumber: number
+) {
+  const { catalog, repository } = await resolveGitHubRepository(backend, repositoryId);
+  if (!repository) return { catalog, details: undefined, repository, task: undefined };
+  const details = await backend.getGitHubRepositoryDetails(repository.fullName);
+  const task = details.status === 'connected'
+    ? details.issues.find((candidate) => candidate.number === taskNumber)
+    : undefined;
+  return { catalog, details, repository, task };
 }
 
 async function authenticateMcpRequest(
@@ -442,10 +786,11 @@ function tool(
   } as OAuthTool;
 }
 
-function toolResult(value: unknown): CallToolResult {
+function toolResult(value: unknown, isError = false): CallToolResult {
   const result = { result: value } as Record<string, unknown>;
   return {
     content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    ...(isError ? { isError: true } : {}),
     structuredContent: result
   };
 }
@@ -477,6 +822,171 @@ function sanitizeRepository(repository: {
     isPrivate: repository.isPrivate,
     projectConfig: repository.projectConfig,
     url: repository.url
+  };
+}
+
+function sanitizeGitHubTask(
+  task: {
+    author?: string;
+    body?: string;
+    labels: string[];
+    number: number;
+    state: 'open' | 'closed';
+    title: string;
+    updatedAt?: string;
+    url: string;
+  },
+  repository: { fullName: string }
+) {
+  return {
+    author: task.author,
+    body: task.body,
+    id: `github:${repository.fullName}:${task.number}`,
+    labels: task.labels,
+    number: task.number,
+    provider: 'github',
+    repository: repository.fullName,
+    state: task.state,
+    title: task.title,
+    updatedAt: task.updatedAt,
+    url: task.url
+  };
+}
+
+function sanitizeGitHubIssueMutation(
+  result: {
+    creationState?: string;
+    issue?: Parameters<typeof sanitizeGitHubTask>[0];
+    message?: string;
+    replayed?: boolean;
+    status: string;
+  },
+  repository: { fullName: string }
+) {
+  return {
+    creationState: result.creationState,
+    message: result.message,
+    replayed: result.replayed,
+    repository: { fullName: repository.fullName },
+    status: result.status,
+    task: result.issue ? sanitizeGitHubTask(result.issue, repository) : undefined
+  };
+}
+
+function sanitizeGitHubComment(comment: {
+  author?: string;
+  body: string;
+  createdAt?: string;
+  id: number;
+  updatedAt?: string;
+  url: string;
+}) {
+  return {
+    author: comment.author,
+    body: comment.body,
+    createdAt: comment.createdAt,
+    id: comment.id,
+    updatedAt: comment.updatedAt,
+    url: comment.url
+  };
+}
+
+function sanitizeGitHubBranch(branch: {
+  commitSha?: string;
+  isDefault: boolean;
+  name: string;
+  linkedIssueNumbers?: number[];
+  url?: string;
+}) {
+  return {
+    commitSha: branch.commitSha,
+    isDefault: branch.isDefault,
+    name: branch.name,
+    url: branch.url
+  };
+}
+
+function sanitizeGitHubPullRequest(pullRequest: {
+  author?: { avatarUrl?: string; login: string };
+  baseBranch?: string;
+  checksStatus?: string;
+  headBranch?: string;
+  headSha?: string;
+  isDraft?: boolean;
+  number: number;
+  state: string;
+  title: string;
+  updatedAt?: string;
+  url: string;
+}) {
+  return {
+    author: pullRequest.author,
+    baseBranch: pullRequest.baseBranch,
+    checksStatus: pullRequest.checksStatus,
+    headBranch: pullRequest.headBranch,
+    headSha: pullRequest.headSha,
+    isDraft: pullRequest.isDraft,
+    number: pullRequest.number,
+    state: pullRequest.state,
+    title: pullRequest.title,
+    updatedAt: pullRequest.updatedAt,
+    url: pullRequest.url
+  };
+}
+
+function sanitizeGitHubWorkflowRun(run: {
+  branch?: string;
+  conclusion?: string;
+  createdAt?: string;
+  displayTitle?: string;
+  event?: string;
+  headSha?: string;
+  id: number;
+  kind: string;
+  name?: string;
+  runNumber?: number;
+  runStartedAt?: string;
+  status: string;
+  updatedAt?: string;
+  url?: string;
+}) {
+  return {
+    branch: run.branch,
+    conclusion: run.conclusion,
+    createdAt: run.createdAt,
+    displayTitle: run.displayTitle,
+    event: run.event,
+    headSha: run.headSha,
+    id: run.id,
+    kind: run.kind,
+    name: run.name,
+    runNumber: run.runNumber,
+    runStartedAt: run.runStartedAt,
+    status: run.status,
+    updatedAt: run.updatedAt,
+    url: run.url
+  };
+}
+
+function sanitizeCodexTaskStartResult(result: unknown) {
+  if (!result || typeof result !== 'object' || !('state' in result) || result.state !== 'confirmed') {
+    return result;
+  }
+  const confirmed = result as { task?: Record<string, unknown> };
+  const sourceTask = confirmed.task?.issue;
+  if (!sourceTask || typeof sourceTask !== 'object') return result;
+  const { issue: _issue, ...task } = confirmed.task!;
+  const source = sourceTask as { number?: unknown; url?: unknown };
+  return {
+    ...result,
+    task: {
+      ...task,
+      source: {
+        number: source.number,
+        provider: 'github',
+        url: source.url
+      }
+    }
   };
 }
 
@@ -524,7 +1034,13 @@ function authChallenge(origin: string, scopes: readonly string[] = requiredScope
 }
 
 function scopesForTool(name: string) {
-  return name === 'start_codex_task' || name === 'send_codex_message'
+  return [
+    'start_codex_task',
+    'send_codex_message',
+    'create_task',
+    'update_task',
+    'add_task_comment'
+  ].includes(name)
     ? [projectSpaceMcpReadScope, projectSpaceMcpWriteScope]
     : [projectSpaceMcpReadScope];
 }
