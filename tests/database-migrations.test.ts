@@ -10,6 +10,7 @@ import {
   codexMachineTasksMigrationId,
   codexMachineTasksMigrationSql
 } from '../server/database/codex-machine-tasks-migration';
+import { computeInventoryMigrationSql } from '../server/database/compute-inventory-migration';
 
 interface QueryCall {
   sql: string;
@@ -41,6 +42,16 @@ class MigrationTestClient implements DatabaseQueryClient {
 }
 
 describe('database migrations', () => {
+  test('uses PostgreSQL-compatible identity length checks for compute inventory', () => {
+    expect(computeInventoryMigrationSql).not.toContain('{8,256}');
+    expect(
+      computeInventoryMigrationSql.match(/char_length\(identity_key\) between 8 and 256/g)
+    ).toHaveLength(2);
+    expect(
+      computeInventoryMigrationSql.match(/identity_key ~ '\^\[A-Za-z0-9:_-\]\+\$'/g)
+    ).toHaveLength(2);
+  });
+
   test('preserves the original machine-task migration and backfills durability conservatively', () => {
     expect(migrationChecksum({
       id: codexMachineTasksMigrationId,
