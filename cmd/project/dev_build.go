@@ -107,7 +107,7 @@ func dispatchDevBuild(
 	if err != nil {
 		return devBuildResult{}, err
 	}
-	repositoryRecord, err := loadPreviewRepository(projectRoot, repository, deps.run)
+	repositoryRecord, err := loadPreviewRepository(repository, deps.githubAPI)
 	if err != nil {
 		return devBuildResult{}, err
 	}
@@ -130,7 +130,7 @@ func dispatchDevBuild(
 			"GitHub write permission is required to dispatch development builds",
 		)
 	}
-	pull, err := loadPreviewPullRequest(projectRoot, repository, options.PullRequest, deps.run)
+	pull, err := loadPreviewPullRequest(repository, options.PullRequest, deps.githubAPI)
 	if err != nil {
 		return devBuildResult{}, err
 	}
