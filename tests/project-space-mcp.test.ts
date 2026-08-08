@@ -72,6 +72,35 @@ function backend() {
         status: 'connected' as const
       };
     },
+    async getGitHubRepositoryDetails() {
+      return {
+        branches: [],
+        checkedAt: '2026-08-07T00:00:00.000Z',
+        issues: [{
+          author: 'oli',
+          body: 'Build the MCP task discovery flow.',
+          id: 9001,
+          labels: ['enhancement'],
+          number: 480,
+          state: 'open' as const,
+          title: 'Add GitHub task discovery',
+          updatedAt: '2026-08-07T12:00:00.000Z',
+          url: 'https://github.com/DotNaos/project-space/issues/480'
+        }, {
+          author: 'oli',
+          body: 'Already completed.',
+          id: 9002,
+          labels: [],
+          number: 479,
+          state: 'closed' as const,
+          title: 'Old task',
+          updatedAt: '2026-08-06T12:00:00.000Z',
+          url: 'https://github.com/DotNaos/project-space/issues/479'
+        }],
+        pullRequests: [],
+        status: 'connected' as const
+      };
+    },
     async loadProjectDiscovery() {
       return {
         groups: [],
@@ -106,7 +135,21 @@ function runtime(calls: Array<{ kind: string; request: unknown; userId: string }
       },
       async start(actor: { userId: string }, request: unknown) {
         calls.push({ kind: 'start', request, userId: actor.userId });
-        return { apiVersion: 1, operationId: 'start-test', state: 'ready' };
+        if ((request as { dryRun?: boolean }).dryRun) {
+          return { apiVersion: 1, operationId: 'start-test', state: 'ready' };
+        }
+        return {
+          apiVersion: 1,
+          operationId: 'start-test-confirmed',
+          state: 'confirmed',
+          task: {
+            canonicalTaskUrl: 'https://projects.os-home.net/tasks/test',
+            issue: { number: 480, url: 'https://github.com/DotNaos/project-space/issues/480' },
+            repository: { id: '480', nameWithOwner: 'DotNaos/project-space' },
+            threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c',
+            worktree: { branch: 'task/480', id: 'worktree-480' }
+          }
+        };
       }
     },
     sessions: {
@@ -244,6 +287,8 @@ describe('Project Space remote MCP server', () => {
     const listed = await client.listTools();
     expect(listed.tools.map((entry) => entry.name)).toEqual([
       'list_projects',
+      'list_tasks',
+      'get_task',
       'list_machines',
       'list_codex_tasks',
       'read_codex_task',
@@ -263,10 +308,65 @@ describe('Project Space remote MCP server', () => {
     });
     expect(JSON.stringify(projects)).not.toContain('/not-exposed');
 
+    const tasks = await client.callTool({
+      name: 'list_tasks',
+      arguments: { repositoryId: '480' }
+    });
+    expect(tasks.structuredContent).toMatchObject({
+      result: {
+        status: 'connected',
+        tasks: [{
+          id: 'github:DotNaos/project-space:480',
+          provider: 'github',
+          repository: 'DotNaos/project-space',
+          state: 'open',
+          title: 'Add GitHub task discovery'
+        }]
+      }
+    });
+
+    const allTasks = await client.callTool({
+      name: 'list_tasks',
+      arguments: { limit: 1, repositoryId: '480', state: 'all' }
+    });
+    expect(allTasks.structuredContent).toMatchObject({
+      result: { tasks: [{ number: 480 }], truncated: true }
+    });
+
+    const searchedTasks = await client.callTool({
+      name: 'list_tasks',
+      arguments: { repositoryId: '480', search: 'completed', state: 'all' }
+    });
+    expect(searchedTasks.structuredContent).toMatchObject({
+      result: { tasks: [{ number: 479, state: 'closed' }] }
+    });
+
+    const unknownRepository = await client.callTool({
+      name: 'list_tasks',
+      arguments: { repositoryId: 'unknown/repository' }
+    });
+    expect(unknownRepository.structuredContent).toMatchObject({
+      result: { catalogStatus: 'connected', repositoryId: 'unknown/repository' }
+    });
+
+    const task = await client.callTool({
+      name: 'get_task',
+      arguments: { repositoryId: 'DotNaos/project-space', task: 480 }
+    });
+    expect(task.structuredContent).toMatchObject({
+      result: { task: { number: 480, title: 'Add GitHub task discovery' } }
+    });
+
+    const missingTask = await client.callTool({
+      name: 'get_task',
+      arguments: { repositoryId: '480', task: 404 }
+    });
+    expect(missingTask.isError).toBe(true);
+
     await client.callTool({ name: 'list_codex_tasks', arguments: {} });
     const started = await client.callTool({
       name: 'start_codex_task',
-      arguments: { dryRun: true, issue: 480, repositoryId: '480' }
+      arguments: { dryRun: true, task: 480, repositoryId: '480' }
     });
     expect(started.isError).not.toBe(true);
     expect(calls).toMatchObject([
@@ -278,6 +378,22 @@ describe('Project Space remote MCP server', () => {
       }
     ]);
     expect((calls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
+
+    const confirmed = await client.callTool({
+      name: 'start_codex_task',
+      arguments: { repositoryId: '480', task: 480 }
+    });
+    expect(confirmed.structuredContent).toMatchObject({
+      result: { state: 'confirmed', task: { source: { number: 480, provider: 'github' } } }
+    });
+    expect(JSON.stringify(confirmed)).not.toContain('"issue"');
+
+    const invalidDryRun = await client.callTool({
+      name: 'start_codex_task',
+      arguments: { dryRun: true, repositoryId: '480', task: 404 }
+    });
+    expect(invalidDryRun.isError).toBe(true);
+    expect(calls.filter((call) => call.kind === 'start')).toHaveLength(2);
   });
 
   test('logs MCP tool failures with a client-visible request ID', async () => {
@@ -352,7 +468,7 @@ describe('Project Space remote MCP server', () => {
       requestInit: { headers: { Authorization: `Bearer ${readOnlyToken}` } }
     }));
     const rejectedWrite = await readOnlyClient.callTool({
-      arguments: { dryRun: true, issue: 480, repositoryId: '480' },
+      arguments: { dryRun: true, task: 480, repositoryId: '480' },
       name: 'start_codex_task'
     });
     expect(rejectedWrite.isError).toBe(true);
