@@ -58,7 +58,15 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: MockTask }) {
             aria-label={`${pullRequestState} pull request #${task.pullRequest.number}`}
             className={`ml-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${state === "Completed" ? "bg-violet-500/[.12] text-violet-300" : task.pullRequest.phase === "draft" ? "bg-current/[.055] text-current/40" : "bg-emerald-500/[.12] text-emerald-300"}`}
           >
-            <PullRequestIcon className="size-3" />#{task.pullRequest.number}
+            <PullRequestIcon className="size-3" />
+            {task.pullRequest.phase === "draft" ? "Draft " : ""}#{task.pullRequest.number}
+          </span>
+        ) : state === "Active" && task.branch ? (
+          <span
+            aria-label="Active branch"
+            className="ml-auto flex items-center gap-1 rounded-full bg-blue-500/[.12] px-2 py-1 text-[11px] font-medium text-blue-300"
+          >
+            <GitBranch className="size-3" /> Branch
           </span>
         ) : null}
       </span>

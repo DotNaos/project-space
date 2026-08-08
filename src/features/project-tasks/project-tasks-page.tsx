@@ -55,7 +55,11 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
         <span className="shrink-0 text-xs tabular-nums text-current/30">#{task.issue.number}</span>
         {pullRequest ? (
           <span className={`ml-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${merged ? 'bg-violet-500/[.12] text-violet-300' : pullRequest.isDraft ? 'bg-current/[.055] text-current/40' : 'bg-emerald-500/[.12] text-emerald-300'}`}>
-            <PullRequestIcon className="size-3" />#{pullRequest.number}
+            <PullRequestIcon className="size-3" />{pullRequest.isDraft ? 'Draft ' : ''}#{pullRequest.number}
+          </span>
+        ) : task.state === 'active' && task.branch ? (
+          <span className="ml-auto flex items-center gap-1 rounded-full bg-blue-500/[.12] px-2 py-1 text-[11px] font-medium text-blue-300">
+            <GitBranch className="size-3" /> Branch
           </span>
         ) : null}
       </span>

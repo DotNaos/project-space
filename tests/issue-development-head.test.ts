@@ -182,7 +182,7 @@ describe('issue development head resolution', () => {
     }).state).toBe('unavailable');
   });
 
-  test('unlocks coding destinations only for a fully verified open pull request', () => {
+  test('unlocks coding destinations for a verified branch with or without a pull request', () => {
     const ready = resolveIssueDevelopmentHead({
       branches: branches(),
       issue,
@@ -195,8 +195,15 @@ describe('issue development head resolution', () => {
       pullRequests: [pullRequest(500, { isDraft: undefined })],
       repositoryFullName
     });
+    const branchOnly = resolveIssueDevelopmentHead({
+      branches: branches(branch()),
+      issue,
+      pullRequests: [],
+      repositoryFullName
+    });
 
     expect(canChooseIssueCodingDestination(ready)).toBe(true);
+    expect(canChooseIssueCodingDestination(branchOnly)).toBe(true);
     expect(canChooseIssueCodingDestination(unknownDraft)).toBe(false);
     expect(canChooseIssueCodingDestination({ state: 'none' })).toBe(false);
   });

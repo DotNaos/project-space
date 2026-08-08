@@ -47,11 +47,7 @@ export type IssueDevelopmentHeadResolution =
 export function canChooseIssueCodingDestination(
   resolution: IssueDevelopmentHeadResolution
 ) {
-  return (
-    resolution.state === 'verified' &&
-    resolution.pullRequest?.state === 'open' &&
-    typeof resolution.pullRequest.isDraft === 'boolean'
-  );
+  return resolution.state === 'verified';
 }
 
 export function resolveIssueDevelopmentHead(input: {

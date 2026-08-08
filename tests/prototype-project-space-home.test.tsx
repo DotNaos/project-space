@@ -189,16 +189,27 @@ describe('project space home prototype', () => {
   });
 
   test('renders every task lifecycle state and treats errors as an overlay', () => {
+    const tasks = [
+      ...initialMockTasks,
+      createMockTask({
+        body: 'An unstarted task keeps the Backlog section represented.',
+        labels: [],
+        number: 999,
+        title: 'Unstarted lifecycle fixture',
+        type: 'Idea'
+      })
+    ];
     const html = renderToStaticMarkup(
       <ProjectFeaturePage
         page="issues"
         projectName="project-space"
         scenario="ready"
-        tasks={initialMockTasks}
+        tasks={tasks}
       />
     );
 
-    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 437)!)).toBe('Backlog');
+    expect(mockTaskWorkflowState(tasks.find((task) => task.number === 999)!)).toBe('Backlog');
+    expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 437)!)).toBe('Active');
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 426)!)).toBe('Active');
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 398)!)).toBe('Review');
     expect(mockTaskWorkflowState(initialMockTasks.find((task) => task.number === 395)!)).toBe('Review');
@@ -418,9 +429,9 @@ describe('project space home prototype', () => {
     expect(html).toContain('#437');
     expect(html).not.toContain('aria-label="Task lifecycle"');
     expect(html).not.toContain('>Lifecycle<');
-    expect(html).toContain('Planning');
+    expect(html).toContain('Active · Branch');
     expect(html).toContain('Codex is implementing the selected prototype direction.');
-    expect(html).toContain('Finish setup');
+    expect(html).toContain('Open Draft PR');
     expect(html).toContain('data-testid="task-mobile-primary-action"');
     expect(html).toContain('Working context');
     expect(html).toContain('Development details');

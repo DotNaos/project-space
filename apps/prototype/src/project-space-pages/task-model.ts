@@ -131,8 +131,8 @@ const stageLabels: Record<MockTaskStage, string> = {
 };
 
 export function mockTaskStageLabel(task: MockTask) {
-  if (!task.pullRequest) return "Planning";
-  if (task.pullRequest.phase === "draft") return "Started";
+  if (!task.pullRequest) return task.branch ? "Active · Branch" : "Planning";
+  if (task.pullRequest.phase === "draft") return "Active · Draft PR";
   if (task.pullRequest?.checks === "failed") return "Checks failed";
   if (task.pullRequest?.preview === "unavailable") return "Preview unavailable";
   if (task.pullRequest?.review === "pending") return "Needs review";
@@ -142,7 +142,7 @@ export function mockTaskStageLabel(task: MockTask) {
 
 export function mockTaskWorkflowState(task: MockTask): MockTaskWorkflowState {
   if (["merged", "deploying", "deployed"].includes(task.stage)) return "Completed";
-  if (!task.pullRequest) return "Backlog";
+  if (!task.pullRequest) return task.branch ? "Active" : "Backlog";
   if (task.pullRequest.phase === "draft") return "Active";
   return "Review";
 }
@@ -200,17 +200,9 @@ export function updateMockTask(task: MockTask, action: MockTaskAction): MockTask
       const branch = `task-${task.number}-${task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 42)}`;
       return withEvent(task, {
         branch,
-        branchRelation: "1 ahead · 0 behind main",
-        pullRequest: {
-          checks: "not-started",
-          number: task.number + 1,
-          phase: "draft",
-          preview: "not-started",
-          review: "not-requested",
-          revision: "dc6bd80",
-        },
+        branchRelation: "0 ahead · 0 behind main",
         stage: "branch",
-      }, "Development setup ready", `${branch} and draft pull request #${task.number + 1} were prepared from main.`);
+      }, "Branch ready", `${branch} was prepared from main. Development can start before a pull request exists.`);
     }
     case "start-development":
       return withEvent(task, {

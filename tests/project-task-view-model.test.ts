@@ -39,6 +39,12 @@ function pullRequest(overrides: Partial<GitHubPullRequestRecord>): GitHubPullReq
 describe('project task view model', () => {
   test('derives backlog, active, review, and completed from GitHub truth', () => {
     expect(projectTaskState(issue)).toBe('backlog');
+    expect(projectTaskState(issue, undefined, {
+      commitSha: 'b'.repeat(40),
+      isDefault: false,
+      linkedIssueNumbers: [437],
+      name: 'issue-437-redesign'
+    })).toBe('active');
     expect(projectTaskState(issue, pullRequest({ isDraft: true }))).toBe('active');
     expect(projectTaskState(issue, pullRequest({ isDraft: false }))).toBe('review');
     expect(projectTaskState(issue, pullRequest({ state: 'merged' }))).toBe('review');
@@ -50,11 +56,12 @@ describe('project task view model', () => {
 
   test('keeps contradictory and partial GitHub states recoverable', () => {
     const branch = {
+      commitSha: 'b'.repeat(40),
       isDefault: false,
       linkedIssueNumbers: [437],
       name: 'issue-437-redesign'
     };
-    expect(projectTaskWorkflowMessage(issue, branch)).toContain('draft pull request');
+    expect(projectTaskWorkflowMessage(issue, branch)).toBeUndefined();
     expect(projectTaskWorkflowMessage(issue, undefined, pullRequest({ state: 'merged' })))
       .toContain('still open');
     expect(projectTaskWorkflowMessage(
@@ -64,6 +71,23 @@ describe('project task view model', () => {
     )).toContain('without a verified merged');
     expect(projectTaskWorkflowMessage(issue, undefined, pullRequest({ isDraft: undefined })))
       .toContain('could not be verified');
+  });
+
+  test('places one verified linked branch without a pull request in Active', () => {
+    const [task] = createProjectTaskViewModels({
+      branches: [defaultBranch, {
+        commitSha: 'b'.repeat(40),
+        isDefault: false,
+        linkedIssueNumbers: [437],
+        name: 'issue-437-redesign'
+      }],
+      issues: [issue],
+      pullRequests: [],
+      repositoryFullName: 'DotNaos/project-space'
+    });
+
+    expect(task.state).toBe('active');
+    expect(task.workflowMessage).toBeUndefined();
   });
 
   test('treats an exact-head failed run as attention', () => {
@@ -122,6 +146,23 @@ describe('project task view model', () => {
       ],
       repositoryFullName: 'DotNaos/project-space'
     });
+    expect(task.pullRequest?.number).toBe(438);
+    expect(task.state).toBe('active');
+  });
+
+  test('shows a same-head draft pull request before issue-link metadata catches up', () => {
+    const [task] = createProjectTaskViewModels({
+      branches: [defaultBranch, {
+        commitSha: 'a'.repeat(40),
+        isDefault: false,
+        linkedIssueNumbers: [437],
+        name: 'issue-437-redesign'
+      }],
+      issues: [issue],
+      pullRequests: [pullRequest({ isDraft: true, linkedIssueNumbers: [] })],
+      repositoryFullName: 'DotNaos/project-space'
+    });
+
     expect(task.pullRequest?.number).toBe(438);
     expect(task.state).toBe('active');
   });

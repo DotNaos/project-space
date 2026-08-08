@@ -156,14 +156,22 @@ export function ProjectTaskDetail({
 
       <div>
         <section className="grid gap-px border-b border-current/[.08] py-4 @lg:grid-cols-2">
-          <a className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm hover:bg-current/[.045]" href={pullRequest?.url ?? task.issue.url} rel="noreferrer" target="_blank">
-            {pullRequest?.state === 'merged' ? <GitMerge className="size-4 text-violet-400" /> : <GitPullRequest className="size-4 text-current/35" />}
-            <span className="text-current/45">Pull request</span>
-            <span className={`ml-auto font-medium ${pullRequest?.state === 'merged' ? 'text-violet-300' : 'text-current/80'}`}>
-              {pullRequest ? `${pullRequest.isDraft ? 'Draft ' : pullRequest.state === 'merged' ? 'Merged ' : ''}#${pullRequest.number}` : 'Not started'}
-            </span>
-            <ExternalLink className="size-3 text-current/25" />
-          </a>
+          {pullRequest ? (
+            <a className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm hover:bg-current/[.045]" href={pullRequest.url} rel="noreferrer" target="_blank">
+              {pullRequest.state === 'merged' ? <GitMerge className="size-4 text-violet-400" /> : <GitPullRequest className="size-4 text-current/35" />}
+              <span className="text-current/45">Pull request</span>
+              <span className={`ml-auto font-medium ${pullRequest.state === 'merged' ? 'text-violet-300' : 'text-current/80'}`}>
+                {`${pullRequest.isDraft ? 'Draft ' : pullRequest.state === 'merged' ? 'Merged ' : ''}#${pullRequest.number}`}
+              </span>
+              <ExternalLink className="size-3 text-current/25" />
+            </a>
+          ) : (
+            <div className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm">
+              <GitPullRequest className="size-4 text-current/25" />
+              <span className="text-current/45">Pull request</span>
+              <span className="ml-auto font-medium text-current/35">{task.branch ? 'Not opened' : 'Not started'}</span>
+            </div>
+          )}
           <a className={`flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm ${pipeline?.url ? 'hover:bg-current/[.045]' : 'pointer-events-none'}`} href={pipeline?.url} rel="noreferrer" target="_blank">
             <CircleDot className={`size-4 ${task.health === 'attention' ? 'text-red-400' : task.health === 'healthy' ? 'text-emerald-400' : 'text-current/25'}`} />
             <span className="text-current/45">Pipeline</span>

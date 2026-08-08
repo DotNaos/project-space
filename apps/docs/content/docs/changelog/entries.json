@@ -2,6 +2,25 @@
   "schema": "project-space.changelog/v1",
   "entries": [
     {
+      "id": "pr-504-active-branch-and-draft-pr",
+      "category": "fixed",
+      "summary": "Keep linked branches and draft pull requests in Active.",
+      "body": "Development now becomes Active as soon as its linked branch is verified. A draft pull request remains a distinct Active step, Review begins only when the pull request is ready, and Project Space no longer creates an empty commit just to open a pull request.",
+      "issueNumber": 501,
+      "pullRequestNumber": 504,
+      "prototype": {
+        "scenarioId": "ready",
+        "surface": "desktop-prototype",
+        "viewport": "desktop"
+      },
+      "testing": [
+        "Open task #437 and confirm it appears under Active as Active · Branch, offers Start Codex, and does not show a missing-Draft warning.",
+        "Choose Open Draft PR after development starts and confirm the task remains Active but changes visibly to Active · Draft PR.",
+        "Mark the draft ready and confirm the task moves to Review, while completed tasks remain unchanged.",
+        "Switch to the Phone viewport and confirm the Active label and primary action remain readable without clipping or overlap."
+      ]
+    },
+    {
       "id": "pr-498-start-development-draft-pr",
       "category": "changed",
       "summary": "Start development with a verified draft pull request.",
