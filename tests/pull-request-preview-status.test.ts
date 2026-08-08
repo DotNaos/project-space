@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   correlatePullRequestPreviews,
   getPullRequestPreviewStatus,
-  sanitizePullRequestPreview
+  sanitizePullRequestPreview,
+  withUndeployedOpenPullRequests
 } from '../server/pull-request-preview-status';
 
 const requestedSha = 'a'.repeat(40);
@@ -218,6 +219,108 @@ describe('pull request Preview status adapter', () => {
     });
     expect(failed).toMatchObject({ previews: [], status: 'unavailable' });
     expect(JSON.stringify(failed)).not.toMatch(/private host|op:\/\/vault|secret/);
+  });
+
+  test('synthesizes a not-deployed placeholder for every open PR missing from the registry', () => {
+    const result = {
+      checkedAt: '2026-08-08T10:00:00.000Z',
+      previews: [{
+        liveUrlState: 'not-configured' as const,
+        prototypeUrlState: 'not-configured' as const,
+        pullRequestNumber: 100,
+        repositoryFullName: 'DotNaos/project-space',
+        requestedSha,
+        runningSha,
+        state: 'online' as const
+      }],
+      repositoryFullName: 'DotNaos/project-space',
+      status: 'available' as const
+    };
+    const details = {
+      branches: [],
+      checkedAt: result.checkedAt,
+      issues: [],
+      pullRequests: [
+        {
+          headSha: requestedSha,
+          number: 100,
+          state: 'open' as const,
+          title: 'Already deployed',
+          url: 'https://github.com/DotNaos/project-space/pull/100'
+        },
+        {
+          author: { login: 'octocat' },
+          checksStatus: 'failing' as const,
+          headBranch: 'issue-508-preview-redesign',
+          headSha: runningSha,
+          isDraft: true,
+          number: 508,
+          state: 'open' as const,
+          title: 'Redesign PR Previews',
+          updatedAt: '2026-08-07T00:00:00.000Z',
+          url: 'https://github.com/DotNaos/project-space/pull/508'
+        },
+        {
+          headSha: requestedSha,
+          number: 509,
+          state: 'closed' as const,
+          title: 'Already merged, never previewed',
+          url: 'https://github.com/DotNaos/project-space/pull/509'
+        }
+      ],
+      status: 'connected' as const
+    };
+
+    // The generic correlate step (shared with the per-project Deployments widget) must NOT
+    // grow extra rows: that widget's "no entry found" UX has its own dedicated copy.
+    const correlated = correlatePullRequestPreviews(result, details);
+    expect(correlated.previews.map((preview) => preview.pullRequestNumber)).toEqual([100]);
+
+    // Only the opt-in Previews-hub helper adds a placeholder per open, undeployed PR.
+    const withUndeployed = withUndeployedOpenPullRequests(correlated, details).previews;
+    expect(withUndeployed.map((preview) => preview.pullRequestNumber)).toEqual([100, 508]);
+
+    const synthesized = withUndeployed.find((preview) => preview.pullRequestNumber === 508);
+    expect(synthesized).toMatchObject({
+      author: { login: 'octocat' },
+      checksStatus: 'failing',
+      currentHeadSha: runningSha,
+      headBranch: 'issue-508-preview-redesign',
+      isDraft: true,
+      pullRequestState: 'open',
+      pullRequestTitle: 'Redesign PR Previews',
+      pullRequestUrl: 'https://github.com/DotNaos/project-space/pull/508',
+      requestedSha: runningSha,
+      state: 'not-deployed'
+    });
+  });
+
+  test('does not synthesize a placeholder for an open PR with an invalid head SHA', () => {
+    const result = {
+      checkedAt: '2026-08-08T10:00:00.000Z',
+      previews: [],
+      repositoryFullName: 'DotNaos/project-space',
+      status: 'available' as const
+    };
+    const details = {
+      branches: [],
+      checkedAt: result.checkedAt,
+      issues: [],
+      pullRequests: [{
+        headSha: 'not-a-real-sha',
+        number: 42,
+        state: 'open' as const,
+        title: 'Missing head evidence',
+        url: 'https://github.com/DotNaos/project-space/pull/42'
+      }],
+      status: 'connected' as const
+    };
+    const withUndeployed = withUndeployedOpenPullRequests(
+      correlatePullRequestPreviews(result, details),
+      details
+    ).previews;
+    expect(withUndeployed).toHaveLength(1);
+    expect(withUndeployed[0]).toMatchObject({ requestedSha: undefined, state: 'not-deployed' });
   });
 
   test('does not turn a malformed record into a successful not-deployed result', async () => {

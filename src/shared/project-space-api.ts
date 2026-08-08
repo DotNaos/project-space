@@ -522,7 +522,9 @@ export interface GitHubBranchRecord {
 }
 
 export interface GitHubPullRequestRecord {
+  author?: { avatarUrl?: string; login: string };
   baseBranch?: string;
+  checksStatus?: 'passing' | 'failing' | 'pending' | 'unknown';
   headBranch?: string;
   headRefPresent?: boolean;
   headRepositoryFullName?: string;
@@ -1155,6 +1157,7 @@ export interface DeployedEnvironmentStatusResult {
 }
 
 export type PullRequestPreviewLifecycle =
+  | 'not-deployed'
   | 'queued'
   | 'validating'
   | 'building'
@@ -1180,9 +1183,12 @@ export type PullRequestPreviewLifecycle =
 
 export interface PullRequestPreviewStatus {
   activeLeaseExpiresAt?: string;
+  author?: { avatarUrl?: string; login: string };
   capacityBlocked?: boolean;
+  checksStatus?: 'passing' | 'failing' | 'pending' | 'unknown';
   currentHeadSha?: string;
   headBranch?: string;
+  isDraft?: boolean;
   liveUrl?: string;
   liveUrlState: 'available' | 'not-configured' | 'withheld';
   lastActivityAt?: string;

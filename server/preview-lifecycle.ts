@@ -7,6 +7,7 @@ import type {
 } from '../src/shared/pull-request-preview-hub-api';
 
 export const previewLifecycleTransitions: Record<PreviewHubLifecycleState, readonly PreviewHubLifecycleState[]> = {
+  not_deployed: ['building', 'removed'],
   building: ['ready', 'failed', 'expired', 'removed'],
   ready: ['starting', 'expired', 'removed', 'failed'],
   starting: ['online', 'ready', 'failed', 'expired'],
