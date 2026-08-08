@@ -31,9 +31,10 @@ type previewOptions struct {
 type previewCommandRunner func(dir string, stdin []byte, name string, args ...string) (string, error)
 
 type previewDependencies struct {
-	run    previewCommandRunner
-	random io.Reader
-	now    func() time.Time
+	run       previewCommandRunner
+	githubAPI previewGitHubRequester
+	random    io.Reader
+	now       func() time.Time
 }
 
 type previewPullRequestEvidence struct {
@@ -62,7 +63,7 @@ type previewWorkflowDispatch struct {
 }
 
 func defaultPreviewDependencies() previewDependencies {
-	return previewDependencies{run: runCommand, random: rand.Reader, now: time.Now}
+	return previewDependencies{run: runCommand, githubAPI: requestGitHubAPI, random: rand.Reader, now: time.Now}
 }
 
 func newDeployPreviewCommand() *cobra.Command {

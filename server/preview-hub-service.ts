@@ -10,6 +10,7 @@ import type {
 } from '../src/shared/project-space-api';
 import { previewHubRecordFromLegacyStatus } from '../src/shared/pull-request-preview-hub-api';
 import { runProjectBinary } from './local-project-cli-client';
+import { resolveToken } from './local-github-catalog';
 import { getPullRequestPreviewStatus, correlatePullRequestPreviews, withUndeployedOpenPullRequests } from './pull-request-preview-status';
 import { sanitizePreviewReturnTarget } from './preview-return-target';
 import { projectSpaceLogger } from './observability';
@@ -20,6 +21,7 @@ const defaultRepository = 'DotNaos/project-space';
 export interface PreviewHubServiceDependencies {
   loadStatus?: typeof getPullRequestPreviewStatus;
   run?: typeof runProjectBinary;
+  resolveGitHubToken?: typeof resolveToken;
   cwd?: string;
   now?: () => string;
   maxOnline?: number;
@@ -32,6 +34,7 @@ export function createPreviewHubService(
 ) {
   const loadStatus = dependencies.loadStatus ?? getPullRequestPreviewStatus;
   const run = dependencies.run ?? runProjectBinary;
+  const resolveGitHubToken = dependencies.resolveGitHubToken ?? resolveToken;
   const cwd = dependencies.cwd ?? process.env.PROJECT_SPACE_BACKEND_REPO_PATH ?? process.cwd();
   const configuredMaxOnline = dependencies.maxOnline ?? Number(process.env.PREVIEW_MAX_ACTIVE ?? 3);
   const maxOnline = Number.isSafeInteger(configuredMaxOnline) && configuredMaxOnline > 0
@@ -45,6 +48,15 @@ export function createPreviewHubService(
     });
   });
   const mutationTimes = new Map<string, number[]>();
+
+  // The CLI dispatches previews by calling the GitHub API directly (cmd/project/deploy_preview_github.go)
+  // rather than shelling out to the gh CLI, which isn't installed in this trusted-runtime
+  // environment. It reads the token from GITHUB_TOKEN, so forward the caller's already-connected
+  // GitHub OAuth token into that environment variable rather than requiring a `gh auth login` session.
+  async function requireGitHubTokenEnvironment(): Promise<NodeJS.ProcessEnv | null> {
+    const resolution = await resolveGitHubToken();
+    return resolution ? { GITHUB_TOKEN: resolution.token } : null;
+  }
 
   function allowMutation(userId: string, action: 'start' | 'stop' | 'touch') {
     const key = `${userId}:${action}`;
@@ -87,6 +99,8 @@ export function createPreviewHubService(
     if (target.requestedHeadSha !== request.requestedHeadSha || target.currentHeadSha !== request.requestedHeadSha) return { code: 'head_changed', message: 'The pull request head changed; refresh before starting.' };
     const returnTarget = sanitizePreviewReturnTarget(request.returnTarget, request.pullRequestNumber);
     if (request.returnTarget && !returnTarget) return { code: 'invalid_return_target', message: 'The requested return path is not safe for this Preview.' };
+    const tokenEnvironment = await requireGitHubTokenEnvironment();
+    if (!tokenEnvironment) return { code: 'unauthorized', message: 'Connect your GitHub account to deploy previews.' };
 
     // A PR that has never been previewed before has no built image on the VPS yet, so it
     // must go through the "deploy" (build-from-scratch) operation instead of the cheap
@@ -119,7 +133,7 @@ export function createPreviewHubService(
         '--replace-head-sha', selected.requestedHeadSha
       );
     }
-    const result = await run(args, cwd, { timeoutMs: 90_000 });
+    const result = await run(args, cwd, { timeoutMs: 90_000, environment: tokenEnvironment });
     if (result.exitCode !== 0) {
       auditMutation({ action: 'start', pullRequestNumber: request.pullRequestNumber, repositoryFullName: request.repositoryFullName, userId, outcome: 'failed' });
       return { code: 'operation_failed', message: safeCliFailure(result.stderr) };
@@ -135,7 +149,9 @@ export function createPreviewHubService(
     const target = current.previews.find((preview) => preview.pullRequestNumber === request.pullRequestNumber);
     if (!target || (target.lifecycle !== 'online' && !target.capacityBlocked)) return { code: 'not_found', message: 'The requested Preview is not online or capacity-blocked.' };
     if (target.requestedHeadSha !== request.requestedHeadSha || (!target.capacityBlocked && target.verifiedRunningHeadSha !== request.requestedHeadSha)) return { code: 'head_changed', message: 'The Preview head changed; refresh before stopping.' };
-    const result = await run(['deploy', 'preview', 'stop', '--pr', String(request.pullRequestNumber), '--format', 'json'], cwd, { timeoutMs: 90_000 });
+    const tokenEnvironment = await requireGitHubTokenEnvironment();
+    if (!tokenEnvironment) return { code: 'unauthorized', message: 'Connect your GitHub account to stop previews.' };
+    const result = await run(['deploy', 'preview', 'stop', '--pr', String(request.pullRequestNumber), '--format', 'json'], cwd, { timeoutMs: 90_000, environment: tokenEnvironment });
     if (result.exitCode !== 0) {
       auditMutation({ action: 'stop', pullRequestNumber: request.pullRequestNumber, repositoryFullName: request.repositoryFullName, userId, outcome: 'failed' });
       return { code: 'operation_failed', message: safeCliFailure(result.stderr) };
@@ -152,7 +168,9 @@ export function createPreviewHubService(
     if (!target || target.lifecycle !== 'online' || target.verifiedRunningHeadSha !== request.requestedHeadSha) {
       return { code: 'head_changed', message: 'The Preview is not online at the requested exact head.' };
     }
-    const result = await run(['deploy', 'preview', 'touch', '--pr', String(request.pullRequestNumber), '--format', 'json'], cwd, { timeoutMs: 30_000 });
+    const tokenEnvironment = await requireGitHubTokenEnvironment();
+    if (!tokenEnvironment) return { code: 'unauthorized', message: 'Connect your GitHub account to keep previews online.' };
+    const result = await run(['deploy', 'preview', 'touch', '--pr', String(request.pullRequestNumber), '--format', 'json'], cwd, { timeoutMs: 30_000, environment: tokenEnvironment });
     if (result.exitCode !== 0) {
       auditMutation({ action: 'touch', pullRequestNumber: request.pullRequestNumber, repositoryFullName: request.repositoryFullName, userId, outcome: 'failed' });
       return { code: 'operation_failed', message: safeCliFailure(result.stderr) };
