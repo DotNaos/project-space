@@ -1,4 +1,8 @@
 import type {
+  GitHubRepositoryFileResult,
+  GitHubRepositoryTreeResult
+} from '@/shared/github-repository-tree';
+import type {
   GitHubBranchCreateRequest,
   GitHubBranchComparisonRequest,
   GitHubBranchComparisonResult,
@@ -124,6 +128,23 @@ export class GitHubProjectSpaceClient extends ProjectSpaceHttpClient {
 
     githubRepositoryDetailsRequests.set(cacheKey, request);
     return request;
+  }
+
+  getGitHubRepositoryTree(
+    fullName: string,
+    ref: string
+  ): Promise<GitHubRepositoryTreeResult> {
+    const query = new URLSearchParams({ fullName, ref });
+    return this.request(`/api/github/repository-tree?${query.toString()}`);
+  }
+
+  getGitHubRepositoryFile(
+    fullName: string,
+    ref: string,
+    path: string
+  ): Promise<GitHubRepositoryFileResult> {
+    const query = new URLSearchParams({ fullName, path, ref });
+    return this.request(`/api/github/repository-file?${query.toString()}`);
   }
 
   getRoadmap(fullName: string): Promise<RoadmapResult> {

@@ -21,12 +21,14 @@ import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-ses
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks';
+import { CodexThreadDirectory } from '@/features/codex-sessions/codex-thread-directory';
 import { useProjectCodexTaskTitles } from '@/features/codex-sessions/use-project-codex-task-titles';
 import { projectChatProjectId } from '@/shared/project-chat-project';
 import type {
   MachineDetailTab,
   ProjectDetailTab,
-  ProjectMainView
+  ProjectMainView,
+  SettingsSection
 } from '../hooks/use-project-desktop';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
@@ -228,6 +230,7 @@ export interface ProjectMainPanelProps {
   selectedMachine?: MachineRecord;
   selectedMachineId: string;
   selectedTargetPath: string;
+  settingsSection: SettingsSection;
   structureViolations: ProjectStructureViolationRecord[];
   useWorkspaceChrome?: boolean;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
@@ -286,6 +289,7 @@ export function ProjectMainPanel({
   selectedMachine,
   selectedMachineId,
   selectedTargetPath,
+  settingsSection,
   structureViolations,
   useWorkspaceChrome = false,
   worktreeDiscovery,
@@ -444,7 +448,10 @@ export function ProjectMainPanel({
     mainView === 'project' &&
     project &&
     project.kind !== 'github' &&
-    (projectTab === 'history' || projectTab === 'issues' || projectTab === 'chat');
+    (projectTab === 'history' ||
+      projectTab === 'issues' ||
+      projectTab === 'chat' ||
+      projectTab === 'template');
 
   if (mainView === 'chat') {
     return (
@@ -489,7 +496,7 @@ export function ProjectMainPanel({
   }
 
   return (
-    <Surface variant="transparent" className="flex min-h-0 flex-col rounded-none bg-app-panel">
+    <Surface variant="transparent" className="flex h-full min-h-0 flex-col rounded-none bg-app-panel">
       {useWorkspaceChrome ? null : <div className="relative flex h-14 shrink-0 items-center justify-between gap-3 pr-4 pl-4 sm:pr-6 sm:pl-6">
         <div className="app-drag absolute inset-0" />
 
@@ -538,15 +545,28 @@ export function ProjectMainPanel({
             isGitHubRefreshing={isGitHubRefreshing}
             onRefreshConnectorOverview={onRefreshConnectorOverview}
             onRefreshGitHubCatalog={onRefreshGitHubCatalog}
+            section={settingsSection}
           />
         ) : project ? (
           <ProjectDetail
             chat={(
               <ProjectChatWorkspace
                 client={projectChatClient}
-                fixedProjectId={projectChatProjectId(project, selectedChatRepository)}
+                defaultProjectId={projectChatProjectId(project, selectedChatRepository)}
                 onOpenThread={onOpenCodex}
+                recentProjectIds={recentProjectIds}
                 showChannelNavigation={false}
+                syncRoute={false}
+                threadDirectory={(
+                  <CodexThreadDirectory
+                    connectorOverview={connectorOverview}
+                    controller={codexController}
+                    machineIds={codexMachineIds}
+                    onOpenProject={onSelectProject}
+                    onOpenThread={onOpenCodex}
+                    projects={projects}
+                  />
+                )}
                 taskTitles={projectCodexTaskTitles}
                 taskPreview={(
                   <ProjectCodexTasks

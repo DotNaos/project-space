@@ -363,6 +363,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
               }}
               projectTab={desktop.projectTab}
               projects={desktop.projects}
+              settingsSection={desktop.settingsSection}
             />
           </aside>
         ) : null}
@@ -459,6 +460,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           selectedMachine={desktop.selectedMachine}
           selectedMachineId={desktop.selectedMachineId}
           selectedTargetPath={desktop.selectedTargetPath}
+          settingsSection={desktop.settingsSection}
           structureViolations={desktop.structureViolations}
           useWorkspaceChrome={hasWorkspaceChrome}
           worktreeDiscovery={desktop.worktreeDiscovery}

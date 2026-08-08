@@ -22,7 +22,8 @@ import {
   writeRoute,
   type MachineDetailTab,
   type ProjectDetailTab,
-  type ProjectMainView
+  type ProjectMainView,
+  type SettingsSection
 } from './project-desktop-routing';
 export {
   initialProjectMainView,
@@ -36,7 +37,8 @@ export type {
   MachineDetailTab,
   ParsedProjectRoute,
   ProjectDetailTab,
-  ProjectMainView
+  ProjectMainView,
+  SettingsSection
 } from './project-desktop-routing';
 import {
   parseWorkflowRunRoute,
@@ -133,6 +135,7 @@ export function useProjectDesktop() {
   });
   const [projectTab, setProjectTab] = useState<ProjectDetailTab>('overview');
   const [machineTab, setMachineTab] = useState<MachineDetailTab>('overview');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('machines');
   const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | undefined>();
   const [selectedWorkflowRunId, setSelectedWorkflowRunId] = useState<number | undefined>();
   const [historyFocus, setHistoryFocus] = useState<GitHistoryFocus>();
@@ -520,6 +523,7 @@ export function useProjectDesktop() {
     selectedProjectId,
     selectedTargetName,
     selectedTargetPath,
+    settingsSection,
     structureViolations: discovery.structureViolations,
     selectedWorktree,
     worktreeDiscovery,
@@ -542,6 +546,7 @@ export function useProjectDesktop() {
     },
     ...topologyNavigation,
     openMachines() {
+      setSettingsSection('machines');
       setMainView('settings');
       writeRoute('settings');
     },
@@ -550,6 +555,7 @@ export function useProjectDesktop() {
 
       setSelectedMachineId(machineId);
       setMachineTab(nextTab);
+      setSettingsSection('machines');
       setMainView('settings');
       writeRoute('settings');
     },
@@ -561,6 +567,7 @@ export function useProjectDesktop() {
       writeRoute('projects');
     },
     openSettings() {
+      setSettingsSection('settings');
       setMainView('settings');
       writeRoute('settings');
     },

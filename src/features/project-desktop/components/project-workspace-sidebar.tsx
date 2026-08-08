@@ -16,7 +16,11 @@ import {
 } from 'lucide-react';
 
 import type { ProjectSpaceRecord } from '@/shared/project-space-api';
-import type { ProjectDetailTab, ProjectMainView } from '../hooks/project-desktop-routing';
+import type {
+  ProjectDetailTab,
+  ProjectMainView,
+  SettingsSection
+} from '../hooks/project-desktop-routing';
 import type { RailAccount } from './app-rail';
 
 interface WorkspaceNavItem {
@@ -52,9 +56,13 @@ function projectInitials(project: ProjectSpaceRecord) {
     .toUpperCase();
 }
 
-function activeItem(mainView: ProjectMainView, tab: ProjectDetailTab) {
+function activeItem(
+  mainView: ProjectMainView,
+  tab: ProjectDetailTab,
+  settingsSection: SettingsSection
+) {
   if (mainView === 'settings' || mainView === 'machines' || mainView === 'machine') {
-    return 'machines';
+    return settingsSection === 'machines' ? 'machines' : 'settings';
   }
   if (tab === 'chat' || tab === 'codex') return 'chat';
   if (tab === 'issues' || tab === 'roadmap') return 'tasks';
@@ -221,7 +229,8 @@ export function ProjectWorkspaceSidebar({
   onSelectProject,
   onSelectTab,
   projectTab,
-  projects
+  projects,
+  settingsSection
 }: {
   account?: RailAccount;
   collapsed: boolean;
@@ -236,8 +245,9 @@ export function ProjectWorkspaceSidebar({
   onSelectTab(tab: ProjectDetailTab): void;
   projectTab: ProjectDetailTab;
   projects: ProjectSpaceRecord[];
+  settingsSection: SettingsSection;
 }) {
-  const selectedItem = activeItem(mainView, projectTab);
+  const selectedItem = activeItem(mainView, projectTab, settingsSection);
   const openItem = (id: WorkspaceNavItem['id']) => {
     if (id === 'machines') onOpenMachines();
     else if (id === 'templates') onSelectTab('template');

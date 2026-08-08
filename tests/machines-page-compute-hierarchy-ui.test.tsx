@@ -25,6 +25,9 @@ const computeEnvironmentApi = await import('../src/shared/compute-environment-ap
 
 mock.module('@heroui/react', () => ({ Disclosure }));
 mock.module('@/shared/compute-environment-api', () => computeEnvironmentApi);
+mock.module('@/lib/utils', () => ({
+  cn: (...values: unknown[]) => values.filter(Boolean).join(' ')
+}));
 mock.module('@/app/dotnaos-ui', () => ({
   Button: ({ children, isIconOnly: _isIconOnly, onPress, ...props }: {
     children?: ReactNode;
@@ -33,6 +36,11 @@ mock.module('@/app/dotnaos-ui', () => ({
     [key: string]: unknown;
   }) => createElement('button', { ...props, onClick: onPress }, children),
   Chip: element('span'),
+  SearchField: element('div'),
+  SearchFieldClearButton: () => null,
+  SearchFieldGroup: element('div'),
+  SearchFieldInput: (props: { [key: string]: unknown }) => createElement('input', props),
+  SearchFieldSearchIcon: () => null,
   Text: ({ as = 'span', children, ...props }: {
     as?: ElementType;
     children?: ReactNode;
@@ -57,13 +65,41 @@ mock.module('../src/features/project-desktop/components/settings-connector-machi
   SettingsConnectorMachineEditor: () => null
 }));
 
-const { SettingsMachineGroups } = await import(
-  '../src/features/project-desktop/components/settings-machine-groups'
+const { MachinesPage } = await import(
+  '../src/features/project-desktop/components/machines-page'
 );
 
-describe('settings compute hierarchy', () => {
+const baseProps = {
+  credentialListError: '',
+  credentials: [],
+  hasCopiedInstallCommand: false,
+  installCommand: '',
+  installScriptHref: '',
+  installerError: '',
+  isGeneratingInstaller: false,
+  loadError: '',
+  onCopyInstallCommand: () => undefined,
+  onGenerateInstallCommand: () => undefined,
+  onRefresh: async () => undefined,
+  onRefreshCredentials: () => undefined,
+  onRevokeCredential: () => undefined,
+  onSaveMachine: async () => undefined,
+  physicalMachines: [],
+  revokingCredentialId: '',
+  status: 'ready' as const,
+  tailscale: {
+    connected: false,
+    installed: false,
+    ips: [],
+    peersOnline: 0,
+    serveOrigins: []
+  }
+};
+
+describe('machines page compute hierarchy', () => {
   test('renders provider environments directly below their platform with resources', () => {
-    const html = renderToStaticMarkup(createElement(SettingsMachineGroups, {
+    const html = renderToStaticMarkup(createElement(MachinesPage, {
+      ...baseProps,
       computeInventory: {
         connectors: [{
           associatedAt: '2026-08-08T00:00:00.000Z',
@@ -100,18 +136,30 @@ describe('settings compute hierarchy', () => {
         network: {},
         roles: ['connector'],
         sourcePath: 'test'
-      }],
-      credentials: [],
-      loadError: '',
-      onRefresh: async () => undefined,
-      onSaveMachine: async () => undefined,
-      physicalMachines: [],
-      status: 'ready'
+      }]
     }));
 
     expect(html).toContain('GitHub Codespaces');
+    expect(html).toContain('GitHub Codespace');
     expect(html).toContain('Provider managed');
     expect(html).toContain('4 CPU · 8.0 GB · 32 GB');
-    expect(html).not.toContain('Ungrouped connector installations');
+  });
+
+  test('falls back to the flat machine list without a compute inventory', () => {
+    const html = renderToStaticMarkup(createElement(MachinesPage, {
+      ...baseProps,
+      connectors: [{
+        connector: { installCommand: 'project connector install', status: 'online' },
+        id: 'os-macbook',
+        kind: 'connector',
+        name: 'os-macbook',
+        network: {},
+        roles: ['connector'],
+        sourcePath: 'test'
+      }]
+    }));
+
+    expect(html).toContain('os-macbook');
+    expect(html).not.toContain('Provider managed');
   });
 });

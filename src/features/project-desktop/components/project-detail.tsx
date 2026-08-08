@@ -30,8 +30,8 @@ import { ProjectDeploymentsPanel } from './project-deployments-panel';
 import { ProjectOverviewWorkbench } from './project-overview-workbench';
 import { ProjectRepositoryPanel } from './project-repository-panel';
 import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
-import { ProjectTemplateContractPanel } from './project-template-contract-panel';
 import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
+import { ProjectTemplatePage } from '@/features/project-template/project-template-page';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
 import { projectTabItems } from './project-detail-tabs';
@@ -325,6 +325,7 @@ export function ProjectDetail({
     tab === 'issues' ||
     tab === 'chat' ||
     tab === 'codex' ||
+    tab === 'template' ||
     tab === 'workspaces';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
@@ -420,9 +421,7 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'chat' ? (
-          <div className="h-full min-h-0 overflow-hidden rounded-xl border border-neutral-800/80">
-            {chat}
-          </div>
+          <div className="h-full min-h-0 overflow-hidden">{chat}</div>
         ) : null}
 
         {tab === 'history' ? (
@@ -453,37 +452,34 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'template' ? (
-          <div className="flex flex-col gap-4">
-            <ProjectTemplateContractPanel project={project} />
-            <div className="pt-2">
-              <Text className="text-lg font-semibold text-neutral-100">Project check</Text>
-              <Text className="mt-1 block text-sm text-neutral-500">
-                Validate this project against the template and repair missing setup.
-              </Text>
-            </div>
-            <ProjectTemplateSetupPanel
-              connectorOverview={connectorOverview}
-              onSelectWorkspace={onSelectWorkspace}
-              onSelectWorktree={onSelectWorktree}
-              onTemplateRelativePathChange={setTemplateRelativePath}
-              onTemplateChanged={() => setTemplateRefreshKey((current) => current + 1)}
-              preferredMachineId={selectedMachineId}
-              project={project}
-              relativePath={templateRelativePath}
-              resolvedTargetPath={templateTargetPath}
-              selectedExplorerTarget={selectedExplorerTarget}
-              showMachineSelector={false}
-              targetRootPath={selectedTargetPath}
-              worktrees={worktrees}
-            />
-            <ProjectTemplateAdherencePanel
-              refreshKey={templateRefreshKey}
-              targetPath={templateTargetPath}
-            />
-            <TemplateStatusCard check={project.fullstackTemplate} />
-            <ProjectCliCommandPanel project={project} targetPath={templateTargetPath} />
-            <ProjectctlManifestPanel targetPath={templateTargetPath} />
-          </div>
+          <ProjectTemplatePage
+            projectCheck={(
+              <div className="flex flex-col gap-4">
+                <ProjectTemplateSetupPanel
+                  connectorOverview={connectorOverview}
+                  onSelectWorkspace={onSelectWorkspace}
+                  onSelectWorktree={onSelectWorktree}
+                  onTemplateRelativePathChange={setTemplateRelativePath}
+                  onTemplateChanged={() => setTemplateRefreshKey((current) => current + 1)}
+                  preferredMachineId={selectedMachineId}
+                  project={project}
+                  relativePath={templateRelativePath}
+                  resolvedTargetPath={templateTargetPath}
+                  selectedExplorerTarget={selectedExplorerTarget}
+                  showMachineSelector={false}
+                  targetRootPath={selectedTargetPath}
+                  worktrees={worktrees}
+                />
+                <ProjectTemplateAdherencePanel
+                  refreshKey={templateRefreshKey}
+                  targetPath={templateTargetPath}
+                />
+                <TemplateStatusCard check={project.fullstackTemplate} />
+                <ProjectCliCommandPanel project={project} targetPath={templateTargetPath} />
+                <ProjectctlManifestPanel targetPath={templateTargetPath} />
+              </div>
+            )}
+          />
         ) : null}
 
         {tab === 'deployments' ? (
