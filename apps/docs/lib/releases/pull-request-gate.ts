@@ -4,7 +4,11 @@ import {
   prChangelogDirectory,
   type PrChangelog,
 } from '../changelog/pr-file';
-import { releaseIntentDirectory } from './release-intent';
+import {
+  isReleaseIntentFileName,
+  parseReleaseIntent,
+  releaseIntentDirectory,
+} from './release-intent';
 import type { ReleaseBump } from './types';
 
 export interface ChangedReleaseFile {
@@ -49,15 +53,14 @@ export function validateReleasePullRequest(
   const changedLegacyIntents = input.changedFiles.filter((file) =>
     file.path.startsWith(`${releaseIntentDirectory}/`),
   );
-  if (changedLegacyIntents.length > 0) {
+  const changelogPaths = input.changedFiles.filter((file) =>
+    file.path.startsWith(`${prChangelogDirectory}/`),
+  );
+  if (changedLegacyIntents.length > 0 && changelogPaths.length === 0) {
     errors.push(
       `Pull request #${input.pullRequestNumber} must use changelog/<PR>.md; legacy release-intents are historical compatibility data and may not be added or changed.`,
     );
   }
-
-  const changelogPaths = input.changedFiles.filter((file) =>
-    file.path.startsWith(`${prChangelogDirectory}/`),
-  );
   if (changelogPaths.length !== 1) {
     errors.push(
       `Pull request #${input.pullRequestNumber} must add exactly one changelog/<PR>.md file; found ${changelogPaths.length}.`,
@@ -91,6 +94,36 @@ export function validateReleasePullRequest(
   if (!parsed.ok) {
     errors.push(...parsed.errors);
     return { errors: unique(errors), ok: false };
+  }
+
+  if (changedLegacyIntents.length > 0) {
+    if (changedLegacyIntents.length !== 1) {
+      errors.push('At most one legacy release intent may accompany the migration changelog.');
+    } else {
+      const legacy = changedLegacyIntents[0];
+      const legacyName = legacy.path.slice(`${releaseIntentDirectory}/`.length);
+      if (
+        legacy.status !== 'added' ||
+        !isReleaseIntentFileName(legacyName) ||
+        !legacy.source?.trim()
+      ) {
+        errors.push(
+          `${legacy.path} is only allowed as one newly added canonical legacy compatibility intent during changelog migration.`,
+        );
+      } else {
+        const parsedLegacy = parseReleaseIntent(legacy.source, legacy.path);
+        if (!parsedLegacy.ok) {
+          errors.push(...parsedLegacy.errors);
+        } else if (
+          parsedLegacy.intent.intent === 'none' ||
+          parsedLegacy.intent.intent !== parsed.changelog.bump
+        ) {
+          errors.push(
+            `${legacy.path} must use the same non-none bump as ${prChangelogDirectory}/${input.pullRequestNumber}.md.`,
+          );
+        }
+      }
+    }
   }
 
   return errors.length > 0

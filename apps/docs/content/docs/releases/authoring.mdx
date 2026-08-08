@@ -28,3 +28,7 @@ means a release-documentation problem cannot make a changelog disappear.
 
 Do not edit another pull request's changelog file or historical files under
 `apps/docs/content/docs/releases/entries/`.
+
+The rollout PR may carry one matching legacy release-intent file solely so the
+trusted validator from the previous `main` revision can recognize the
+migration. New pull requests must not add release-intent files.

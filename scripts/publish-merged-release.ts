@@ -208,11 +208,6 @@ async function queuedMerges(
       .filter((path) => path.endsWith('.json'));
     const changelogPaths = addedPaths(commit, prChangelogDirectory)
       .filter((path) => path.endsWith('.md'));
-    if (intentPaths.length > 0 && changelogPaths.length > 0) {
-      throw new Error(
-        `Merged commit ${commit} adds both a raw changelog and a legacy release intent; queue ownership is ambiguous.`,
-      );
-    }
     if (intentPaths.length === 0 && changelogPaths.length === 0) {
       throw new Error(
         `Merged commit ${commit} must add exactly one changelog/<PR>.md file; no queue item was found.`,
@@ -234,7 +229,12 @@ async function queuedMerges(
       );
     }
     const pullRequest = await mergedPullRequestNumber(commit);
-    if (changelogPaths.length === 1) {
+    if (changelogPaths.length > 0) {
+      if (changelogPaths.length !== 1) {
+        throw new Error(
+          `Merged commit ${commit} must add exactly one changelog/<PR>.md file; found ${changelogPaths.length}.`,
+        );
+      }
       const allChangelogChanges = changedPaths.filter((path) =>
         path.startsWith(`${prChangelogDirectory}/`),
       );
@@ -253,6 +253,30 @@ async function queuedMerges(
         throw new Error(
           `Merged commit ${commit} changelog ${changelogPaths[0]} belongs to PR #${parsed.changelog.pullRequest}, not merged PR #${pullRequest}.`,
         );
+      }
+      if (intentPaths.length > 0) {
+        if (intentPaths.length !== 1) {
+          throw new Error(
+            `Merged commit ${commit} may carry at most one legacy release intent during changelog migration.`,
+          );
+        }
+        const allIntentChanges = changedPaths.filter((path) =>
+          path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
+        );
+        if (allIntentChanges.length !== 1) {
+          throw new Error(
+            `Merged commit ${commit} modifies release-intent history instead of adding one migration compatibility item.`,
+          );
+        }
+        const legacyIntent = readIntent(commit, intentPaths[0]);
+        if (
+          legacyIntent === 'none' ||
+          legacyIntent !== parsed.changelog.bump
+        ) {
+          throw new Error(
+            `Merged commit ${commit} legacy release intent must match changelog bump ${parsed.changelog.bump}.`,
+          );
+        }
       }
       queued.push({
         bump: parsed.changelog.bump,

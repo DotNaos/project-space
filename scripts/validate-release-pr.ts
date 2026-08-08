@@ -4,6 +4,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { prChangelogDirectory } from '../apps/docs/lib/changelog/pr-file';
 import { parseReleaseCatalog } from '../apps/docs/lib/releases/catalog';
+import { releaseIntentDirectory } from
+  '../apps/docs/lib/releases/release-intent';
 import {
   validateReleasePullRequest,
   type ChangedReleaseFile,
@@ -123,7 +125,8 @@ async function parseNameStatus(
           path,
           source:
             status !== 'deleted' &&
-              path.startsWith(`${prChangelogDirectory}/`)
+              (path.startsWith(`${prChangelogDirectory}/`) ||
+                path.startsWith(`${releaseIntentDirectory}/`))
               ? await gitTextValidationRaw('show', `${headRef}:${path}`)
               : undefined,
           status,

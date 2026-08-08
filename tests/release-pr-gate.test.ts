@@ -7,10 +7,17 @@ import {
   validateReleasePullRequest,
   type ChangedReleaseFile,
 } from '../apps/docs/lib/releases/pull-request-gate';
-import { releaseIntentDirectory } from '../apps/docs/lib/releases/release-intent';
+import {
+  releaseIntentDirectory,
+  releaseIntentSchema,
+} from '../apps/docs/lib/releases/release-intent';
 
 function changelogSource(bump: string, body = '# A useful change\n\nDetails.') {
   return `---\nbump: ${bump}\n---\n\n${body}\n`;
+}
+
+function legacyIntentSource(intent: string) {
+  return `${JSON.stringify({ schema: releaseIntentSchema, intent }, null, 2)}\n`;
 }
 
 function changed(
@@ -110,13 +117,16 @@ describe('pull request changelog gate', () => {
     expect(result.ok).toBe(false);
   });
 
-  test('rejects package version changes and legacy release intents', () => {
+  test('rejects package version changes and mismatched legacy release intents', () => {
     const result = validateReleasePullRequest(gateInput({
       basePackageVersion: '0.8.2',
       headPackageVersion: '0.8.3',
       changedFiles: [
         changed('package.json'),
-        changed(`${releaseIntentDirectory}/legacy.json`, { status: 'added' }),
+        changed(`${releaseIntentDirectory}/00000000-0000-4000-8000-000000000524.json`, {
+          source: legacyIntentSource('minor'),
+          status: 'added',
+        }),
         changed(`${prChangelogDirectory}/473.md`, {
           source: changelogSource('patch'),
           status: 'added',
@@ -126,7 +136,23 @@ describe('pull request changelog gate', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.join('\n')).toContain('must not change package.json version');
-    expect(result.errors.join('\n')).toContain('legacy release-intents');
+    expect(result.errors.join('\n')).toContain('same non-none bump');
+  });
+
+  test('allows one matching legacy intent only for the migration boundary', () => {
+    const result = validateReleasePullRequest(gateInput({
+      changedFiles: [
+        changed(`${prChangelogDirectory}/473.md`, {
+          source: changelogSource('patch'),
+          status: 'added',
+        }),
+        changed(`${releaseIntentDirectory}/00000000-0000-4000-8000-000000000524.json`, {
+          source: legacyIntentSource('patch'),
+          status: 'added',
+        }),
+      ],
+    }));
+    expect(result).toMatchObject({ bump: 'patch', ok: true });
   });
 
   test('keeps historical release entries immutable', () => {
