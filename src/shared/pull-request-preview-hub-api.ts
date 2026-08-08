@@ -1,6 +1,7 @@
 import type { PullRequestPreviewLifecycle, PullRequestPreviewStatus } from './project-space-api';
 
 export type PreviewHubLifecycleState =
+  | 'not_deployed'
   | 'building'
   | 'ready'
   | 'starting'
@@ -24,11 +25,15 @@ export type PreviewHubFailureCode =
   | 'operation_failed';
 
 export interface PreviewHubRecord {
+  author?: { avatarUrl?: string; login: string };
   capacityBlocked?: boolean;
   changeIdentity?: string;
+  checksStatus?: 'passing' | 'failing' | 'pending' | 'unknown';
   currentHeadSha?: string;
   failureCode?: PreviewHubFailureCode;
   failureMessage?: string;
+  headBranch?: string;
+  isDraft?: boolean;
   lastActivityAt?: string;
   activeLeaseExpiresAt?: string;
   lastVerifiedAt?: string;
@@ -44,7 +49,7 @@ export interface PreviewHubRecord {
   stateChangedAt: string;
   verifiedRunningHeadSha?: string;
   previewUrl?: string;
-  allowedActions: Array<'open' | 'start' | 'stop'>;
+  allowedActions: Array<'open' | 'start' | 'stop' | 'deploy'>;
 }
 
 export interface PreviewHubCapacityCandidate {
@@ -101,7 +106,7 @@ export type PreviewHubMutationResult =
   | {
       code: 'accepted';
       inventoryRevision: string;
-      lifecycle: 'starting' | 'stopping' | 'online';
+      lifecycle: 'building' | 'starting' | 'stopping' | 'online';
       pullRequestNumber: number;
       returnTarget?: string;
     }
@@ -119,6 +124,7 @@ export function previewHubLifecycleFromLegacyState(
   state: PullRequestPreviewLifecycle,
   hasVerifiedRunningHead: boolean
 ): PreviewHubLifecycleState {
+  if (state === 'not-deployed') return 'not_deployed';
   if (state === 'removed') return 'removed';
   if (state === 'starting' || state === 'stopping') return state;
   if (state === 'expired') return 'expired';
@@ -152,12 +158,16 @@ export function previewHubRecordFromLegacyStatus(
     preview.currentHeadSha !== preview.runningSha
   );
   return {
+    author: preview.author,
     capacityBlocked,
     activeLeaseExpiresAt: preview.activeLeaseExpiresAt,
     changeIdentity: preview.pullRequestTitle,
+    checksStatus: preview.checksStatus,
     currentHeadSha: preview.currentHeadSha,
     failureCode: lifecycle === 'failed' ? 'operation_failed' : undefined,
     failureMessage: lifecycle === 'failed' ? preview.message : undefined,
+    headBranch: preview.headBranch,
+    isDraft: preview.isDraft,
     lastActivityAt: preview.lastActivityAt,
     lifecycle,
     pullRequestNumber: preview.pullRequestNumber,
@@ -177,6 +187,8 @@ export function previewHubRecordFromLegacyStatus(
         ? ['stop']
         : lifecycle === 'ready' || lifecycle === 'failed'
           ? ['start']
-          : []
+          : lifecycle === 'not_deployed' && requestedHeadSha
+            ? ['deploy']
+            : []
   };
 }

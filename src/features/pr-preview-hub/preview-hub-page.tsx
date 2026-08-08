@@ -1,12 +1,51 @@
 import { useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
-import { AlertTriangle, ExternalLink, FolderKanban, LoaderCircle, Play, RefreshCw, Square } from 'lucide-react';
+import {
+  AlertTriangle,
+  CircleCheck,
+  CircleDashed,
+  CircleX,
+  Clock3,
+  ExternalLink,
+  FolderKanban,
+  GitBranch,
+  GitPullRequestDraft,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+  Rocket,
+  Square,
+  UserRound
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { projectSpaceClient, setProjectSpaceAuthTokenProvider } from '@/api/project-space-client';
-import { Button, Text } from '@/app/dotnaos-ui';
+import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import { isClerkConfigured } from '@/auth/clerk-provider';
 import type { PreviewHubCapacityCandidate, PreviewHubInventoryResult, PreviewHubMutationResult, PreviewHubRecord } from '@/shared/pull-request-preview-hub-api';
 import { previewPullRequestNumberFromHostname } from '@/shared/preview-host';
+
+type PreviewFilter = 'all' | 'passing' | 'failing' | 'draft';
+
+const filterDefinitions: Array<{ id: PreviewFilter; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'passing', label: 'Checks passing' },
+  { id: 'failing', label: 'Checks failing' },
+  { id: 'draft', label: 'Draft' }
+];
+
+function matchesFilter(preview: PreviewHubRecord, filter: PreviewFilter) {
+  if (filter === 'passing') return preview.checksStatus === 'passing';
+  if (filter === 'failing') return preview.checksStatus === 'failing';
+  if (filter === 'draft') return Boolean(preview.isDraft);
+  return true;
+}
+
+const checksStatusMeta: Record<NonNullable<PreviewHubRecord['checksStatus']>, { className: string; icon: typeof CircleCheck; label: string }> = {
+  failing: { className: 'text-rose-300', icon: CircleX, label: 'Checks failing' },
+  passing: { className: 'text-emerald-300', icon: CircleCheck, label: 'Checks passing' },
+  pending: { className: 'text-amber-300', icon: Clock3, label: 'Checks pending' },
+  unknown: { className: 'text-neutral-500', icon: CircleDashed, label: 'No checks reported' }
+};
 
 export function PreviewHubPage() {
   return <PreviewHubAuthBoundary><PreviewHubContent /></PreviewHubAuthBoundary>;
@@ -59,6 +98,7 @@ function PreviewHubContent() {
   const [busyPr, setBusyPr] = useState<number>();
   const [capacity, setCapacity] = useState<{ target: PreviewHubRecord; candidates: PreviewHubCapacityCandidate[]; revision: string }>();
   const [stopTarget, setStopTarget] = useState<PreviewHubRecord>();
+  const [filter, setFilter] = useState<PreviewFilter>('all');
   const automaticOpenKey = useRef<string | undefined>(undefined);
   const previewPrFromHost = previewPullRequestNumberFromHostname(window.location.hostname);
   const selectedPr = Number(new URLSearchParams(window.location.search).get('pr') ?? '') || previewPrFromHost;
@@ -69,6 +109,14 @@ function PreviewHubContent() {
   }, []);
   useEffect(() => { void load(); }, [load]);
   const selected = useMemo(() => result?.previews.find((preview) => preview.pullRequestNumber === selectedPr), [result, selectedPr]);
+  const openPreviews = useMemo(() => (result?.previews ?? []).filter((preview) => preview.pullRequestState === 'open'), [result]);
+  const filterCounts = useMemo(() => Object.fromEntries(
+    filterDefinitions.map(({ id }) => [id, openPreviews.filter((preview) => matchesFilter(preview, id)).length])
+  ) as Record<PreviewFilter, number>, [openPreviews]);
+  const filteredPreviews = useMemo(
+    () => (result?.previews ?? []).filter((preview) => matchesFilter(preview, filter)),
+    [result, filter]
+  );
   const open = useCallback(async (target: PreviewHubRecord) => {
     if (!target.previewUrl) return;
     setBusyPr(target.pullRequestNumber); setError('');
@@ -136,7 +184,60 @@ function PreviewHubContent() {
     setBusyPr(target.pullRequestNumber); setError('');
     try { const response = await projectSpaceClient.stopPullRequestPreview({ pullRequestNumber: target.pullRequestNumber, repositoryFullName: target.repositoryFullName, requestedHeadSha: target.requestedHeadSha }); if (response.code !== 'accepted' && 'message' in response) setError(response.message); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : 'Preview stop failed.'); } finally { setBusyPr(undefined); }
   }
-  return <main className="min-h-screen bg-app-canvas px-4 py-8 text-neutral-100 sm:px-8"><div className="mx-auto max-w-5xl"><header className="flex flex-wrap items-end gap-4 border-b border-neutral-800/80 pb-6"><div><Text as="p" className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">Project Space / trusted runtime</Text><Text as="h1" className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Pull request Previews</Text><Text as="p" className="mt-2 text-sm leading-relaxed text-neutral-400">Build and retain open PRs offline. Bring at most three online when you need them.</Text></div><div className="ml-auto flex items-center gap-2 text-sm text-neutral-400"><span>{result ? `${result.onlineCount} of ${result.maxOnline} online` : 'Checking capacity…'}</span><Button aria-label="Refresh Preview inventory" isDisabled={loading} isIconOnly size="sm" variant="ghost" onPress={() => void load()}><RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} /></Button></div></header>{selected ? <div className="mt-5 border border-sky-400/30 bg-sky-400/5 px-4 py-3 text-sm text-sky-100">PR #{selected.pullRequestNumber} is selected. Project Space will open the requested app path after exact-head access is verified.</div> : null}{error ? <div className="mt-5 flex items-start gap-2 border border-rose-400/30 px-4 py-3 text-sm text-rose-200"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{error}</div> : null}{loading && !result ? <div className="py-12 text-sm text-neutral-500">Loading authorized Preview inventory…</div> : result?.status !== 'available' ? <div className="py-12 text-sm text-amber-200">Preview inventory is {result?.status ?? 'unavailable'}.</div> : <div className="mt-6 divide-y divide-neutral-800/80 border-y border-neutral-800/80">{result.previews.length ? result.previews.map((preview) => <PreviewRow busy={busyPr === preview.pullRequestNumber} highlighted={preview.pullRequestNumber === selectedPr} key={`${preview.repositoryFullName}:${preview.pullRequestNumber}`} onOpen={() => void open(preview)} onStart={() => void start(preview)} onStop={() => setStopTarget(preview)} preview={preview} />) : <div className="py-10 text-sm text-neutral-500">No registered open-PR Previews are available yet.</div>}</div>}{capacity ? <CapacityDialog busy={busyPr === capacity.target.pullRequestNumber} candidates={capacity.candidates} onCancel={() => setCapacity(undefined)} onConfirm={(candidate) => { setCapacity(undefined); void start(capacity.target, candidate); }} target={capacity.target} /> : null}{stopTarget ? <StopDialog busy={busyPr === stopTarget.pullRequestNumber} onCancel={() => setStopTarget(undefined)} onConfirm={() => { const target = stopTarget; setStopTarget(undefined); void stop(target); }} target={stopTarget} /> : null}</div></main>;
+  const statusLine = loading && !result
+    ? 'Checking capacity…'
+    : result
+      ? `${result.onlineCount} of ${result.maxOnline} online · ${openPreviews.length} open pull request${openPreviews.length === 1 ? '' : 's'}`
+      : 'Capacity unknown';
+
+  return <main className="min-h-screen bg-app-canvas px-4 py-8 text-neutral-100 sm:px-8">
+    <div className="mx-auto max-w-5xl">
+      <header className="flex flex-wrap items-end gap-4 border-b border-neutral-800/80 pb-6">
+        <div>
+          <Text as="p" className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">Project Space / trusted runtime</Text>
+          <Text as="h1" className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Pull request Previews</Text>
+          <Text as="p" className="mt-2 max-w-xl text-sm leading-relaxed text-neutral-400">Every open pull request on this repository is listed here. Deploy a fresh preview or bring a built one back online — at most {result?.maxOnline ?? 3} run at a time.</Text>
+        </div>
+        <div className="ml-auto flex items-center gap-2 text-sm text-neutral-400">
+          <span>{statusLine}</span>
+          <Button aria-label="Refresh Preview inventory" isDisabled={loading} isIconOnly size="sm" variant="ghost" onPress={() => void load()}>
+            <RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} />
+          </Button>
+        </div>
+      </header>
+      {selected ? <div className="mt-5 border border-sky-400/30 bg-sky-400/5 px-4 py-3 text-sm text-sky-100">PR #{selected.pullRequestNumber} is selected. Project Space will open the requested app path after exact-head access is verified.</div> : null}
+      {error ? <div className="mt-5 flex items-start gap-2 border border-rose-400/30 px-4 py-3 text-sm text-rose-200"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{error}</div> : null}
+      {loading && !result
+        ? <div className="py-12 text-sm text-neutral-500">Loading authorized Preview inventory…</div>
+        : result?.status !== 'available'
+          ? <div className="py-12 text-sm text-amber-200">{previewInventoryStatusMessage(result?.status)}</div>
+          : <>
+            <div className="mt-6 flex flex-wrap gap-2">
+              {filterDefinitions.map(({ id, label }) => <FilterChip active={filter === id} count={filterCounts[id]} id={id} key={id} label={label} onSelect={setFilter} />)}
+            </div>
+            <div className="mt-4 divide-y divide-neutral-800/80 border-y border-neutral-800/80">
+              {result.previews.length === 0
+                ? <div className="py-10 text-sm text-neutral-500">No open pull requests on this repository right now.</div>
+                : filteredPreviews.length === 0
+                  ? <div className="flex flex-col items-start gap-2 py-10 text-sm text-neutral-500">
+                    <span>No pull requests match this filter.</span>
+                    <Button size="sm" variant="ghost" onPress={() => setFilter('all')}>Clear filter</Button>
+                  </div>
+                  : filteredPreviews.map((preview) => <PreviewRow
+                    busy={busyPr === preview.pullRequestNumber}
+                    highlighted={preview.pullRequestNumber === selectedPr}
+                    key={`${preview.repositoryFullName}:${preview.pullRequestNumber}`}
+                    onOpen={() => void open(preview)}
+                    onStart={() => void start(preview)}
+                    onStop={() => setStopTarget(preview)}
+                    preview={preview}
+                  />)}
+            </div>
+          </>}
+      {capacity ? <CapacityDialog busy={busyPr === capacity.target.pullRequestNumber} candidates={capacity.candidates} onCancel={() => setCapacity(undefined)} onConfirm={(candidate) => { setCapacity(undefined); void start(capacity.target, candidate); }} target={capacity.target} /> : null}
+      {stopTarget ? <StopDialog busy={busyPr === stopTarget.pullRequestNumber} onCancel={() => setStopTarget(undefined)} onConfirm={() => { const target = stopTarget; setStopTarget(undefined); void stop(target); }} target={stopTarget} /> : null}
+    </div>
+  </main>;
 }
 
 function previewReturnToPreviewOrigin(value: string, pullRequestNumber: number) {
@@ -148,17 +249,78 @@ function previewReturnToPreviewOrigin(value: string, pullRequestNumber: number) 
   } catch { return `https://pr-${pullRequestNumber}.projects.os-home.net/`; }
 }
 
+function previewInventoryStatusMessage(status: PreviewHubInventoryResult['status'] | undefined) {
+  if (status === 'unauthorized') return 'This repository is not linked, or you do not have access to its trusted Preview inventory.';
+  return 'Preview inventory is temporarily unavailable. Try refreshing in a moment.';
+}
+
+function FilterChip({ active, count, id, label, onSelect }: { active: boolean; count: number; id: PreviewFilter; label: string; onSelect(id: PreviewFilter): void }) {
+  return <button
+    aria-pressed={active}
+    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+      active
+        ? 'border-neutral-100 bg-neutral-100 text-neutral-950'
+        : 'border-neutral-800 bg-transparent text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'
+    }`}
+    onClick={() => onSelect(id)}
+    type="button"
+  >
+    {label}
+    <span className="opacity-70">({count})</span>
+  </button>;
+}
+
 function StopDialog({ busy, onCancel, onConfirm, target }: { busy: boolean; onCancel(): void; onConfirm(): void; target: PreviewHubRecord }) {
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"><div aria-modal="true" className="w-full max-w-md border border-neutral-700 bg-app-panel p-5 shadow-2xl" role="dialog"><Text as="h2" className="text-lg font-semibold">Stop PR #{target.pullRequestNumber}?</Text><Text className="mt-2 text-sm text-neutral-400">This takes the Preview offline and keeps its registered images ready for a later start. No other Preview will be stopped.</Text><div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onPress={onCancel}>Cancel</Button><Button isDisabled={busy} variant="outline" onPress={onConfirm}>Stop Preview</Button></div></div></div>;
 }
 
 function PreviewRow({ busy, highlighted, onOpen, onStart, onStop, preview }: { busy: boolean; highlighted: boolean; onOpen(): void; onStart(): void; onStop(): void; preview: PreviewHubRecord }) {
-  const label = preview.lifecycle === 'online' ? 'Online' : preview.lifecycle === 'ready' ? 'Ready · offline' : preview.lifecycle[0].toUpperCase() + preview.lifecycle.slice(1);
+  const label = preview.lifecycle === 'online'
+    ? 'Online'
+    : preview.lifecycle === 'ready'
+      ? 'Ready · offline'
+      : preview.lifecycle === 'not_deployed'
+        ? 'Not deployed'
+        : preview.lifecycle[0].toUpperCase() + preview.lifecycle.slice(1);
   const sha = preview.requestedHeadSha ? preview.requestedHeadSha.slice(0, 8) : 'commit unavailable';
   const canOpen = preview.allowedActions.includes('open') && Boolean(preview.previewUrl);
   const canStart = preview.allowedActions.includes('start');
+  const canDeploy = preview.allowedActions.includes('deploy');
   const canStop = preview.allowedActions.includes('stop');
-  return <article className={`grid gap-4 px-1 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-2 ${highlighted ? 'bg-sky-400/5' : ''}`}><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><Text className="font-mono text-xs text-neutral-500">#{preview.pullRequestNumber}</Text><Text className="truncate text-sm font-medium text-neutral-100">{preview.pullRequestTitle ?? 'Pull request Preview'}</Text><span className="text-xs text-neutral-400">{label}</span></div><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500"><span>{preview.repositoryFullName}</span><span className="font-mono">{sha}</span>{preview.lastVerifiedAt ? <span>verified {new Date(preview.lastVerifiedAt).toLocaleString()}</span> : null}{preview.safeStorageBytes ? <span>{Math.round(preview.safeStorageBytes / 1024 / 1024)} MB stored</span> : null}</div>{preview.failureMessage ? <Text className="mt-2 block text-xs text-rose-200">{preview.failureMessage}</Text> : null}</div><div className="flex flex-wrap gap-2 sm:justify-end">{canOpen ? <Button size="sm" variant="ghost" onPress={onOpen}><ExternalLink className="size-4" />Open</Button> : null}{canStop ? <Button isDisabled={busy} size="sm" variant="outline" onPress={onStop}><Square className="size-4" />Stop</Button> : null}{canStart ? <Button isDisabled={busy} size="sm" onPress={onStart}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}Start</Button> : !canStop && !canOpen && !canStart ? <span className="inline-flex items-center gap-2 px-2 text-xs text-neutral-500"><LoaderCircle className="size-4 animate-spin" />{label}</span> : null}</div></article>;
+  const checks = preview.checksStatus ? checksStatusMeta[preview.checksStatus] : undefined;
+  const ChecksIcon = checks?.icon;
+
+  return <article className={`grid gap-4 px-1 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-2 ${highlighted ? 'bg-sky-400/5' : ''}`}>
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <Text className="font-mono text-xs text-neutral-500">#{preview.pullRequestNumber}</Text>
+        <Text className="truncate text-sm font-medium text-neutral-100">{preview.pullRequestTitle ?? 'Pull request Preview'}</Text>
+        {preview.isDraft ? <Chip className="inline-flex items-center gap-1 rounded-full border border-neutral-700 px-2 py-0.5 text-neutral-400" size="sm"><GitPullRequestDraft className="size-3" />Draft</Chip> : null}
+        {checks && ChecksIcon ? <span className={`inline-flex items-center gap-1 text-xs ${checks.className}`} title={checks.label}><ChecksIcon className="size-3.5" />{checks.label}</span> : null}
+        <span className="text-xs text-neutral-400">{label}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
+        {preview.author ? <span className="inline-flex items-center gap-1.5">
+          {preview.author.avatarUrl
+            ? <img alt="" className="size-4 rounded-full" src={preview.author.avatarUrl} />
+            : <UserRound className="size-3.5" />}
+          {preview.author.login}
+        </span> : null}
+        {preview.headBranch ? <span className="inline-flex items-center gap-1 font-mono"><GitBranch className="size-3.5" />{preview.headBranch}</span> : null}
+        <span className="font-mono">{sha}</span>
+        {preview.lastVerifiedAt ? <span>verified {new Date(preview.lastVerifiedAt).toLocaleString()}</span> : null}
+        {preview.safeStorageBytes ? <span>{Math.round(preview.safeStorageBytes / 1024 / 1024)} MB stored</span> : null}
+      </div>
+      {preview.failureMessage ? <Text className="mt-2 block text-xs text-rose-200">{preview.failureMessage}</Text> : null}
+    </div>
+    <div className="flex flex-wrap gap-2 sm:justify-end">
+      {canOpen ? <Button size="sm" variant="ghost" onPress={onOpen}><ExternalLink className="size-4" />Open</Button> : null}
+      {canStop ? <Button isDisabled={busy} size="sm" variant="outline" onPress={onStop}><Square className="size-4" />Stop</Button> : null}
+      {canStart ? <Button isDisabled={busy} size="sm" onPress={onStart}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}Start</Button> : null}
+      {canDeploy ? <Button isDisabled={busy} size="sm" onPress={onStart}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Rocket className="size-4" />}Deploy preview</Button> : null}
+      {!canStop && !canOpen && !canStart && !canDeploy ? <span className="inline-flex items-center gap-2 px-2 text-xs text-neutral-500"><LoaderCircle className="size-4 animate-spin" />{label}</span> : null}
+    </div>
+  </article>;
 }
 
 function CapacityDialog({ busy, candidates, onCancel, onConfirm, target }: { busy: boolean; candidates: PreviewHubCapacityCandidate[]; onCancel(): void; onConfirm(candidate: PreviewHubCapacityCandidate): void; target: PreviewHubRecord }) {

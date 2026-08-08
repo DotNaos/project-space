@@ -23,10 +23,23 @@ interface GitHubGraphQLDevelopmentLinks {
     } | null;
     pullRequests?: {
       nodes?: Array<{
+        author?: {
+          avatarUrl?: string | null;
+          login?: string | null;
+        } | null;
         baseRefName?: string | null;
         closingIssuesReferences?: {
           nodes?: Array<{
             number: number;
+          } | null>;
+        } | null;
+        commits?: {
+          nodes?: Array<{
+            commit?: {
+              statusCheckRollup?: {
+                state?: string | null;
+              } | null;
+            } | null;
           } | null>;
         } | null;
         headRefName?: string | null;
@@ -50,6 +63,27 @@ interface GitHubGraphQLDevelopmentLinks {
       } | null>;
     } | null;
   } | null;
+}
+
+/**
+ * Normalizes GitHub's `StatusCheckRollupState` GraphQL enum (SUCCESS / FAILURE / ERROR /
+ * PENDING / EXPECTED) into the simpler union the Previews UI filters and colors by.
+ */
+export function normalizeChecksStatus(
+  state: string | null | undefined
+): GitHubPullRequestRecord['checksStatus'] {
+  switch (state) {
+    case 'SUCCESS':
+      return 'passing';
+    case 'FAILURE':
+    case 'ERROR':
+      return 'failing';
+    case 'PENDING':
+    case 'EXPECTED':
+      return 'pending';
+    default:
+      return 'unknown';
+  }
 }
 
 function addLinkedIssue(
@@ -108,6 +142,10 @@ export async function loadRepositoryDevelopmentLinks(
               title
               url
               state
+              author {
+                login
+                avatarUrl
+              }
               baseRefName
               headRefName
               headRefOid
@@ -126,6 +164,15 @@ export async function loadRepositoryDevelopmentLinks(
               closingIssuesReferences(first: 20) {
                 nodes {
                   number
+                }
+              }
+              commits(last: 1) {
+                nodes {
+                  commit {
+                    statusCheckRollup {
+                      state
+                    }
+                  }
                 }
               }
             }
@@ -167,7 +214,13 @@ export async function loadRepositoryDevelopmentLinks(
     pullRequests: (data.repository?.pullRequests?.nodes ?? [])
       .filter((pullRequest): pullRequest is NonNullable<typeof pullRequest> => Boolean(pullRequest))
       .map((pullRequest) => ({
+        author: pullRequest.author?.login
+          ? { avatarUrl: pullRequest.author.avatarUrl ?? undefined, login: pullRequest.author.login }
+          : undefined,
         baseBranch: pullRequest.baseRefName ?? undefined,
+        checksStatus: normalizeChecksStatus(
+          pullRequest.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state
+        ),
         headBranch: pullRequest.headRefName ?? undefined,
         headRefPresent: Boolean(pullRequest.headRef),
         headRepositoryFullName: pullRequest.headRepository?.nameWithOwner ?? undefined,

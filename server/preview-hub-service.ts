@@ -10,7 +10,7 @@ import type {
 } from '../src/shared/project-space-api';
 import { previewHubRecordFromLegacyStatus } from '../src/shared/pull-request-preview-hub-api';
 import { runProjectBinary } from './local-project-cli-client';
-import { getPullRequestPreviewStatus, correlatePullRequestPreviews } from './pull-request-preview-status';
+import { getPullRequestPreviewStatus, correlatePullRequestPreviews, withUndeployedOpenPullRequests } from './pull-request-preview-status';
 import { sanitizePreviewReturnTarget } from './preview-return-target';
 import { projectSpaceLogger } from './observability';
 
@@ -60,7 +60,10 @@ export function createPreviewHubService(
     if (repositoryFullName !== defaultRepository || !repositoryPattern.test(repositoryFullName) || !userId) return unavailable(repositoryFullName, 'unauthorized');
     const details = await backend.getGitHubRepositoryDetails(repositoryFullName);
     if (details.status !== 'connected') return unavailable(repositoryFullName, ['error', 'rate-limited'].includes(details.status) ? 'unavailable' : 'unauthorized');
-    const result = correlatePullRequestPreviews(await loadStatus(repositoryFullName), details);
+    const result = withUndeployedOpenPullRequests(
+      correlatePullRequestPreviews(await loadStatus(repositoryFullName), details),
+      details
+    );
     const previews = result.previews.map((preview) => previewHubRecordFromLegacyStatus(preview, now()));
     const revision = previewHubInventoryRevision(previews, result.previews);
     return {
@@ -84,12 +87,24 @@ export function createPreviewHubService(
     if (target.requestedHeadSha !== request.requestedHeadSha || target.currentHeadSha !== request.requestedHeadSha) return { code: 'head_changed', message: 'The pull request head changed; refresh before starting.' };
     const returnTarget = sanitizePreviewReturnTarget(request.returnTarget, request.pullRequestNumber);
     if (request.returnTarget && !returnTarget) return { code: 'invalid_return_target', message: 'The requested return path is not safe for this Preview.' };
-    if (current.occupiedCount >= maxOnline && request.selectedReplacementPullRequestNumber === undefined) {
+
+    // A PR that has never been previewed before has no built image on the VPS yet, so it
+    // must go through the "deploy" (build-from-scratch) operation instead of the cheap
+    // "start" (bring an already-built image back online) operation. The trusted workflow
+    // does not support the automatic-replacement flow for a fresh build, so a fresh deploy
+    // simply fails fast when capacity is full instead of prompting for a replacement.
+    const isUndeployed = target.lifecycle === 'not_deployed';
+    if (isUndeployed && current.occupiedCount >= maxOnline) {
+      return { code: 'operation_failed', message: 'All Preview capacity is currently in use. Stop a running preview before deploying a new one.' };
+    }
+    if (!isUndeployed && current.occupiedCount >= maxOnline && request.selectedReplacementPullRequestNumber === undefined) {
       return { code: 'capacity_requires_choice', inventoryRevision: current.inventoryRevision, online: current.previews.filter((preview) => preview.lifecycle === 'online').map((preview) => ({ pullRequestNumber: preview.pullRequestNumber, repositoryFullName: preview.repositoryFullName, requestedHeadSha: preview.requestedHeadSha, lastActivityAt: preview.lastActivityAt, lastVerifiedAt: preview.lastVerifiedAt, previewUrl: preview.previewUrl })) };
     }
-    if (current.occupiedCount >= maxOnline && request.inventoryRevision !== current.inventoryRevision) return { code: 'capacity_requires_choice', inventoryRevision: current.inventoryRevision, online: current.previews.filter((preview) => preview.lifecycle === 'online').map(toCapacityCandidate) };
-    const args = ['deploy', 'preview', 'start', '--pr', String(request.pullRequestNumber), '--format', 'json'];
-    if (current.occupiedCount >= maxOnline) {
+    if (!isUndeployed && current.occupiedCount >= maxOnline && request.inventoryRevision !== current.inventoryRevision) return { code: 'capacity_requires_choice', inventoryRevision: current.inventoryRevision, online: current.previews.filter((preview) => preview.lifecycle === 'online').map(toCapacityCandidate) };
+    const args = isUndeployed
+      ? ['deploy', 'preview', '--pr', String(request.pullRequestNumber), '--format', 'json']
+      : ['deploy', 'preview', 'start', '--pr', String(request.pullRequestNumber), '--format', 'json'];
+    if (!isUndeployed && current.occupiedCount >= maxOnline) {
       const selected = current.previews.find((preview) =>
         preview.pullRequestNumber === request.selectedReplacementPullRequestNumber &&
         preview.repositoryFullName === (request.selectedReplacementRepositoryFullName ?? request.repositoryFullName)
@@ -110,7 +125,7 @@ export function createPreviewHubService(
       return { code: 'operation_failed', message: safeCliFailure(result.stderr) };
     }
     auditMutation({ action: 'start', pullRequestNumber: request.pullRequestNumber, repositoryFullName: request.repositoryFullName, userId, outcome: 'accepted' });
-    return { code: 'accepted', inventoryRevision: current.inventoryRevision, lifecycle: 'starting', pullRequestNumber: request.pullRequestNumber, returnTarget };
+    return { code: 'accepted', inventoryRevision: current.inventoryRevision, lifecycle: isUndeployed ? 'building' : 'starting', pullRequestNumber: request.pullRequestNumber, returnTarget };
   }
 
   async function stop(request: PreviewHubStopRequest, userId = 'local-development-user'): Promise<PreviewHubMutationResult> {

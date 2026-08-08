@@ -248,8 +248,11 @@ export function correlatePullRequestPreviews(
       );
       return pullRequest ? {
         ...preview,
+        author: pullRequest.author,
+        checksStatus: pullRequest.checksStatus,
         currentHeadSha: sha(pullRequest.headSha),
         headBranch: pullRequest.headBranch ?? preview.headBranch,
+        isDraft: pullRequest.isDraft,
         linkedIssueNumbers: pullRequest.linkedIssueNumbers,
         pullRequestState: pullRequest.state,
         pullRequestTitle: pullRequest.title,
@@ -260,6 +263,54 @@ export function correlatePullRequestPreviews(
         )
       } : preview;
     })
+  };
+}
+
+/**
+ * Appends a "not-deployed" placeholder for every open pull request that has no entry in the
+ * trusted status registry (the VPS-backed CLI only knows about pull requests that were
+ * deployed at least once). This is deliberately *not* folded into `correlatePullRequestPreviews`
+ * itself: that function also backs the generic per-project `/api/pull-request-previews/status`
+ * route and the inline Deployments-tab preview widget, whose "no entry" UX
+ * (`pullRequestPreviewPresentation` in pull-request-preview-model.ts) already has its own
+ * "waiting for automatic deployment" copy driven by an *absent* match — injecting a synthetic
+ * `not-deployed` record there would silently change that widget's behavior on every project.
+ * Only the standalone trusted-runtime Previews hub (preview-hub-service.ts) wants every open PR
+ * listed, so it opts in explicitly by calling this on top of the correlated result.
+ */
+export function withUndeployedOpenPullRequests(
+  result: PullRequestPreviewStatusResult,
+  details: GitHubRepositoryDetailsResult
+): PullRequestPreviewStatusResult {
+  const knownPullRequestNumbers = new Set(result.previews.map((preview) => preview.pullRequestNumber));
+  const undeployed = details.pullRequests
+    .filter((pullRequest) => pullRequest.state === 'open' && !knownPullRequestNumbers.has(pullRequest.number))
+    .map((pullRequest) => notDeployedPreviewFrom(pullRequest, result.repositoryFullName));
+  return undeployed.length ? { ...result, previews: [...result.previews, ...undeployed] } : result;
+}
+
+function notDeployedPreviewFrom(
+  pullRequest: GitHubRepositoryDetailsResult['pullRequests'][number],
+  repositoryFullName: string
+): PullRequestPreviewStatus {
+  const requestedSha = sha(pullRequest.headSha);
+  return {
+    author: pullRequest.author,
+    checksStatus: pullRequest.checksStatus,
+    currentHeadSha: requestedSha,
+    headBranch: pullRequest.headBranch,
+    isDraft: pullRequest.isDraft,
+    linkedIssueNumbers: pullRequest.linkedIssueNumbers,
+    liveUrlState: 'not-configured',
+    prototypeUrlState: 'not-configured',
+    pullRequestNumber: pullRequest.number,
+    pullRequestState: 'open',
+    pullRequestTitle: pullRequest.title,
+    pullRequestUrl: pullRequestLink(pullRequest.url, repositoryFullName, pullRequest.number),
+    repositoryFullName,
+    requestedSha,
+    state: 'not-deployed',
+    updatedAt: pullRequest.updatedAt
   };
 }
 

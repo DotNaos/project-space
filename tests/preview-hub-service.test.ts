@@ -164,6 +164,43 @@ describe('Preview hub service', () => {
     ]);
   });
 
+  test('deploys a brand-new PR that has never been previewed via the build operation, not "start"', async () => {
+    const calls: string[][] = [];
+    const service = createPreviewHubService({ getGitHubRepositoryDetails: async () => details() }, {
+      loadStatus: async () => ({ checkedAt: '2026-07-31T00:00:00.000Z', previews: [status(1, 'ready')], repositoryFullName: repository, status: 'available' }),
+      maxOnline: 3,
+      run: async (args) => { calls.push(args); return { exitCode: 0, stderr: '', stdout: '{}' }; }
+    });
+
+    const inventory = await service.inventory();
+    const undeployed = inventory.previews.find((preview) => preview.pullRequestNumber === 2);
+    expect(undeployed).toMatchObject({ lifecycle: 'not_deployed', requestedHeadSha: sha });
+    expect(undeployed?.allowedActions).toEqual(['deploy']);
+
+    const accepted = await service.start({ pullRequestNumber: 2, repositoryFullName: repository, requestedHeadSha: sha });
+    expect(accepted).toMatchObject({ code: 'accepted', lifecycle: 'building' });
+    expect(calls[0]).toEqual(['deploy', 'preview', '--pr', '2', '--format', 'json']);
+  });
+
+  test('fails fast (no replacement flow) deploying a new PR when Preview capacity is full', async () => {
+    const service = createPreviewHubService({ getGitHubRepositoryDetails: async () => details() }, {
+      loadStatus: async () => ({
+        checkedAt: '2026-07-31T00:00:00.000Z',
+        previews: [1, 2, 3].map((number) => status(number, 'online')),
+        repositoryFullName: repository,
+        status: 'available'
+      }),
+      maxOnline: 3,
+      run: async () => ({ exitCode: 0, stderr: '', stdout: '{}' })
+    });
+
+    const result = await service.start({ pullRequestNumber: 4, repositoryFullName: repository, requestedHeadSha: otherSha });
+    expect(result).toMatchObject({
+      code: 'operation_failed',
+      message: 'All Preview capacity is currently in use. Stop a running preview before deploying a new one.'
+    });
+  });
+
   test('redacts credential-like CLI failures and rejects unsafe return targets', async () => {
     const service = createPreviewHubService({ getGitHubRepositoryDetails: async () => details() }, {
       loadStatus: async () => ({ checkedAt: '2026-07-31T00:00:00.000Z', previews: [status(4, 'ready', otherSha)], repositoryFullName: repository, status: 'available' }),
