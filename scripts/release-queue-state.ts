@@ -42,7 +42,7 @@ export function enforcedQueueCommits(input: {
   if (input.commits.length === 0) return [];
   if (!input.alreadyEnforced && input.enforcementIndex < 0) {
     throw new Error(
-    `Current main contains ${input.commits.length} post-release commit(s) but no release queue enforcement marker.`,
+      `Current main contains ${input.commits.length} post-release commit(s) but no release queue enforcement marker.`,
     );
   }
   return input.commits.slice(
