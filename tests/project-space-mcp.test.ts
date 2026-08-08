@@ -18,6 +18,7 @@ import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oau
 const originalAuthDisabled = process.env.PROJECT_SPACE_AUTH_DISABLED;
 const originalPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
 const originalSecretKey = process.env.CLERK_SECRET_KEY;
+const originalNodeEnv = process.env.NODE_ENV;
 const servers: HttpServer[] = [];
 const clients: Client[] = [];
 
@@ -25,6 +26,7 @@ afterEach(async () => {
   restoreEnvironment('PROJECT_SPACE_AUTH_DISABLED', originalAuthDisabled);
   restoreEnvironment('CLERK_PUBLISHABLE_KEY', originalPublishableKey);
   restoreEnvironment('CLERK_SECRET_KEY', originalSecretKey);
+  restoreEnvironment('NODE_ENV', originalNodeEnv);
   await Promise.all(clients.splice(0).map((client) => client.close()));
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => {
     server.close(() => resolve());
@@ -191,6 +193,44 @@ describe('Project Space remote MCP server', () => {
     expect(mcpResponse.headers.get('www-authenticate')).toContain(
       `resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`
     );
+  });
+
+  test('registers Codex loopback OAuth callbacks in production', async () => {
+    delete process.env.PROJECT_SPACE_AUTH_DISABLED;
+    process.env.NODE_ENV = 'production';
+    const origin = await startMcp([], {
+      getStore: async () => new MemoryProjectSpaceMcpOAuthStore()
+    });
+
+    for (const redirectUri of [
+      'http://127.0.0.1:43821/callback',
+      'http://localhost:43821/callback',
+      'http://[::1]:43821/callback'
+    ]) {
+      const registration = await fetch(`${origin}/register`, {
+        body: JSON.stringify({
+          client_name: 'Codex',
+          grant_types: ['authorization_code', 'refresh_token'],
+          redirect_uris: [redirectUri],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none'
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST'
+      });
+
+      expect(registration.status).toBe(201);
+    }
+
+    const unsafeRegistration = await fetch(`${origin}/register`, {
+      body: JSON.stringify({
+        redirect_uris: ['https://127.0.0.1.attacker.example/callback'],
+        token_endpoint_auth_method: 'none'
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    expect(unsafeRegistration.status).toBe(400);
   });
 
   test('serves OAuth-declared tools and routes calls through the signed-in actor', async () => {

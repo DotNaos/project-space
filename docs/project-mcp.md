@@ -18,4 +18,12 @@ Discovery endpoints:
 
 Connect ChatGPT Work to `https://projects.os-home.net/mcp`, sign in to Project Space, and approve the requested read/write scopes. The remote server uses the same Project Space machine-membership and backend authorization boundaries as the web application. It omits local filesystem paths and embedded image data from MCP results.
 
+Connect Codex with:
+
+```sh
+codex mcp add project-space --url https://projects.os-home.net/mcp
+```
+
+Codex opens the same Project Space authorization flow and returns to the local app through a loopback callback after approval.
+
 Preview environments must not be configured as trusted MCP servers. They intentionally do not receive the Clerk secret or production database access.

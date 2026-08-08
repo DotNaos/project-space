@@ -20,6 +20,16 @@ Project Space provides the OAuth 2.1 authorization server itself. ChatGPT Work d
 
 The server also exposes `read_codex_task`, `start_codex_task`, and `send_codex_message`. Starting a task creates a Project-managed worktree from a GitHub issue. Sending a message continues an existing Codex task. Both actions are marked as consequential tool calls so ChatGPT can request confirmation before invoking them.
 
+## Connect Codex
+
+Register the same production endpoint from a terminal:
+
+```sh
+codex mcp add project-space --url https://projects.os-home.net/mcp
+```
+
+Codex opens Project Space in the browser for approval, then returns to the local app through a loopback callback. The MCP server remains remote and continues to use the production Project Space backend.
+
 ## Authentication configuration
 
 No Clerk OAuth Application, Client ID Metadata Document (CIMD), Clerk Dynamic Client Registration, or client secret is needed. Project Space owns the OAuth endpoints and stores only hashed authorization codes and tokens in its database. Access tokens expire after one hour and refresh tokens rotate whenever they are used.

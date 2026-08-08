@@ -75,8 +75,7 @@ function isAllowedRedirectUri(value: string) {
   if (url.origin === 'https://chatgpt.com') {
     return url.pathname.startsWith('/connector/oauth/') || url.pathname === '/connector_platform_oauth_redirect';
   }
-  return process.env.NODE_ENV !== 'production' &&
-    (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]') &&
+  return (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]') &&
     (url.protocol === 'http:' || url.protocol === 'https:');
 }
 
