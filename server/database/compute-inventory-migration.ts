@@ -19,7 +19,10 @@ export const computeInventoryMigrationSql = `
     owner_user_id text not null check (btrim(owner_user_id) <> ''),
     platform_id uuid not null,
     identity_version integer not null check (identity_version > 0),
-    identity_key text not null check (identity_key ~ '^[A-Za-z0-9:_-]{8,256}$'),
+    identity_key text not null check (
+      char_length(identity_key) between 8 and 256 and
+      identity_key ~ '^[A-Za-z0-9:_-]+$'
+    ),
     identity_resolution text not null default 'resolved'
       check (identity_resolution in ('resolved', 'conflict')),
     name text not null check (btrim(name) <> '' and char_length(name) <= 80),
@@ -40,7 +43,10 @@ export const computeInventoryMigrationSql = `
     host_id uuid,
     parent_environment_id uuid,
     identity_version integer not null check (identity_version > 0),
-    identity_key text not null check (identity_key ~ '^[A-Za-z0-9:_-]{8,256}$'),
+    identity_key text not null check (
+      char_length(identity_key) between 8 and 256 and
+      identity_key ~ '^[A-Za-z0-9:_-]+$'
+    ),
     kind text not null check (
       kind in (
         'native_macos', 'native_windows', 'native_linux', 'wsl', 'docker', 'devbox',
