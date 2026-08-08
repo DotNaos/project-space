@@ -43,7 +43,8 @@ ENV PROJECT_SPACE_PORT=4173
 COPY --from=build /workspace/bin /workspace/bin
 COPY --from=cli-build /project /workspace/bin/project
 COPY --from=build /workspace/dist/renderer /workspace/dist/renderer
-COPY --from=build /workspace/apps/docs/lib/releases /workspace/apps/docs/lib/releases
+COPY --from=build /workspace/apps/docs/content/docs/changelog/entries.json \
+  /workspace/apps/docs/content/docs/changelog/entries.json
 COPY --from=build /workspace/package.json /workspace/package.json
 COPY --from=build /workspace/node_modules /workspace/node_modules
 COPY --from=build /workspace/server /workspace/server

@@ -41,11 +41,11 @@ describe('Project build routing', () => {
     expect(dockerfile).not.toContain('apps/mobile');
   });
 
-  test('keeps server-side changelog modules in the Preview web runtime', async () => {
+  test('keeps the exact-source changelog in the Preview web runtime', async () => {
     const dockerfile = await readFile(previewWebDockerfile, 'utf8');
 
     expect(dockerfile).toContain(
-      'COPY --from=build /workspace/apps/docs/lib/releases /workspace/apps/docs/lib/releases'
+      'COPY --from=build /workspace/apps/docs/content/docs/changelog/entries.json'
     );
     expect(dockerfile).toContain(
       'RUN bun -e "await import(\'./server/project-space-api-public-routes.ts\')"'

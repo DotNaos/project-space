@@ -1,8 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { generatedReleaseChangelogSource } from '../apps/docs/lib/releases/changelog-source';
-import { readReleaseCatalog } from '../apps/docs/lib/releases/catalog';
 import { isConnectorHubMessage } from './connector-command-protocol';
 import { registerConnectorProjectRegistry } from './connector-hub';
 import {
@@ -20,6 +19,9 @@ import type {
   ProjectSpaceBackend
 } from '../src/shared/project-space-api';
 import { createPullRequestDevServerConnectorRoutes } from './pr-test-surfaces/connector-http';
+import { readExactPullRequestChangelogSource } from './pr-preview-changelog-source';
+
+const exactSourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) {
   const handlePullRequestDevServer = createPullRequestDevServerConnectorRoutes();
@@ -47,22 +49,17 @@ export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) 
         return true;
       }
       const identity = meta.preview.identity;
-      const repositoryRoot = process.env.PROJECT_SPACE_BACKEND_REPO_PATH ?? process.cwd();
-      const catalog = readReleaseCatalog(resolve(
-        repositoryRoot,
-        'apps/docs/content/docs/releases/entries'
-      ));
-      if (!catalog.ok) {
+      const source = readExactPullRequestChangelogSource(
+        exactSourceRoot,
+        identity.pullRequestNumber
+      );
+      if (!source) {
         writeJson(response, 503, { error: 'Exact pull request changelog is unavailable.' });
         return true;
       }
       writeJson(response, 200, {
         identity,
-        source: generatedReleaseChangelogSource(
-          catalog.catalog.entries.filter(
-            (entry) => entry.pullRequest === identity.pullRequestNumber
-          )
-        )
+        source
       });
       return true;
     }
