@@ -72,6 +72,18 @@ verify_installed_pair() {
   done
 }
 
+files_match() {
+  local left=$1
+  local right=$2
+  local left_digest right_digest
+  if [[ ! -f $left || -L $left || ! -f $right || -L $right ]]; then
+    return 1
+  fi
+  left_digest=$(shasum -a 256 "$left" | awk '{print $1}') || return 1
+  right_digest=$(shasum -a 256 "$right" | awk '{print $1}') || return 1
+  [[ -n $left_digest && $left_digest == "$right_digest" ]]
+}
+
 umask 077
 [[ -d $install_directory ]] || mkdir -m 0700 -p -- "$install_directory"
 tools_root="${install_directory}/.project-space-machine-tools"
@@ -239,7 +251,7 @@ if [[ -d $release_directory ]]; then
     project project-space-connector \
     connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
     VERSION; do
-    if ! cmp -s -- "${staged_release}/${member}" "${release_directory}/${member}"; then
+    if ! files_match "${staged_release}/${member}" "${release_directory}/${member}"; then
       echo "The existing machine-tools release directory does not match this bundle." >&2
       exit 73
     fi

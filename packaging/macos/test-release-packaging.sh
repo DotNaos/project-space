@@ -112,6 +112,55 @@ export PROJECT_FIXTURE_LAUNCHCTL_LOG="$launchctl_log"
 [[ ! -e $install_root/project-approval-signer && ! -L $install_root/project-approval-signer ]]
 first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $first_current == versions/${version}-* ]]
+
+# On the affected macOS build, cmp was killed while comparing the large
+# standalone connector binary. Reinstalling an identical release must use a
+# streaming comparison instead.
+mkdir "$temporary_root/killed-cmp-bin"
+cat > "$temporary_root/killed-cmp-bin/cmp" <<'EOF'
+#!/bin/bash
+kill -9 $$
+EOF
+chmod 0755 "$temporary_root/killed-cmp-bin/cmp"
+PATH="$temporary_root/killed-cmp-bin:$PATH" \
+  "$bundle_v1/install.sh" --install-dir "$install_root" >/dev/null
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$first_current" ]]
+
+# A real content mismatch must still fail closed before the active release or
+# connector service is changed.
+installed_connector="$install_root/.project-space-machine-tools/current/project-space-connector"
+printf 'tampered\n' >> "$installed_connector"
+existing_release_error="$temporary_root/existing-release.error"
+existing_release_service_lines=$(wc -l < "$service_log")
+set +e
+"$bundle_v1/install.sh" --install-dir "$install_root" \
+  >/dev/null 2>"$existing_release_error"
+existing_release_status=$?
+set -e
+[[ $existing_release_status -eq 73 ]]
+grep -Fx 'The existing machine-tools release directory does not match this bundle.' \
+  "$existing_release_error"
+install -m 0755 -- "$bundle_v1/project-space-connector" "$installed_connector"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$first_current" ]]
+[[ $(wc -l < "$service_log") == "$existing_release_service_lines" ]]
+
+# An incomplete existing release is also a mismatch and must leave the active
+# release and connector service untouched.
+installed_version="$install_root/.project-space-machine-tools/current/VERSION"
+rm -f -- "$installed_version"
+incomplete_release_error="$temporary_root/incomplete-release.error"
+set +e
+"$bundle_v1/install.sh" --install-dir "$install_root" \
+  >/dev/null 2>"$incomplete_release_error"
+incomplete_release_status=$?
+set -e
+[[ $incomplete_release_status -eq 73 ]]
+grep -Fx 'The existing machine-tools release directory does not match this bundle.' \
+  "$incomplete_release_error"
+install -m 0600 -- "$bundle_v1/VERSION" "$installed_version"
+[[ $(readlink "$install_root/.project-space-machine-tools/current") == "$first_current" ]]
+[[ $(wc -l < "$service_log") == "$existing_release_service_lines" ]]
+
 cmp "$temporary_root/source-v1/connector-command-signing-public-key.pem" \
   "$install_root/.project-space-machine-tools/current/connector-command-signing-public-key.pem"
 cmp "$temporary_root/source-v1/release-manifest-signing-public-key.pem" \

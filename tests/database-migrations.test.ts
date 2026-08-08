@@ -11,6 +11,10 @@ import {
   codexMachineTasksMigrationSql
 } from '../server/database/codex-machine-tasks-migration';
 import { computeInventoryMigrationSql } from '../server/database/compute-inventory-migration';
+import {
+  computeEnvironmentIdentityResolutionMigrationId,
+  computeEnvironmentIdentityResolutionMigrationSql
+} from '../server/database/compute-environment-identity-resolution-migration';
 
 interface QueryCall {
   sql: string;
@@ -42,6 +46,21 @@ class MigrationTestClient implements DatabaseQueryClient {
 }
 
 describe('database migrations', () => {
+  test('repairs compute-environment identity resolution after the original migration', () => {
+    expect(computeEnvironmentIdentityResolutionMigrationId).toBe(
+      '0031_compute_environment_identity_resolution'
+    );
+    expect(computeEnvironmentIdentityResolutionMigrationSql).toContain(
+      'alter table compute_environments'
+    );
+    expect(computeEnvironmentIdentityResolutionMigrationSql).toContain(
+      "identity_resolution text not null default 'resolved'"
+    );
+    expect(computeEnvironmentIdentityResolutionMigrationSql).toContain(
+      "identity_resolution in ('resolved', 'conflict')"
+    );
+  });
+
   test('uses PostgreSQL-compatible identity length checks for compute inventory', () => {
     expect(computeInventoryMigrationSql).not.toContain('{8,256}');
     expect(
@@ -95,7 +114,8 @@ describe('database migrations', () => {
       '0027_project_chat_name_leases',
       '0028_codex_session_settings_operations',
       '0029_project_space_mcp_oauth',
-      '0030_compute_inventory'
+      '0030_compute_inventory',
+      '0031_compute_environment_identity_resolution'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
