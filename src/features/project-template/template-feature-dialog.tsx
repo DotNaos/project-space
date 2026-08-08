@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { CircleAlert, ExternalLink, Loader2, X } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { projectSpaceClient } from '@/api/project-space-client';
@@ -24,6 +24,7 @@ export function TemplateFeatureDialog({
   const [error, setError] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [created, setCreated] = useState<GitHubIssueCreationResult>();
+  const operationIdRef = useRef<string | undefined>(undefined);
 
   async function submit() {
     const trimmedTitle = title.trim();
@@ -37,10 +38,11 @@ export function TemplateFeatureDialog({
         `Branch: \`${branch}\``,
         ...(contextPath ? [`Path: \`${contextPath}\``] : [])
       ].join('\n').trim();
+      operationIdRef.current ??= createOperationId();
       const result = await projectSpaceClient.createGitHubIssue({
         body: contextLines,
         fullName: projectTemplateRepository,
-        operationId: createOperationId(),
+        operationId: operationIdRef.current,
         title: trimmedTitle
       });
       if (result.creationState === 'complete' && result.issue) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type { GitHubBranchRecord } from '@/shared/project-space-api';
 import type { GitHubRepositoryTreeResult } from '@/shared/github-repository-tree';
@@ -125,9 +125,12 @@ export function useTemplateFile(ref: string, path: string) {
 export function useTemplateContract(ref: string) {
   const [contract, setContract] = useState<TemplateContract>({ modules: [] });
   const [isLoading, setIsLoading] = useState(false);
+  const selectedRef = useRef(ref);
+  selectedRef.current = ref;
 
   const load = useCallback(async () => {
     if (!ref) return;
+    const requestedRef = ref;
     setIsLoading(true);
     try {
       const manifestFile = await projectSpaceClient.getGitHubRepositoryFile(
@@ -135,6 +138,7 @@ export function useTemplateContract(ref: string) {
         ref,
         projectTemplateManifestPath
       );
+      if (selectedRef.current !== requestedRef) return;
       if (!manifestFile.content) {
         setContract({
           message: manifestFile.message ?? `No ${projectTemplateManifestPath} on this branch.`,
@@ -156,17 +160,19 @@ export function useTemplateContract(ref: string) {
         );
         return file.content ? parseTemplateModule(file.content, sourcePath) : undefined;
       }));
+      if (selectedRef.current !== requestedRef) return;
       setContract({
         manifest,
         modules: modules.flatMap((module) => (module ? [module] : []))
       });
     } catch (error) {
+      if (selectedRef.current !== requestedRef) return;
       setContract({
         message: error instanceof Error ? error.message : 'The template contract could not be read.',
         modules: []
       });
     } finally {
-      setIsLoading(false);
+      if (selectedRef.current === requestedRef) setIsLoading(false);
     }
   }, [ref]);
 

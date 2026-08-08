@@ -755,72 +755,68 @@ export function MachinesPage({
               No machines match this search and filter.
             </Text>
           </div>
+        ) : isComputeMode ? (
+          visibleSections.map((section) => (
+            <ComputePlatformSectionView
+              key={section.id}
+              onEditConnector={setEditingConnector}
+              onRefresh={onRefresh}
+              section={section}
+            />
+          ))
         ) : (
-          <>
-            {isComputeMode ? (
-              visibleSections.map((section) => (
-                <ComputePlatformSectionView
-                  key={section.id}
-                  onEditConnector={setEditingConnector}
-                  onRefresh={onRefresh}
-                  section={section}
-                />
-              ))
-            ) : (
-              <div className="divide-y divide-neutral-800/70">
-                {visibleRows.map((row) => (
-                  <MachineRow
-                    key={row.id}
-                    defaultExpanded={visibleRows.length <= 3}
-                    onEditConnector={setEditingConnector}
-                    onRefresh={onRefresh}
-                    row={row}
-                    showGrouping={hasGroupedMachine}
-                  />
-                ))}
-              </div>
-            )}
-
-            {archivedCount > 0 ? (
-              <Disclosure className="mt-2 border-t border-neutral-800/70">
-                <Disclosure.Heading>
-                  <Disclosure.Trigger className="group flex items-center gap-2 px-1 py-3 text-xs text-neutral-600 transition hover:text-neutral-400">
-                    <Disclosure.Indicator className="ms-0 size-3.5 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none">
-                      <ChevronRight />
-                    </Disclosure.Indicator>
-                    <Archive className="size-3.5" />
-                    Archived connector history ({archivedCount})
-                  </Disclosure.Trigger>
-                </Disclosure.Heading>
-                <Disclosure.Content>
-                  <Disclosure.Body className="space-y-1 pb-3 pl-8">
-                    {archivedInstances.map((instance) => (
-                      <div
-                        key={instance.id}
-                        className="flex min-w-0 items-center gap-2 text-[11px] text-neutral-600"
-                      >
-                        <MachineOsMark className="size-3.5" machine={instance.machine} />
-                        <span className="truncate">
-                          {instance.machine.name} ·{' '}
-                          {instance.platformLabel ?? 'Operating system not reported'}
-                        </span>
-                        <ConnectorChannelChip machine={instance.machine} />
-                      </div>
-                    ))}
-                    {archivedCredentials.map((credential) => (
-                      <Text
-                        key={credential.id}
-                        className="block truncate text-[11px] text-neutral-600"
-                      >
-                        {credential.machineId ?? 'Unfinished enrollment'} · {credential.status}
-                      </Text>
-                    ))}
-                  </Disclosure.Body>
-                </Disclosure.Content>
-              </Disclosure>
-            ) : null}
-          </>
+          <div className="divide-y divide-neutral-800/70">
+            {visibleRows.map((row) => (
+              <MachineRow
+                key={row.id}
+                defaultExpanded={visibleRows.length <= 3}
+                onEditConnector={setEditingConnector}
+                onRefresh={onRefresh}
+                row={row}
+                showGrouping={hasGroupedMachine}
+              />
+            ))}
+          </div>
         )}
+
+        {archivedCount > 0 && presentation.showContent ? (
+          <Disclosure className="mt-2 border-t border-neutral-800/70">
+            <Disclosure.Heading>
+              <Disclosure.Trigger className="group flex items-center gap-2 px-1 py-3 text-xs text-neutral-600 transition hover:text-neutral-400">
+                <Disclosure.Indicator className="ms-0 size-3.5 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none">
+                  <ChevronRight />
+                </Disclosure.Indicator>
+                <Archive className="size-3.5" />
+                Archived connector history ({archivedCount})
+              </Disclosure.Trigger>
+            </Disclosure.Heading>
+            <Disclosure.Content>
+              <Disclosure.Body className="space-y-1 pb-3 pl-8">
+                {archivedInstances.map((instance) => (
+                  <div
+                    key={instance.id}
+                    className="flex min-w-0 items-center gap-2 text-[11px] text-neutral-600"
+                  >
+                    <MachineOsMark className="size-3.5" machine={instance.machine} />
+                    <span className="truncate">
+                      {instance.machine.name} ·{' '}
+                      {instance.platformLabel ?? 'Operating system not reported'}
+                    </span>
+                    <ConnectorChannelChip machine={instance.machine} />
+                  </div>
+                ))}
+                {archivedCredentials.map((credential) => (
+                  <Text
+                    key={credential.id}
+                    className="block truncate text-[11px] text-neutral-600"
+                  >
+                    {credential.machineId ?? 'Unfinished enrollment'} · {credential.status}
+                  </Text>
+                ))}
+              </Disclosure.Body>
+            </Disclosure.Content>
+          </Disclosure>
+        ) : null}
       </div>
 
       <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-neutral-800/70 py-3 text-xs text-neutral-600">
