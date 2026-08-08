@@ -33,6 +33,9 @@ export function classifyPullRequest(
   const ownsReleaseIntent = pr.files.some(({ path }) =>
     /^\.github\/release-intents\/[0-9a-f-]+\.json$/.test(path),
   );
+  const ownsChangelog = pr.files.some(({ path }) =>
+    new RegExp(`^changelog/${pr.number}\\.md$`).test(path),
+  );
   const releaseChecks = [...pr.statusCheckRollup].reverse();
   const releaseCheck = releaseChecks.find(({ name }) => name === 'Release decision') ??
     releaseChecks.find(({ name }) => name === 'Versioned release entry');
@@ -47,21 +50,23 @@ export function classifyPullRequest(
   if (pr.isDraft) {
     return {
       classification: 'neutral_draft' as const,
+      ownsChangelog,
       ownsReleaseIntent,
       previewFailures,
       releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',
       recommendedAction:
-        'Keep neutral until ready; the exact head will declare one release intent.',
+        'Keep neutral until ready; the exact head will declare one changelog file with a bump.',
     };
   }
   if (releaseCheck?.conclusion === 'SUCCESS') {
     return {
       classification: 'ready_valid' as const,
+      ownsChangelog,
       ownsReleaseIntent,
       previewFailures,
       releaseCheck: releaseCheck.conclusion,
       recommendedAction:
-        'The immutable release intent is valid for this exact head.',
+        'The immutable changelog and release bump are valid for this exact head.',
     };
   }
   const ageDays = Math.floor(
@@ -70,6 +75,7 @@ export function classifyPullRequest(
   if (!Number.isFinite(ageDays) || ageDays > 30) {
     return {
       classification: 'ready_needs_owner_decision' as const,
+      ownsChangelog,
       ownsReleaseIntent,
       previewFailures,
       releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',
@@ -79,6 +85,7 @@ export function classifyPullRequest(
   }
   return {
     classification: 'ready_needs_migration' as const,
+    ownsChangelog,
     ownsReleaseIntent,
     previewFailures,
     releaseCheck: releaseCheck?.conclusion ?? 'NOT_PRESENT',

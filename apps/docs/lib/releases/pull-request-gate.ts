@@ -1,13 +1,11 @@
-import { connectorReleaseSensitivePaths } from
-  '../../../../packaging/release/connector-release-paths';
 import {
-  isReleaseIntentFileName,
-  parseReleaseIntent,
-  releaseIntentDirectory,
-  releaseIntentEnforcementPath,
-  releaseIntentEnforcementSource,
-  type ReleaseIntent,
-} from './release-intent';
+  isPrChangelogFileName,
+  parsePrChangelog,
+  prChangelogDirectory,
+  type PrChangelog,
+} from '../changelog/pr-file';
+import { releaseIntentDirectory } from './release-intent';
+import type { ReleaseBump } from './types';
 
 export interface ChangedReleaseFile {
   path: string;
@@ -23,7 +21,7 @@ export interface ReleasePullRequestGateInput {
 }
 
 export type ReleasePullRequestGateResult =
-  | { intent: ReleaseIntent; ok: true }
+  | { bump: ReleaseBump; changelog: PrChangelog; ok: true }
   | { errors: string[]; ok: false };
 
 const releaseEntryDirectory =
@@ -40,7 +38,7 @@ export function validateReleasePullRequest(
   }
 
   const changedEntries = input.changedFiles.filter((file) =>
-    file.path.startsWith(releaseEntryDirectory) && file.path.endsWith('.mdx')
+    file.path.startsWith(releaseEntryDirectory) && file.path.endsWith('.mdx'),
   );
   if (changedEntries.length > 0) {
     errors.push(
@@ -48,43 +46,40 @@ export function validateReleasePullRequest(
     );
   }
 
-  const enforcementChanges = input.changedFiles.filter(
-    ({ path }) => path === releaseIntentEnforcementPath,
+  const changedLegacyIntents = input.changedFiles.filter((file) =>
+    file.path.startsWith(`${releaseIntentDirectory}/`),
   );
-  if (
-    enforcementChanges.length > 1 ||
-    enforcementChanges.some(({ source, status }) =>
-      status !== 'added' || source !== releaseIntentEnforcementSource)
-  ) {
+  if (changedLegacyIntents.length > 0) {
     errors.push(
-      `${releaseIntentEnforcementPath} is an immutable adoption marker.`,
+      `Pull request #${input.pullRequestNumber} must use changelog/<PR>.md; legacy release-intents are historical compatibility data and may not be added or changed.`,
     );
   }
 
-  const changedIntentPaths = input.changedFiles.filter((file) =>
-    file.path.startsWith(`${releaseIntentDirectory}/`) &&
-    file.path !== releaseIntentEnforcementPath
+  const changelogPaths = input.changedFiles.filter((file) =>
+    file.path.startsWith(`${prChangelogDirectory}/`),
   );
-  if (changedIntentPaths.length !== 1) {
+  if (changelogPaths.length !== 1) {
     errors.push(
-      `Pull request #${input.pullRequestNumber} must add exactly one release intent under ${releaseIntentDirectory}/; found ${changedIntentPaths.length}.`,
+      `Pull request #${input.pullRequestNumber} must add exactly one changelog/<PR>.md file; found ${changelogPaths.length}.`,
     );
     return { errors: unique(errors), ok: false };
   }
 
-  const owned = changedIntentPaths[0];
-  const fileName = owned.path.split('/').at(-1) ?? '';
-  if (
-    owned.path !== `${releaseIntentDirectory}/${fileName}` ||
-    !isReleaseIntentFileName(fileName)
-  ) {
+  const owned = changelogPaths[0];
+  const fileName = owned.path.slice(`${prChangelogDirectory}/`.length);
+  if (!isPrChangelogFileName(fileName)) {
     errors.push(
-      `${owned.path} must be a direct child of ${releaseIntentDirectory}/ named with a canonical lowercase UUID and .json extension.`,
+      `${owned.path} must be a direct child of changelog/ named with the positive pull request number and .md extension.`,
+    );
+  }
+  if (fileName !== `${input.pullRequestNumber}.md`) {
+    errors.push(
+      `${owned.path} must be named changelog/${input.pullRequestNumber}.md for this pull request.`,
     );
   }
   if (owned.status !== 'added') {
     errors.push(
-      `${owned.path} must be a newly added immutable release intent; status was ${owned.status}.`,
+      `${owned.path} must be a newly added immutable changelog; status was ${owned.status}.`,
     );
   }
   if (!owned.source?.trim()) {
@@ -92,26 +87,15 @@ export function validateReleasePullRequest(
     return { errors: unique(errors), ok: false };
   }
 
-  const parsed = parseReleaseIntent(owned.source, owned.path);
+  const parsed = parsePrChangelog(owned.source, fileName);
   if (!parsed.ok) {
     errors.push(...parsed.errors);
     return { errors: unique(errors), ok: false };
   }
 
-  if (parsed.intent.intent === 'none') {
-    const sensitive = connectorReleaseSensitivePaths(
-      input.changedFiles.map(({ path }) => path),
-    );
-    if (sensitive.length > 0) {
-      errors.push(
-        `Release intent "none" cannot cover connector-sensitive changes:\n${sensitive.map((path) => `- ${path}`).join('\n')}`,
-      );
-    }
-  }
-
   return errors.length > 0
     ? { errors: unique(errors), ok: false }
-    : { intent: parsed.intent.intent, ok: true };
+    : { bump: parsed.changelog.bump, changelog: parsed.changelog, ok: true };
 }
 
 function unique(values: string[]) {
