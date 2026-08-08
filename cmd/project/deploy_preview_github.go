@@ -108,7 +108,11 @@ func dispatchPreviewWorkflow(projectRoot, repository, operation string, pullRequ
 }
 
 func resolvePreviewRepository(projectRoot string, run previewCommandRunner) (string, error) {
-	output, err := run(projectRoot, nil, "git", "remote", "get-url", "origin")
+	// Scope the safe.directory exception to exactly this invocation's projectRoot rather than
+	// mutating global git config, so a UID/ownership mismatch on the mounted repo path (e.g. the
+	// deployment container's /workspace/backend-repo) doesn't fail with "detected dubious
+	// ownership". Mirrors the equivalent fix on the Node side in server/local-git-client.ts.
+	output, err := run(projectRoot, nil, "git", "-c", "safe.directory="+projectRoot, "remote", "get-url", "origin")
 	if err != nil {
 		return "", fmt.Errorf("resolve GitHub origin: %w", err)
 	}

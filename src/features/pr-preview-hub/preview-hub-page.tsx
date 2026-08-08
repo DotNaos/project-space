@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { projectSpaceClient, setProjectSpaceAuthTokenProvider } from '@/api/project-space-client';
 import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import { isClerkConfigured } from '@/auth/clerk-provider';
+import { AccountMenu, type RailAccount } from '@/features/project-desktop/components/app-rail';
 import type { PreviewHubCapacityCandidate, PreviewHubInventoryResult, PreviewHubMutationResult, PreviewHubRecord } from '@/shared/pull-request-preview-hub-api';
 import { previewPullRequestNumberFromHostname } from '@/shared/preview-host';
 
@@ -48,16 +49,16 @@ const checksStatusMeta: Record<NonNullable<PreviewHubRecord['checksStatus']>, { 
 };
 
 export function PreviewHubPage() {
-  return <PreviewHubAuthBoundary><PreviewHubContent /></PreviewHubAuthBoundary>;
+  return <PreviewHubAuthBoundary>{(account) => <PreviewHubContent account={account} />}</PreviewHubAuthBoundary>;
 }
 
-function PreviewHubAuthBoundary({ children }: { children: ReactNode }) {
-  if (import.meta.env.VITE_PROJECT_SPACE_AUTH_DISABLED === '1') return <>{children}</>;
+function PreviewHubAuthBoundary({ children }: { children(account?: RailAccount): ReactNode }) {
+  if (import.meta.env.VITE_PROJECT_SPACE_AUTH_DISABLED === '1') return <>{children(undefined)}</>;
   if (!isClerkConfigured()) return <HubLogin busy message="Project Space authentication is not configured." onSignIn={() => undefined} />;
   return <ClerkPreviewHubAuthBoundary>{children}</ClerkPreviewHubAuthBoundary>;
 }
 
-function ClerkPreviewHubAuthBoundary({ children }: { children: ReactNode }) {
+function ClerkPreviewHubAuthBoundary({ children }: { children(account?: RailAccount): ReactNode }) {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const { signOut } = useClerk();
   const { signIn } = useSignIn();
@@ -83,7 +84,15 @@ function ClerkPreviewHubAuthBoundary({ children }: { children: ReactNode }) {
       if (error) { setBusy(false); setMessage(error.message || 'Could not start Google sign-in.'); }
     } catch (error) { setBusy(false); setMessage(error instanceof Error ? error.message : 'Could not start Google sign-in.'); }
   };
-  if (authenticated) return <>{children}</>;
+  if (authenticated) {
+    const account: RailAccount = {
+      email: user?.primaryEmailAddress?.emailAddress,
+      imageUrl: user?.imageUrl,
+      name: user?.fullName ?? undefined,
+      onSignOut() { void signOut(); }
+    };
+    return <>{children(account)}</>;
+  }
   return <HubLogin busy={busy || !isLoaded || (Boolean(isSignedIn) && authenticated === undefined)} message={message} onSignIn={() => void startSignIn()} />;
 }
 
@@ -91,7 +100,7 @@ function HubLogin({ busy, message, onSignIn }: { busy: boolean; message?: string
   return <main className="grid min-h-screen place-items-center bg-app-canvas px-6 text-neutral-100"><div className="flex w-full max-w-sm flex-col items-center text-center"><div className="flex size-14 items-center justify-center rounded-2xl border border-neutral-800 bg-app-panel"><FolderKanban className="size-6" /></div><Text as="h1" className="mt-6 text-2xl font-semibold tracking-tight">Sign in to manage Previews</Text><Text as="p" className="mt-2 max-w-xs text-sm leading-relaxed text-neutral-400">The Preview hub is a trusted Project Space surface. Sign in before protected Preview inventory or actions are shown.</Text><Button fullWidth className="mt-8 rounded-xl bg-white text-neutral-950 hover:bg-neutral-200" isDisabled={busy} size="lg" onPress={onSignIn}>{busy ? 'Signing in…' : 'Continue with Google'}</Button>{message ? <Text as="p" className="mt-4 text-sm text-amber-300">{message}</Text> : null}</div></main>;
 }
 
-function PreviewHubContent() {
+function PreviewHubContent({ account }: { account?: RailAccount }) {
   const [result, setResult] = useState<PreviewHubInventoryResult>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -192,16 +201,16 @@ function PreviewHubContent() {
 
   return <main className="min-h-screen bg-app-canvas px-4 py-8 text-neutral-100 sm:px-8">
     <div className="mx-auto max-w-5xl">
-      <header className="flex flex-wrap items-end gap-4 border-b border-neutral-800/80 pb-6">
+      {account ? <div className="mb-3 flex justify-end"><AccountMenu account={account} placement="bottom end" /></div> : null}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800/80 pb-4">
         <div>
           <Text as="p" className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">Project Space / trusted runtime</Text>
-          <Text as="h1" className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Pull request Previews</Text>
-          <Text as="p" className="mt-2 max-w-xl text-sm leading-relaxed text-neutral-400">Every open pull request on this repository is listed here. Deploy a fresh preview or bring a built one back online — at most {result?.maxOnline ?? 3} run at a time.</Text>
+          <Text as="h1" className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">Pull request Previews</Text>
         </div>
-        <div className="ml-auto flex items-center gap-2 text-sm text-neutral-400">
+        <div className="flex items-center gap-2 text-xs text-neutral-500">
           <span>{statusLine}</span>
           <Button aria-label="Refresh Preview inventory" isDisabled={loading} isIconOnly size="sm" variant="ghost" onPress={() => void load()}>
-            <RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} />
+            <RefreshCw className={loading ? 'size-3.5 animate-spin' : 'size-3.5'} />
           </Button>
         </div>
       </header>
