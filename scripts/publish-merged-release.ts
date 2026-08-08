@@ -5,6 +5,10 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
+  parsePrChangelog,
+  prChangelogDirectory,
+} from '../apps/docs/lib/changelog/pr-file';
+import {
   parseReleaseIntent,
   releaseIntentDirectory,
   releaseIntentEnforcementPath,
@@ -202,17 +206,16 @@ async function queuedMerges(
     }
     const intentPaths = addedPaths(commit, releaseIntentDirectory)
       .filter((path) => path.endsWith('.json'));
-    if (intentPaths.length !== 1) {
+    const changelogPaths = addedPaths(commit, prChangelogDirectory)
+      .filter((path) => path.endsWith('.md'));
+    if (intentPaths.length > 0 && changelogPaths.length > 0) {
       throw new Error(
-        `Merged commit ${commit} must add exactly one immutable release intent; found ${intentPaths.length}.`,
+        `Merged commit ${commit} adds both a raw changelog and a legacy release intent; queue ownership is ambiguous.`,
       );
     }
-    const allIntentChanges = changedPaths.filter((path) =>
-      path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json')
-    );
-    if (allIntentChanges.length !== 1) {
+    if (intentPaths.length === 0 && changelogPaths.length === 0) {
       throw new Error(
-        `Merged commit ${commit} modifies release-intent history instead of adding one queue item.`,
+        `Merged commit ${commit} must add exactly one changelog/<PR>.md file; no queue item was found.`,
       );
     }
     if (
@@ -230,9 +233,46 @@ async function queuedMerges(
         `Merged commit ${commit} changes package version before queue assignment.`,
       );
     }
+    const pullRequest = await mergedPullRequestNumber(commit);
+    if (changelogPaths.length === 1) {
+      const allChangelogChanges = changedPaths.filter((path) =>
+        path.startsWith(`${prChangelogDirectory}/`),
+      );
+      if (allChangelogChanges.length !== 1) {
+        throw new Error(
+          `Merged commit ${commit} modifies changelog history instead of adding one queue item.`,
+        );
+      }
+      const fileName = basename(changelogPaths[0]);
+      const parsed = parsePrChangelog(
+        gitOutput(['show', `${commit}:${changelogPaths[0]}`], false),
+        fileName,
+      );
+      if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+      if (parsed.changelog.pullRequest !== pullRequest) {
+        throw new Error(
+          `Merged commit ${commit} changelog ${changelogPaths[0]} belongs to PR #${parsed.changelog.pullRequest}, not merged PR #${pullRequest}.`,
+        );
+      }
+      queued.push({
+        bump: parsed.changelog.bump,
+        commit,
+        pullRequest,
+      });
+      continue;
+    }
+
+    const allIntentChanges = changedPaths.filter((path) =>
+      path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
+    );
+    if (intentPaths.length !== 1 || allIntentChanges.length !== 1) {
+      throw new Error(
+        `Merged commit ${commit} modifies release-intent history instead of adding one queue item.`,
+      );
+    }
     const intent = readIntent(commit, intentPaths[0]);
     const productPaths = changedPaths.filter((path) =>
-      path !== intentPaths[0] && path !== releaseIntentEnforcementPath
+      path !== intentPaths[0] && path !== releaseIntentEnforcementPath,
     );
     const sensitive = connectorReleaseSensitivePaths(productPaths);
     if (intent === 'none' && sensitive.length > 0) {
@@ -240,11 +280,7 @@ async function queuedMerges(
         `Merged commit ${commit} declares none but changes release-sensitive paths: ${sensitive.join(', ')}.`,
       );
     }
-    queued.push({
-      commit,
-      intent,
-      pullRequest: await mergedPullRequestNumber(commit),
-    });
+    queued.push({ commit, intent, pullRequest });
   }
   return queued;
 }

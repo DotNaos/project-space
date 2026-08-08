@@ -23,6 +23,8 @@ const releaseCriticalPaths = [
   /^internal\/selfupdate\//,
   /^server\/connector-/,
   /^scripts\/(?:publish-merged-release|release-handoff-state|release-queue-state)\.ts$/,
+  /^scripts\/validate-release-pr\.ts$/,
+  /^apps\/docs\/lib\/(?:changelog\/pr-(?:file|source)|releases\/pull-request-gate)\.ts$/,
   /^tests\/connector-/,
   /^cmd\/project\/connector/,
   /(?:^|\/)[^/]+_(?:darwin|linux|unix|windows)(?:_[^/]*)?\.go$/,
