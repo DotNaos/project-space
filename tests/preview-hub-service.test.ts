@@ -211,4 +211,20 @@ describe('Preview hub service', () => {
     const failure = await service.start({ pullRequestNumber: 4, repositoryFullName: repository, requestedHeadSha: otherSha });
     expect(failure).toMatchObject({ code: 'operation_failed', message: '[redacted-secret-reference] [redacted-credential] [redacted-secret]' });
   });
+
+  test('strips the CLI\'s "VIOLATION" stderr prefix before showing the failure message', async () => {
+    const service = createPreviewHubService({ getGitHubRepositoryDetails: async () => details() }, {
+      loadStatus: async () => ({ checkedAt: '2026-07-31T00:00:00.000Z', previews: [status(4, 'ready', otherSha)], repositoryFullName: repository, status: 'available' }),
+      run: async () => ({
+        exitCode: 1,
+        stderr: "VIOLATION resolve GitHub origin: fatal: detected dubious ownership in repository at '/workspace/backend-repo'",
+        stdout: ''
+      })
+    });
+    const failure = await service.start({ pullRequestNumber: 4, repositoryFullName: repository, requestedHeadSha: otherSha });
+    expect(failure).toMatchObject({
+      code: 'operation_failed',
+      message: "resolve GitHub origin: fatal: detected dubious ownership in repository at '/workspace/backend-repo'"
+    });
+  });
 });

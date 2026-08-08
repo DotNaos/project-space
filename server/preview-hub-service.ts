@@ -200,6 +200,9 @@ function toCapacityCandidate(preview: PreviewHubRecord) {
 }
 
 function safeCliFailure(value: string) {
+  // The project CLI prefixes fatal errors with "VIOLATION" on stderr (cmd/project/main.go);
+  // strip it so unexpected CLI failures show a clean message instead of a raw internal marker.
+  value = value.replace(/^VIOLATION\s+/, '');
   const sanitized = value
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/op:\/\/[^\s]+/gi, '[redacted-secret-reference]')

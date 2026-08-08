@@ -16,7 +16,7 @@ func TestDispatchPreviewUsesTrustedMainWorkflowAndValidatedPR(t *testing.T) {
 	runner := func(_ string, _ []byte, name string, args ...string) (string, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
 		switch {
-		case command == "git remote get-url origin":
+		case command == "git -c safe.directory=/repo remote get-url origin":
 			return "git@github.com:DotNaos/project-space.git\n", nil
 		case command == "gh api repos/DotNaos/project-space":
 			return `{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`, nil
@@ -50,6 +50,38 @@ func TestDispatchPreviewUsesTrustedMainWorkflowAndValidatedPR(t *testing.T) {
 	}
 	if result.ExpectedLiveURL != "https://pr-263.projects.os-home.net" || result.Workflow.Ref != "main" || result.Workflow.State != "queued" {
 		t.Fatalf("unexpected dispatch result: %#v", result)
+	}
+}
+
+// TestResolvePreviewRepositoryScopesGitSafeDirectoryToProjectRoot guards against a regression of
+// https://github.com/DotNaos/project-space/issues/516: the deployment container mounts the repo
+// at a path (e.g. /workspace/backend-repo) owned by a different UID than the process runs as, so
+// plain `git remote get-url origin` fails with "detected dubious ownership". The fix scopes a
+// `-c safe.directory=<projectRoot>` exception to exactly the directory being read, instead of
+// mutating global git config.
+func TestResolvePreviewRepositoryScopesGitSafeDirectoryToProjectRoot(t *testing.T) {
+	const projectRoot = "/workspace/backend-repo"
+	var capturedArgs []string
+	runner := func(dir string, _ []byte, name string, args ...string) (string, error) {
+		if dir != projectRoot {
+			t.Fatalf("run dir = %q, want %q", dir, projectRoot)
+		}
+		if name != "git" {
+			t.Fatalf("unexpected command: %s %s", name, strings.Join(args, " "))
+		}
+		capturedArgs = args
+		return "git@github.com:DotNaos/project-space.git\n", nil
+	}
+	repository, err := resolvePreviewRepository(projectRoot, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository != "DotNaos/project-space" {
+		t.Fatalf("repository = %q, want %q", repository, "DotNaos/project-space")
+	}
+	wantArgs := []string{"-c", "safe.directory=" + projectRoot, "remote", "get-url", "origin"}
+	if strings.Join(capturedArgs, "\x00") != strings.Join(wantArgs, "\x00") {
+		t.Fatalf("git args = %#v, want %#v", capturedArgs, wantArgs)
 	}
 }
 
@@ -232,7 +264,7 @@ func TestReadPreviewStatusUsesDedicatedForcedCommandHost(t *testing.T) {
 	runner := func(_ string, input []byte, name string, args ...string) (string, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
 		switch command {
-		case "git remote get-url origin":
+		case fmt.Sprintf("git -c safe.directory=%s remote get-url origin", root):
 			return "https://github.com/DotNaos/project-space.git", nil
 		case "ssh project-space-preview-status status-all":
 			calledStatus = true
@@ -300,7 +332,7 @@ func previewGitHubTestRunner(repositoryJSON string, pullJSON string) previewComm
 	return func(_ string, _ []byte, name string, args ...string) (string, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
 		switch command {
-		case "git remote get-url origin":
+		case "git -c safe.directory=/repo remote get-url origin":
 			return "https://github.com/DotNaos/project-space.git", nil
 		case "gh api repos/DotNaos/project-space":
 			return repositoryJSON, nil

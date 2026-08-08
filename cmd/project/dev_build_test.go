@@ -14,7 +14,7 @@ func TestDispatchDevBuildUsesExactCurrentPRHeadAndSelectedPlatforms(t *testing.T
 	runner := func(_ string, _ []byte, name string, args ...string) (string, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
 		switch command {
-		case "git remote get-url origin":
+		case "git -c safe.directory=/repo remote get-url origin":
 			return "git@github.com:DotNaos/project-space.git\n", nil
 		case "gh api repos/DotNaos/project-space":
 			return `{"full_name":"DotNaos/project-space","default_branch":"main","permissions":{"push":true}}`, nil
@@ -109,12 +109,15 @@ func TestDevBuildCommandDefaultsToLinuxAndPrintsJSON(t *testing.T) {
 func devBuildGitHubTestRunner(repositoryJSON string, pullJSON string) previewCommandRunner {
 	return func(_ string, _ []byte, name string, args ...string) (string, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
-		switch command {
-		case "git remote get-url origin":
+		switch {
+		// The safe.directory value is the caller's projectRoot, which varies across the two
+		// callers of this helper (a fixed "/repo" in one test, the resolved test cwd in
+		// another), so match the git invocation shape rather than a single hardcoded path.
+		case strings.HasPrefix(command, "git -c safe.directory=") && strings.HasSuffix(command, " remote get-url origin"):
 			return "https://github.com/DotNaos/project-space.git", nil
-		case "gh api repos/DotNaos/project-space":
+		case command == "gh api repos/DotNaos/project-space":
 			return repositoryJSON, nil
-		case "gh api repos/DotNaos/project-space/pulls/466":
+		case command == "gh api repos/DotNaos/project-space/pulls/466":
 			return pullJSON, nil
 		default:
 			if strings.HasPrefix(command, "gh workflow run build-pr-tools.yml ") {

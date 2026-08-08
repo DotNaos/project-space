@@ -120,7 +120,13 @@ export function CompactUtilityBar({
   );
 }
 
-function AccountMenu({ account }: { account: RailAccount }) {
+export function AccountMenu({
+  account,
+  placement = 'right bottom'
+}: {
+  account: RailAccount;
+  placement?: string;
+}) {
   const initial = (account.name ?? account.email ?? '?').trim().charAt(0).toUpperCase() || '?';
 
   return (
@@ -143,7 +149,7 @@ function AccountMenu({ account }: { account: RailAccount }) {
       </DropdownTrigger>
       <DropdownPopover
         offset={8}
-        placement="right bottom"
+        placement={placement}
         className="rounded-2xl"
         style={{ minWidth: '15rem', width: '15rem' }}
       >
