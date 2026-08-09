@@ -25,6 +25,7 @@ export function createLocalCodexMachineTaskStarter(
   manager: CodexSessionManager,
   dependencies: {
     loadWorktrees?: typeof loadLocalProjectWorktrees;
+    permissionProfileId?: string;
     readWorktreeOwner?: typeof readProjectWorktreeOwner;
     runProject?: typeof runProjectBinary;
     worktreeAdapter?: ReturnType<typeof createLocalWorktreeActionAdapter>;
@@ -32,6 +33,8 @@ export function createLocalCodexMachineTaskStarter(
 ) {
   const adapter = dependencies.worktreeAdapter ?? createLocalWorktreeActionAdapter();
   const loadWorktrees = dependencies.loadWorktrees ?? loadLocalProjectWorktrees;
+  const permissionProfileId = dependencies.permissionProfileId ??
+    codespaceTaskPermissionProfile(process.env);
   const readWorktreeOwner = dependencies.readWorktreeOwner ?? readProjectWorktreeOwner;
   const runProject = dependencies.runProject ?? runProjectBinary;
 
@@ -95,6 +98,7 @@ export function createLocalCodexMachineTaskStarter(
         const resumed = await resumeExistingTaskThread(manager, {
           initialPrompt: request.initialPrompt,
           operationId: request.operationId,
+          permissionProfileId,
           threadId: existingOwnerThreadId,
           worktreePath: materialized.worktreePath
         });
@@ -109,6 +113,7 @@ export function createLocalCodexMachineTaskStarter(
             existingOwnerThreadId,
             initialPrompt: request.initialPrompt,
             operationId: request.operationId,
+            permissionProfileId,
             requestBranch: request.branch,
             worktreeId: worktree.id,
             worktreePath: materialized.worktreePath
@@ -152,6 +157,7 @@ export function createLocalCodexMachineTaskStarter(
       }
       await startTurnWithReadReconciliation(manager, {
         operationId: derivedOperationId(request.operationId, 'turn'),
+        ...(permissionProfileId ? { permissionProfileId } : {}),
         prompt: request.initialPrompt,
         threadId
       });
@@ -198,6 +204,7 @@ async function resumeExistingTaskThread(
   input: {
     initialPrompt: string;
     operationId: string;
+    permissionProfileId?: string;
     threadId: string;
     worktreePath: string;
   }
@@ -224,6 +231,7 @@ async function resumeExistingTaskThread(
   }
   await startTurnWithReadReconciliation(manager, {
     operationId: derivedOperationId(input.operationId, 'turn'),
+    ...(input.permissionProfileId ? { permissionProfileId: input.permissionProfileId } : {}),
     prompt: input.initialPrompt,
     threadId: input.threadId
   });
@@ -237,6 +245,7 @@ async function recoverOrphanedTaskThread(
     existingOwnerThreadId: string;
     initialPrompt: string;
     operationId: string;
+    permissionProfileId?: string;
     requestBranch: string;
     worktreeId: string;
     worktreePath: string;
@@ -281,6 +290,7 @@ async function recoverOrphanedTaskThread(
   }
   await startTurnWithReadReconciliation(manager, {
     operationId: derivedOperationId(input.operationId, 'turn'),
+    ...(input.permissionProfileId ? { permissionProfileId: input.permissionProfileId } : {}),
     prompt: input.initialPrompt,
     threadId: replacementThreadId
   });
@@ -289,6 +299,14 @@ async function recoverOrphanedTaskThread(
     threadId: replacementThreadId,
     worktreeId: input.worktreeId
   };
+}
+
+export function codespaceTaskPermissionProfile(
+  environment: NodeJS.ProcessEnv
+): string | undefined {
+  return environment.CODESPACES === 'true' && environment.CODESPACE_NAME
+    ? ':danger-full-access'
+    : undefined;
 }
 
 function threadContainsPrompt(turns: unknown[] | undefined, prompt: string) {

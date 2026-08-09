@@ -29,12 +29,16 @@ describe('Codespaces runner devcontainer', () => {
     expect(devcontainer.remoteEnv?.PATH).toStartWith('/home/node/');
     expect(devcontainer.features).toBeUndefined();
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
+    const startRunner = await readFile('.devcontainer/start-runner.sh', 'utf8');
     expect(bootstrap).toContain('missing_packages+=(openssh-server)');
     expect(bootstrap).toContain('missing_packages+=(python3)');
     expect(bootstrap).toContain('missing_packages+=(gh)');
+    expect(verification).not.toMatch(/for command_name in [^\n]*\bdocker\b/);
+    expect(verification).not.toMatch(/for command_name in [^\n]*\bgo\b/);
     expect(verification).toMatch(
       /for command_name in [^\n]*\bsshd\b/
     );
+    expect(startRunner).toContain('.devcontainer/start-codex-daemon.sh');
   });
 
   test('installs node-gyp without blocking on repository dependencies', async () => {
@@ -142,4 +146,50 @@ describe('Codespaces runner devcontainer', () => {
       'readonly archive_sha256="ecc6f972a65dad1cfdae48ee4be84263d5a7239b76a0b6519fe02767c200ad64"'
     );
   });
+
+  test('installs and starts the pinned Codex daemon runtime idempotently', async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'codespace-codex-daemon-'));
+    const managedRoot = join(
+      fixtureRoot,
+      '.local/bin/.project-space-machine-tools/current'
+    );
+    const invocationPath = join(fixtureRoot, 'codex-invocations.log');
+
+    try {
+      await mkdir(managedRoot, { recursive: true });
+      await writeFile(
+        join(managedRoot, 'codex'),
+        `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(invocationPath)}\n`,
+        { mode: 0o755 }
+      );
+      const script = '.devcontainer/start-codex-daemon.sh';
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const process = Bun.spawn(['bash', script], {
+          env: { ...processEnvWithoutApiKeys(), HOME: fixtureRoot },
+        });
+        expect(await process.exited).toBe(0);
+      }
+
+      const standaloneCodex = join(
+        fixtureRoot,
+        '.codex/packages/standalone/current/codex'
+      );
+      expect(await readFile(standaloneCodex, 'utf8')).toContain('codex-invocations.log');
+      expect(await readFile(invocationPath, 'utf8')).toBe(
+        'app-server daemon start\napp-server daemon start\n'
+      );
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
 });
+
+function processEnvWithoutApiKeys() {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => ![
+      'OPENAI_API_KEY',
+      'AZURE_OPENAI_API_KEY',
+      'CODEX_API_KEY',
+    ].includes(key))
+  );
+}

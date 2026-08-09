@@ -133,6 +133,9 @@ func materialize(ctx context.Context, request Request, runner commandRunner) (Re
 	if err := verifyRepository(ctx, runner, basePath, remoteURL); err != nil {
 		return Result{}, err
 	}
+	if _, err := runner.Run(ctx, "git", "-C", basePath, "config", "extensions.worktreeConfig", "true"); err != nil {
+		return Result{}, fmt.Errorf("enable worktree-specific configuration: %w", err)
+	}
 	if cloned {
 		if _, err := runner.Run(ctx, "git", "-C", basePath, "checkout", "--detach"); err != nil {
 			return Result{}, fmt.Errorf("detach administrative project checkout: %w", err)

@@ -15,6 +15,7 @@ fi
 
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 bash "${repository_root}/.devcontainer/verify-runner.sh"
+bash "${repository_root}/.devcontainer/start-codex-daemon.sh"
 umask 077
 mkdir -p -- "${state_root}"
 chmod 0700 "${state_root}"
