@@ -207,6 +207,14 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       };
       const reservation = await options.store.reserveStart(operation);
       if (reservation.kind === 'conflict') throw new CodexMachineTasksConflictError();
+      if (reservation.kind === 'fenced') {
+        return blocked(
+          request.operationId,
+          'machine_not_ready',
+          'The selected Environment is stopping or being deleted.',
+          selected
+        );
+      }
       if (reservation.kind === 'replayed') {
         return { ...reservation.result, operationId: request.operationId };
       }

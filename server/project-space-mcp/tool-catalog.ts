@@ -2,6 +2,8 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import {
+  projectSpaceMcpEnvironmentDeleteScope,
+  projectSpaceMcpEnvironmentManageScope,
   projectSpaceMcpReadScope,
   projectSpaceMcpWriteScope
 } from '../project-space-mcp-oauth-store';
@@ -15,6 +17,11 @@ const environmentKinds = [
   'github_codespace', 'cloud_sandbox', 'kubernetes_workload', 'virtual_machine',
   'other'
 ] as const;
+
+const operationIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+const operationIdJsonPattern = '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$';
+const branchJsonPattern = '^(?!/)(?!\\.{1,2}$)(?!.*(?:^|/)\\.)(?!.*(?:\\.\\.|@\\{|//))(?!.*(?:/|\\.lock|\\.)$)[^\\s~^:?*\\\\[\\]\\u0000-\\u001f\\u007f]{1,255}$';
+const branchPattern = new RegExp(branchJsonPattern);
 
 const selectorFields = {
   connectorId: z.string().trim().min(1).optional(),
@@ -89,6 +96,26 @@ export const toolSchemas = {
   get_execution_environment: z.object({
     environmentId: z.string().trim().min(1).max(512)
   }),
+  provision_execution_environment: z.object({
+    branch: z.string().trim().regex(branchPattern),
+    operationId: z.string().regex(operationIdPattern),
+    provider: z.literal('github_codespaces'),
+    repositoryId: z.string().trim().min(1).max(512),
+    task: z.number().int().positive()
+  }).strict(),
+  start_execution_environment: z.object({
+    environmentId: z.string().trim().min(1).max(512),
+    operationId: z.string().regex(operationIdPattern)
+  }).strict(),
+  stop_execution_environment: z.object({
+    environmentId: z.string().trim().min(1).max(512),
+    operationId: z.string().regex(operationIdPattern),
+    reason: z.string().trim().min(1).max(500).optional()
+  }).strict(),
+  delete_execution_environment: z.object({
+    environmentId: z.string().trim().min(1).max(512),
+    operationId: z.string().regex(operationIdPattern)
+  }).strict(),
   list_machines: z.object({}),
   list_codex_tasks: z.object({
     connectorId: z.string().trim().min(1).optional(),
@@ -188,7 +215,51 @@ export const tools: OAuthTool[] = [
     type: 'object', required: ['environmentId'], properties: {
       environmentId: { type: 'string', description: 'Canonical execution Environment id.' }
     }, additionalProperties: false
-  }, { readOnlyHint: true, openWorldHint: false }),
+  }, { readOnlyHint: true, openWorldHint: true }),
+  tool('provision_execution_environment', 'Provision execution environment', 'Provision a provider-managed execution Environment for one authorized repository task and branch.', {
+    type: 'object', required: ['branch', 'operationId', 'provider', 'repositoryId', 'task'], properties: {
+      branch: { type: 'string', minLength: 1, maxLength: 255, pattern: branchJsonPattern, description: 'Existing task branch to provision.' },
+      operationId: { type: 'string', minLength: 8, maxLength: 128, pattern: operationIdJsonPattern, description: 'Caller-supplied idempotency key. Reuse it only for this exact request.' },
+      provider: { type: 'string', enum: ['github_codespaces'] },
+      repositoryId: { type: 'string', minLength: 1, maxLength: 512, description: 'Authorized repository id or full name.' },
+      task: { type: 'integer', minimum: 1, description: 'Task number whose existing branch will own the Environment.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }, [
+    projectSpaceMcpReadScope,
+    projectSpaceMcpWriteScope,
+    projectSpaceMcpEnvironmentManageScope
+  ]),
+  tool('start_execution_environment', 'Start execution environment', 'Start one exact provider-managed execution Environment.', {
+    type: 'object', required: ['environmentId', 'operationId'], properties: {
+      environmentId: { type: 'string', minLength: 1, maxLength: 512, description: 'Canonical execution Environment id.' },
+      operationId: { type: 'string', minLength: 8, maxLength: 128, pattern: operationIdJsonPattern, description: 'Caller-supplied idempotency key.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }, [
+    projectSpaceMcpReadScope,
+    projectSpaceMcpWriteScope,
+    projectSpaceMcpEnvironmentManageScope
+  ]),
+  tool('stop_execution_environment', 'Stop execution environment', 'Stop one exact provider-managed execution Environment after active-execution safety checks.', {
+    type: 'object', required: ['environmentId', 'operationId'], properties: {
+      environmentId: { type: 'string', minLength: 1, maxLength: 512, description: 'Canonical execution Environment id.' },
+      operationId: { type: 'string', minLength: 8, maxLength: 128, pattern: operationIdJsonPattern, description: 'Caller-supplied idempotency key.' },
+      reason: { type: 'string', minLength: 1, maxLength: 500, description: 'Optional human-readable audit reason.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }, [
+    projectSpaceMcpReadScope,
+    projectSpaceMcpWriteScope,
+    projectSpaceMcpEnvironmentManageScope
+  ]),
+  tool('delete_execution_environment', 'Delete execution environment', 'Delete one exact provider-managed execution Environment after dependency and execution safety checks. Do not automatically retry an uncertain deletion.', {
+    type: 'object', required: ['environmentId', 'operationId'], properties: {
+      environmentId: { type: 'string', minLength: 1, maxLength: 512, description: 'Canonical execution Environment id.' },
+      operationId: { type: 'string', minLength: 8, maxLength: 128, pattern: operationIdJsonPattern, description: 'Caller-supplied operation key for reconciliation.' }
+    }, additionalProperties: false
+  }, { destructiveHint: true, idempotentHint: false, openWorldHint: true, readOnlyHint: false }, [
+    projectSpaceMcpReadScope,
+    projectSpaceMcpWriteScope,
+    projectSpaceMcpEnvironmentDeleteScope
+  ]),
   tool('list_machines', 'List machines', 'List the legacy connector-machine projection. Prefer list_execution_environments for new workflows.', {
     type: 'object', properties: {}, additionalProperties: false
   }, { readOnlyHint: true, openWorldHint: false }),
@@ -215,9 +286,9 @@ export const tools: OAuthTool[] = [
 ];
 
 export function scopesForTool(name: string) {
-  return ['start_codex_task', 'send_codex_message', 'create_task', 'update_task', 'add_task_comment'].includes(name)
-    ? [projectSpaceMcpReadScope, projectSpaceMcpWriteScope]
-    : [projectSpaceMcpReadScope];
+  const scopes = tools.find((candidate) => candidate.name === name)
+    ?.securitySchemes[0]?.scopes;
+  return scopes ? [...scopes] : [projectSpaceMcpReadScope];
 }
 
 function tool(
@@ -225,11 +296,14 @@ function tool(
   title: string,
   description: string,
   inputSchema: Tool['inputSchema'],
-  annotations: NonNullable<Tool['annotations']>
+  annotations: NonNullable<Tool['annotations']>,
+  requiredScopes?: readonly string[]
 ): OAuthTool {
-  const scopes = annotations.readOnlyHint
-    ? [projectSpaceMcpReadScope]
-    : [projectSpaceMcpReadScope, projectSpaceMcpWriteScope];
+  const scopes = requiredScopes
+    ? [...requiredScopes]
+    : annotations.readOnlyHint
+      ? [projectSpaceMcpReadScope]
+      : [projectSpaceMcpReadScope, projectSpaceMcpWriteScope];
   const securitySchemes = [{ type: 'oauth2' as const, scopes }];
   return {
     name, title, description, inputSchema, annotations, securitySchemes,

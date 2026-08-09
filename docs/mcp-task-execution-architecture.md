@@ -679,12 +679,14 @@ released the lease.
 
 #### `delete_execution_environment`
 
-Arguments: `environmentId`, `operationId`, optional evidence receipt.
+Arguments: `environmentId`, `operationId`.
 
-Destructive write scope. Requires proof that no execution, uncertain operation,
-unpublished branch, unreviewed change, or retained artifact depends on the
-Environment. Deletion never becomes an automatic retry after an uncertain
-response.
+Destructive write scope. WP2 proves that no execution or uncertain operation is
+active. The later Task Execution and Delivery work packages add proof for
+unpublished branches, unreviewed changes, and retained artifacts before the
+complete deletion policy is enabled. Deletion never becomes an automatic retry
+after an uncertain response. An evidence receipt remains deferred until Project
+Space has an authoritative verifier for those delivery and artifact dependencies.
 
 ### Agent runtime and authorization
 
@@ -1094,13 +1096,13 @@ is approved, merged, deployed, and verified.
 
 ### WP2 — add Environment lifecycle MCP tools
 
-- [ ] Add provision, start, stop, and delete tools.
-- [ ] Route GitHub Codespaces through the shared PR #529 configured runtime.
-- [ ] Persist provider binding and operation results.
-- [ ] Normalize lifecycle while retaining provider-native evidence.
-- [ ] Reconcile uncertain create/start/stop/delete responses.
-- [ ] Enforce no-active-execution stop/delete gates.
-- [ ] Add Codespaces OAuth scope and provider reauthorization results to MCP.
+- [x] Add provision, start, stop, and delete tools.
+- [x] Route GitHub Codespaces through the shared PR #529 configured runtime.
+- [x] Persist provider binding and operation results.
+- [x] Normalize lifecycle while retaining provider-native evidence.
+- [x] Reconcile uncertain create/start/stop/delete responses.
+- [x] Enforce no-active-execution stop/delete gates.
+- [x] Add Codespaces OAuth scope and provider reauthorization results to MCP.
 
 ### WP3 — add agent runtime and authorization tools
 

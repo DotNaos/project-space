@@ -15,6 +15,9 @@ import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { requestPublicOrigin } from './connector-installation';
 import type { ConfiguredCodexMachineTasksRuntime } from './codex-machine-tasks/configured-runtime';
 import { loadConfiguredComputeInventory } from './configured-compute-inventory';
+import type {
+  ExecutionEnvironmentLifecycleService
+} from './execution-environment-lifecycle/service';
 import {
   isProjectSpaceAuthRequired,
   runWithAuthSession
@@ -27,6 +30,11 @@ import {
   callComputeEnvironmentTool,
   type LoadMcpComputeInventory
 } from './project-space-mcp/compute-environments';
+import { callExecutionEnvironmentLifecycleTool } from './project-space-mcp/execution-environment-lifecycle';
+import {
+  resolveGitHubRepository,
+  resolveGitHubTask
+} from './project-space-mcp/github-resolver';
 import {
   applyMcpCors,
   bearerToken,
@@ -51,6 +59,7 @@ import {
 } from './project-space-mcp/results';
 import { scopesForTool, tools, toolSchemas } from './project-space-mcp/tool-catalog';
 import {
+  projectSpaceMcpDefaultScopes,
   projectSpaceMcpReadScope,
   projectSpaceMcpScopes
 } from './project-space-mcp-oauth-store';
@@ -65,7 +74,7 @@ import {
 
 const mcpPath = '/mcp';
 const protectedResourcePath = '/.well-known/oauth-protected-resource/mcp';
-const requiredScopes = projectSpaceMcpScopes;
+const authenticationScopes = projectSpaceMcpDefaultScopes;
 const sessionHeader = 'mcp-session-id';
 const sessionLifetimeMs = 60 * 60_000;
 const maximumSessions = 100;
@@ -85,6 +94,7 @@ type McpBackend = Pick<
 
 export interface ProjectSpaceMcpOptions {
   backend: McpBackend;
+  createEnvironmentLifecycle?(): Promise<ExecutionEnvironmentLifecycleService>;
   createRuntime(): Promise<ConfiguredCodexMachineTasksRuntime>;
   loadComputeInventory?: LoadMcpComputeInventory;
   logger?: ProjectSpaceLogger;
@@ -108,6 +118,13 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
     runtime = undefined;
     throw error;
   }));
+  let environmentLifecycle: Promise<ExecutionEnvironmentLifecycleService> | undefined;
+  const getEnvironmentLifecycle = () => (
+    environmentLifecycle ??= options.createEnvironmentLifecycle?.().catch((error) => {
+      environmentLifecycle = undefined;
+      throw error;
+    })
+  );
   const loadComputeInventory = options.loadComputeInventory ?? ((userId) => (
     loadConfiguredComputeInventory({ backend: options.backend, userId })
   ));
@@ -129,7 +146,8 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
       }
 
       stage = 'authentication';
-      const challenge = authChallenge(requestPublicOrigin(request));
+      const publicOrigin = requestPublicOrigin(request);
+      const challenge = authChallenge(publicOrigin, authenticationScopes);
       let authInfo: AuthInfo | undefined;
       try {
         authInfo = await authenticateMcpRequest(request, oauth.verifyAccessToken);
@@ -165,9 +183,10 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
         const userId = requiredUserId(authInfo);
         const server = createMcpServer(
           options.backend,
+          getEnvironmentLifecycle,
           getRuntime,
           loadComputeInventory,
-          challenge,
+          publicOrigin,
           logger
         );
         const transport = new StreamableHTTPServerTransport({
@@ -221,9 +240,10 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
 
 function createMcpServer(
   backend: McpBackend,
+  environmentLifecycle: () => Promise<ExecutionEnvironmentLifecycleService> | undefined,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   loadComputeInventory: LoadMcpComputeInventory,
-  challenge: string,
+  publicOrigin: string,
   logger: ProjectSpaceLogger
 ) {
   const server = new Server(
@@ -238,10 +258,12 @@ function createMcpServer(
     const toolName = request.params.name;
     const startedAt = performance.now();
     const userId = extra.authInfo?.extra?.userId;
-    if (typeof userId !== 'string' || !userId) return authenticationError(challenge);
+    if (typeof userId !== 'string' || !userId) {
+      return authenticationError(authChallenge(publicOrigin, authenticationScopes));
+    }
     const requiredToolScopes = scopesForTool(toolName);
     if (!requiredToolScopes.every((scope) => extra.authInfo?.scopes.includes(scope))) {
-      return authenticationError(challenge);
+      return authenticationError(authChallenge(publicOrigin, requiredToolScopes));
     }
     try {
       const result = await withProjectSpaceSpan(`mcp.tool.${toolName}`, {
@@ -250,6 +272,7 @@ function createMcpServer(
         { login: 'project-space-mcp', role: 'user', userId },
         () => callTool(
           backend,
+          environmentLifecycle,
           runtime,
           loadComputeInventory,
           userId,
@@ -277,6 +300,7 @@ function createMcpServer(
 
 async function callTool(
   backend: McpBackend,
+  environmentLifecycle: () => Promise<ExecutionEnvironmentLifecycleService> | undefined,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   loadComputeInventory: LoadMcpComputeInventory,
   userId: string,
@@ -284,7 +308,18 @@ async function callTool(
   rawArguments: Record<string, unknown>,
   logger: ProjectSpaceLogger
 ): Promise<CallToolResult> {
+  const lifecycle = environmentLifecycle();
+  if (lifecycle) {
+    const lifecycleResult = await callExecutionEnvironmentLifecycleTool({
+      name,
+      rawArguments,
+      service: await lifecycle,
+      userId
+    });
+    if (lifecycleResult) return lifecycleResult;
+  }
   const computeResult = await callComputeEnvironmentTool({
+    ...(lifecycle ? { lifecycle: await lifecycle } : {}),
     loadInventory: loadComputeInventory,
     name,
     rawArguments,
@@ -611,30 +646,6 @@ async function callTool(
   }
 }
 
-async function resolveGitHubRepository(backend: McpBackend, repositoryId: string) {
-  const catalog = await backend.getGitHubCatalog();
-  const repository = catalog.status === 'connected'
-    ? catalog.repositories.find((candidate) => (
-      String(candidate.id) === repositoryId || candidate.fullName === repositoryId
-    ))
-    : undefined;
-  return { catalog, repository };
-}
-
-async function resolveGitHubTask(
-  backend: McpBackend,
-  repositoryId: string,
-  taskNumber: number
-) {
-  const { catalog, repository } = await resolveGitHubRepository(backend, repositoryId);
-  if (!repository) return { catalog, details: undefined, repository, task: undefined };
-  const details = await backend.getGitHubRepositoryDetails(repository.fullName);
-  const task = details.status === 'connected'
-    ? details.issues.find((candidate) => candidate.number === taskNumber)
-    : undefined;
-  return { catalog, details, repository, task };
-}
-
 async function authenticateMcpRequest(
   request: IncomingMessage,
   verifyAccessToken: (request: IncomingMessage, token: string) => Promise<AuthInfo>
@@ -643,7 +654,7 @@ async function authenticateMcpRequest(
     return {
       clientId: 'project-space-local-development',
       extra: { userId: 'local-development-user' },
-      scopes: [...requiredScopes],
+      scopes: [...projectSpaceMcpScopes],
       token: 'local-development'
     };
   }
@@ -660,7 +671,7 @@ function authenticationError(challenge: string): CallToolResult {
   };
 }
 
-function authChallenge(origin: string, scopes: readonly string[] = requiredScopes) {
+function authChallenge(origin: string, scopes: readonly string[] = authenticationScopes) {
   return `Bearer resource_metadata="${new URL(protectedResourcePath, origin)}", scope="${scopes.join(' ')}"`;
 }
 

@@ -7,6 +7,9 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 import type { ConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
 import { computeInventoryFromConnectors } from '../server/compute-inventory';
+import type {
+  ExecutionEnvironmentLifecycleService
+} from '../server/execution-environment-lifecycle/service';
 import { observeHttpRequest } from '../server/http-observability';
 import {
   createProjectSpaceLogger,
@@ -284,11 +287,49 @@ function runtime(calls: Array<{ kind: string; request: unknown; userId: string }
   } as unknown as ConfiguredCodexMachineTasksRuntime;
 }
 
+function environmentLifecycle(
+  calls: Array<{ kind: string; request: unknown; userId: string }>
+): ExecutionEnvironmentLifecycleService {
+  const result = (action: 'delete' | 'provision' | 'start' | 'status' | 'stop', operationId: string) => ({
+    action,
+    apiVersion: 1 as const,
+    lifecycle: {
+      normalized: action === 'delete' ? 'deleted' as const : 'running' as const,
+      observedAt: '2026-08-07T00:00:00.000Z'
+    },
+    message: 'Lifecycle test result.',
+    operationId,
+    provider: { kind: 'github_codespaces' as const },
+    reconciliation: { checkedAt: '2026-08-07T00:00:00.000Z', state: 'confirmed' as const }
+  });
+  return {
+    async delete(actor, request) {
+      calls.push({ kind: 'environment-delete', request, userId: actor.userId });
+      return result('delete', request.operationId);
+    },
+    async list() { return []; },
+    async provision(actor, request) {
+      calls.push({ kind: 'environment-provision', request, userId: actor.userId });
+      return result('provision', request.operationId);
+    },
+    async start(actor, request) {
+      calls.push({ kind: 'environment-start', request, userId: actor.userId });
+      return result('start', request.operationId);
+    },
+    async status(_actor, _environmentId) { return result('status', 'status:test'); },
+    async stop(actor, request) {
+      calls.push({ kind: 'environment-stop', request, userId: actor.userId });
+      return result('stop', request.operationId);
+    }
+  };
+}
+
 async function startMcp(
   calls: Array<{ kind: string; request: unknown; userId: string }>,
   options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {},
   dependencies: {
     backend?: ReturnType<typeof backend>;
+    environmentLifecycle?: ExecutionEnvironmentLifecycleService;
     loadComputeInventory?: LoadMcpComputeInventory;
     logger?: ProjectSpaceLogger;
   } = {}
@@ -300,6 +341,9 @@ async function startMcp(
   const selectedBackend = dependencies.backend ?? backend();
   const handler = createProjectSpaceMcpHandler({
     backend: selectedBackend,
+    createEnvironmentLifecycle: async () => (
+      dependencies.environmentLifecycle ?? environmentLifecycle(calls)
+    ),
     createRuntime: async () => runtime(calls),
     loadComputeInventory: dependencies.loadComputeInventory ?? (async () => {
       const overview = await selectedBackend.getConnectorOverview();
@@ -339,7 +383,12 @@ describe('Project Space remote MCP server', () => {
     expect(await metadataResponse.json()).toMatchObject({
       authorization_servers: [`${origin}/`],
       resource: `${origin}/mcp`,
-      scopes_supported: ['project-space:read', 'project-space:write']
+      scopes_supported: [
+        'project-space:read',
+        'project-space:write',
+        'project-space:environment.manage',
+        'project-space:environment.delete'
+      ]
     });
 
     const authorizationMetadata = await fetch(`${origin}/.well-known/oauth-authorization-server`);
@@ -416,6 +465,10 @@ describe('Project Space remote MCP server', () => {
       'add_task_comment',
       'list_execution_environments',
       'get_execution_environment',
+      'provision_execution_environment',
+      'start_execution_environment',
+      'stop_execution_environment',
+      'delete_execution_environment',
       'list_machines',
       'list_codex_tasks',
       'read_codex_task',
@@ -478,6 +531,20 @@ describe('Project Space remote MCP server', () => {
       arguments: { environmentId: 'missing-environment' }
     });
     expect(missingEnvironment.isError).toBe(true);
+
+    const provisionedEnvironment = await client.callTool({
+      name: 'provision_execution_environment',
+      arguments: {
+        branch: 'task/480',
+        operationId: 'mcp:environment:provision:480',
+        provider: 'github_codespaces',
+        repositoryId: '480',
+        task: 480
+      }
+    });
+    expect(provisionedEnvironment.structuredContent).toMatchObject({
+      result: { action: 'provision', lifecycle: { normalized: 'running' } }
+    });
 
     const tasks = await client.callTool({
       name: 'list_tasks',
@@ -603,7 +670,8 @@ describe('Project Space remote MCP server', () => {
       arguments: { dryRun: true, environmentId, task: 480, repositoryId: '480' }
     });
     expect(started.isError).not.toBe(true);
-    expect(calls).toMatchObject([
+    const codexCalls = calls.filter(({ kind }) => !kind.startsWith('environment-'));
+    expect(codexCalls).toMatchObject([
       { kind: 'list', userId: 'local-development-user' },
       {
         kind: 'start',
@@ -611,7 +679,7 @@ describe('Project Space remote MCP server', () => {
         userId: 'local-development-user'
       }
     ]);
-    expect((calls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
+    expect((codexCalls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
 
     const confirmed = await client.callTool({
       name: 'start_codex_task',
@@ -723,6 +791,20 @@ describe('Project Space remote MCP server', () => {
     });
     expect(rejectedTaskWrite.isError).toBe(true);
     expect(rejectedTaskWrite._meta).toMatchObject({ 'mcp/www_authenticate': [expect.stringContaining('project-space:write')] });
+    const rejectedLifecycleWrite = await readOnlyClient.callTool({
+      arguments: {
+        branch: 'task/480',
+        operationId: 'mcp:environment:provision:480',
+        provider: 'github_codespaces',
+        repositoryId: '480',
+        task: 480
+      },
+      name: 'provision_execution_environment'
+    });
+    expect(rejectedLifecycleWrite._meta).toMatchObject({
+      'mcp/www_authenticate': [expect.stringContaining('project-space:environment.manage')]
+    });
+    expect(JSON.stringify(rejectedLifecycleWrite._meta)).not.toContain('project-space:environment.delete');
 
     const unsafeRegistration = await fetch(`${origin}/register`, {
       body: JSON.stringify({

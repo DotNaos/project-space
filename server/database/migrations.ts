@@ -55,6 +55,10 @@ import {
   computeEnvironmentIdentityResolutionMigrationId,
   computeEnvironmentIdentityResolutionMigrationSql
 } from './compute-environment-identity-resolution-migration';
+import {
+  environmentLifecycleMigrationId,
+  environmentLifecycleMigrationSql
+} from './environment-lifecycle-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -691,6 +695,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: computeEnvironmentIdentityResolutionMigrationId,
     sql: computeEnvironmentIdentityResolutionMigrationSql
+  },
+  {
+    id: environmentLifecycleMigrationId,
+    sql: environmentLifecycleMigrationSql
   }
 ];
 
