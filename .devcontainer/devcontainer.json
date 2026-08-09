@@ -1,9 +1,9 @@
 {
   "name": "Project Space Codespace Runner",
-  "image": "mcr.microsoft.com/devcontainers/universal:6.1.1-linux@sha256:cb1ccdf5e3c10b4134ffe8f2c03e8481e7c41058d27a70192fa54146a8c327c2",
-  "remoteUser": "codespace",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm@sha256:7f9160225f2e0af7a3531a925358ffebff77e1d03d1628953e4252efd6e7bf2d",
+  "remoteUser": "node",
   "remoteEnv": {
-    "PATH": "/home/codespace/.local/bin:/home/codespace/.bun/bin:${containerEnv:PATH}"
+    "PATH": "/home/node/.local/bin:/home/node/.bun/bin:${containerEnv:PATH}"
   },
   "customizations": {
     "codespaces": {
