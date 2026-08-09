@@ -14,11 +14,15 @@ describe('Codespaces runner devcontainer', () => {
     const verification = await readFile('.devcontainer/verify-runner.sh', 'utf8');
 
     expect(devcontainer.image).toBe(
-      'mcr.microsoft.com/devcontainers/universal:6.1.1-linux@sha256:cb1ccdf5e3c10b4134ffe8f2c03e8481e7c41058d27a70192fa54146a8c327c2'
+      'mcr.microsoft.com/devcontainers/javascript-node:24-bookworm@sha256:7f9160225f2e0af7a3531a925358ffebff77e1d03d1628953e4252efd6e7bf2d'
     );
-    expect(devcontainer.remoteUser).toBe('codespace');
-    expect(devcontainer.remoteEnv?.PATH).toStartWith('/home/codespace/');
+    expect(devcontainer.remoteUser).toBe('node');
+    expect(devcontainer.remoteEnv?.PATH).toStartWith('/home/node/');
     expect(devcontainer.features).toBeUndefined();
+    const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
+    expect(bootstrap).toContain('missing_packages+=(openssh-server)');
+    expect(bootstrap).toContain('missing_packages+=(python3)');
+    expect(bootstrap).toContain('missing_packages+=(gh)');
     expect(verification).toMatch(
       /for command_name in [^\n]*\bsshd\b/
     );

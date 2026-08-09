@@ -12,6 +12,19 @@ readonly archive_sha256="ecc6f972a65dad1cfdae48ee4be84263d5a7239b76a0b6519fe0276
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 cd -- "${repository_root}"
 
+missing_packages=()
+command -v g++ >/dev/null 2>&1 || missing_packages+=(g++)
+command -v gh >/dev/null 2>&1 || missing_packages+=(gh)
+command -v make >/dev/null 2>&1 || missing_packages+=(make)
+command -v python3 >/dev/null 2>&1 || missing_packages+=(python3)
+command -v sshd >/dev/null 2>&1 || missing_packages+=(openssh-server)
+if (( ${#missing_packages[@]} > 0 )); then
+  sudo apt-get update
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install \
+    --no-install-recommends --yes "${missing_packages[@]}"
+  sudo rm -rf /var/lib/apt/lists/*
+fi
+
 temporary_root=""
 cleanup() {
   if [[ -n "${temporary_root}" && -d "${temporary_root}" ]]; then
