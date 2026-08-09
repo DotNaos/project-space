@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 describe('Project Space static shell', () => {
-  test('prevents any origin from framing trusted controls', async () => {
+  test('prevents framing and never caches the HTML app shell', async () => {
     const root = await mkdtemp(join(tmpdir(), 'project-space-static-'));
     roots.push(root);
     await writeFile(join(root, 'index.html'), '<!doctype html><title>Project Space</title>');
@@ -31,7 +31,25 @@ describe('Project Space static shell', () => {
     const response = await fetch(`http://127.0.0.1:${port}/prototype-review`);
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('content-security-policy')).toBe("frame-ancestors 'none'");
     expect(response.headers.get('x-frame-options')).toBe('DENY');
+  });
+
+  test('does not disable normal browser caching for built assets', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'project-space-static-'));
+    roots.push(root);
+    await writeFile(join(root, 'index.html'), '<!doctype html><title>Project Space</title>');
+    await writeFile(join(root, 'app-deadbeef.js'), 'globalThis.projectSpace = true;');
+    const server = createServer((request, response) => {
+      serveProjectSpaceStatic(response, root, new URL(request.url ?? '/', 'http://test').pathname);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/app-deadbeef.js`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBeNull();
   });
 });

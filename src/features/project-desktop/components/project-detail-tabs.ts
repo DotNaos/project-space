@@ -7,7 +7,8 @@ import {
   ListChecks,
   MessageSquareText,
   Rocket,
-  Server
+  Server,
+  Workflow
 } from 'lucide-react';
 
 import type { ProjectDetailTab } from '../hooks/use-project-desktop';
@@ -19,6 +20,7 @@ export const projectTabItems: Array<{
 }> = [
   { icon: LayoutDashboard, id: 'overview', label: 'Overview' },
   { icon: ListChecks, id: 'issues', label: 'Issues' },
+  { icon: Workflow, id: 'roadmap', label: 'Roadmap' },
   { icon: Server, id: 'machines', label: 'Machines' },
   { icon: GitBranchPlus, id: 'workspaces', label: 'Workspaces' },
   { icon: MessageSquareText, id: 'chat', label: 'Chat' },

@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { projectSpaceClient, setProjectSpaceAuthTokenProvider } from '@/api/project-space-client';
 import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import { isClerkConfigured } from '@/auth/clerk-provider';
-import { AccountMenu, type RailAccount } from '@/features/project-desktop/components/app-rail';
+import { AccountMenu, type RailAccount } from '@/features/project-desktop/components/account-menu';
 import type { PreviewHubCapacityCandidate, PreviewHubInventoryResult, PreviewHubMutationResult, PreviewHubRecord } from '@/shared/pull-request-preview-hub-api';
 import { previewPullRequestNumberFromHostname } from '@/shared/preview-host';
 
