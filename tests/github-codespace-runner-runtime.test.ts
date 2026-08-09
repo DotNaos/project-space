@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from 'bun:test';
 
 import {
   createGitHubCodespaceRunnerRuntime,
+  githubCodespaceCreateBody,
   GitHubCodespaceRunnerAuthenticationError,
   type GitHubCodespaceRunnerRuntimeDependencies
 } from '../server/github-codespace-runner/configured-runtime';
@@ -46,6 +47,27 @@ function dependencies(overrides: Partial<GitHubCodespaceRunnerRuntimeDependencie
 }
 
 describe('GitHub Codespace runner runtime', () => {
+  test('uses GitHub recommended location when creating a Codespace', () => {
+    expect(githubCodespaceCreateBody({
+      branch: 'issue-456-codespace',
+      displayName: 'Project Space #456'
+    }, 'EuropeWest')).toEqual({
+      devcontainer_path: '.devcontainer/devcontainer.json',
+      display_name: 'Project Space #456',
+      idle_timeout_minutes: 30,
+      location: 'EuropeWest',
+      ref: 'issue-456-codespace',
+      retention_period_minutes: 4_320
+    });
+  });
+
+  test('still creates without a location when GitHub has no recommendation', () => {
+    expect(githubCodespaceCreateBody({
+      branch: 'issue-456-codespace',
+      displayName: 'Project Space #456'
+    })).not.toHaveProperty('location');
+  });
+
   test('requires an authenticated server session when authentication is enabled', async () => {
     const fixture = dependencies({ currentUserId: () => undefined });
     const runtime = createGitHubCodespaceRunnerRuntime(fixture.dependencies);
