@@ -15,6 +15,10 @@
     "ghcr.io/devcontainers/features/github-cli:1": {
       "version": "2.97.0"
     },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "os-provided",
+      "installTools": false
+    },
     "ghcr.io/devcontainers/features/sshd:1": {
       "version": "latest"
     }

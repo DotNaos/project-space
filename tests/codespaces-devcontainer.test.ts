@@ -17,9 +17,15 @@ describe('Codespaces runner devcontainer', () => {
   });
 
   test('installs and verifies node-gyp before native dependencies', async () => {
+    const devcontainer = JSON.parse(
+      await readFile('.devcontainer/devcontainer.json', 'utf8')
+    ) as { features?: Record<string, unknown> };
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
     const verification = await readFile('.devcontainer/verify-runner.sh', 'utf8');
 
+    expect(
+      devcontainer.features?.['ghcr.io/devcontainers/features/python:1']
+    ).toEqual({ version: 'os-provided', installTools: false });
     expect(bootstrap).toMatch(/readonly node_gyp_version="\d+\.\d+\.\d+"/);
     expect(bootstrap.indexOf('bun add --global')).toBeGreaterThan(-1);
     expect(bootstrap.indexOf('bun add --global')).toBeLessThan(
@@ -28,5 +34,6 @@ describe('Codespaces runner devcontainer', () => {
     expect(verification).toMatch(
       /for command_name in [^\n]*\bnode-gyp\b/
     );
+    expect(verification).toContain("python3 -c 'import shlex'");
   });
 });

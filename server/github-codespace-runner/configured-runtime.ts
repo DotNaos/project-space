@@ -17,6 +17,7 @@ import {
   createGitHubCodespaceRunnerService,
   type GitHubCodespaceRecord
 } from './service';
+import { createGitHubCodespaceApprovalLookup } from './approval-lookup';
 
 export interface GitHubCodespaceRunnerRuntime {
   run(request: GitHubCodespaceRunnerRequest): Promise<GitHubCodespaceRunnerResult>;
@@ -114,6 +115,11 @@ export function createConfiguredGitHubCodespaceRunnerRuntime(options: {
   });
 }
 
+const findApproval = createGitHubCodespaceApprovalLookup({
+  database: getMachineConnectionDatabaseClient,
+  publicOrigin: () => readMachineConnectionPublicOrigin(process.env)
+});
+
 interface GitHubApiCodespace {
   created_at: string;
   display_name?: string;
@@ -177,25 +183,6 @@ function mapCodespace(value: GitHubApiCodespace): GitHubCodespaceRecord {
     url: value.web_url,
     ref: value.git_status?.ref
   };
-}
-
-async function findApproval(input: { codespaceName: string; createdAt: string }) {
-  const client = await getMachineConnectionDatabaseClient();
-  const found = await client.query<{ id: string }>(
-    `select id
-       from machine_connection_requests
-      where name = $1 and hostname = $1
-        and created_at >= $2::timestamptz - interval '5 minutes'
-        and expires_at > now() and status in ('pending', 'approved')
-      order by created_at desc
-      limit 1`,
-    [input.codespaceName, input.createdAt]
-  );
-  const id = found.rows[0]?.id;
-  const origin = readMachineConnectionPublicOrigin(process.env);
-  return id && origin
-    ? { approvalUrl: `${origin}/connector/connect?request=${encodeURIComponent(id)}` }
-    : null;
 }
 
 async function runSerialized<Result>(
