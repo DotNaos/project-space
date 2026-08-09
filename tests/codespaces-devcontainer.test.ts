@@ -16,7 +16,7 @@ describe('Codespaces runner devcontainer', () => {
     );
   });
 
-  test('installs and verifies node-gyp before native dependencies', async () => {
+  test('installs node-gyp without blocking on repository dependencies', async () => {
     const devcontainer = JSON.parse(
       await readFile('.devcontainer/devcontainer.json', 'utf8')
     ) as { features?: Record<string, unknown> };
@@ -28,13 +28,34 @@ describe('Codespaces runner devcontainer', () => {
     ).toEqual({ version: 'os-provided', installTools: false });
     expect(bootstrap).toMatch(/readonly node_gyp_version="\d+\.\d+\.\d+"/);
     expect(bootstrap.indexOf('bun add --global')).toBeGreaterThan(-1);
-    expect(bootstrap.indexOf('bun add --global')).toBeLessThan(
-      bootstrap.indexOf('bun install --frozen-lockfile')
-    );
+    expect(bootstrap).not.toContain('bun install --frozen-lockfile');
     expect(verification).toMatch(
       /for command_name in [^\n]*\bnode-gyp\b/
     );
     expect(verification).toContain("python3 -c 'import shlex'");
+  });
+
+  test('prepares reusable runner tools before the fast connection step', async () => {
+    const devcontainer = JSON.parse(
+      await readFile('.devcontainer/devcontainer.json', 'utf8')
+    ) as {
+      onCreateCommand?: string;
+      postCreateCommand?: string;
+      postStartCommand?: string;
+    };
+    const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
+
+    expect(devcontainer.onCreateCommand).toBe(
+      'bash .devcontainer/bootstrap.sh'
+    );
+    expect(devcontainer.postCreateCommand).toBe(
+      'bash .devcontainer/start-runner.sh'
+    );
+    expect(devcontainer.postStartCommand).toBe(
+      'bash .devcontainer/start-runner.sh'
+    );
+    expect(bootstrap).not.toContain('.devcontainer/start-runner.sh');
+    expect(bootstrap).not.toContain('bun install --frozen-lockfile');
   });
 
   test('pins the released connector that retains Codespaces metadata', async () => {
