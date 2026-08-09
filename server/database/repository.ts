@@ -358,13 +358,16 @@ export class ProjectSpaceDatabaseRepository {
         const currentAssociation = await client.query<{
           association_source: string;
           environment_id: string;
+          host_evidence: ConnectorComputeMetadata['hostEvidence'];
           host_id: string | null;
           host_identity_key: string | null;
+          host_resolution: ConnectorComputeMetadata['hostResolution'];
           identity_key: string;
           platform_id: string;
         }>(
           `select association.association_source, association.environment_id,
                   environment.identity_key, environment.platform_id, environment.host_id,
+                  environment.host_resolution, environment.host_evidence,
                   host.identity_key as host_identity_key
              from connector_compute_environments association
              join compute_environments environment
@@ -406,6 +409,12 @@ export class ProjectSpaceDatabaseRepository {
         }
 
         let hostId: string | null = current?.host_id ?? null;
+        let hostResolution = metadata.hostResolution;
+        let hostEvidence = metadata.hostEvidence;
+        if (!metadata.hostIdentity && current?.host_id) {
+          hostResolution = current.host_resolution;
+          hostEvidence = current.host_evidence;
+        }
         if (metadata.hostIdentity && metadata.hostName) {
           const host = await client.query<{ id: string }>(
             `insert into compute_hosts (
@@ -456,7 +465,7 @@ export class ProjectSpaceDatabaseRepository {
            returning id`,
           [this.createId(), ownerUserId, platformId, hostId, parentEnvironmentId,
             metadata.environmentIdentity.version, environmentIdentityKey, metadata.environmentKind, metadata.environmentName,
-            metadata.hostResolution, metadata.hostEvidence, metadata.resourceMode,
+            hostResolution, hostEvidence, metadata.resourceMode,
             JSON.stringify(metadata.resourceMode === 'exclusive' ? null : metadata.resources ?? null)]
         );
         const environmentId = environment.rows[0]?.id;
