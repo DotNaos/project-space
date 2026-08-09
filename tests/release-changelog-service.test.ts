@@ -64,6 +64,35 @@ describe('release changelog service', () => {
     expect(result.releases.map((entry) => entry.version)).toEqual(['0.9.0']);
   });
 
+  test('authenticates the server-side GitHub request when a token is configured', async () => {
+    let authorization: string | undefined;
+    await loadReleaseChangelog('0.9.1', {
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+        authorization = new Headers(init?.headers).get('authorization') ?? undefined;
+        return Response.json([release('0.9.1')]);
+      }) as typeof fetch,
+      githubToken: 'trusted-server-token'
+    });
+
+    expect(authorization).toBe('Bearer trusted-server-token');
+  });
+
+  test('never creates an authorization header from an empty or malformed token', async () => {
+    const authorizations: Array<string | null> = [];
+    const fetchRelease = (async (_input: string | URL | Request, init?: RequestInit) => {
+      authorizations.push(new Headers(init?.headers).get('authorization'));
+      return Response.json([release('0.9.1')]);
+    }) as typeof fetch;
+
+    await loadReleaseChangelog('0.9.1', { fetch: fetchRelease, githubToken: '' });
+    await loadReleaseChangelog('0.9.1', {
+      fetch: fetchRelease,
+      githubToken: 'invalid\nheader'
+    });
+
+    expect(authorizations).toEqual([null, null]);
+  });
+
   test('does not contact GitHub for an unverified build version', async () => {
     let called = false;
     const result = await releaseChangelogForVersion('unknown', {
