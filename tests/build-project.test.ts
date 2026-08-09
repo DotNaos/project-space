@@ -8,6 +8,7 @@ const previewWebDockerfile = new URL(
   import.meta.url
 );
 const productionWebDockerfile = new URL('../deploy/Dockerfile', import.meta.url);
+const productionComposeFile = new URL('../deploy/compose.yml', import.meta.url);
 
 describe('Project build routing', () => {
   test('keeps the aggregate build complete outside a trusted web image', () => {
@@ -61,5 +62,23 @@ describe('Project build routing', () => {
     expect(dockerfile).toContain(
       'RUN bun -e "await import(\'./server/project-space-api-public-routes.ts\')"'
     );
+  });
+
+  test('trusts only the read-only backend repository mounted into the production runtime', async () => {
+    const dockerfile = await readFile(productionWebDockerfile, 'utf8');
+
+    expect(dockerfile).toContain(
+      'git config --system --add safe.directory /workspace/backend-repo'
+    );
+    expect(dockerfile).not.toContain('safe.directory *');
+  });
+
+  test('reads Preview inventory from the production read-only state mount', async () => {
+    const compose = await readFile(productionComposeFile, 'utf8');
+
+    expect(compose).toContain(
+      'PROJECT_SPACE_PREVIEW_STATUS_ROOT: /workspace/deploy-state/project-space-preview'
+    );
+    expect(compose).toContain('/opt/platform/state:/workspace/deploy-state:ro');
   });
 });

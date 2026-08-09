@@ -72,8 +72,12 @@ export function createPreviewHubService(
     if (repositoryFullName !== defaultRepository || !repositoryPattern.test(repositoryFullName) || !userId) return unavailable(repositoryFullName, 'unauthorized');
     const details = await backend.getGitHubRepositoryDetails(repositoryFullName);
     if (details.status !== 'connected') return unavailable(repositoryFullName, ['error', 'rate-limited'].includes(details.status) ? 'unavailable' : 'unauthorized');
+    const status = await loadStatus(repositoryFullName);
+    if (status.status !== 'available') {
+      return unavailable(repositoryFullName, status.status, status.checkedAt);
+    }
     const result = withUndeployedOpenPullRequests(
-      correlatePullRequestPreviews(await loadStatus(repositoryFullName), details),
+      correlatePullRequestPreviews(status, details),
       details
     );
     const previews = result.previews.map((preview) => previewHubRecordFromLegacyStatus(preview, now()));
@@ -182,8 +186,12 @@ export function createPreviewHubService(
   return { inventory, start, stop, touch };
 }
 
-function unavailable(repositoryFullName: string, status: 'unauthorized' | 'unavailable'): PreviewHubInventoryResult {
-  return { checkedAt: new Date().toISOString(), inventoryRevision: 'unavailable', maxOnline: 3, onlineCount: 0, occupiedCount: 0, previews: [], repositoryFullName, status };
+function unavailable(
+  repositoryFullName: string,
+  status: 'unauthorized' | 'unavailable',
+  checkedAt = new Date().toISOString()
+): PreviewHubInventoryResult {
+  return { checkedAt, inventoryRevision: 'unavailable', maxOnline: 3, onlineCount: 0, occupiedCount: 0, previews: [], repositoryFullName, status };
 }
 
 export function previewHubInventoryRevision(previews: PreviewHubRecord[], registryStatuses?: PullRequestPreviewStatusResult['previews']) {
