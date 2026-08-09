@@ -55,10 +55,17 @@ describe('GitHub Codespace runner runtime', () => {
       devcontainer_path: '.devcontainer/devcontainer.json',
       display_name: 'Project Space #456',
       idle_timeout_minutes: 30,
-      location: 'EuropeWest',
+      location: 'WestEurope',
       ref: 'issue-456-codespace',
       retention_period_minutes: 4_320
     });
+  });
+
+  test('omits an unknown recommended location instead of sending an invalid value', () => {
+    expect(githubCodespaceCreateBody({
+      branch: 'issue-456-codespace',
+      displayName: 'Project Space #456'
+    }, 'UnknownRegion')).not.toHaveProperty('location');
   });
 
   test('still creates without a location when GitHub has no recommendation', () => {
