@@ -6,6 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import type { ConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
+import { computeInventoryFromConnectors } from '../server/compute-inventory';
 import { observeHttpRequest } from '../server/http-observability';
 import {
   createProjectSpaceLogger,
@@ -13,6 +14,7 @@ import {
   type ProjectSpaceLogRecord
 } from '../server/observability';
 import { createProjectSpaceMcpHandler } from '../server/project-space-mcp';
+import type { LoadMcpComputeInventory } from '../server/project-space-mcp/compute-environments';
 import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oauth-store';
 
 const originalAuthDisabled = process.env.PROJECT_SPACE_AUTH_DISABLED;
@@ -40,6 +42,19 @@ function backend() {
         machines: [{
           connector: {
             capabilities: ['codex.machine-tasks.v1'],
+            daemon: {
+              authenticated: true,
+              checkedAt: '2026-08-07T00:00:00.000Z',
+              cliVersion: '0.1.0',
+              compatible: true,
+              installed: true,
+              paired: false,
+              reachable: true,
+              remoteControlEnabled: false,
+              remoteControlState: 'disabled' as const,
+              running: true,
+              state: 'ready' as const
+            },
             installCommand: '',
             status: 'online' as const
           },
@@ -274,6 +289,7 @@ async function startMcp(
   options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {},
   dependencies: {
     backend?: ReturnType<typeof backend>;
+    loadComputeInventory?: LoadMcpComputeInventory;
     logger?: ProjectSpaceLogger;
   } = {}
 ) {
@@ -281,9 +297,22 @@ async function startMcp(
     environment: { NODE_ENV: 'test' },
     sink: { write() {} }
   });
+  const selectedBackend = dependencies.backend ?? backend();
   const handler = createProjectSpaceMcpHandler({
-    backend: dependencies.backend ?? backend(),
+    backend: selectedBackend,
     createRuntime: async () => runtime(calls),
+    loadComputeInventory: dependencies.loadComputeInventory ?? (async () => {
+      const overview = await selectedBackend.getConnectorOverview();
+      return {
+        checkedAt: '2026-08-07T00:00:00.000Z',
+        connectors: overview.machines,
+        generations: new Map([['connector-wsl', 1]]),
+        snapshot: computeInventoryFromConnectors({
+          connectors: overview.machines,
+          physicalMachines: overview.physicalMachines
+        })
+      };
+    }),
     logger,
     oauth: options
   });
@@ -385,6 +414,8 @@ describe('Project Space remote MCP server', () => {
       'update_task',
       'list_task_comments',
       'add_task_comment',
+      'list_execution_environments',
+      'get_execution_environment',
       'list_machines',
       'list_codex_tasks',
       'read_codex_task',
@@ -403,6 +434,50 @@ describe('Project Space remote MCP server', () => {
       result: { projects: [{ id: 'project-space', machineId: 'connector-wsl' }] }
     });
     expect(JSON.stringify(projects)).not.toContain('/not-exposed');
+
+    const environmentInventory = await client.callTool({
+      name: 'list_execution_environments',
+      arguments: { capability: 'codex.machine-tasks.v1', kind: 'native_linux', platform: 'local' }
+    });
+    expect(environmentInventory.structuredContent).toMatchObject({
+      result: {
+        environments: [{
+          agentRuntimes: [{
+            authorization: { state: 'ready' },
+            kind: 'codex',
+            state: 'ready'
+          }],
+          capacity: { state: 'unknown' },
+          hostAssociation: { host: { name: 'Remote PC' }, resolution: 'manual' },
+          kind: 'native_linux',
+          name: 'WSL',
+          platform: { kind: 'local' },
+          providerLifecycle: { state: 'unmanaged' },
+          readiness: {
+            pendingEvidence: ['workspace', 'capacity'],
+            selectedConnectorId: 'connector-wsl',
+            state: 'checking'
+          }
+        }],
+        inventoryState: 'ready'
+      }
+    });
+    expect(JSON.stringify(environmentInventory)).not.toContain('/not-exposed');
+    const environmentId = (
+      environmentInventory.structuredContent as { result: { environments: Array<{ id: string }> } }
+    ).result.environments[0]!.id;
+    const exactEnvironment = await client.callTool({
+      name: 'get_execution_environment',
+      arguments: { environmentId }
+    });
+    expect(exactEnvironment.structuredContent).toMatchObject({
+      result: { environment: { id: environmentId, kind: 'native_linux' } }
+    });
+    const missingEnvironment = await client.callTool({
+      name: 'get_execution_environment',
+      arguments: { environmentId: 'missing-environment' }
+    });
+    expect(missingEnvironment.isError).toBe(true);
 
     const tasks = await client.callTool({
       name: 'list_tasks',
@@ -525,14 +600,14 @@ describe('Project Space remote MCP server', () => {
     await client.callTool({ name: 'list_codex_tasks', arguments: {} });
     const started = await client.callTool({
       name: 'start_codex_task',
-      arguments: { dryRun: true, task: 480, repositoryId: '480' }
+      arguments: { dryRun: true, environmentId, task: 480, repositoryId: '480' }
     });
     expect(started.isError).not.toBe(true);
     expect(calls).toMatchObject([
       { kind: 'list', userId: 'local-development-user' },
       {
         kind: 'start',
-        request: { dryRun: true, issue: 480, repositoryId: '480' },
+        request: { dryRun: true, environmentId, issue: 480, repositoryId: '480' },
         userId: 'local-development-user'
       }
     ]);
