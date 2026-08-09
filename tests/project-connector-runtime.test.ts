@@ -551,10 +551,12 @@ describe('authenticated connector companion runtime', () => {
     process.env.PROJECT_CONNECTOR_MACHINE_ID = ' invalid legacy machine id ';
     try {
       const backend = createLocalProjectSpaceBackend({
-        connectorMachineId: runtimeCredential.machineId
+        connectorMachineId: runtimeCredential.machineId,
+        connectorMachineName: 'project-space--537-reliable-runner'
       });
       const registry = await backend.getConnectorProjectRegistry();
       expect(registry.connector.machineId).toBe(runtimeCredential.machineId);
+      expect(registry.connector.machineName).toBe('project-space--537-reliable-runner');
       expect(registry.connector.capabilities).toContain('dev-server.list');
       expect(
         registry.discovery.projects.every(

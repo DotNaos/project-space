@@ -50,6 +50,7 @@ type supervisorHelperResult struct {
 	Version                    string `json:"version"`
 	BackendURL                 string `json:"backendUrl"`
 	MachineID                  string `json:"machineId"`
+	MachineName                string `json:"machineName"`
 	TokenMatches               bool   `json:"tokenMatches"`
 	PrivateKeyPresent          bool   `json:"privateKeyPresent"`
 	SecretInArguments          bool   `json:"secretInArguments"`
@@ -128,6 +129,7 @@ func TestConnectorSupervisorPassesMinimalCredentialOverStdin(t *testing.T) {
 	}
 	if result.Version != ConnectorRuntimeCredentialVersion ||
 		result.BackendURL != credential.BackendURL || result.MachineID != credential.MachineID ||
+		result.MachineName != credential.MachineName ||
 		!result.TokenMatches {
 		t.Fatalf("helper received the wrong runtime identity: %#v", result)
 	}
@@ -422,6 +424,7 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 		Version:           credential.Version,
 		BackendURL:        credential.BackendURL,
 		MachineID:         credential.MachineID,
+		MachineName:       os.Getenv(ConnectorRuntimeMachineNameEnv),
 		TokenMatches:      credential.Token == supervisorTestToken,
 		PrivateKeyPresent: fields["privateKey"] != nil,
 		MinimalFields:     hasOnlyRuntimeCredentialFields(fields),
@@ -458,7 +461,7 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 			result.CommandSigningKeyOK = value == "/project-space/command-signing-public-key.pem"
 		} else if name == ConnectorRuntimeBuildIDEnv || name == ConnectorRuntimeReleaseIDEnv ||
 			name == ConnectorRuntimeReadyFileEnv || name == ConnectorRuntimeReadyAttemptNonceEnv ||
-			name == CodexOperationSnapshotFileEnv {
+			name == CodexOperationSnapshotFileEnv || name == ConnectorRuntimeMachineNameEnv {
 			// Captured above from the fixed supervisor environment.
 		} else if strings.HasPrefix(strings.ToUpper(name), "PROJECT_") {
 			result.UnexpectedProjectEnv = true

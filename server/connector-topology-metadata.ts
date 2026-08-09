@@ -98,7 +98,7 @@ function runtimeKinds(
   if (environment.CODESPACES === 'true' || environment.CODESPACE_NAME) {
     return {
       environmentKind: 'github_codespace',
-      environmentName: 'GitHub Codespace',
+      environmentName: environment.CODESPACE_NAME ?? 'GitHub Codespace',
       platformKind: 'github_codespaces',
       platformName: 'GitHub Codespaces'
     };

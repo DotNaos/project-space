@@ -17,6 +17,7 @@ import (
 const (
 	ConnectorRuntimeCredentialVersion = "project-space.connector-runtime/v1"
 	ConnectorRuntimeProtocolEnv       = "PROJECT_SPACE_CONNECTOR_RUNTIME_PROTOCOL"
+	ConnectorRuntimeMachineNameEnv    = "PROJECT_SPACE_CONNECTOR_MACHINE_NAME"
 	ConnectorCommandSigningKeyFileEnv = "PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY_FILE"
 	CodexOperationSnapshotFileEnv     = "PROJECT_CODEX_OPERATION_SNAPSHOT_FILE"
 	maxConnectorRuntimeCredentialSize = 16 * 1024
@@ -174,7 +175,13 @@ func (supervisor *ConnectorSupervisor) Run(ctx context.Context) (returnErr error
 	if err != nil {
 		return err
 	}
-	return supervisor.runConnectorCompanion(ctx, lifetime, payload, maintenance)
+	return supervisor.runConnectorCompanion(
+		ctx,
+		lifetime,
+		payload,
+		credential.MachineName,
+		maintenance,
+	)
 }
 
 // ReadConnectorRuntimeCredential decodes exactly one bounded credential from

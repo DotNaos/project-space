@@ -188,7 +188,7 @@ describe('connector topology metadata', () => {
     });
     expect(metadata.compute).toMatchObject({
       environmentKind: 'github_codespace',
-      environmentName: 'GitHub Codespace',
+      environmentName: 'example-space',
       hostResolution: 'not_applicable',
       platformKind: 'github_codespaces',
       platformName: 'GitHub Codespaces'
