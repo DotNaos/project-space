@@ -28,7 +28,6 @@ current_node_gyp_version="$(node-gyp --version 2>/dev/null | sed 's/^v//' || tru
 if [[ "${current_node_gyp_version}" != "${node_gyp_version}" ]]; then
   bun add --global "node-gyp@${node_gyp_version}"
 fi
-bun install --frozen-lockfile
 
 current_project_version="$(project --version 2>/dev/null | awk '{print $NF}' || true)"
 current_connector_version="$(project-space-connector --version 2>/dev/null | awk '{print $NF}' || true)"
@@ -44,6 +43,3 @@ if [[ "${current_project_version}" != "${project_version}" ||
   tar --extract --gzip --no-same-owner --file "${archive_path}" --directory "${temporary_root}"
   "${temporary_root}/project-space-machine-tools-linux-x64-v${project_version}/install.sh"
 fi
-
-bash .devcontainer/verify-runner.sh
-bash .devcontainer/start-runner.sh
