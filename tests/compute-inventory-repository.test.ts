@@ -6,7 +6,10 @@ import { ProjectSpaceDatabaseRepository } from '../server/database/repository';
 class InventoryClient implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   currentEnvironmentIdentityKey = 'account:different';
+  currentHostEvidence = 'user';
   currentHostIdentityKey: string | null = null;
+  currentHostResolution = 'manual';
+  hasCurrentAssociation = false;
   rejectAssociationMove = false;
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
@@ -48,11 +51,13 @@ class InventoryClient implements DatabaseQueryClient {
       return { rows: [{ id: 'platform-local' }] as Row[] };
     }
     if (sql.includes('from connector_compute_environments association') && sql.includes('for update')) {
-      return { rows: (this.rejectAssociationMove ? [{
+      return { rows: (this.rejectAssociationMove || this.hasCurrentAssociation ? [{
         association_source: 'connector',
         environment_id: 'environment-existing',
+        host_evidence: this.currentHostEvidence,
         host_id: this.currentHostIdentityKey ? 'host-existing' : null,
         host_identity_key: this.currentHostIdentityKey,
+        host_resolution: this.currentHostResolution,
         identity_key: this.currentEnvironmentIdentityKey,
         platform_id: 'platform-local'
       }] : []) as Row[] };
@@ -157,5 +162,31 @@ describe('compute inventory repository', () => {
       .toBe(false);
     expect(client.calls.some(({ sql }) => sql.includes('insert into compute_hosts')))
       .toBe(false);
+  });
+
+  test('preserves an explicit host binding when a connector cannot report host identity', async () => {
+    const client = new InventoryClient();
+    const repository = new ProjectSpaceDatabaseRepository(client, () => 'new-id');
+    await repository.reconcileConnectorComputeInventory('user-one', [{
+      compute: reported,
+      id: 'connector-one',
+      name: 'connector-one'
+    }]);
+    const initialEnvironment = client.calls.find(({ sql }) => sql.includes('insert into compute_environments'));
+    client.currentEnvironmentIdentityKey = String(initialEnvironment?.values[6]);
+    client.currentHostIdentityKey = 'account:existing-host';
+    client.hasCurrentAssociation = true;
+    client.calls.length = 0;
+
+    await repository.reconcileConnectorComputeInventory('user-one', [{
+      compute: reported,
+      id: 'connector-one',
+      name: 'connector-one'
+    }]);
+
+    const reconciledEnvironment = client.calls.find(({ sql }) => sql.includes('insert into compute_environments'));
+    expect(reconciledEnvironment?.values[3]).toBe('host-existing');
+    expect(reconciledEnvironment?.values[9]).toBe('manual');
+    expect(reconciledEnvironment?.values[10]).toBe('user');
   });
 });
