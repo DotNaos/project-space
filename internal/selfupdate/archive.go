@@ -25,7 +25,7 @@ import (
 const (
 	defaultMaximumArtifactBytes  int64 = 256 * 1024 * 1024
 	defaultMaximumExtractedBytes int64 = 512 * 1024 * 1024
-	maximumArchiveMembers              = 10
+	maximumArchiveMembers              = 16
 	artifactRequestTimeout             = 2 * time.Minute
 )
 
@@ -323,8 +323,12 @@ func (installer *managedArtifactInstaller) extract(
 
 func archiveBundleMembers(target string) (map[string]fs.FileMode, bool) {
 	members := map[string]fs.FileMode{
+		"CODEX-LICENSE": 0o600,
+		"CODEX-NOTICE":  0o600,
+		"CODEX-VERSION": 0o600,
 		"SHA256SUMS.txt": 0o600,
 		"VERSION":        0o600,
+		"codex":          0o700,
 		"connector-command-signing-public-key.pem": 0o600,
 		"install.sh":              0o700,
 		"project":                 0o700,

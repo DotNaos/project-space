@@ -51,6 +51,9 @@ func TestMaterializeCreatesExactManagedBranchPathAndIsIdempotent(t *testing.T) {
 	if result.Path != expected || result.Status != "created" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
+	if configured := runGit(t, filepath.Join(root, "projects", "project-space"), "config", "--get", "extensions.worktreeConfig"); configured != "true" {
+		t.Fatalf("worktree-specific config was not enabled: %q", configured)
+	}
 	ready, err := materialize(ctx, request, runner)
 	if err != nil {
 		t.Fatal(err)

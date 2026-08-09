@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 
-import { createLocalCodexMachineTaskStarter } from '../server/codex-machine-tasks/connector-starter';
+import {
+  codespaceTaskPermissionProfile,
+  createLocalCodexMachineTaskStarter
+} from '../server/codex-machine-tasks/connector-starter';
 import { CodexAppServerRequestError } from '../server/codex-sessions/stdio-transport';
 import { CodexThreadUnmaterializedError } from '../server/codex-sessions/stdio-transport';
 
@@ -57,6 +60,7 @@ describe('Codex machine-task connector starter', () => {
         return { turn: { id: 'turn-one' } };
       }
     } as never, {
+      permissionProfileId: ':danger-full-access',
       readWorktreeOwner: async () => undefined,
       loadWorktrees: async () => [{
         branchName: request.branch,
@@ -116,8 +120,22 @@ describe('Codex machine-task connector starter', () => {
         environment: { CODEX_THREAD_ID: threadId },
         kind: 'claim'
       }),
-      expect.objectContaining({ kind: 'turn' })
+      expect.objectContaining({
+        input: expect.objectContaining({ permissionProfileId: ':danger-full-access' }),
+        kind: 'turn'
+      })
     ]));
+  });
+
+  test('uses unrestricted task turns only inside a real GitHub Codespace', () => {
+    expect(codespaceTaskPermissionProfile({
+      CODESPACES: 'true',
+      CODESPACE_NAME: 'project-space--537-example'
+    })).toBe(':danger-full-access');
+    expect(codespaceTaskPermissionProfile({ CODESPACE_NAME: 'spoofed-local-name' }))
+      .toBeUndefined();
+    expect(codespaceTaskPermissionProfile({ CODESPACES: 'true' }))
+      .toBeUndefined();
   });
 
   test('returns the existing task when the owned worktree already contains its prompt', async () => {
@@ -157,7 +175,7 @@ describe('Codex machine-task connector starter', () => {
   });
 
   test('begins the issue turn on an unmaterialized thread that already owns the worktree', async () => {
-    const calls: string[] = [];
+    const calls: unknown[] = [];
     const starter = createLocalCodexMachineTaskStarter({
       operationSnapshot() { return []; },
       async readThread() {
@@ -165,12 +183,13 @@ describe('Codex machine-task connector starter', () => {
         throw new CodexThreadUnmaterializedError();
       },
       async startThread() { calls.push('start-thread'); },
-      async startTurn() {
-        calls.push('start-turn');
+      async startTurn(input: unknown) {
+        calls.push({ input, kind: 'start-turn' });
         return { turn: { id: 'turn-existing-owner' } };
       }
     } as never, {
       ...verifiedDependencies,
+      permissionProfileId: ':danger-full-access',
       readWorktreeOwner: async () => threadId,
       worktreeAdapter: materializedWorktreeAdapter()
     });
@@ -180,7 +199,14 @@ describe('Codex machine-task connector starter', () => {
       threadId,
       worktreeId: verifiedWorktree.id
     });
-    expect(calls).toEqual(['read', 'read', 'start-turn']);
+    expect(calls).toEqual([
+      'read',
+      'read',
+      {
+        input: expect.objectContaining({ permissionProfileId: ':danger-full-access' }),
+        kind: 'start-turn'
+      }
+    ]);
   });
 
   test('safely replaces an orphaned owner before beginning the issue turn', async () => {
@@ -202,6 +228,7 @@ describe('Codex machine-task connector starter', () => {
       }
     } as never, {
       ...verifiedDependencies,
+      permissionProfileId: ':danger-full-access',
       readWorktreeOwner: async () => threadId,
       runProject: async (args, cwd, options) => {
         calls.push({ args, cwd, environment: options.environment, kind: 'recover' });
@@ -240,7 +267,10 @@ describe('Codex machine-task connector starter', () => {
         environment: { CODEX_THREAD_ID: replacementThreadId },
         kind: 'recover'
       }),
-      expect.objectContaining({ kind: 'start-turn' })
+      expect.objectContaining({
+        input: expect.objectContaining({ permissionProfileId: ':danger-full-access' }),
+        kind: 'start-turn'
+      })
     ]));
   });
 

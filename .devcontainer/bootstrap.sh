@@ -5,9 +5,9 @@ repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly repository_root
 readonly bun_version="1.3.14"
 readonly node_gyp_version="13.0.1"
-readonly project_version="0.10.6"
+readonly project_version="0.10.16"
 readonly archive="project-space-machine-tools-linux-x64-v${project_version}.tar.gz"
-readonly archive_sha256="ecc6f972a65dad1cfdae48ee4be84263d5a7239b76a0b6519fe02767c200ad64"
+readonly archive_sha256="e3a0c85f96424565cb32b489e75c8978f9cf9772f0d2ba132ba1b26b5be507b6"
 
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 cd -- "${repository_root}"
@@ -44,8 +44,13 @@ fi
 
 current_project_version="$(project --version 2>/dev/null | awk '{print $NF}' || true)"
 current_connector_version="$(project-space-connector --version 2>/dev/null | awk '{print $NF}' || true)"
-if [[ "${current_project_version}" != "${project_version}" ||
-  "${current_connector_version}" != "${project_version}" ]]; then
+anchor_required=1
+if [[ "${current_project_version}" == "${current_connector_version}" &&
+  "${current_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ &&
+  "$(printf '%s\n%s\n' "${project_version}" "${current_project_version}" | sort -V | head -n 1)" == "${project_version}" ]]; then
+  anchor_required=0
+fi
+if [[ ${anchor_required} -eq 1 ]]; then
   temporary_root="$(mktemp -d)"
   archive_path="${temporary_root}/${archive}"
   curl --fail --location --proto '=https' --tlsv1.2 \
@@ -54,5 +59,8 @@ if [[ "${current_project_version}" != "${project_version}" ||
   printf '%s  %s\n' "${archive_sha256}" "${archive_path}" |
     sha256sum --check --strict
   tar --extract --gzip --no-same-owner --file "${archive_path}" --directory "${temporary_root}"
-  "${temporary_root}/project-space-machine-tools-linux-x64-v${project_version}/install.sh"
+  bundle_root="${temporary_root}/project-space-machine-tools-linux-x64-v${project_version}"
+  install -m 0700 -- "${repository_root}/packaging/linux/install-machine-tools.sh" \
+    "${bundle_root}/install-codespace.sh"
+  "${bundle_root}/install-codespace.sh" --external-connector-supervisor
 fi
