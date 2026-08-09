@@ -3,7 +3,7 @@ set -euo pipefail
 
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 
-for command_name in bun docker gh git go node project project-space-connector sshd; do
+for command_name in bun docker gh git go node node-gyp project project-space-connector sshd; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "Required Codespace runner tool is missing: ${command_name}." >&2
     exit 1
