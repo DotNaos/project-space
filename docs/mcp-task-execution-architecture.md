@@ -1020,6 +1020,26 @@ Sensitive provider or agent credentials stay in their existing protected stores
 or on the target Environment. These tables store opaque references and
 sanitized evidence only.
 
+### Task execution retention and archive policy
+
+- Handoff revisions and artifact metadata are append-only. Archiving a Handoff
+  removes it from normal selection but never changes a revision already used by
+  an execution.
+- A Task Execution may be archived only after it reaches `completed`, `failed`,
+  or `cancelled`. Its events, exact handoff revision, executor binding, workspace
+  metadata, and source relationships remain available as audit history.
+- Completed or blocked operation-ledger results are retained for 30 days after
+  their last transition and may then be pruned in bounded batches. Reserved,
+  dispatched, confirmed-in-progress, and uncertain operations are never removed
+  by age alone; they must reconcile first so expiry cannot permit duplicate work.
+- Capacity leases expire automatically after at most 24 hours unless renewed.
+  Released and expired lease records remain audit evidence; only one active
+  lease may exist for an owner and Environment.
+- These storage tables contain opaque artifact references and sanitized results,
+  not credentials, device codes, transcripts, raw workspace paths, or
+  unrestricted URLs. Rows use restrictive foreign keys rather than cascading
+  deletion.
+
 ## Provider and executor extension boundaries
 
 ### Environment provider adapter
@@ -1116,13 +1136,13 @@ is approved, merged, deployed, and verified.
 
 ### WP4 — introduce Handoff and Task Execution storage
 
-- [ ] Add immutable Handoff revisions and artifact references.
-- [ ] Add neutral Task Execution identity and event cursor.
-- [ ] Move Codex thread identity under executor binding.
-- [ ] Store exact Environment, connector generation, workspace, handoff revision,
+- [x] Add immutable Handoff revisions and artifact references.
+- [x] Add neutral Task Execution identity and event cursor.
+- [x] Move Codex thread identity under executor binding.
+- [x] Store exact Environment, connector generation, workspace, handoff revision,
       task, repository, branch, and commit relationships.
-- [ ] Add a durable operation ledger and capacity lease.
-- [ ] Define retention and archive policy.
+- [x] Add a durable operation ledger and capacity lease.
+- [x] Define retention and archive policy.
 
 ### WP5 — implement generic execution MCP tools
 
