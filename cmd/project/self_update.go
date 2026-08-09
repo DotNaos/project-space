@@ -15,7 +15,7 @@ import (
 )
 
 type selfUpdateService interface {
-	Plan(context.Context) (selfupdate.Plan, error)
+	Plan(context.Context, selfupdate.PlanOptions) (selfupdate.Plan, error)
 	Apply(
 		context.Context,
 		selfupdate.Plan,
@@ -25,9 +25,10 @@ type selfUpdateService interface {
 }
 
 type selfUpdateOptions struct {
-	Check  bool
-	Format string
-	Yes    bool
+	Check          bool
+	Format         string
+	MigrateManaged bool
+	Yes            bool
 }
 
 func newSelfUpdateCommand() *cobra.Command {
@@ -57,7 +58,7 @@ func newSelfUpdateCommandWithServiceFactory(
 	options := selfUpdateOptions{Format: "pretty"}
 	command := &cobra.Command{
 		Use:   "self-update",
-		Short: "Check for and install a signed Project CLI release",
+		Short: "Check for and install a signed Project CLI and connector release",
 		Args:  cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
 			if options.Check && options.Yes {
@@ -73,7 +74,9 @@ func newSelfUpdateCommandWithServiceFactory(
 			if err != nil {
 				return err
 			}
-			plan, planErr := service.Plan(command.Context())
+			plan, planErr := service.Plan(command.Context(), selfupdate.PlanOptions{
+				MigrateManaged: options.MigrateManaged,
+			})
 			if planErr != nil {
 				if err := writeSelfUpdateResult(command.OutOrStdout(), options.Format, plan.Result); err != nil {
 					return errors.Join(planErr, err)
@@ -98,12 +101,20 @@ func newSelfUpdateCommandWithServiceFactory(
 				if err := writeSelfUpdateResult(command.OutOrStdout(), options.Format, plan.Result); err != nil {
 					return err
 				}
-				confirmed, err := confirmSelfUpdate(command.InOrStdin(), command.OutOrStdout())
+				confirmed, err := confirmSelfUpdate(
+					command.InOrStdin(),
+					command.OutOrStdout(),
+					plan.Result.MigrateManaged,
+				)
 				if err != nil {
 					return err
 				}
 				if !confirmed {
-					fmt.Fprintln(command.OutOrStdout(), "Update cancelled; no files were changed.")
+					action := "Update"
+					if plan.Result.MigrateManaged {
+						action = "Migration"
+					}
+					fmt.Fprintf(command.OutOrStdout(), "%s cancelled; no files were changed.\n", action)
 					return nil
 				}
 			}
@@ -128,6 +139,7 @@ func newSelfUpdateCommandWithServiceFactory(
 	}
 	command.Flags().BoolVar(&options.Check, "check", false, "check the signed approved release without changing files")
 	command.Flags().StringVar(&options.Format, "format", options.Format, "output format: pretty or json")
+	command.Flags().BoolVar(&options.MigrateManaged, "migrate-managed", false, "migrate a verified Homebrew-owned CLI to signed managed delivery")
 	command.Flags().BoolVarP(&options.Yes, "yes", "y", false, "install the verified update without prompting")
 	return command
 }
@@ -142,9 +154,18 @@ func writeSelfUpdateResult(output io.Writer, format string, result selfupdate.Re
 	fmt.Fprintf(&buffer, "Install source: %s\n", result.InstallSource)
 	fmt.Fprintf(&buffer, "Current version: %s\n", displaySelfUpdateValue(result.CurrentVersion))
 	fmt.Fprintf(&buffer, "Approved target: %s\n", displaySelfUpdateValue(result.TargetVersion))
+	if result.MigrateManaged {
+		fmt.Fprintf(&buffer, "Managed location: %s\n", displaySelfUpdateValue(result.ManagedInstallDir))
+		fmt.Fprintf(&buffer, "Service transition: %s\n", result.ServiceTransition)
+		fmt.Fprintf(&buffer, "Preserved state: %s\n", result.PreservedState)
+		fmt.Fprintf(&buffer, "Rollback: %s\n", result.RollbackBehavior)
+	}
 	fmt.Fprintf(&buffer, "State: %s\n", result.State)
 	if result.ActionableBlocker != "" {
 		fmt.Fprintf(&buffer, "Action: %s\n", result.ActionableBlocker)
+	}
+	if result.RecoveryCommand != "" {
+		fmt.Fprintf(&buffer, "Recovery command: %s\n", result.RecoveryCommand)
 	}
 	_, err := io.Copy(output, &buffer)
 	return err
@@ -157,8 +178,12 @@ func displaySelfUpdateValue(value string) string {
 	return value
 }
 
-func confirmSelfUpdate(input io.Reader, output io.Writer) (bool, error) {
-	if _, err := fmt.Fprint(output, "Install this verified CLI and connector release now? y/N: "); err != nil {
+func confirmSelfUpdate(input io.Reader, output io.Writer, migrateManaged bool) (bool, error) {
+	prompt := "Install this verified CLI and connector release now? y/N: "
+	if migrateManaged {
+		prompt = "Migrate from Homebrew to this verified managed CLI and connector release now? y/N: "
+	}
+	if _, err := fmt.Fprint(output, prompt); err != nil {
 		return false, err
 	}
 	scanner := bufio.NewScanner(input)

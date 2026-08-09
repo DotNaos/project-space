@@ -265,6 +265,27 @@ second_current=$(readlink "$install_root/.project-space-machine-tools/current")
 grep -Fx 'project fixture v2:connector service stop' "$service_log"
 grep -Fx 'project fixture v2:connector service start-if-connected' "$service_log"
 
+# A same-version Homebrew migration leaves the package-manager binary untouched,
+# replaces the one known per-user service, and starts the signed managed pair.
+migration_home="$temporary_root/migration-home"
+migration_install_root="$migration_home/.local/bin"
+migration_service_log="$temporary_root/migration-service.log"
+migration_homebrew_project="$temporary_root/linuxbrew/Cellar/project/$version/bin/project"
+mkdir -p -- "$migration_home" "$(dirname -- "$migration_homebrew_project")"
+write_project_fixture "$migration_homebrew_project" 'homebrew fixture'
+cp -- "$temporary_root/source/project-space-connector" \
+  "$(dirname -- "$migration_homebrew_project")/project-space-connector"
+HOME="$migration_home" \
+PROJECT_FIXTURE_SERVICE_LOG="$migration_service_log" \
+  "$upgrade_bundle/install.sh" \
+    --install-dir "$migration_install_root" \
+    --migrate-from-homebrew "$migration_homebrew_project" \
+    >/dev/null
+[[ $($migration_install_root/project) == 'project fixture v2' ]]
+[[ $($migration_homebrew_project) == 'homebrew fixture' ]]
+grep -Fx 'project fixture v2:connector service stop' "$migration_service_log"
+grep -Fx 'project fixture v2:connector service start-if-connected' "$migration_service_log"
+
 # A pair that does not report one matching version fails before commit and
 # restores the previous current pointer and service.
 version_failure_starts_before=$(grep -Fxc 'project fixture v2:connector service start-if-connected' "$service_log")

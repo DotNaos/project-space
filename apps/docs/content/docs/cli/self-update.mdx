@@ -35,6 +35,27 @@ project self-update --yes
 
 `--check` and `--yes` cannot be combined.
 
+## Optionally Migrate A Homebrew Installation
+
+Homebrew remains a supported way to install and update both tools. Use the
+explicit migration flag only when you want to move a supported Homebrew-owned
+CLI and connector to the verified managed pair under `~/.local/bin`, without
+modifying or removing Homebrew-owned files:
+
+```sh
+project self-update --migrate-managed --check
+project self-update --migrate-managed
+project self-update --migrate-managed --yes
+project self-update --migrate-managed --format json
+```
+
+Same-version migration remains available because the ownership and service
+transition is the requested change. The plan reports the Homebrew source, exact
+signed target, managed location, known Homebrew or Project per-user service
+transition, preserved machine identity and pairing state, and rollback
+behavior. Without `--migrate-managed`, continue using Homebrew for updates;
+Project never migrates automatically.
+
 ## JSON Automation
 
 ```sh
@@ -50,6 +71,12 @@ JSON output never prompts. Without `--yes` it is read-only, even when an update 
 | `installSource` | Detected owner of the installed CLI |
 | `currentVersion` | Installed Project CLI version, when available |
 | `targetVersion` | Version from the verified approved manifest, when available |
+| `migrateManaged` | Whether this is an explicit Homebrew-to-managed migration |
+| `managedInstallDir` | Stable per-user destination for the managed pair |
+| `serviceTransition` | Known connector service stop, replacement, and readiness proof |
+| `preservedState` | Machine identity, protected credential, and pairing state kept outside the release |
+| `rollbackBehavior` | Previous service and connector restoration boundary |
+| `recoveryCommand` | Exact local recovery command when automatic restoration is incomplete |
 | `actionableBlocker` | Safe next step when Project cannot update in place |
 
 Possible states are `current`, `update-available`, `unsupported-source`, `verification-failed`, `update-failed`, `rolled-back`, and `updated`. Unsupported sources and failed verification or installation return a non-zero exit status. A successful check, a current release, or an updated release returns zero.
@@ -60,7 +87,8 @@ Possible states are `current`, `update-available`, `unsupported-source`, `verifi
 | --- | --- |
 | Managed macOS arm64 | Updates the matching CLI and connector pair in place |
 | Managed Linux x64 or WSL | Updates the matching CLI and connector pair in place |
-| Homebrew | Reports the Homebrew command; never overwrites Homebrew files |
+| Homebrew without `--migrate-managed` | Remains Homebrew-managed and reports both the normal Homebrew update path and optional migration; never overwrites Homebrew files |
+| Homebrew with `--migrate-managed` | Installs the exact signed managed pair under `~/.local/bin`, quiesces the known Homebrew or Project per-user service, prevents it from competing with the managed service, and keeps Homebrew files untouched |
 | Native Windows installer | Verifies the release and reports the exact installer URL; never replaces the running executable |
 | Source checkout | Reports pull-and-rebuild guidance; never overwrites a development binary |
 | Unknown | Refuses to overwrite files and reports reinstall guidance |
@@ -69,7 +97,13 @@ Possible states are `current`, `update-available`, `unsupported-source`, `verifi
 
 The updater downloads the exact archive named by the signed approved manifest. It verifies the pinned size and SHA-256 checksum before delegating to the existing paired installer. It never trusts a mutable `latest` download URL.
 
-The installer stops the connector, atomically switches both tools, and starts the connector again when this machine was already connected. If the new connector cannot start, it restores the previous matching pair and reports `rolled-back`. Machine identity and credentials live outside the release directory and are preserved throughout the update.
+The installer stops the connector, atomically switches both tools, and starts
+the connector again when this machine was already connected. Success waits for
+nonce-bound authenticated readiness from the exact target build. If startup or
+reconnect fails, it restores the previous matching pair and service and reports
+`rolled-back`; incomplete service restoration reports `update-failed` with a
+local recovery command. Machine identity and credentials live outside the
+release directory and are preserved throughout the update or migration.
 
 After an update, verify the local machine normally:
 

@@ -89,17 +89,40 @@ func TestInstallDetectorClassifiesSourceBeforeHomebrew(t *testing.T) {
 }
 
 func TestInstallDetectorRecognizesHomebrewAndWindowsBoundaries(t *testing.T) {
-	brew := filepath.Join(t.TempDir(), "homebrew", "Cellar", "project", "0.4.8", "bin", "project")
+	home := t.TempDir()
+	brew := filepath.Join(home, "homebrew", "Cellar", "project", "0.4.8", "bin", "project")
 	mustMkdirAll(t, filepath.Dir(brew))
 	mustWriteDetectorFile(t, brew, "project", 0o700)
+	brewConnector := filepath.Join(filepath.Dir(brew), "project-space-connector")
+	mustWriteDetectorFile(t, brewConnector, "connector", 0o700)
 	installation, err := NewInstallDetector(InstallDetectorOptions{
 		CurrentVersion: "0.4.8",
 		ExecutablePath: brew,
 		GOARCH:         "arm64",
 		GOOS:           "darwin",
+		HomeDirectory:  home,
+		ReadVersion: func(string) (string, error) {
+			return "project-space-connector 0.4.8\n", nil
+		},
 	}).Detect()
 	if err != nil || installation.Source != InstallSourceHomebrew {
 		t.Fatalf("Homebrew installation = %#v, %v", installation, err)
+	}
+	if installation.InstallDir != filepath.Join(home, ".local", "bin") {
+		t.Fatalf("managed migration destination = %q", installation.InstallDir)
+	}
+	if err := os.Remove(brewConnector); err != nil {
+		t.Fatal(err)
+	}
+	installation, err = NewInstallDetector(InstallDetectorOptions{
+		CurrentVersion: "0.4.8",
+		ExecutablePath: brew,
+		GOARCH:         "arm64",
+		GOOS:           "darwin",
+		HomeDirectory:  home,
+	}).Detect()
+	if err != nil || installation.Source != InstallSourceUnknown {
+		t.Fatalf("Homebrew installation without connector = %#v, %v", installation, err)
 	}
 
 	localAppData := t.TempDir()

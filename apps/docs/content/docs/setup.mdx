@@ -9,11 +9,13 @@ description: Install Project and get a local project ready.
 | --- | --- |
 | Managed macOS arm64 | Use the pinned installer generated from Project Space Machines; later run `project self-update` |
 | Managed Linux x64 or WSL | Install the signed machine-tools bundle from the approved GitHub release; later run `project self-update` |
-| Homebrew | Use Homebrew for both installation and updates |
+| Homebrew | Installs and updates the CLI and connector; optionally migrate to signed managed delivery |
 | Native Windows | Run the approved per-user installer; `self-update` verifies and points to the next installer |
 | Source checkout | Pull and rebuild from source; the updater never overwrites development binaries |
 
-Managed releases install the Project CLI and connector as one matching pair. They preserve machine identity and credentials when upgraded.
+Managed releases install the Project CLI and connector as one matching pair.
+They preserve machine identity and credentials when upgraded or migrated from
+a supported Homebrew installation.
 
 ## Homebrew
 
@@ -22,14 +24,39 @@ brew tap DotNaos/project-space https://github.com/DotNaos/project-space
 brew install --HEAD DotNaos/project-space/project
 ```
 
-Update to the newest version:
+The Project formula installs and updates both the Project CLI and connector.
+The standalone connector formula remains supported for connector-only Homebrew
+service delivery:
+
+```sh
+brew install DotNaos/project-space/project-space-connector
+brew services start DotNaos/project-space/project-space-connector
+```
+
+Update Homebrew-owned tools normally:
 
 ```sh
 brew update
 brew reinstall --HEAD DotNaos/project-space/project
 ```
 
-`project self-update` detects Homebrew and leaves its files untouched.
+To install the signed managed CLI and connector pair without changing or
+removing the Homebrew files:
+
+```sh
+project self-update --migrate-managed --check
+project self-update --migrate-managed
+```
+
+Migration is optional and never happens during a normal Homebrew update or
+plain `project self-update`. It shows the exact signed target, managed location,
+Homebrew or Project service transition, preserved machine identity and
+credential state, and rollback behavior before asking for confirmation. A
+successful migration starts the managed connector and returns only after the
+exact build has authenticated and reconnected. Homebrew-owned files remain in
+place, while a known Homebrew connector service is quiesced so it cannot compete
+with the managed service. Use `--yes` for explicit non-interactive confirmation;
+JSON remains read-only unless `--yes` is also present.
 
 ## Managed Linux And WSL
 

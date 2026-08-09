@@ -35,8 +35,9 @@ The installer downloads one pinned, checksum-verified macOS arm64 bundle. It
 installs both `project-space-connector` and the `project` CLI under
 `~/.local/bin`, then starts the existing protected per-user supervisor after
 approval. It never downloads a mutable `latest` asset. Reinstalling an existing
-managed connector preserves its identity and settings. A legacy-only connector
-is refused because silently replacing it cannot preserve the old trust identity.
+managed connector preserves its identity and settings. A verified Homebrew
+connector is migrated only through the explicit `self-update --migrate-managed`
+flow; the normal installer never silently changes package ownership.
 
 Before enabling account installers for a deployment, publish the bundle and its
 signed `project-space-release-manifest.json`. The server accepts only one exact
@@ -59,11 +60,24 @@ bun run build:machine-tools:macos-arm64
 shasum -a 256 dist/macos-release/project-space-machine-tools-darwin-arm64-v0.x.y.tar.gz
 ```
 
-The `project` Homebrew formula builds and installs both `project` and the
-`project-space-connector` companion for the current macOS or Linux host. Keeping
-the executables beside each other lets `project connect` start the companion
-without an extra path setting. Native Windows packaging remains separate; use
-the Linux formula inside WSL for the current Windows workflow.
+The `project` Homebrew formula remains a supported way to build, install, and
+update both the Project CLI and connector. The standalone
+`project-space-connector` formula and its Homebrew service also remain supported
+for connector-only delivery.
+
+An existing Homebrew CLI can explicitly migrate to the signed managed pair:
+
+```sh
+project self-update --migrate-managed --check
+project self-update --migrate-managed
+```
+
+The migration is opt-in and never runs during a normal Homebrew update or plain
+`project self-update`. It leaves Homebrew files untouched, installs the exact
+verified machine-tools release under `~/.local/bin`, preserves compatible
+machine identity and credential state, quiesces the known Homebrew or Project
+per-user connector service so it cannot compete with the managed service, and
+succeeds only after the exact managed build authenticates and reconnects.
 
 Managed macOS arm64 and Linux x64/WSL installations can later update the same
 pair with `project self-update`. The command verifies an exact signed stable
@@ -73,8 +87,10 @@ startup fails. It preserves machine identity and credentials and never runs in
 the background.
 
 `project self-update --check` is read-only. JSON output never prompts and only
-installs when it is explicitly combined with `--yes`. Homebrew and source-built
-copies are reported without being overwritten. Native Windows reports the
+installs when it is explicitly combined with `--yes`. Homebrew copies continue
+to update through Homebrew unless `--migrate-managed` is explicitly supplied
+and are never overwritten; source-built copies remain unsupported. Native
+Windows reports the
 verified installer URL because a running `project.exe` cannot safely replace
 itself and synchronously prove the final paired state.
 
@@ -87,10 +103,10 @@ requires signed-in approval, stores the resulting credential outside the
 repository, and starts the per-user supervisor. The browser never receives the
 machine private key or an unrestricted command channel.
 
-Do not silently convert a legacy connector. Revoke or remove it explicitly,
-then enroll the replacement with `project connect`. This may create a new
-machine identity; preserving a legacy identity requires a separate proof-based
-migration rather than a file-copy workaround.
+Do not copy arbitrary legacy connector state. The supported Homebrew migration
+preserves the existing protected credential and pairing configuration only
+across the verified known per-user service transition. Other legacy connectors
+must be revoked or removed explicitly and enrolled again with `project connect`.
 
 The connector reads these environment variables:
 

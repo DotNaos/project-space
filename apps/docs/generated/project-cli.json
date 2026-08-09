@@ -2548,7 +2548,7 @@
         "path": "project self-update",
         "name": "self-update",
         "usage": "self-update",
-        "short": "Check for and install a signed Project CLI release",
+        "short": "Check for and install a signed Project CLI and connector release",
         "aliases": [],
         "runnable": true,
         "flags": [
@@ -2569,6 +2569,12 @@
             "shorthand": "h",
             "type": "bool",
             "description": "help for self-update",
+            "inherited": false
+          },
+          {
+            "name": "migrate-managed",
+            "type": "bool",
+            "description": "migrate a verified Homebrew-owned CLI to signed managed delivery",
             "inherited": false
           },
           {

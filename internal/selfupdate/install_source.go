@@ -115,8 +115,20 @@ func (detector *installDetector) Detect() (Installation, error) {
 		return unknown, nil
 	}
 	if isHomebrewExecutable(resolved) {
+		connector := filepath.Join(filepath.Dir(resolved), "project-space-connector")
+		if !regularFile(connector, options.Lstat) {
+			return unknown, nil
+		}
+		connectorVersion, versionErr := options.ReadVersion(connector)
+		if versionErr != nil ||
+			!versionOutputMatches(connectorVersion, options.CurrentVersion) {
+			return unknown, fmt.Errorf(
+				"verify Homebrew connector version: %w",
+				errOrMismatch(versionErr),
+			)
+		}
 		unknown.ExecutablePath = resolved
-		unknown.InstallDir = filepath.Dir(options.ExecutablePath)
+		unknown.InstallDir = managedUnixInstallDirectory(options.HomeDirectory)
 		unknown.Source = InstallSourceHomebrew
 		return unknown, nil
 	}
@@ -212,6 +224,15 @@ func isHomebrewExecutable(resolved string) bool {
 	path := filepath.ToSlash(filepath.Clean(resolved))
 	return filepath.Base(resolved) == "project" &&
 		(strings.Contains(path, "/Cellar/project/") || strings.Contains(path, "/Homebrew/Cellar/project/"))
+}
+
+func managedUnixInstallDirectory(homeDirectory string) string {
+	if !filepath.IsAbs(homeDirectory) ||
+		filepath.Clean(homeDirectory) != homeDirectory ||
+		strings.ContainsAny(homeDirectory, "\x00\r\n") {
+		return ""
+	}
+	return filepath.Join(homeDirectory, ".local", "bin")
 }
 
 func (detector *installDetector) detectWindows(unknown Installation, resolved string) Installation {

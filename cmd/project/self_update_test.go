@@ -13,14 +13,19 @@ import (
 )
 
 type fakeSelfUpdateService struct {
-	applyCalls int
-	applyErr   error
-	apply      selfupdate.Result
-	planErr    error
-	plan       selfupdate.Plan
+	applyCalls  int
+	applyErr    error
+	apply       selfupdate.Result
+	planOptions selfupdate.PlanOptions
+	planErr     error
+	plan        selfupdate.Plan
 }
 
-func (service *fakeSelfUpdateService) Plan(context.Context) (selfupdate.Plan, error) {
+func (service *fakeSelfUpdateService) Plan(
+	_ context.Context,
+	options selfupdate.PlanOptions,
+) (selfupdate.Plan, error) {
+	service.planOptions = options
 	return service.plan, service.planErr
 }
 
@@ -32,6 +37,23 @@ func (service *fakeSelfUpdateService) Apply(
 ) (selfupdate.Result, error) {
 	service.applyCalls++
 	return service.apply, service.applyErr
+}
+
+func availableManagedMigrationPlan() selfupdate.Plan {
+	return selfupdate.Plan{
+		MigrateManaged: true,
+		Result: selfupdate.Result{
+			CurrentVersion:    "0.4.8",
+			InstallSource:     selfupdate.InstallSourceHomebrew,
+			ManagedInstallDir: "/Users/test/.local/bin",
+			MigrateManaged:    true,
+			PreservedState:    "machine identity and credential",
+			RollbackBehavior:  "restore the previous service",
+			ServiceTransition: "replace the service and prove authenticated readiness",
+			State:             selfupdate.StateUpdateAvailable,
+			TargetVersion:     "0.4.8",
+		},
+	}
 }
 
 func availableSelfUpdatePlan() selfupdate.Plan {
@@ -135,6 +157,58 @@ func TestSelfUpdateYesJSONAppliesWithoutPrompt(t *testing.T) {
 	var result selfupdate.Result
 	if err := json.Unmarshal([]byte(output), &result); err != nil || result.State != selfupdate.StateUpdated || service.applyCalls != 1 {
 		t.Fatalf("output = %q, result = %#v, error = %v, calls = %d", output, result, err, service.applyCalls)
+	}
+}
+
+func TestSelfUpdateManagedMigrationCheckAndJSONAreReadOnly(t *testing.T) {
+	for _, args := range [][]string{
+		{"--migrate-managed", "--check"},
+		{"--migrate-managed", "--format", "json"},
+	} {
+		service := &fakeSelfUpdateService{plan: availableManagedMigrationPlan()}
+		output, err := executeSelfUpdateCommand(
+			t,
+			service,
+			failingSelfUpdateReader{},
+			args...,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !service.planOptions.MigrateManaged || service.applyCalls != 0 ||
+			!strings.Contains(output, "/Users/test/.local/bin") {
+			t.Fatalf("args = %#v, output = %q, service = %#v", args, output, service)
+		}
+	}
+}
+
+func TestSelfUpdateManagedMigrationConfirmsAndAppliesSameVersion(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input io.Reader
+		args  []string
+	}{
+		{name: "interactive", input: strings.NewReader("yes\n"), args: []string{"--migrate-managed"}},
+		{name: "yes json", input: failingSelfUpdateReader{}, args: []string{"--migrate-managed", "--yes", "--format", "json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeSelfUpdateService{
+				plan: availableManagedMigrationPlan(),
+				apply: selfupdate.Result{
+					CurrentVersion: "0.4.8",
+					InstallSource:  selfupdate.InstallSourceHomebrew,
+					MigrateManaged: true,
+					State:          selfupdate.StateUpdated,
+					TargetVersion:  "0.4.8",
+				},
+			}
+			output, err := executeSelfUpdateCommand(t, service, test.input, test.args...)
+			if err != nil || service.applyCalls != 1 ||
+				!service.planOptions.MigrateManaged ||
+				!strings.Contains(output, string(selfupdate.StateUpdated)) {
+				t.Fatalf("output = %q, error = %v, service = %#v", output, err, service)
+			}
+		})
 	}
 }
 

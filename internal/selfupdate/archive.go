@@ -105,12 +105,18 @@ func (installer *managedArtifactInstaller) Apply(
 		release.Manifest.Version,
 		expectedAsset,
 	)
-	if installation.Source != InstallSourceManaged ||
-		(release.Artifact.Target != "darwin-arm64" && release.Artifact.Target != "linux-x64") ||
+	if (release.Artifact.Target != "darwin-arm64" && release.Artifact.Target != "linux-x64") ||
 		installation.Target != release.Artifact.Target || !filepath.IsAbs(installation.InstallDir) ||
 		release.Artifact.AssetName != expectedAsset || release.Manifest.ReleaseID != "v"+release.Manifest.Version ||
 		release.Artifact.DownloadURL != expectedURL || !filepath.IsAbs(installer.homeDirectory) {
 		return "", errors.New("managed artifact installer does not support this installation")
+	}
+	installerArguments, err := managedInstallerArguments(
+		installation,
+		installer.homeDirectory,
+	)
+	if err != nil {
+		return "", err
 	}
 	transactionRoot, err := os.MkdirTemp(installer.temporaryDirectory, "project-self-update-")
 	if err != nil {
@@ -138,7 +144,7 @@ func (installer *managedArtifactInstaller) Apply(
 	err = installer.commandRunner(
 		ctx,
 		filepath.Join(bundleRoot, "install.sh"),
-		[]string{"--install-dir", installation.InstallDir},
+		installerArguments,
 		bundleRoot,
 		environment,
 		stdout,
