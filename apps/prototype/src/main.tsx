@@ -9,6 +9,8 @@ import {
 import { createRoot } from 'react-dom/client';
 
 import '@/app/index.css';
+import { PreviewSurfaceSwitcher } from '@/features/pr-preview-navigation/preview-surface-switcher';
+import { previewPullRequestNumberFromHostname } from '@/shared/preview-host';
 import { PrototypeApp } from './prototype-app';
 
 const PrototypeAnnotationBridge = lazy(async () => {
@@ -37,6 +39,8 @@ class OptionalPrototypeFeatureBoundary extends Component<
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Prototype root container not found.');
+const embedded = new URLSearchParams(window.location.search).get('embedded') === '1';
+const previewPullRequestNumber = previewPullRequestNumberFromHostname(window.location.hostname);
 
 document.documentElement.classList.add('dark');
 document.documentElement.dataset.theme = 'dark';
@@ -44,6 +48,13 @@ document.documentElement.dataset.theme = 'dark';
 createRoot(root).render(
   <StrictMode>
     <PrototypeApp />
+    {!embedded && previewPullRequestNumber ? (
+      <PreviewSurfaceSwitcher
+        className="fixed left-1/2 top-3 z-[80] -translate-x-1/2"
+        current="prototype"
+        pullRequestNumber={previewPullRequestNumber}
+      />
+    ) : null}
     <OptionalPrototypeFeatureBoundary>
       <Suspense fallback={null}>
         <PrototypeAnnotationBridge />

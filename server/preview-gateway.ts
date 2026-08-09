@@ -2,6 +2,7 @@ import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Serv
 
 import { readAuthTokenFromRequest, readProjectSpaceAuthSession } from './local-auth-store';
 import {
+  clearPreviewAccessCookie,
   createPrototypeAccessCookie,
   createPreviewAccessCookie,
   createPreviewIdentityHeaders,
@@ -14,6 +15,7 @@ import {
   previewIdentityHeader,
   previewSignatureHeader
 } from './preview-gateway-policy';
+import { previewAccessGateUrl } from '../src/shared/preview-access-gate';
 import { observeHttpRequest } from './http-observability';
 import {
   currentRequestId,
@@ -176,6 +178,27 @@ function setPrototypeAccessCors(response: ServerResponse, brokerOrigin: string) 
   response.setHeader('Vary', 'Origin');
 }
 
+function setPreviewAccessCors(response: ServerResponse, brokerOrigin: string) {
+  response.setHeader('Access-Control-Allow-Credentials', 'true');
+  response.setHeader('Access-Control-Allow-Headers', 'authorization');
+  response.setHeader('Access-Control-Allow-Methods', 'POST');
+  response.setHeader('Access-Control-Allow-Origin', brokerOrigin);
+  response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('Vary', 'Origin');
+}
+
+function accessGateRedirect(
+  binding: ReturnType<typeof parsePreviewGatewayBinding>,
+  brokerOrigin: string,
+  requestUrl: URL
+) {
+  return previewAccessGateUrl(
+    brokerOrigin,
+    binding.pullRequestNumber,
+    `${requestUrl.pathname || '/'}${requestUrl.search}`
+  ) ?? offlineHubRedirect(binding, brokerOrigin, requestUrl);
+}
+
 function setExactChangelogCors(response: ServerResponse, brokerOrigin: string) {
   response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   response.setHeader('Access-Control-Allow-Origin', brokerOrigin);
@@ -334,12 +357,15 @@ export function createPreviewGatewayRequestHandler(
           response.writeHead(401).end('Login required.');
           return;
         }
-        response.setHeader('Set-Cookie', createPrototypeAccessCookie({
-          ...accessScope,
-          binding,
-          secret: prototypeAccessSecret,
-          session
-        }));
+        response.setHeader('Set-Cookie', [
+          createPrototypeAccessCookie({
+            ...accessScope,
+            binding,
+            secret: prototypeAccessSecret,
+            session
+          }),
+          clearPreviewAccessCookie()
+        ]);
         response.writeHead(204).end();
         return;
       }
@@ -348,12 +374,17 @@ export function createPreviewGatewayRequestHandler(
           response.writeHead(403).end('Trusted Project Space origin required.');
           return;
         }
+        setPreviewAccessCors(response, brokerOrigin);
+        if (request.method === 'OPTIONS') {
+          response.writeHead(204).end();
+          return;
+        }
         if (environment.PROJECT_SPACE_PREVIEW_VERIFIED !== '1') {
           response.writeHead(503).end('Preview is not positively verified yet.');
           return;
         }
         if (request.method !== 'POST') {
-          response.writeHead(405, { Allow: 'POST' }).end();
+          response.writeHead(405, { Allow: 'OPTIONS, POST' }).end();
           return;
         }
         const session = await authenticate(readAuthTokenFromRequest(request), {
@@ -465,7 +496,7 @@ export function createPreviewGatewayRequestHandler(
           if (request.method === 'GET' || request.method === 'HEAD') {
             response.writeHead(302, {
               'Cache-Control': 'no-store',
-              Location: prototypeReviewUrl(binding, brokerOrigin, requestUrl)
+              Location: accessGateRedirect(binding, brokerOrigin, requestUrl)
             }).end();
             return;
           }
@@ -506,7 +537,7 @@ export function createPreviewGatewayRequestHandler(
         if ((request.method === 'GET' || request.method === 'HEAD') && !requestUrl.pathname.startsWith('/api/')) {
           response.writeHead(302, {
             'Cache-Control': 'no-store',
-            Location: offlineHubRedirect(binding, brokerOrigin, requestUrl)
+            Location: accessGateRedirect(binding, brokerOrigin, requestUrl)
           }).end();
         } else {
           response.writeHead(401).end('Login required.');

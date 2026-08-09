@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 
 import {
+  clearPreviewAccessCookie,
   createPrototypeAccessCookie,
   createPreviewIdentityHeaders,
   derivePreviewOrigin,
@@ -181,6 +182,12 @@ describe('Preview gateway policy', () => {
       request: requestWith({ cookie: `${cookie}; ${cookie}` }),
       secret
     })).toBeNull();
+  });
+
+  test('clears full Preview access before isolated prototype code is served', () => {
+    expect(clearPreviewAccessCookie()).toBe(
+      '__Host-project-space-preview-access=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'
+    );
   });
 
   test('keeps raw infrastructure and machine operations out of Preview', () => {

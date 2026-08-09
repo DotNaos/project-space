@@ -203,6 +203,40 @@ describe('Preview gateway', () => {
     expect(fixture.upstreamRequests[0]?.signature).toBeTruthy();
   });
 
+  test('uses the trusted broker as a transparent auth gate for the full Preview', async () => {
+    const fixture = await gatewayFixture();
+    const unauthenticated = await fixture.request('/projects/project-space?tab=issues');
+    expect(unauthenticated.status).toBe(302);
+    const gate = new URL(unauthenticated.headers.get('location')!);
+    expect(`${gate.origin}${gate.pathname}`).toBe(`${fixture.brokerOrigin}/preview-access`);
+    expect(gate.searchParams.get('pr')).toBe('263');
+    expect(gate.searchParams.get('return')).toBe('/projects/project-space?tab=issues');
+
+    const preflight = await fixture.request(
+      '/api/pull-request-preview-access',
+      undefined,
+      { Origin: fixture.brokerOrigin },
+      'OPTIONS'
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(fixture.brokerOrigin);
+    expect(preflight.headers.get('access-control-allow-credentials')).toBe('true');
+
+    const grant = await fixture.request(
+      '/api/pull-request-preview-access',
+      'valid-clerk-token',
+      { Origin: fixture.brokerOrigin },
+      'POST'
+    );
+    expect(grant.status).toBe(204);
+    expect(grant.headers.get('access-control-allow-origin')).toBe(fixture.brokerOrigin);
+    const cookie = grant.headers.get('set-cookie')?.split(';')[0];
+    expect(cookie).toStartWith('__Host-project-space-preview-access=');
+
+    const preview = await fixture.request('/', undefined, { Cookie: cookie! });
+    expect(await preview.json()).toEqual({ label: 'upstream' });
+  });
+
   test('requires a trusted authenticated viewing grant before serving prototype code', async () => {
     const fixture = await gatewayFixture();
     expect((await fixture.request('/prototype/meta.json')).status).toBe(302);
@@ -212,10 +246,11 @@ describe('Preview gateway', () => {
       'valid-clerk-token'
     );
     expect(unauthenticated.status).toBe(302);
-    expect(unauthenticated.headers.get('location')).toBe(
-      `http://127.0.0.1:${new URL(fixture.brokerOrigin).port}/prototype-review?` +
-      `repositoryFullName=DotNaos%2Fproject-space&pullRequestNumber=263&head=${'a'.repeat(40)}` +
-      '&surface=web&change=secure-live-context&viewport=phone'
+    const gate = new URL(unauthenticated.headers.get('location')!);
+    expect(`${gate.origin}${gate.pathname}`).toBe(`${fixture.brokerOrigin}/preview-access`);
+    expect(gate.searchParams.get('pr')).toBe('263');
+    expect(gate.searchParams.get('return')).toBe(
+      '/prototype/desktop/?change=secure-live-context&scenario=ready&viewport=phone'
     );
     expect(fixture.prototypeRequests).toHaveLength(0);
 
@@ -228,6 +263,8 @@ describe('Preview gateway', () => {
     );
     expect(grant.status).toBe(204);
     expect(grant.headers.get('set-cookie')).toContain('Max-Age=30');
+    expect(grant.headers.get('set-cookie')).toContain('__Host-project-space-preview-access=');
+    expect(grant.headers.get('set-cookie')).toContain('Max-Age=0');
     const cookie = grant.headers.get('set-cookie')?.split(';')[0];
     expect(cookie).toStartWith('__Host-project-space-prototype-access=');
 
