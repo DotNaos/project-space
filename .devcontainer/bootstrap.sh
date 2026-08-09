@@ -56,3 +56,7 @@ if [[ "${current_project_version}" != "${project_version}" ||
   tar --extract --gzip --no-same-owner --file "${archive_path}" --directory "${temporary_root}"
   "${temporary_root}/project-space-machine-tools-linux-x64-v${project_version}/install.sh"
 fi
+
+# The fixed bootstrap release establishes the signed update trust root. Upgrade
+# the complete Project/connector/Codex bundle before the managed runner starts.
+project self-update --yes --format json

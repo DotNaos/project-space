@@ -145,6 +145,9 @@ describe('Codespaces runner devcontainer', () => {
     expect(bootstrap).toContain(
       'readonly archive_sha256="ecc6f972a65dad1cfdae48ee4be84263d5a7239b76a0b6519fe02767c200ad64"'
     );
+    expect(bootstrap).toContain('project self-update --yes --format json');
+    expect(bootstrap.indexOf('project self-update --yes --format json'))
+      .toBeGreaterThan(bootstrap.indexOf('/install.sh"'));
   });
 
   test('installs and starts the pinned Codex daemon runtime idempotently', async () => {
