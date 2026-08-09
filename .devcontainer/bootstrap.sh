@@ -5,9 +5,9 @@ repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly repository_root
 readonly bun_version="1.3.14"
 readonly node_gyp_version="13.0.1"
-readonly project_version="0.10.16"
+readonly project_version="0.10.18"
 readonly archive="project-space-machine-tools-linux-x64-v${project_version}.tar.gz"
-readonly archive_sha256="e3a0c85f96424565cb32b489e75c8978f9cf9772f0d2ba132ba1b26b5be507b6"
+readonly archive_sha256="056469cbff0cc4ed1d16b446a8223915b01abef08501edc00cac3cb53915b1df"
 
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 cd -- "${repository_root}"
@@ -63,4 +63,9 @@ if [[ ${anchor_required} -eq 1 ]]; then
   install -m 0700 -- "${repository_root}/packaging/linux/install-machine-tools.sh" \
     "${bundle_root}/install-codespace.sh"
   "${bundle_root}/install-codespace.sh" --external-connector-supervisor
+fi
+
+if ! project self-update --yes --format json; then
+  printf '%s\n' \
+    "Signed Project Space self-update was unavailable; continuing with pinned v${project_version}." >&2
 fi
