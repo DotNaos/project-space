@@ -425,7 +425,9 @@ export class ProjectSpaceDatabaseRepository {
              returning id`,
           [this.createId(), ownerUserId, platformId, metadata.hostIdentity.version,
               reportedHostIdentityKey, metadata.hostName,
-              JSON.stringify(metadata.resourceMode === 'exclusive' ? metadata.resources ?? null : null)]
+              metadata.resourceMode === 'exclusive' && metadata.resources
+                ? JSON.stringify(metadata.resources)
+                : null]
           );
           hostId = host.rows[0]?.id ?? null;
         }
@@ -466,7 +468,9 @@ export class ProjectSpaceDatabaseRepository {
           [this.createId(), ownerUserId, platformId, hostId, parentEnvironmentId,
             metadata.environmentIdentity.version, environmentIdentityKey, metadata.environmentKind, metadata.environmentName,
             hostResolution, hostEvidence, metadata.resourceMode,
-            JSON.stringify(metadata.resourceMode === 'exclusive' ? null : metadata.resources ?? null)]
+            metadata.resourceMode !== 'exclusive' && metadata.resources
+              ? JSON.stringify(metadata.resources)
+              : null]
         );
         const environmentId = environment.rows[0]?.id;
         if (!environmentId) throw new Error('The compute environment could not be reconciled.');

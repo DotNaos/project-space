@@ -113,6 +113,23 @@ describe('compute inventory repository', () => {
     const environmentInsert = client.calls.find(({ sql }) => sql.includes('insert into compute_environments'));
     expect(environmentInsert?.values[6]).toMatch(/^account:[0-9a-f]{64}$/);
     expect(environmentInsert?.values[6]).not.toContain(reported.environmentIdentity.key);
+    expect(environmentInsert?.values[12]).toBeNull();
+  });
+
+  test('persists missing exclusive resources as SQL null', async () => {
+    const client = new InventoryClient();
+    const repository = new ProjectSpaceDatabaseRepository(client, () => 'new-id');
+    await repository.reconcileConnectorComputeInventory('user-one', [{
+      compute: {
+        ...reported,
+        resourceMode: 'exclusive'
+      },
+      id: 'connector-one',
+      name: 'connector-one'
+    }]);
+
+    const environmentInsert = client.calls.find(({ sql }) => sql.includes('insert into compute_environments'));
+    expect(environmentInsert?.values[12]).toBeNull();
   });
 
   test('marks a post-reconciliation environment move as an explicit conflict', async () => {
