@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   correlatePullRequestPreviews,
   getPullRequestPreviewStatus,
@@ -219,6 +222,47 @@ describe('pull request Preview status adapter', () => {
     });
     expect(failed).toMatchObject({ previews: [], status: 'unavailable' });
     expect(JSON.stringify(failed)).not.toMatch(/private host|op:\/\/vault|secret/);
+  });
+
+  test('reads the bounded production status registry without SSH', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'preview-status-registry-'));
+    const previewDirectory = join(root, 'pr-528');
+    await mkdir(previewDirectory);
+    await writeFile(join(previewDirectory, 'runtime.json'), JSON.stringify({
+      liveUrl: 'https://pr-528.projects.os-home.net',
+      prototypeHealthy: true,
+      prototypeMetaSha: requestedSha,
+      prototypeUrl: 'https://pr-528.projects.os-home.net/prototype/desktop/',
+      pullRequestNumber: 528,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      runningSha: requestedSha,
+      state: 'online',
+      verifiedAt: '2026-08-09T07:06:23Z'
+    }));
+    let calledCli = false;
+
+    try {
+      const result = await getPullRequestPreviewStatus('DotNaos/project-space', 528, {
+        run: async () => {
+          calledCli = true;
+          return { exitCode: 1, stderr: '', stdout: '' };
+        },
+        statusRoot: root
+      });
+
+      expect(calledCli).toBe(false);
+      expect(result.status).toBe('available');
+      expect(result.previews[0]).toMatchObject({
+        liveUrl: 'https://pr-528.projects.os-home.net/',
+        pullRequestNumber: 528,
+        requestedSha,
+        runningSha: requestedSha,
+        state: 'online'
+      });
+    } finally {
+      await rm(root, { recursive: true });
+    }
   });
 
   test('synthesizes a not-deployed placeholder for every open PR missing from the registry', () => {

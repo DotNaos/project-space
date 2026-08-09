@@ -22,6 +22,7 @@ import { projectSpaceClient, setProjectSpaceAuthTokenProvider } from '@/api/proj
 import { Button, Chip, Text } from '@/app/dotnaos-ui';
 import { isClerkConfigured } from '@/auth/clerk-provider';
 import { AccountMenu, type RailAccount } from '@/features/project-desktop/components/account-menu';
+import { previewInventoryStatusLine, previewInventoryStatusMessage } from '@/features/pr-preview-hub/preview-hub-presentation';
 import type { PreviewHubCapacityCandidate, PreviewHubInventoryResult, PreviewHubMutationResult, PreviewHubRecord } from '@/shared/pull-request-preview-hub-api';
 import { previewPullRequestNumberFromHostname } from '@/shared/preview-host';
 
@@ -193,11 +194,7 @@ function PreviewHubContent({ account }: { account?: RailAccount }) {
     setBusyPr(target.pullRequestNumber); setError('');
     try { const response = await projectSpaceClient.stopPullRequestPreview({ pullRequestNumber: target.pullRequestNumber, repositoryFullName: target.repositoryFullName, requestedHeadSha: target.requestedHeadSha }); if (response.code !== 'accepted' && 'message' in response) setError(response.message); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : 'Preview stop failed.'); } finally { setBusyPr(undefined); }
   }
-  const statusLine = loading && !result
-    ? 'Checking capacity…'
-    : result
-      ? `${result.onlineCount} of ${result.maxOnline} online · ${openPreviews.length} open pull request${openPreviews.length === 1 ? '' : 's'}`
-      : 'Capacity unknown';
+  const statusLine = previewInventoryStatusLine(result, openPreviews.length, loading);
 
   return <main className="min-h-screen bg-app-canvas px-4 py-8 text-neutral-100 sm:px-8">
     <div className="mx-auto max-w-5xl">
@@ -256,11 +253,6 @@ function previewReturnToPreviewOrigin(value: string, pullRequestNumber: number) 
     if (target.origin !== `https://pr-${pullRequestNumber}.projects.os-home.net` || target.hash) return `https://pr-${pullRequestNumber}.projects.os-home.net/`;
     return `${target.origin}${target.pathname}${target.search}`;
   } catch { return `https://pr-${pullRequestNumber}.projects.os-home.net/`; }
-}
-
-function previewInventoryStatusMessage(status: PreviewHubInventoryResult['status'] | undefined) {
-  if (status === 'unauthorized') return 'This repository is not linked, or you do not have access to its trusted Preview inventory.';
-  return 'Preview inventory is temporarily unavailable. Try refreshing in a moment.';
 }
 
 function FilterChip({ active, count, id, label, onSelect }: { active: boolean; count: number; id: PreviewFilter; label: string; onSelect(id: PreviewFilter): void }) {

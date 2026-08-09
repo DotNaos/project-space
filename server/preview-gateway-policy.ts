@@ -245,6 +245,17 @@ export function createPreviewAccessCookie(input: {
   ].join('; ');
 }
 
+export function clearPreviewAccessCookie() {
+  return [
+    `${previewAccessCookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'Secure',
+    'SameSite=Lax',
+    'Max-Age=0'
+  ].join('; ');
+}
+
 function readCookie(request: IncomingMessage, name: string) {
   const header = request.headers.cookie;
   if (!header || header.length > 8_192 || /[\r\n\u0000]/.test(header)) return undefined;

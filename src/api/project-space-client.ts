@@ -120,6 +120,12 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     return this.request('/api/app/meta');
   }
 
+  getReleaseChangelog() {
+    return this.request<import('@/shared/release-changelog-api').ReleaseChangelogResult>(
+      '/api/app/releases'
+    );
+  }
+
   getAuthSession(): Promise<ProjectSpaceAuthSessionResult> {
     return this.request('/api/auth/session');
   }

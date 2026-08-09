@@ -5,6 +5,8 @@ export type * from './roadmap-api';
 export type * from './project-catalog-api';
 export type * from './pull-request-preview-hub-api';
 export type * from './compute-environment-api';
+export type * from './release-changelog-api';
+export type * from './release-version';
 
 import type { PullRequestChangelogIdentity } from './pr-preview-changelog-api';
 import type {

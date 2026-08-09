@@ -188,6 +188,31 @@ describe('Preview hub service', () => {
     expect(calls[0]).toEqual(['deploy', 'preview', '--pr', '2', '--format', 'json']);
   });
 
+  test('does not misreport open pull requests as undeployed when trusted inventory is unavailable', async () => {
+    const checkedAt = '2026-08-09T07:16:04.369Z';
+    const service = createPreviewHubService({ getGitHubRepositoryDetails: async () => details() }, {
+      loadStatus: async () => ({
+        checkedAt,
+        previews: [],
+        repositoryFullName: repository,
+        status: 'unavailable'
+      })
+    });
+
+    const inventory = await service.inventory();
+
+    expect(inventory).toEqual({
+      checkedAt,
+      inventoryRevision: 'unavailable',
+      maxOnline: 3,
+      occupiedCount: 0,
+      onlineCount: 0,
+      previews: [],
+      repositoryFullName: repository,
+      status: 'unavailable'
+    });
+  });
+
   test('fails fast (no replacement flow) deploying a new PR when Preview capacity is full', async () => {
     const service = createPreviewHubService({ getGitHubRepositoryDetails: async () => details() }, {
       loadStatus: async () => ({

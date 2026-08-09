@@ -1,3 +1,4 @@
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { runProjectBinary, type ProjectBinaryRunResult } from './local-project-cli-client';
@@ -10,6 +11,9 @@ import type {
 
 const fullSha = /^[0-9a-f]{40}$/i;
 const repositoryName = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const previewDirectoryName = /^pr-[1-9][0-9]{0,8}$/;
+const previewStatusFileNames = ['blocked.json', 'runtime.json', 'tombstone.json'] as const;
+const maximumPreviewStatusFileBytes = 64 * 1024;
 
 type RawPreview = Record<string, unknown>;
 
@@ -320,6 +324,7 @@ export async function getPullRequestPreviewStatus(
   options: {
     cwd?: string;
     run?: (args: string[], cwd: string) => Promise<ProjectBinaryRunResult>;
+    statusRoot?: string;
   } = {}
 ): Promise<PullRequestPreviewStatusResult> {
   const checkedAt = new Date().toISOString();
@@ -336,18 +341,23 @@ export async function getPullRequestPreviewStatus(
     return empty('unauthorized');
   }
 
-  const run = options.run ?? runProjectBinary;
-  const cwd = resolve(
-    options.cwd ?? process.env.PROJECT_SPACE_BACKEND_REPO_PATH ?? process.cwd()
-  );
-  const result = await run(
-    ['deploy', 'preview', 'status', '--all', '--format', 'json'],
-    cwd
-  );
-  if (result.exitCode !== 0) return empty('unavailable');
-
+  let payload: unknown;
   try {
-    const payload = JSON.parse(result.stdout) as unknown;
+    const statusRoot = options.statusRoot ?? process.env.PROJECT_SPACE_PREVIEW_STATUS_ROOT?.trim();
+    if (statusRoot) {
+      payload = await readLocalPreviewStatusRegistry(statusRoot);
+    } else {
+      const run = options.run ?? runProjectBinary;
+      const cwd = resolve(
+        options.cwd ?? process.env.PROJECT_SPACE_BACKEND_REPO_PATH ?? process.cwd()
+      );
+      const result = await run(
+        ['deploy', 'preview', 'status', '--all', '--format', 'json'],
+        cwd
+      );
+      if (result.exitCode !== 0) return empty('unavailable');
+      payload = JSON.parse(result.stdout) as unknown;
+    }
     const fallbackRepository = payloadRepository(payload);
     const previews: PullRequestPreviewStatus[] = [];
     let invalidExpectedRecord = false;
@@ -386,4 +396,30 @@ export async function getPullRequestPreviewStatus(
   } catch {
     return empty('unavailable');
   }
+}
+
+async function readLocalPreviewStatusRegistry(statusRoot: string) {
+  const root = await realpath(resolve(statusRoot));
+  const directories = await readdir(root, { withFileTypes: true });
+  const records: unknown[] = [];
+
+  for (const directory of directories.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!directory.isDirectory() || !previewDirectoryName.test(directory.name)) continue;
+    for (const fileName of previewStatusFileNames) {
+      const path = resolve(root, directory.name, fileName);
+      let metadata;
+      try {
+        metadata = await lstat(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+      if (!metadata.isFile() || metadata.size > maximumPreviewStatusFileBytes) {
+        throw new Error('Preview status registry contains an unsafe file.');
+      }
+      records.push(JSON.parse(await readFile(path, 'utf8')) as unknown);
+    }
+  }
+
+  return { records };
 }
