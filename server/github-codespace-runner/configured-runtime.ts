@@ -191,14 +191,24 @@ export function githubCodespaceCreateBody(
   input: { branch: string; displayName: string },
   recommendedLocation?: string
 ) {
+  const location = githubCodespaceCreateLocation(recommendedLocation);
   return {
     devcontainer_path: '.devcontainer/devcontainer.json',
     display_name: input.displayName,
     idle_timeout_minutes: 30,
-    ...(recommendedLocation ? { location: recommendedLocation } : {}),
+    ...(location ? { location } : {}),
     ref: input.branch,
     retention_period_minutes: 4_320
   };
+}
+
+export function githubCodespaceCreateLocation(recommendedLocation?: string) {
+  const location = recommendedLocation === 'EuropeWest'
+    ? 'WestEurope'
+    : recommendedLocation;
+  return ['EastUs', 'SouthEastAsia', 'WestEurope', 'WestUs2'].includes(location ?? '')
+    ? location
+    : undefined;
 }
 
 async function mutateCodespace(token: string, name: string, action: 'start' | 'stop') {
