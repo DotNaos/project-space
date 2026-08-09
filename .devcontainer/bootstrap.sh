@@ -26,7 +26,7 @@ if [[ "$(bun --version 2>/dev/null || true)" != "${bun_version}" ]]; then
 fi
 current_node_gyp_version="$(node-gyp --version 2>/dev/null | sed 's/^v//' || true)"
 if [[ "${current_node_gyp_version}" != "${node_gyp_version}" ]]; then
-  npm install --global --no-audit --no-fund "node-gyp@${node_gyp_version}"
+  bun add --global "node-gyp@${node_gyp_version}"
 fi
 bun install --frozen-lockfile
 
