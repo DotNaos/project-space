@@ -107,16 +107,29 @@ import type {
 
 interface LocalProjectSpaceBackendOptions {
   connectorMachineId?: string;
+  connectorMachineName?: string;
   getAppMeta?: () => AppMeta | Promise<AppMeta>;
   selectProjectDirectory?: () => Promise<ProjectDirectorySelection>;
 }
 
-async function localConnectorIdentity(connectorMachineId?: string) {
+function connectorMachineName(value: string | undefined) {
+  return value && value.length <= 256 && value.trim() === value &&
+    ![...value].some((character) =>
+      character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+    ? value
+    : undefined;
+}
+
+async function localConnectorIdentity(
+  connectorMachineId?: string,
+  requestedMachineName?: string
+) {
   const connector = await getConnectorOverview();
   const localMachine =
     connector.machines.find((machine) => machine.connector.status === 'local') ??
     connector.machines[0];
-  const machineName = localMachine?.name ?? localMachineName();
+  const machineName = connectorMachineName(requestedMachineName) ??
+    localMachine?.name ?? localMachineName();
   return {
     connector,
     localMachine,
@@ -263,7 +276,7 @@ export function createLocalProjectSpaceBackend(
     },
     async getConnectorProjectRegistry() {
       const [identity, rawDiscovery, daemon] = await Promise.all([
-        localConnectorIdentity(options.connectorMachineId),
+        localConnectorIdentity(options.connectorMachineId, options.connectorMachineName),
         discoverLocalProjects(),
         inspectCodexDaemon()
       ]);
@@ -372,7 +385,10 @@ export function createLocalProjectSpaceBackend(
     },
     async loadProjectDiscovery() {
       if (process.env.PROJECT_SPACE_DISCOVERY_SOURCE === 'connector') {
-        const identity = await localConnectorIdentity(options.connectorMachineId);
+        const identity = await localConnectorIdentity(
+          options.connectorMachineId,
+          options.connectorMachineName
+        );
         const discovery = (await loadConnectorProjectDiscovery()) ?? {
           groups: [],
           projects: [],
@@ -384,7 +400,7 @@ export function createLocalProjectSpaceBackend(
       }
 
       const [identity, localDiscovery] = await Promise.all([
-        localConnectorIdentity(options.connectorMachineId),
+        localConnectorIdentity(options.connectorMachineId, options.connectorMachineName),
         discoverLocalProjects()
       ]);
       return mergeProjectDiscoveries(

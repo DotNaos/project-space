@@ -15,6 +15,9 @@ import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 type RuntimeBackend = ProjectSpaceBackend &
   Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
 
+export const connectorRuntimeMachineNameEnvironment =
+  'PROJECT_SPACE_CONNECTOR_MACHINE_NAME';
+
 interface AuthenticatedProjectConnectorRuntimeOptions {
   backend?: RuntimeBackend;
   credential: ConnectorRuntimeCredential;
@@ -41,7 +44,8 @@ function startValidatedProjectConnectorRuntime({
   const runtimeBackend =
     backend ??
     createLocalProjectSpaceBackend({
-      connectorMachineId: credential.machineId
+      connectorMachineId: credential.machineId,
+      connectorMachineName: environment?.[connectorRuntimeMachineNameEnvironment]
     });
   return startProjectConnectorWebSocket({
     backend: runtimeBackend,

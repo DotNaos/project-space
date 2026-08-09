@@ -137,6 +137,7 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 	ctx context.Context,
 	lifetime connectorSupervisorLifetime,
 	payload []byte,
+	machineName string,
 	maintenance *ConnectorSupervisorMaintenance,
 ) error {
 	executable := supervisor.executable
@@ -145,6 +146,7 @@ func (supervisor *ConnectorSupervisor) runConnectorCompanion(
 	fixedEnvironment = append(
 		fixedEnvironment,
 		CodexOperationSnapshotFileEnv+"="+supervisor.codexOperationSnapshotPath,
+		ConnectorRuntimeMachineNameEnv+"="+machineName,
 	)
 	if supervisor.readinessAttemptNonce != "" {
 		readinessPath, err := DefaultConnectorRuntimeReadinessPath()
