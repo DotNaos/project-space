@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { WebSocket } from 'ws';
 
 import {
+  buildInitialPrompt,
   connectorReconciliationGeneration,
   waitForTerminal
 } from '../server/codex-machine-tasks/configured-runtime';
@@ -26,6 +27,13 @@ function untilAborted(signal: AbortSignal, onAbort: () => void) {
 }
 
 describe('configured Codex machine-task runtime', () => {
+  test('keeps managed runners off the recursive Project Space MCP path', () => {
+    expect(buildInitialPrompt('https://github.com/DotNaos/project-space/issues/574'))
+      .toContain(
+        'Do not call Project Space MCP or app tools from this managed runner because they route back through the same active connector.'
+      );
+  });
+
   test('crosses a connector generation only when both generations prove durable operations', () => {
     const connectorId = 'connector-restarted';
     const socket = { readyState: WebSocket.OPEN } as WebSocket;

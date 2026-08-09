@@ -232,7 +232,7 @@ export async function createConfiguredCodexMachineTasksRuntime(
         const result = await requestConnectorCodexSessions('start', {
           branch: input.branch,
           commit: input.commit,
-          initialPrompt: initialPrompt(input.issue.url),
+          initialPrompt: buildInitialPrompt(input.issue.url),
           issueNumber: input.issue.number,
           issueUrl: input.issue.url,
           machineId: input.connectorId,
@@ -408,10 +408,11 @@ export async function waitForTerminal(
   }
 }
 
-function initialPrompt(issueUrl: string) {
+export function buildInitialPrompt(issueUrl: string) {
   return [
     `Implement ${issueUrl} end to end in this Project-managed worktree.`,
     'Read and follow every repository AGENTS.md before making changes.',
+    'Use the local Project CLI for worktree and parallel-task checks. Do not call Project Space MCP or app tools from this managed runner because they route back through the same active connector.',
     'Starting this task does not authorize merge, release, deploy, or unrelated external actions.'
   ].join('\n');
 }
