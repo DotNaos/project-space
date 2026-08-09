@@ -89,7 +89,13 @@ export async function resolveLocalProjectPath(
 ): Promise<string> {
   const localProjectId = resolveLocalProjectId(machineId, projectId);
   const discovery = await (options.discoverProjects ?? discoverLocalProjects)();
-  const matches = discovery.projects.filter((project) => project.id === localProjectId);
+  const matches = discovery.projects.filter((project) =>
+    project.id === localProjectId ||
+    (project.github !== undefined && (
+      localProjectId === `github:${project.github.id}` ||
+      localProjectId === `github:${project.github.fullName}`
+    ))
+  );
 
   if (matches.length !== 1) {
     throw new Error('Local project identity could not be resolved.');

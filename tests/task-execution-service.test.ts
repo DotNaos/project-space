@@ -78,6 +78,10 @@ describe('Task Execution service', () => {
       },
       operationId: request.operationId
     });
+    expect(await fixture.executionStore.readWorkspace(actor.userId, first.execution.id))
+      .toMatchObject({
+        target: { kind: 'project_worktree', reference: 'wt_aaaaaaaaaaaaaaaaaaaaaaaa' }
+      });
     const replayed = await fixture.service.start(actor, request);
     expect(replayed).toMatchObject({ execution: { id: first.execution.id }, replayed: true });
     expect(fixture.counts.prepare).toBe(1);
@@ -523,7 +527,8 @@ function createFixture() {
                 issue: { number: 548, url: 'https://example.invalid/548' },
                 repository: { id: '42', nameWithOwner: 'DotNaos/project-space' },
                 threadId: counts.start === 1 ? threadId : secondThreadId,
-                worktree: { branch: 'issue-548-task', id: `worktree-${counts.start}` }
+                worktree: { branch: 'issue-548-task', id: counts.start === 1
+                  ? 'wt_aaaaaaaaaaaaaaaaaaaaaaaa' : 'wt_bbbbbbbbbbbbbbbbbbbbbbbb' }
               } };
         }
       },

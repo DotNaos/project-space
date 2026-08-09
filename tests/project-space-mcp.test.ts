@@ -4,6 +4,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import type { AgentRuntimeService } from '../server/agent-authorization/service';
 import type { ConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
@@ -21,6 +22,7 @@ import { createProjectSpaceMcpHandler } from '../server/project-space-mcp';
 import type { LoadMcpComputeInventory } from '../server/project-space-mcp/compute-environments';
 import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oauth-store';
 import type { TaskExecutionService } from '../server/task-execution/service';
+import type { WorkspaceCommandService } from '../server/workspace-command/service';
 
 const originalAuthDisabled = process.env.PROJECT_SPACE_AUTH_DISABLED;
 const originalPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
@@ -472,6 +474,7 @@ async function startMcp(
     loadComputeInventory?: LoadMcpComputeInventory;
     logger?: ProjectSpaceLogger;
     taskExecutions?: TaskExecutionService;
+    workspaceCommands?: WorkspaceCommandService;
   } = {}
 ) {
   const logger = dependencies.logger ?? createProjectSpaceLogger({
@@ -488,6 +491,16 @@ async function startMcp(
     ...(dependencies.taskExecutions ? {
       createTaskExecutions: async () => dependencies.taskExecutions!
     } : {}),
+    createWorkspaceCommands: async () => dependencies.workspaceCommands ?? {
+      cancelRecovery: async (actor, request) => workspaceResult(calls, 'workspace-cancel-recovery', actor, request),
+      cancelWorkspace: async (actor, request) => workspaceResult(calls, 'workspace-cancel', actor, request),
+      get: async (actor, request) => workspaceResult(calls, 'workspace-get', actor, request),
+      startRecovery: async (actor, request, approve) => {
+        if (!await approve()) throw new Error('Recovery command was not approved.');
+        return workspaceResult(calls, 'workspace-start-recovery', actor, request);
+      },
+      startWorkspace: async (actor, request) => workspaceResult(calls, 'workspace-start', actor, request)
+    },
     createRuntime: async () => runtime(calls),
     loadComputeInventory: dependencies.loadComputeInventory ?? (async () => {
       const overview = await selectedBackend.getConnectorOverview();
@@ -517,6 +530,30 @@ async function startMcp(
   return `http://127.0.0.1:${address.port}`;
 }
 
+function workspaceResult(
+  calls: Array<{ kind: string; request: unknown; userId: string }>,
+  kind: string,
+  actor: { userId: string },
+  request: unknown
+) {
+  calls.push({ kind, request, userId: actor.userId });
+  const input = request as { commandId?: string; environmentId?: string; executionId?: string };
+  return {
+    apiVersion: 1 as const,
+    auditId: '55555555-5555-4555-8555-555555555555',
+    checkedAt: '2026-08-09T00:00:00.000Z',
+    commandId: input.commandId ?? '66666666-6666-4666-8666-666666666666',
+    environmentId: input.environmentId ?? '11111111-1111-4111-8111-111111111111',
+    ...(input.executionId ? { executionId: input.executionId } : {}),
+    message: 'The workspace command is running.', nextCursor: 0, output: [],
+    scope: kind.includes('recovery') ? 'environment_recovery' as const : 'workspace' as const,
+    state: 'running' as const,
+    target: { kind: kind.includes('recovery')
+      ? 'github_codespace_recovery' as const : 'connector_workspace' as const },
+    truncated: false
+  };
+}
+
 describe('Project Space remote MCP server', () => {
   test('publishes Project Space OAuth metadata and a Bearer challenge', async () => {
     delete process.env.PROJECT_SPACE_AUTH_DISABLED;
@@ -534,6 +571,8 @@ describe('Project Space remote MCP server', () => {
         'project-space:execution.approve',
         'project-space:execution.write',
         'project-space:task.write',
+        'project-space:shell.workspace',
+        'project-space:shell.recovery',
         'project-space:environment.manage',
         'project-space:environment.delete'
       ]
@@ -633,6 +672,11 @@ describe('Project Space remote MCP server', () => {
       'respond_task_execution_input',
       'cancel_task_execution',
       'archive_task_execution',
+      'start_workspace_command',
+      'get_workspace_command',
+      'cancel_workspace_command',
+      'start_environment_recovery_command',
+      'cancel_environment_recovery_command',
       'list_machines',
       'list_codex_tasks',
       'read_codex_task',
@@ -644,6 +688,27 @@ describe('Project Space remote MCP server', () => {
         securitySchemes: [{ scopes: ['project-space:read'], type: 'oauth2' }]
       },
       annotations: { readOnlyHint: true },
+    });
+
+    const workspaceCommand = await client.callTool({
+      name: 'start_workspace_command',
+      arguments: {
+        command: 'git status --short',
+        executionId: '44444444-4444-4444-8444-444444444444',
+        operationId: 'workspace:start:integration'
+      }
+    });
+    expect(workspaceCommand.structuredContent).toMatchObject({
+      result: { scope: 'workspace', state: 'running' }
+    });
+    expect(calls).toContainEqual({
+      kind: 'workspace-start',
+      request: {
+        command: 'git status --short',
+        executionId: '44444444-4444-4444-8444-444444444444',
+        operationId: 'workspace:start:integration'
+      },
+      userId: 'local-development-user'
     });
 
     const projects = await client.callTool({ name: 'list_projects', arguments: {} });
@@ -880,6 +945,66 @@ describe('Project Space remote MCP server', () => {
       arguments: { repositoryId: '480', task: 480 }
     });
     expect(invalidUpdate.isError).toBe(true);
+  });
+
+  test('requires MCP client confirmation before a recovery command starts', async () => {
+    process.env.PROJECT_SPACE_AUTH_DISABLED = '1';
+    const calls: Array<{ kind: string; request: unknown; userId: string }> = [];
+    const origin = await startMcp(calls);
+    const client = new Client(
+      { name: 'project-space-elicitation-test', version: '1.0.0' },
+      { capabilities: { elicitation: {} } }
+    );
+    let prompt: unknown;
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      prompt = request.params;
+      return { action: 'accept', content: { approved: true } };
+    });
+    clients.push(client);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+
+    const result = await client.callTool({
+      name: 'start_environment_recovery_command',
+      arguments: {
+        command: 'project doctor --repair',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'recovery:start:integration'
+      }
+    });
+
+    expect(prompt).toMatchObject({
+      mode: 'form', requestedSchema: { required: ['approved'] }
+    });
+    expect(result.structuredContent).toMatchObject({
+      result: { scope: 'environment_recovery', state: 'running' }
+    });
+    expect(calls).toContainEqual({
+      kind: 'workspace-start-recovery',
+      request: {
+        command: 'project doctor --repair',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'recovery:start:integration'
+      },
+      userId: 'local-development-user'
+    });
+
+    const declining = new Client(
+      { name: 'project-space-decline-test', version: '1.0.0' },
+      { capabilities: { elicitation: {} } }
+    );
+    declining.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'decline' }));
+    clients.push(declining);
+    await declining.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+    const declined = await declining.callTool({
+      name: 'start_environment_recovery_command',
+      arguments: {
+        command: 'project doctor --repair',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'recovery:start:declined'
+      }
+    });
+    expect(declined.isError).toBe(true);
+    expect(calls.filter(({ kind }) => kind === 'workspace-start-recovery')).toHaveLength(1);
   });
 
   test('runs provider-neutral executions and maps known Codex aliases to them', async () => {

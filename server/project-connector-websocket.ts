@@ -6,7 +6,6 @@ import {
   type ConnectorDevServerAdapter,
   type ConnectorDevServerOperation
 } from './connector-dev-server-contract';
-import { ConnectorWorktreeActionExecutor } from './connector-worktree-action-executor';
 import type { ConnectorWorktreeActionAdapter } from './connector-worktree-action-contract';
 import {
   isConnectorMachineMessage,
@@ -43,6 +42,7 @@ import {
 } from './project-connector-websocket-utils';
 import { createProjectConnectorWorktreeLoads } from './project-connector-worktree-loads';
 import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
+import { createProjectConnectorActionControls } from './project-connector-action-controls';
 import { CodexDaemonManager } from './codex-daemon/manager';
 import { projectSpaceLogger, recordObservedError } from './observability';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
@@ -50,17 +50,13 @@ interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOpt
   environment?: NodeJS.ProcessEnv;
   runtimeShutdown?(): Promise<void> | void;
 }
-
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
   const { backend } = options;
   const connection = resolveProjectConnectorConnection(options);
   const { targets } = connection;
   if (targets.length === 0) {
-    return {
-      close() {}
-    };
+    return { close() {} };
   }
-
   let closed = false;
   const cleanupTasks: Array<() => void> = [];
   const codexSessionManager = createProjectConnectorCodexSessionManager(
@@ -77,7 +73,6 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
   );
   cleanupTasks.push(() => void codexSessionManager.close());
   cleanupTasks.push(() => void codexAuthorizationManager.close());
-
   function startHttpRegistryPublisher(target: ProjectConnectorHubTarget) {
     if (!target.url) {
       return;
@@ -173,14 +168,10 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           options.runtimeCredential?.machineId
         )
       : undefined;
-    const worktreeActionExecutor =
-      commandGrantPublicKey && typeof backend.runWorktreeAction === 'function'
-        ? new ConnectorWorktreeActionExecutor(
-            backend as ConnectorWorktreeActionAdapter,
-            commandGrantPublicKey,
-            options.runtimeCredential?.machineId
-          )
-        : undefined;
+    const actionControls = createProjectConnectorActionControls({
+      backend, machineId: options.runtimeCredential?.machineId,
+      verificationKey: commandGrantPublicKey
+    });
     const codexSessionsDispatcher = commandGrantPublicKey
       ? new CodexSessionsConnectorDispatcher({
           authorization: codexAuthorizationManager,
@@ -245,6 +236,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         codexSessionsDispatcher?.setExpectedGeneration();
         runtimeDispatcher?.setExpectedGeneration();
         runtimeStopControl.setExpectedGeneration();
+        actionControls.setExpectedGeneration();
         if (registryTimer) {
           clearInterval(registryTimer);
           registryTimer = undefined;
@@ -320,7 +312,6 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           }
         });
       });
-
       async function handleMessage(message: ConnectorMachineMessage) {
         if (!isCurrentConnection()) return;
         if (message.type === 'connector.registered') {
@@ -333,6 +324,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           runtimeDispatcher?.setExpectedGeneration(message.generation);
           runtimeStopControl.setExpectedGeneration(message.generation);
           codexSessionsDispatcher?.setExpectedGeneration(message.generation);
+          actionControls.setExpectedGeneration(message.generation);
           if (registrationEvidence && !(await publishRegistry()))
             throw new Error('Connector runtime maintenance acknowledgement failed.');
           if (registrationEvidence) clearConnectorRuntimeMaintenanceEvidence(registrationEvidence);
@@ -423,24 +415,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
 
-        if (message.type === 'worktree.action') {
-          if (!worktreeActionExecutor) {
-            socket?.close(1008, 'Worktree actions are not configured.');
-            return;
-          }
-          void worktreeActionExecutor
-            .execute(message.payload.operation, message.payload)
-            .then((result) => {
-              if (socket)
-                sendJson(socket, {
-                  id: message.id,
-                  payload: result,
-                  type: 'worktree.action.result'
-                } satisfies ConnectorHubMessage);
-            })
-            .catch(() => socket?.close(1008, 'Worktree action authorization failed.'));
-          return;
-        }
+        if (actionControls.handle(message, socket)) return;
 
         if (
           message.type === 'dev-server.inspect' ||

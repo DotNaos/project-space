@@ -45,6 +45,8 @@ export interface WorkspaceRow {
   kind: RunnerWorkspaceRecord['kind'];
   repository_id: string;
   state: RunnerWorkspaceRecord['state'];
+  target_kind: string | null;
+  target_reference: string | null;
   updated_at: Date | string;
   version: number | string;
 }
@@ -139,6 +141,9 @@ export function mapWorkspace(row: WorkspaceRow): RunnerWorkspaceRecord {
     kind: row.kind,
     repositoryId: row.repository_id,
     state: row.state,
+    ...(row.target_kind === 'project_worktree' && row.target_reference ? {
+      target: { kind: 'project_worktree' as const, reference: row.target_reference }
+    } : {}),
     updatedAt: new Date(row.updated_at).toISOString(),
     version: Number(row.version)
   };
@@ -184,7 +189,9 @@ export function sameBinding(
 export function sameWorkspace(left: RunnerWorkspaceRecord, right: RunnerWorkspaceRecord) {
   return left.id === right.id && left.executionId === right.executionId &&
     left.kind === right.kind && left.repositoryId === right.repositoryId &&
-    left.branch === right.branch && left.commit === right.commit && right.version === 1;
+    left.branch === right.branch && left.commit === right.commit &&
+    left.target?.kind === right.target?.kind &&
+    left.target?.reference === right.target?.reference && right.version === 1;
 }
 
 export function assertExecution(input: StoredTaskExecution) {

@@ -143,6 +143,10 @@ export interface RunnerWorkspaceRecord {
   kind: 'codespace' | 'worktree';
   repositoryId: string;
   state: RunnerWorkspaceState;
+  target?: {
+    kind: 'project_worktree';
+    reference: string;
+  };
   updatedAt: string;
   version: number;
 }

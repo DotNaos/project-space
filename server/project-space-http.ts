@@ -59,6 +59,7 @@ import {
 } from './preview-docs-proxy';
 import { createProjectSpaceMcpHandler } from './project-space-mcp';
 import { createConfiguredTaskExecutionService } from './task-execution/configured-runtime';
+import { createConfiguredWorkspaceCommandService } from './workspace-command/configured-runtime';
 import { observeHttpRequest } from './http-observability';
 import {
   projectSpaceLogger,
@@ -181,11 +182,22 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       throw error;
     })
   );
+  let mcpWorkspaceCommands: ReturnType<typeof createConfiguredWorkspaceCommandService> | undefined;
+  const getMcpWorkspaceCommands = () => (
+    mcpWorkspaceCommands ??= createConfiguredWorkspaceCommandService({
+      backend,
+      githubCodespaceRunnerRuntime
+    }).catch((error) => {
+      mcpWorkspaceCommands = undefined;
+      throw error;
+    })
+  );
   const projectSpaceMcp = createProjectSpaceMcpHandler({
     backend,
     createAgentRuntime: getMcpAgentRuntime,
     createEnvironmentLifecycle: getMcpEnvironmentLifecycle,
     createTaskExecutions: getMcpTaskExecutions,
+    createWorkspaceCommands: getMcpWorkspaceCommands,
     createRuntime: getMcpCodexRuntime,
     logger
   });

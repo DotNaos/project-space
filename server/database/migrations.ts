@@ -71,6 +71,10 @@ import {
   taskHandoffArtifactMigrationId,
   taskHandoffArtifactMigrationSql
 } from './task-handoff-artifact-migration';
+import {
+  workspaceCommandMigrationId,
+  workspaceCommandMigrationSql
+} from './workspace-command-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -723,6 +727,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: taskHandoffArtifactMigrationId,
     sql: taskHandoffArtifactMigrationSql
+  },
+  {
+    id: workspaceCommandMigrationId,
+    sql: workspaceCommandMigrationSql
   }
 ];
 
