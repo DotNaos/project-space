@@ -52,7 +52,16 @@ export type MachineDetailTab = (typeof machineDetailTabs)[number];
 export const settingsSections = ['machines', 'settings'] as const;
 export type SettingsSection = (typeof settingsSections)[number];
 
+const projectDetailTabAliases: Partial<Record<string, ProjectDetailTab>> = {
+  code: 'workspaces',
+  git: 'history',
+  tasks: 'issues'
+};
+
 function parseProjectDetailTab(segment: string | undefined): ProjectDetailTab {
+  const aliasedTab = segment ? projectDetailTabAliases[segment] : undefined;
+  if (aliasedTab) return aliasedTab;
+
   return projectDetailTabs.includes(segment as ProjectDetailTab)
     ? (segment as ProjectDetailTab)
     : 'overview';

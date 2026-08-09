@@ -15,7 +15,7 @@ import type {
 } from '@/shared/project-space-api';
 import { GitHubConnectPanel } from './github-connect-panel';
 import type { SettingsSection } from '../hooks/project-desktop-routing';
-import type { RailAccount } from './app-rail';
+import type { RailAccount } from './account-menu';
 import { MachinesPage } from './machines-page';
 import { releasedChangelogHref } from '@/features/pr-preview-changelog/changelog-links';
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ExternalLink,
   FileCheck2,
@@ -329,10 +329,6 @@ export function ProjectDetail({
     tab === 'workspaces';
   const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
 
-  useEffect(() => {
-    if (tab === 'roadmap') onSelectTab('issues');
-  }, [onSelectTab, tab]);
-
   return (
     <div
       className={cn(
@@ -343,7 +339,7 @@ export function ProjectDetail({
     >
       {showNavigationTabs ? <div className="-mx-1 shrink-0 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Tabs
-          selectedKey={tab === 'roadmap' ? 'issues' : projectTabItems.some((item) => item.id === tab) ? tab : 'overview'}
+          selectedKey={projectTabItems.some((item) => item.id === tab) ? tab : 'overview'}
           onSelectionChange={(key) => {
             const nextTab = projectTabItems.find((item) => item.id === key);
 

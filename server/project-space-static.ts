@@ -41,6 +41,7 @@ export function serveProjectSpaceStatic(
   response.writeHead(200, {
     ...(isHtml
       ? {
+          'Cache-Control': 'no-store',
           'Content-Security-Policy': "frame-ancestors 'none'",
           'X-Frame-Options': 'DENY'
         }

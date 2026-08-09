@@ -32,7 +32,7 @@ import type {
 } from '../hooks/use-project-desktop';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
-import type { RailAccount } from './app-rail';
+import type { RailAccount } from './account-menu';
 import { EntitySwitcher, type SwitcherEntry } from './entity-switcher';
 import { ProjectDetail } from './project-detail';
 import { ProjectHomeOverview } from './project-home-overview';

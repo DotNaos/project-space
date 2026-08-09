@@ -1,18 +1,24 @@
 import { useMemo, useState } from 'react';
 import { Button, Modal, SearchField } from '@heroui/react';
 import {
+  BookOpen,
   ChevronDown,
   CircleDot,
   FileCheck2,
+  FolderKanban,
   FolderGit2,
-  HelpCircle,
+  GitBranch,
+  LayoutDashboard,
   MessageCircle,
   Monitor,
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   PencilLine,
-  Settings
+  Rocket,
+  ScrollText,
+  Settings,
+  Workflow
 } from 'lucide-react';
 
 import type { ProjectSpaceRecord } from '@/shared/project-space-api';
@@ -21,23 +27,38 @@ import type {
   ProjectMainView,
   SettingsSection
 } from '../hooks/project-desktop-routing';
-import type { RailAccount } from './app-rail';
+import { AccountMenu, type RailAccount } from './account-menu';
 
 interface WorkspaceNavItem {
   icon: typeof CircleDot;
-  id: 'chat' | 'machines' | 'repository' | 'tasks' | 'templates';
+  id:
+    | 'chat'
+    | 'deployments'
+    | 'history'
+    | 'machines'
+    | 'overview'
+    | 'projects'
+    | 'roadmap'
+    | 'tasks'
+    | 'templates'
+    | 'workspaces';
   label: string;
 }
 
 const projectItems: WorkspaceNavItem[] = [
   { icon: MessageCircle, id: 'chat', label: 'Chat' },
   { icon: CircleDot, id: 'tasks', label: 'Tasks' },
-  { icon: FolderGit2, id: 'repository', label: 'Repository' }
+  { icon: Workflow, id: 'roadmap', label: 'Roadmap' },
+  { icon: LayoutDashboard, id: 'overview', label: 'Overview' },
+  { icon: FolderGit2, id: 'workspaces', label: 'Workspaces' },
+  { icon: GitBranch, id: 'history', label: 'Git history' },
+  { icon: Rocket, id: 'deployments', label: 'Deployments' },
+  { icon: FileCheck2, id: 'templates', label: 'Templates' }
 ];
 
 const globalItems: WorkspaceNavItem[] = [
-  { icon: Monitor, id: 'machines', label: 'Machines' },
-  { icon: FileCheck2, id: 'templates', label: 'Templates' }
+  { icon: FolderKanban, id: 'projects', label: 'Projects' },
+  { icon: Monitor, id: 'machines', label: 'Machines' }
 ];
 
 function isVisibleProject(project: ProjectSpaceRecord) {
@@ -56,18 +77,33 @@ function projectInitials(project: ProjectSpaceRecord) {
     .toUpperCase();
 }
 
-function activeItem(
+export function workspaceSidebarActiveItem(
   mainView: ProjectMainView,
   tab: ProjectDetailTab,
   settingsSection: SettingsSection
-) {
+): WorkspaceNavItem['id'] | 'settings' {
+  if (mainView === 'chat' || mainView === 'codex') return 'chat';
+  if (mainView === 'root' || mainView === 'topology' || mainView === 'projects') {
+    return 'projects';
+  }
   if (mainView === 'settings' || mainView === 'machines' || mainView === 'machine') {
     return settingsSection === 'machines' ? 'machines' : 'settings';
   }
-  if (tab === 'chat' || tab === 'codex') return 'chat';
-  if (tab === 'issues' || tab === 'roadmap') return 'tasks';
-  if (tab === 'template') return 'templates';
-  return 'repository';
+
+  const itemByTab: Record<ProjectDetailTab, WorkspaceNavItem['id']> = {
+    chat: 'chat',
+    codex: 'chat',
+    deployments: 'deployments',
+    history: 'history',
+    issues: 'tasks',
+    machines: 'machines',
+    overview: 'overview',
+    roadmap: 'roadmap',
+    template: 'templates',
+    workspaces: 'workspaces'
+  };
+
+  return itemByTab[tab];
 }
 
 function SidebarItem({
@@ -87,6 +123,7 @@ function SidebarItem({
       type="button"
       aria-current={active ? 'page' : undefined}
       aria-label={item.label}
+      data-testid={`sidebar-${item.id}`}
       title={collapsed ? item.label : undefined}
       onClick={onPress}
       className={`group flex h-10 w-full items-center rounded-xl text-sm transition-[background-color,color,scale] active:scale-[.97] ${
@@ -110,7 +147,7 @@ function ProjectSelector({
   projects
 }: {
   collapsed: boolean;
-  currentProject: ProjectSpaceRecord;
+  currentProject?: ProjectSpaceRecord;
   onSelect(projectId: string): void;
   projects: ProjectSpaceRecord[];
 }) {
@@ -133,22 +170,24 @@ function ProjectSelector({
       <button
         type="button"
         aria-haspopup="dialog"
-        aria-label={`Switch project, current project ${currentProject.name}`}
+        aria-label={currentProject
+          ? `Switch project, current project ${currentProject.name}`
+          : 'Select project'}
         onClick={() => setIsOpen(true)}
-        title={collapsed ? currentProject.name : undefined}
+        title={collapsed ? (currentProject?.name ?? 'Projects') : undefined}
         className={`flex h-10 w-full items-center rounded-xl transition-colors hover:bg-white/[.04] ${
           collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
         }`}
       >
         {collapsed ? (
           <span className="text-[11px] font-semibold tracking-tight text-neutral-300">
-            {projectInitials(currentProject)}
+            {currentProject ? projectInitials(currentProject) : 'PS'}
           </span>
         ) : (
           <>
             <ChevronDown className="size-3.5 text-neutral-600" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-200">
-              {currentProject.github?.name ?? currentProject.name}
+              {currentProject?.github?.name ?? currentProject?.name ?? 'Select project'}
             </span>
           </>
         )}
@@ -190,7 +229,7 @@ function ProjectSelector({
                           <span className="block truncate text-[13px] font-medium leading-4">{name}</span>
                           <span className="block truncate text-[10px] leading-4 text-neutral-500">{owner}</span>
                         </span>
-                        {project.id === currentProject.id ? (
+                        {project.id === currentProject?.id ? (
                           <span className="text-[10px] text-neutral-500">Current</span>
                         ) : null}
                       </button>
@@ -223,8 +262,12 @@ export function ProjectWorkspaceSidebar({
   mainView,
   onClose,
   onCollapsedChange,
+  onOpenChat,
+  onOpenChangelog,
+  onOpenDocumentation,
   onNewTask,
   onOpenMachines,
+  onOpenProjects,
   onOpenSettings,
   onSelectProject,
   onSelectTab,
@@ -234,12 +277,16 @@ export function ProjectWorkspaceSidebar({
 }: {
   account?: RailAccount;
   collapsed: boolean;
-  currentProject: ProjectSpaceRecord;
+  currentProject?: ProjectSpaceRecord;
   mainView: ProjectMainView;
   onClose(): void;
   onCollapsedChange(collapsed: boolean): void;
+  onOpenChat(): void;
+  onOpenChangelog?(): void;
+  onOpenDocumentation(): void;
   onNewTask(): void;
   onOpenMachines(): void;
+  onOpenProjects(): void;
   onOpenSettings(): void;
   onSelectProject(projectId: string): void;
   onSelectTab(tab: ProjectDetailTab): void;
@@ -247,13 +294,25 @@ export function ProjectWorkspaceSidebar({
   projects: ProjectSpaceRecord[];
   settingsSection: SettingsSection;
 }) {
-  const selectedItem = activeItem(mainView, projectTab, settingsSection);
+  const selectedItem = workspaceSidebarActiveItem(mainView, projectTab, settingsSection);
   const openItem = (id: WorkspaceNavItem['id']) => {
-    if (id === 'machines') onOpenMachines();
-    else if (id === 'templates') onSelectTab('template');
-    else if (id === 'chat') onSelectTab('chat');
-    else if (id === 'tasks') onSelectTab('issues');
-    else onSelectTab('workspaces');
+    if (id === 'projects') onOpenProjects();
+    else if (id === 'machines') onOpenMachines();
+    else if (id === 'chat' && !currentProject) onOpenChat();
+    else {
+      const tabByItem: Partial<Record<WorkspaceNavItem['id'], ProjectDetailTab>> = {
+        chat: 'chat',
+        deployments: 'deployments',
+        history: 'history',
+        overview: 'overview',
+        roadmap: 'roadmap',
+        tasks: 'issues',
+        templates: 'template',
+        workspaces: 'workspaces'
+      };
+      const tab = tabByItem[id];
+      if (tab) onSelectTab(tab);
+    }
     onClose();
   };
 
@@ -277,23 +336,41 @@ export function ProjectWorkspaceSidebar({
 
       <nav className={`min-h-0 flex-1 overflow-y-auto pb-4 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${collapsed ? 'px-2' : 'px-4'}`}>
         <ProjectSelector collapsed={collapsed} currentProject={currentProject} onSelect={onSelectProject} projects={projects} />
-        <button
-          type="button"
-          aria-label="New task"
-          title={collapsed ? 'New task' : undefined}
-          onClick={onNewTask}
-          className={`mt-1 flex h-10 w-full items-center rounded-xl text-sm text-neutral-300 transition-[background-color,color,scale] hover:bg-white/[.04] hover:text-white active:scale-[.97] ${collapsed ? 'justify-center' : 'gap-3 px-3'}`}
-        >
-          <PencilLine className="size-4" strokeWidth={1.8} />
-          {collapsed ? null : <span>New task</span>}
-        </button>
+        {currentProject ? (
+          <button
+            type="button"
+            aria-label="New task"
+            title={collapsed ? 'New task' : undefined}
+            onClick={onNewTask}
+            className={`mt-1 flex h-10 w-full items-center rounded-xl text-sm text-neutral-300 transition-[background-color,color,scale] hover:bg-white/[.04] hover:text-white active:scale-[.97] ${collapsed ? 'justify-center' : 'gap-3 px-3'}`}
+          >
+            <PencilLine className="size-4" strokeWidth={1.8} />
+            {collapsed ? null : <span>New task</span>}
+          </button>
+        ) : null}
 
-        <div className={collapsed ? 'mt-2' : 'mt-5'}>
-          {collapsed ? null : <p className="px-3 pb-2 text-[11px] font-medium text-neutral-600">Project</p>}
-          {projectItems.map((item) => (
-            <SidebarItem key={item.id} item={item} collapsed={collapsed} active={selectedItem === item.id} onPress={() => openItem(item.id)} />
-          ))}
-        </div>
+        {!currentProject ? (
+          <div className={collapsed ? 'mt-2' : 'mt-5'}>
+            {collapsed ? null : (
+              <p className="px-3 pb-2 text-[11px] font-medium text-neutral-600">Workspace</p>
+            )}
+            <SidebarItem
+              active={selectedItem === 'chat'}
+              collapsed={collapsed}
+              item={projectItems[0]}
+              onPress={() => openItem('chat')}
+            />
+          </div>
+        ) : null}
+
+        {currentProject ? (
+          <div className={collapsed ? 'mt-2' : 'mt-5'}>
+            {collapsed ? null : <p className="px-3 pb-2 text-[11px] font-medium text-neutral-600">Project</p>}
+            {projectItems.map((item) => (
+              <SidebarItem key={item.id} item={item} collapsed={collapsed} active={selectedItem === item.id} onPress={() => openItem(item.id)} />
+            ))}
+          </div>
+        ) : null}
 
         <div className={collapsed ? 'mt-3 border-t border-white/[.06] pt-3' : 'mt-6'}>
           {collapsed ? null : <p className="px-3 pb-2 text-[11px] font-medium text-neutral-600">Global</p>}
@@ -303,22 +380,25 @@ export function ProjectWorkspaceSidebar({
         </div>
       </nav>
 
-      <div className={`${collapsed ? 'mx-2' : 'mx-4'} mb-3 shrink-0`}>
-        <div className={`flex h-9 items-center ${collapsed ? 'justify-center' : 'gap-2 px-1'}`}>
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-white/[.05] text-[10px] font-semibold text-neutral-500">
-            {(account?.name ?? account?.email ?? 'OS').trim().slice(0, 2).toUpperCase()}
-          </span>
+      <div className={`${collapsed ? 'mx-2' : 'mx-4'} mb-3 shrink-0 border-t border-white/[.06] pt-3`}>
+        <div className={`flex items-center ${collapsed ? 'flex-col gap-1' : 'gap-1 px-1'}`}>
+          {account ? <AccountMenu account={account} placement="top start" /> : null}
           {collapsed ? null : (
-            <>
-              <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-400">{account?.name ?? 'Oli'}</span>
-              <Button isIconOnly aria-label="Help" className="size-7 min-w-7 text-neutral-700 hover:text-neutral-400" size="sm" variant="ghost">
-                <HelpCircle className="size-3.5" />
-              </Button>
-              <Button isIconOnly aria-label="Settings" className="size-7 min-w-7 text-neutral-700 hover:text-neutral-400" size="sm" variant="ghost" onPress={onOpenSettings}>
-                <Settings className="size-3.5" />
-              </Button>
-            </>
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-400">
+              {account?.name ?? account?.email ?? 'Project Space'}
+            </span>
           )}
+          <Button isIconOnly aria-label="Documentation" data-testid="sidebar-documentation" className="size-8 min-w-8 text-neutral-600 hover:text-neutral-300" size="sm" variant="ghost" onPress={onOpenDocumentation}>
+            <BookOpen className="size-3.5" />
+          </Button>
+          {onOpenChangelog ? (
+            <Button isIconOnly aria-label="Preview changelog" data-testid="sidebar-preview-changelog" className="size-8 min-w-8 text-neutral-600 hover:text-neutral-300" size="sm" variant="ghost" onPress={onOpenChangelog}>
+              <ScrollText className="size-3.5" />
+            </Button>
+          ) : null}
+          <Button isIconOnly aria-label="Settings" data-testid="sidebar-settings" className="size-8 min-w-8 text-neutral-600 hover:text-neutral-300" size="sm" variant="ghost" onPress={onOpenSettings}>
+            <Settings className="size-3.5" />
+          </Button>
         </div>
       </div>
     </div>

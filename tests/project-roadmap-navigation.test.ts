@@ -34,6 +34,14 @@ test('restores the Roadmap tab from its direct URL', () => {
   expect(issueViewModeForLocation('graph', '/projects/project/issues')).toBe('graph');
 });
 
+test('keeps legacy project links working inside the canonical project views', () => {
+  const projectBase = '/projects/github%3ADotNaos%2Fproject-space';
+
+  expect(parseProjectRoute(`${projectBase}/tasks`)).toMatchObject({ projectTab: 'issues' });
+  expect(parseProjectRoute(`${projectBase}/code`)).toMatchObject({ projectTab: 'workspaces' });
+  expect(parseProjectRoute(`${projectBase}/git`)).toMatchObject({ projectTab: 'history' });
+});
+
 test('resolves a local project repository when Roadmap opens before the shell catalog is hydrated', () => {
   const repository = {
     defaultBranch: 'main',
