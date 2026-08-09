@@ -27,7 +27,11 @@ describe('Codespaces runner devcontainer', () => {
     );
     expect(devcontainer.remoteUser).toBe('node');
     expect(devcontainer.remoteEnv?.PATH).toStartWith('/home/node/');
-    expect(devcontainer.features).toBeUndefined();
+    expect(devcontainer.features).toEqual({
+      'ghcr.io/devcontainers/features/sshd:1': {
+        version: 'latest',
+      },
+    });
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
     const startRunner = await readFile('.devcontainer/start-runner.sh', 'utf8');
     expect(bootstrap).toContain('missing_packages+=(openssh-server)');
