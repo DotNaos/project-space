@@ -5,9 +5,9 @@ repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly repository_root
 readonly bun_version="1.3.14"
 readonly node_gyp_version="13.0.1"
-readonly project_version="0.9.1"
+readonly project_version="0.10.4"
 readonly archive="project-space-machine-tools-linux-x64-v${project_version}.tar.gz"
-readonly archive_sha256="413ac5706f6b8f245cf5890de5caa240d11e1af334047afa7ee2f8d033227e8d"
+readonly archive_sha256="50081bcc5572f3f038c7e46e9418963129debaf32367e86458e1306c2f54284a"
 
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 cd -- "${repository_root}"
