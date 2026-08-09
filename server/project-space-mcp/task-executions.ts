@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import type { TaskExecutionService } from '../task-execution/service';
+import type { CreateTaskHandoffRequest } from '../../src/shared/task-handoff-mcp-api';
 import { toolResult } from './results';
 import { toolSchemas } from './tool-catalog';
 
@@ -13,7 +14,10 @@ const taskExecutionToolNames = new Set([
   'respond_task_execution_input',
   'send_task_execution_message',
   'start_task_execution',
-  'wait_task_execution'
+  'wait_task_execution',
+  'create_task_handoff',
+  'get_task_handoff',
+  'update_task_execution_handoff'
 ]);
 
 export function isTaskExecutionTool(name: string) {
@@ -24,10 +28,26 @@ export async function callTaskExecutionTool(input: {
   name: string;
   rawArguments: Record<string, unknown>;
   service: TaskExecutionService;
+  clientId?: string;
   userId: string;
 }): Promise<CallToolResult | undefined> {
-  const actor = { userId: input.userId };
+  const actor = { ...(input.clientId ? { clientId: input.clientId } : {}), userId: input.userId };
   switch (input.name) {
+    case 'create_task_handoff':
+      return toolResult(await input.service.createHandoff(
+        actor,
+        toolSchemas.create_task_handoff.parse(input.rawArguments) as CreateTaskHandoffRequest
+      ));
+    case 'get_task_handoff':
+      return toolResult(await input.service.getHandoff(
+        actor,
+        toolSchemas.get_task_handoff.parse(input.rawArguments)
+      ));
+    case 'update_task_execution_handoff':
+      return toolResult(await input.service.updateHandoff(
+        actor,
+        toolSchemas.update_task_execution_handoff.parse(input.rawArguments)
+      ));
     case 'start_task_execution':
       return toolResult(await input.service.start(
         actor,

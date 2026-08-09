@@ -29,17 +29,21 @@ const handoffId = '11111111-1111-4111-8111-111111111111';
 const environmentId = '22222222-2222-4222-8222-222222222222';
 const executionId = '33333333-3333-4333-8333-333333333333';
 const now = '2026-08-09T12:00:00.000Z';
+const taskId = 'github:DotNaos/project-space#544';
 
 const handoff: StoredTaskHandoffRevision = {
   acceptanceCriteria: ['Tests pass'],
   artifacts: [{
-    authorization: { kind: 'task', reference: 'task-544' },
+    authorization: { kind: 'task', reference: taskId },
     digest: `sha256:${'a'.repeat(64)}`,
     id: 'design-spec',
+    kind: 'design',
     mediaType: 'text/markdown',
+    name: 'Design specification',
     provenance: { kind: 'orchestrator', reference: 'claude-design' },
     sizeBytes: 128,
-    storage: { kind: 'task_artifact', reference: 'artifact:design-spec' }
+    storage: { kind: 'task_artifact', reference: 'artifact:design-spec' },
+    verification: { state: 'unavailable' }
   }],
   constraints: ['No credentials'],
   context: 'Provider-neutral execution context.',
@@ -51,8 +55,12 @@ const handoff: StoredTaskHandoffRevision = {
   objective: 'Implement the task safely.',
   ownerUserId: owner,
   requestedMode: 'implement',
+  requestedPermissions: {
+    delivery: 'pull_request', network: 'restricted', repository: 'write',
+    task: 'write', workspace: 'write'
+  },
   revision: 1,
-  taskId: 'github:DotNaos/project-space#544'
+  taskId
 };
 
 const execution: StoredTaskExecution = {
@@ -289,6 +297,17 @@ describe('neutral task execution identity', () => {
     expect(second.cursor).toBeGreaterThan(first.cursor);
     expect((await store.listEvents(owner, executionId, first.cursor))).toEqual([second]);
 
+    expect(await store.updateHandoff({
+      executionId,
+      expectedVersion: 1,
+      handoff: { id: handoffId, revision: 2 },
+      ownerUserId: owner,
+      updatedAt: now
+    })).toMatchObject({
+      kind: 'updated',
+      execution: { handoff: { id: handoffId, revision: 2 }, version: 2 }
+    });
+
     const binding = {
       agent: 'codex' as const,
       createdAt: now,
@@ -336,22 +355,12 @@ describe('neutral task execution identity', () => {
       connectorBinding: { connectorId: 'connector-two', generation: 8 },
       executionId,
       expectedConnectorBinding: execution.connectorBinding,
-      expectedVersion: 1,
-      ownerUserId: owner,
-      updatedAt: now
-    })).toMatchObject({
-      kind: 'updated',
-      execution: { connectorBinding: { connectorId: 'connector-two', generation: 8 }, version: 2 }
-    });
-    expect(await store.updateHandoff({
-      executionId,
       expectedVersion: 2,
-      handoff: { id: handoffId, revision: 2 },
       ownerUserId: owner,
       updatedAt: now
     })).toMatchObject({
       kind: 'updated',
-      execution: { handoff: { id: handoffId, revision: 2 }, version: 3 }
+      execution: { connectorBinding: { connectorId: 'connector-two', generation: 8 }, version: 3 }
     });
     expect((await store.listEvents(owner, executionId)).at(-1)).toMatchObject({
       handoffChange: {
@@ -363,7 +372,7 @@ describe('neutral task execution identity', () => {
     expect((await store.updateHandoff({
       executionId,
       expectedVersion: 3,
-      handoff: { id: 'not-a-uuid', revision: 3 },
+      handoff: { id: handoffId, revision: 3 },
       ownerUserId: owner,
       updatedAt: now
     })).kind).toBe('conflict');

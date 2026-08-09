@@ -13,6 +13,7 @@ export {
   TaskExecutionNotFoundError
 } from './service-contracts';
 import { createTaskExecutionMutations } from './service-mutations';
+import { createTaskHandoffService } from './handoff-service';
 import { createTaskExecutionReader } from './service-read';
 import { createTaskExecutionStarter } from './service-start';
 
@@ -31,11 +32,14 @@ export function createTaskExecutionService(
     ...(replayed ? { replayed: true } : {})
   });
   const mutations = createTaskExecutionMutations(dependencies, readResult);
+  const handoffs = createTaskHandoffService(dependencies);
   const start = createTaskExecutionStarter(dependencies, readResult);
   return {
     archive: mutations.archive,
     cancel: mutations.cancel,
+    createHandoff: handoffs.create,
     get: reader.get,
+    getHandoff: handoffs.get,
     list: reader.list,
     readByExecutor: (actor, agent, externalId, afterCursor, limit) => (
       agent === 'codex'
@@ -46,6 +50,7 @@ export function createTaskExecutionService(
     respondInput: mutations.respondInput,
     send: mutations.send,
     start,
+    updateHandoff: handoffs.updateExecution,
     wait: reader.wait
   };
 }

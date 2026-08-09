@@ -84,13 +84,33 @@ export async function ensureHandoff(
     decisions: draft.decisions ?? [], fingerprint: taskExecutionFingerprint(draft),
     handoffId: deterministicTaskExecutionId('task-handoff', executionId),
     objective: draft.objective, ownerUserId: actor.userId,
-    requestedMode: draft.requestedMode ?? 'implement', revision: 1, taskId: source.taskId
+    requestedMode: draft.requestedMode ?? 'implement',
+    requestedPermissions: permissionsFor(draft.requestedMode ?? 'implement'),
+    revision: 1, taskId: source.taskId
   };
   const written = await dependencies.handoffs.create(revision);
   if (written.kind === 'conflict') {
     throw new TaskExecutionConflictError('The Handoff identity conflicts.');
   }
   return { id: revision.handoffId, revision: 1 };
+}
+
+function permissionsFor(mode: StoredTaskHandoffRevision['requestedMode']) {
+  return mode === 'plan' || mode === 'review'
+    ? {
+        delivery: 'none' as const,
+        network: 'restricted' as const,
+        repository: 'read' as const,
+        task: 'read' as const,
+        workspace: 'read' as const
+      }
+    : {
+        delivery: 'pull_request' as const,
+        network: 'restricted' as const,
+        repository: 'write' as const,
+        task: 'write' as const,
+        workspace: 'write' as const
+      };
 }
 
 export async function requireHandoff(

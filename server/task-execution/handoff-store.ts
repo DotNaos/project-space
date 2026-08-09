@@ -19,12 +19,15 @@ interface RevisionRow {
   objective: string;
   owner_user_id: string;
   requested_mode: StoredTaskHandoffRevision['requestedMode'];
+  requested_permissions: unknown;
   revision: number;
   task_id: string;
 }
 
 interface ArtifactRow {
+  artifact_kind: TaskHandoffArtifactRef['kind'];
   artifact_id: string;
+  artifact_name: string;
   authorization_kind: TaskHandoffArtifactRef['authorization']['kind'];
   authorization_reference: string | null;
   digest_sha256: string;
@@ -34,6 +37,8 @@ interface ArtifactRow {
   size_bytes: number | string;
   storage_kind: TaskHandoffArtifactRef['storage']['kind'];
   storage_reference: string;
+  verification_state: TaskHandoffArtifactRef['verification']['state'];
+  verified_at: Date | string | null;
 }
 
 export class PostgresTaskHandoffStore implements TaskHandoffStore {
@@ -55,7 +60,7 @@ export class PostgresTaskHandoffStore implements TaskHandoffStore {
     const result = await this.client.query<RevisionRow>(
       `select handoff_id, owner_user_id, revision, task_id, fingerprint_sha256,
               objective, context, decisions, acceptance_criteria, constraints,
-              requested_mode, created_by_kind, created_by_id, created_at
+              requested_mode, requested_permissions, created_by_kind, created_by_id, created_at
          from task_handoff_revisions
         where owner_user_id = $1 and handoff_id = $2::uuid
           and ($3::integer is null or revision = $3)
@@ -181,16 +186,17 @@ async function insertRevision(client: DatabaseQueryClient, input: StoredTaskHand
     `insert into task_handoff_revisions (
        handoff_id, owner_user_id, revision, task_id, fingerprint_sha256,
        objective, context, decisions, acceptance_criteria, constraints,
-       requested_mode, created_by_kind, created_by_id, created_at
+       requested_mode, requested_permissions, created_by_kind, created_by_id, created_at
      ) values (
        $1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb,
-       $11, $12, $13, $14::timestamptz
+       $11, $12::jsonb, $13, $14, $15::timestamptz
      )`,
     [
       input.handoffId, input.ownerUserId, input.revision, input.taskId, input.fingerprint,
       input.objective, input.context, JSON.stringify(input.decisions),
       JSON.stringify(input.acceptanceCriteria), JSON.stringify(input.constraints),
-      input.requestedMode, input.createdBy.kind, input.createdBy.id, input.createdAt
+      input.requestedMode, JSON.stringify(input.requestedPermissions),
+      input.createdBy.kind, input.createdBy.id, input.createdAt
     ]
   );
   for (const artifact of input.artifacts) {
@@ -198,14 +204,19 @@ async function insertRevision(client: DatabaseQueryClient, input: StoredTaskHand
       `insert into task_handoff_artifacts (
          handoff_id, owner_user_id, revision, artifact_id, media_type, digest_sha256,
          size_bytes, storage_kind, storage_reference, authorization_kind,
-         authorization_reference, provenance_kind, provenance_reference
-       ) values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         authorization_reference, provenance_kind, provenance_reference, artifact_kind,
+         artifact_name, verification_state, verified_at
+       ) values (
+         $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+         $14, $15, $16, $17::timestamptz
+       )`,
       [
         input.handoffId, input.ownerUserId, input.revision, artifact.id,
         artifact.mediaType, artifact.digest.slice(7), artifact.sizeBytes,
         artifact.storage.kind, artifact.storage.reference, artifact.authorization.kind,
         artifact.authorization.reference ?? null, artifact.provenance.kind,
-        artifact.provenance.reference ?? null
+        artifact.provenance.reference ?? null, artifact.kind, artifact.name,
+        artifact.verification.state, artifact.verification.verifiedAt ?? null
       ]
     );
   }
@@ -220,7 +231,7 @@ async function readExact(
   const result = await client.query<RevisionRow>(
     `select handoff_id, owner_user_id, revision, task_id, fingerprint_sha256,
             objective, context, decisions, acceptance_criteria, constraints,
-            requested_mode, created_by_kind, created_by_id, created_at
+            requested_mode, requested_permissions, created_by_kind, created_by_id, created_at
        from task_handoff_revisions
       where owner_user_id = $1 and handoff_id = $2::uuid and revision = $3
       for update`,
@@ -236,9 +247,10 @@ async function readArtifactsWith(
   revision: number
 ) {
   const result = await client.query<ArtifactRow>(
-    `select artifact_id, media_type, digest_sha256, size_bytes, storage_kind,
+    `select artifact_id, artifact_kind, artifact_name, media_type, digest_sha256,
+            size_bytes, storage_kind,
             storage_reference, authorization_kind, authorization_reference,
-            provenance_kind, provenance_reference
+            provenance_kind, provenance_reference, verification_state, verified_at
        from task_handoff_artifacts
       where owner_user_id = $1 and handoff_id = $2::uuid and revision = $3
       order by artifact_id`,
@@ -261,6 +273,7 @@ function mapRevision(row: RevisionRow, artifacts: TaskHandoffArtifactRef[]): Sto
     objective: row.objective,
     ownerUserId: row.owner_user_id,
     requestedMode: row.requested_mode,
+    requestedPermissions: requestedPermissions(row.requested_permissions),
     revision: Number(row.revision),
     taskId: row.task_id
   };
@@ -274,13 +287,19 @@ function mapArtifact(row: ArtifactRow): TaskHandoffArtifactRef {
     },
     digest: `sha256:${row.digest_sha256}`,
     id: row.artifact_id,
+    kind: row.artifact_kind,
     mediaType: row.media_type,
+    name: row.artifact_name,
     provenance: {
       kind: row.provenance_kind,
       ...(row.provenance_reference ? { reference: row.provenance_reference } : {})
     },
     sizeBytes: Number(row.size_bytes),
-    storage: { kind: row.storage_kind, reference: row.storage_reference }
+    storage: { kind: row.storage_kind, reference: row.storage_reference },
+    verification: {
+      state: row.verification_state,
+      ...(row.verified_at ? { verifiedAt: new Date(row.verified_at).toISOString() } : {})
+    }
   };
 }
 
@@ -297,24 +316,51 @@ function assertRevision(input: StoredTaskHandoffRevision) {
       input.artifacts.length ||
       !input.objective.trim() || input.objective.length > 12_000 ||
       input.context.length > 60_000 || input.createdBy.id.length > 256 ||
+      !isRequestedPermissions(input.requestedPermissions) ||
       listInvalid(input.decisions) || listInvalid(input.acceptanceCriteria) ||
       listInvalid(input.constraints) ||
       input.artifacts.some((artifact) => !/^sha256:[0-9a-f]{64}$/.test(artifact.digest) ||
         !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(artifact.id) ||
+        !artifact.name.trim() || artifact.name.length > 512 ||
         !/^[A-Za-z0-9][A-Za-z0-9.+-]*\/[A-Za-z0-9][A-Za-z0-9.+-]*$/.test(
           artifact.mediaType
         ) || artifact.mediaType.length > 128 ||
         !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/.test(artifact.storage.reference) ||
-        (artifact.authorization.reference !== undefined &&
-          !referencePattern.test(artifact.authorization.reference)) ||
-        (artifact.authorization.kind !== 'owner' && !artifact.authorization.reference) ||
+        (artifact.authorization.kind === 'owner'
+          ? artifact.authorization.reference !== undefined
+          : artifact.authorization.kind === 'task'
+            ? artifact.authorization.reference !== input.taskId
+            : !artifact.authorization.reference ||
+              !uuidPattern.test(artifact.authorization.reference)) ||
         (artifact.provenance.reference !== undefined &&
           !referencePattern.test(artifact.provenance.reference)) ||
         (artifact.provenance.kind !== 'user_upload' && !artifact.provenance.reference) ||
+        (artifact.verification.state === 'verified') !==
+          (artifact.verification.verifiedAt !== undefined) ||
+        (artifact.verification.verifiedAt !== undefined &&
+          !Number.isFinite(Date.parse(artifact.verification.verifiedAt))) ||
         !Number.isSafeInteger(artifact.sizeBytes) || artifact.sizeBytes < 0 ||
         artifact.sizeBytes > 104_857_600)) {
     throw new Error('Task Handoff revision is invalid.');
   }
+}
+
+function requestedPermissions(value: unknown): StoredTaskHandoffRevision['requestedPermissions'] {
+  if (!isRequestedPermissions(value)) throw new Error('Task Handoff revision is invalid.');
+  return value;
+}
+
+function isRequestedPermissions(
+  value: unknown
+): value is StoredTaskHandoffRevision['requestedPermissions'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const permissions = value as Record<string, unknown>;
+  return Object.keys(permissions).length === 5 &&
+    ['none', 'pull_request'].includes(String(permissions.delivery)) &&
+    ['none', 'restricted', 'open'].includes(String(permissions.network)) &&
+    ['read', 'write'].includes(String(permissions.repository)) &&
+    ['read', 'write'].includes(String(permissions.task)) &&
+    ['read', 'write'].includes(String(permissions.workspace));
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

@@ -13,9 +13,16 @@ export async function updatePostgresTaskExecutionHandoff(
 ) {
   const currentResult = await client.query<CurrentHandoffRow>(
     `select handoff_id, handoff_revision
-       from task_executions
+      from task_executions
       where owner_user_id = $1 and id = $2::uuid and version = $3
-        and state not in ('completed', 'failed', 'cancelled', 'archived')
+        and state in (
+          'planned', 'preparing_environment', 'waiting_for_connector',
+          'waiting_for_authorization', 'preparing_workspace', 'blocked'
+        )
+        and not exists (
+          select 1 from task_execution_bindings b
+           where b.owner_user_id = $1 and b.execution_id = $2::uuid
+        )
       for update`,
     [input.ownerUserId, input.executionId, input.expectedVersion]
   );

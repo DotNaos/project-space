@@ -8,6 +8,10 @@ import {
   projectSpaceMcpWriteScope
 } from '../project-space-mcp-oauth-store';
 import {
+  taskHandoffToolSchemas,
+  taskHandoffTools
+} from './task-handoff-tool-catalog';
+import {
   taskExecutionToolSchemas,
   taskExecutionTools
 } from './task-execution-tool-catalog';
@@ -131,6 +135,7 @@ export const toolSchemas = {
     environmentId: z.string().trim().min(1).max(512),
     operationId: z.string().regex(operationIdPattern)
   }).strict(),
+  ...taskHandoffToolSchemas,
   ...taskExecutionToolSchemas,
   list_machines: z.object({}),
   list_codex_tasks: z.object({
@@ -311,6 +316,7 @@ export const tools: OAuthTool[] = [
     projectSpaceMcpWriteScope,
     projectSpaceMcpEnvironmentDeleteScope
   ]),
+  ...taskHandoffTools,
   ...taskExecutionTools,
   tool('list_machines', 'List machines', 'List the legacy connector-machine projection. Prefer list_execution_environments for new workflows.', {
     type: 'object', properties: {}, additionalProperties: false
