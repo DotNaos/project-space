@@ -5,6 +5,11 @@
   "remoteEnv": {
     "PATH": "/home/node/.local/bin:/home/node/.bun/bin:${containerEnv:PATH}"
   },
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  },
   "customizations": {
     "codespaces": {
       "repositories": {
