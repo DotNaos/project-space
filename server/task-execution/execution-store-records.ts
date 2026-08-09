@@ -64,11 +64,18 @@ export interface EventRow {
   state: TaskExecutionEvent['state'] | null;
 }
 
-export const executionColumns = `
-  id, owner_user_id, task_id, handoff_id, handoff_revision, agent_kind,
-  environment_id, connector_id, connector_generation, repository_id, branch,
-  commit_sha, state, blocked_reason, version, created_at, updated_at, archived_at
-`;
+const executionColumnNames = [
+  'id', 'owner_user_id', 'task_id', 'handoff_id', 'handoff_revision', 'agent_kind',
+  'environment_id', 'connector_id', 'connector_generation', 'repository_id', 'branch',
+  'commit_sha', 'state', 'blocked_reason', 'version', 'created_at', 'updated_at', 'archived_at'
+] as const;
+
+export const executionColumns = executionColumnNames.join(', ');
+
+export function qualifiedExecutionColumns(alias: string) {
+  if (!/^[a-z][a-z0-9_]*$/.test(alias)) throw new Error('SQL alias is invalid.');
+  return executionColumnNames.map((column) => `${alias}.${column}`).join(', ');
+}
 
 export function executionValues(input: StoredTaskExecution) {
   return [

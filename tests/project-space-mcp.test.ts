@@ -20,6 +20,7 @@ import {
 import { createProjectSpaceMcpHandler } from '../server/project-space-mcp';
 import type { LoadMcpComputeInventory } from '../server/project-space-mcp/compute-environments';
 import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oauth-store';
+import type { TaskExecutionService } from '../server/task-execution/service';
 
 const originalAuthDisabled = process.env.PROJECT_SPACE_AUTH_DISABLED;
 const originalPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
@@ -360,6 +361,63 @@ function agentRuntime(
   };
 }
 
+function taskExecutionRuntime(
+  calls: Array<{ kind: string; request: unknown; userId: string }>
+): TaskExecutionService {
+  const execution = {
+    agent: 'codex' as const,
+    createdAt: '2026-08-09T00:00:00.000Z',
+    environmentId: '11111111-1111-4111-8111-111111111111',
+    executor: { externalId: '22222222-2222-4222-8222-222222222222' },
+    handoff: { id: '33333333-3333-4333-8333-333333333333', revision: 1 },
+    id: '44444444-4444-4444-8444-444444444444',
+    source: {
+      branch: 'issue-548-task-execution', commit: 'a'.repeat(40), provider: 'github' as const,
+      providerTaskId: '548', repositoryId: '480',
+      taskId: 'github:DotNaos/project-space:548'
+    },
+    state: 'running' as const,
+    updatedAt: '2026-08-09T00:00:00.000Z',
+    version: 4
+  };
+  const result = (operationId?: string) => ({
+    apiVersion: 1 as const,
+    events: [],
+    execution,
+    message: 'Task Execution is running.',
+    ...(operationId ? { operationId } : {})
+  });
+  const record = (kind: string, actor: { userId: string }, request: unknown) => {
+    calls.push({ kind, request, userId: actor.userId });
+    return result((request as { operationId?: string }).operationId);
+  };
+  return {
+    archive: async (actor, request) => record('execution-archive', actor, request),
+    cancel: async (actor, request) => record('execution-cancel', actor, request),
+    get: async (actor, request) => record('execution-get', actor, request),
+    list: async (actor, request) => {
+      calls.push({ kind: 'execution-list', request, userId: actor.userId });
+      return { apiVersion: 1, executions: [execution] };
+    },
+    readByExecutor: async (actor, _agent, externalId, afterCursor, limit) => {
+      calls.push({
+        kind: 'execution-read-by-executor',
+        request: { afterCursor, externalId, limit },
+        userId: actor.userId
+      });
+      return externalId === execution.executor.externalId ? result() : undefined;
+    },
+    respondApproval: async (actor, request) => record('execution-approval', actor, request),
+    respondInput: async (actor, request) => record('execution-input', actor, request),
+    send: async (actor, request) => record('execution-send', actor, request),
+    start: async (actor, request) => record('execution-start', actor, request),
+    wait: async (actor, request) => {
+      calls.push({ kind: 'execution-wait', request, userId: actor.userId });
+      return { apiVersion: 1, executions: [result()], timedOut: false };
+    }
+  };
+}
+
 async function startMcp(
   calls: Array<{ kind: string; request: unknown; userId: string }>,
   options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {},
@@ -369,6 +427,7 @@ async function startMcp(
     environmentLifecycle?: ExecutionEnvironmentLifecycleService;
     loadComputeInventory?: LoadMcpComputeInventory;
     logger?: ProjectSpaceLogger;
+    taskExecutions?: TaskExecutionService;
   } = {}
 ) {
   const logger = dependencies.logger ?? createProjectSpaceLogger({
@@ -382,6 +441,9 @@ async function startMcp(
     createEnvironmentLifecycle: async () => (
       dependencies.environmentLifecycle ?? environmentLifecycle(calls)
     ),
+    ...(dependencies.taskExecutions ? {
+      createTaskExecutions: async () => dependencies.taskExecutions!
+    } : {}),
     createRuntime: async () => runtime(calls),
     loadComputeInventory: dependencies.loadComputeInventory ?? (async () => {
       const overview = await selectedBackend.getConnectorOverview();
@@ -425,6 +487,8 @@ describe('Project Space remote MCP server', () => {
         'project-space:read',
         'project-space:write',
         'project-space:agent.authorize',
+        'project-space:execution.approve',
+        'project-space:execution.write',
         'project-space:environment.manage',
         'project-space:environment.delete'
       ]
@@ -512,6 +576,15 @@ describe('Project Space remote MCP server', () => {
       'start_execution_environment',
       'stop_execution_environment',
       'delete_execution_environment',
+      'start_task_execution',
+      'list_task_executions',
+      'get_task_execution',
+      'wait_task_execution',
+      'send_task_execution_message',
+      'respond_task_execution_approval',
+      'respond_task_execution_input',
+      'cancel_task_execution',
+      'archive_task_execution',
       'list_machines',
       'list_codex_tasks',
       'read_codex_task',
@@ -761,6 +834,101 @@ describe('Project Space remote MCP server', () => {
     expect(invalidUpdate.isError).toBe(true);
   });
 
+  test('runs provider-neutral executions and maps known Codex aliases to them', async () => {
+    process.env.PROJECT_SPACE_AUTH_DISABLED = '1';
+    const calls: Array<{ kind: string; request: unknown; userId: string }> = [];
+    const taskExecutions = taskExecutionRuntime(calls);
+    const origin = await startMcp(calls, {}, { taskExecutions });
+    const client = new Client({ name: 'task-execution-test', version: '1.0.0' });
+    clients.push(client);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+
+    const listedTools = await client.listTools();
+    const startDefinition = listedTools.tools.find(({ name }) => name === 'start_task_execution');
+    expect(startDefinition).toMatchObject({
+      _meta: { securitySchemes: [{
+        scopes: ['project-space:read', 'project-space:write', 'project-space:execution.write'],
+        type: 'oauth2'
+      }] },
+      annotations: { idempotentHint: true, openWorldHint: true, readOnlyHint: false },
+      outputSchema: { properties: { result: expect.any(Object) }, required: ['result'] }
+    });
+
+    const started = await client.callTool({
+      arguments: {
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:start:001',
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'start_task_execution'
+    });
+    expect(started.structuredContent).toMatchObject({
+      result: {
+        apiVersion: 1,
+        execution: { id: '44444444-4444-4444-8444-444444444444', state: 'running' },
+        operationId: 'task-execution:start:001'
+      }
+    });
+
+    const aliasStart = await client.callTool({
+      arguments: {
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:alias:start',
+        repositoryId: '480',
+        task: 548
+      },
+      name: 'start_codex_task'
+    });
+    expect(aliasStart.structuredContent).toMatchObject({
+      result: { execution: { id: '44444444-4444-4444-8444-444444444444' } }
+    });
+
+    const aliasList = await client.callTool({ name: 'list_codex_tasks', arguments: {} });
+    expect(aliasList.structuredContent).toMatchObject({
+      result: {
+        executions: [{ id: '44444444-4444-4444-8444-444444444444' }],
+        results: [{ sessions: [{ id: '019f6d33-6aad-7302-a45e-bb7a33fc399c' }] }]
+      }
+    });
+    const searchedAliasList = await client.callTool({
+      name: 'list_codex_tasks', arguments: { search: 'issue-548' }
+    });
+    expect(searchedAliasList.structuredContent).toMatchObject({
+      result: { executions: [{ id: '44444444-4444-4444-8444-444444444444' }] }
+    });
+    const unmatchedAliasList = await client.callTool({
+      name: 'list_codex_tasks', arguments: { search: 'not-present' }
+    });
+    expect(unmatchedAliasList.structuredContent).toMatchObject({
+      result: { executions: [] }
+    });
+    const aliasRead = await client.callTool({
+      arguments: { threadId: '22222222-2222-4222-8222-222222222222' },
+      name: 'read_codex_task'
+    });
+    expect(aliasRead.structuredContent).toMatchObject({
+      result: { execution: { id: '44444444-4444-4444-8444-444444444444' } }
+    });
+    await client.callTool({
+      arguments: {
+        message: 'Continue.', operationId: 'task-execution:alias:send',
+        threadId: '22222222-2222-4222-8222-222222222222'
+      },
+      name: 'send_codex_message'
+    });
+
+    expect(calls.filter(({ kind }) => kind.startsWith('execution-'))).toMatchObject([
+      { kind: 'execution-start', userId: 'local-development-user' },
+      { kind: 'execution-start', userId: 'local-development-user' },
+      { kind: 'execution-list', userId: 'local-development-user' },
+      { kind: 'execution-list', userId: 'local-development-user' },
+      { kind: 'execution-list', userId: 'local-development-user' },
+      { kind: 'execution-read-by-executor', userId: 'local-development-user' },
+      { kind: 'execution-read-by-executor', userId: 'local-development-user' },
+      { kind: 'execution-send', userId: 'local-development-user' }
+    ]);
+  });
+
   test('logs MCP tool failures with a client-visible request ID', async () => {
     process.env.PROJECT_SPACE_AUTH_DISABLED = '1';
     const records: ProjectSpaceLogRecord[] = [];
@@ -876,6 +1044,36 @@ describe('Project Space remote MCP server', () => {
         'scope="project-space:read project-space:write project-space:agent.authorize"'
       ]
     });
+    const rejectedExecutionWrite = await readOnlyClient.callTool({
+      arguments: {
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:start:001',
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'start_task_execution'
+    });
+    expect(rejectedExecutionWrite._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:execution.write"'
+      ]
+    });
+    const rejectedExecutionApproval = await readOnlyClient.callTool({
+      arguments: {
+        decision: 'allow-once',
+        executionId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:approval:001',
+        requestId: 'request-1',
+        turnId: 'turn-1'
+      },
+      name: 'respond_task_execution_approval'
+    });
+    expect(rejectedExecutionApproval._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:execution.approve"'
+      ]
+    });
 
     const unsafeRegistration = await fetch(`${origin}/register`, {
       body: JSON.stringify({
@@ -963,6 +1161,18 @@ describe('Project Space remote MCP server', () => {
     }));
     const projects = await mcpClient.callTool({ name: 'list_projects', arguments: {} });
     expect(projects.isError).not.toBe(true);
+
+    const widenedRefresh = await fetch(`${origin}/token`, {
+      body: new URLSearchParams({
+        client_id: client.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: refreshed.refresh_token,
+        resource: `${origin}/mcp`,
+        scope: 'project-space:read project-space:execution.write'
+      }),
+      method: 'POST'
+    });
+    expect(widenedRefresh.status).toBe(400);
   });
 });
 

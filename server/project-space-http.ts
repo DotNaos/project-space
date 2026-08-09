@@ -58,6 +58,7 @@ import {
   type PreviewDocsProxyDependencies
 } from './preview-docs-proxy';
 import { createProjectSpaceMcpHandler } from './project-space-mcp';
+import { createConfiguredTaskExecutionService } from './task-execution/configured-runtime';
 import { observeHttpRequest } from './http-observability';
 import {
   projectSpaceLogger,
@@ -139,17 +140,52 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
-  const projectSpaceMcp = createProjectSpaceMcpHandler({
-    backend,
-    createAgentRuntime: () => createConfiguredAgentRuntime({
+  let mcpAgentRuntime: ReturnType<typeof createConfiguredAgentRuntime> | undefined;
+  const getMcpAgentRuntime = () => (
+    mcpAgentRuntime ??= createConfiguredAgentRuntime({
       authorization: codexAuthorizationRuntime,
       backend
-    }),
-    createEnvironmentLifecycle: () => createConfiguredExecutionEnvironmentLifecycle({
+    }).catch((error) => {
+      mcpAgentRuntime = undefined;
+      throw error;
+    })
+  );
+  let mcpEnvironmentLifecycle: ReturnType<
+    typeof createConfiguredExecutionEnvironmentLifecycle
+  > | undefined;
+  const getMcpEnvironmentLifecycle = () => (
+    mcpEnvironmentLifecycle ??= createConfiguredExecutionEnvironmentLifecycle({
       backend,
       createCodexRuntime: getMcpCodexRuntime,
       githubCodespaceRunnerRuntime
-    }),
+    }).catch((error) => {
+      mcpEnvironmentLifecycle = undefined;
+      throw error;
+    })
+  );
+  let mcpTaskExecutions: ReturnType<typeof createConfiguredTaskExecutionService> | undefined;
+  const getMcpTaskExecutions = () => (
+    mcpTaskExecutions ??= Promise.all([
+      getMcpAgentRuntime(),
+      getMcpCodexRuntime(),
+      getMcpEnvironmentLifecycle()
+    ]).then(([agentRuntime, codex, environmentLifecycle]) => (
+      createConfiguredTaskExecutionService({
+        agentRuntime,
+        backend,
+        codex,
+        environmentLifecycle
+      })
+    )).catch((error) => {
+      mcpTaskExecutions = undefined;
+      throw error;
+    })
+  );
+  const projectSpaceMcp = createProjectSpaceMcpHandler({
+    backend,
+    createAgentRuntime: getMcpAgentRuntime,
+    createEnvironmentLifecycle: getMcpEnvironmentLifecycle,
+    createTaskExecutions: getMcpTaskExecutions,
     createRuntime: getMcpCodexRuntime,
     logger
   });

@@ -32,6 +32,28 @@ const retentionMs = 30 * 24 * 60 * 60 * 1_000;
 export class PostgresTaskExecutionOperationStore implements TaskExecutionOperationStore {
   constructor(private readonly client: DatabaseQueryClient) {}
 
+  async claimDispatch(input: ReserveTaskExecutionOperationInput) {
+    assertOperation(input);
+    const result = await this.client.query<OperationRow>(
+      `update execution_operations
+          set state = 'dispatched', result = null, updated_at = now(),
+              expires_at = now() + interval '30 days'
+        where owner_user_id = $1 and operation_id = $2
+          and action = $3 and fingerprint_sha256 = $4
+          and execution_id is not distinct from $5::uuid
+          and state in ('reserved', 'confirmed')
+        returning ${columns}`,
+      [
+        input.ownerUserId, input.operationId, input.action, input.fingerprint,
+        input.executionId ?? null
+      ]
+    );
+    if (result.rows[0]) return 'claimed' as const;
+    const current = await this.read(input.ownerUserId, input.operationId);
+    if (!current || !sameOperationIdentity(current, input)) return 'conflict' as const;
+    return 'in_progress' as const;
+  }
+
   async reserve(
     input: ReserveTaskExecutionOperationInput
   ): Promise<TaskExecutionOperationReservation> {
@@ -123,6 +145,24 @@ export class MemoryTaskExecutionOperationStore implements TaskExecutionOperation
   private readonly operations = new Map<string, MemoryOperation>();
 
   constructor(private readonly now: () => number = Date.now) {}
+
+  async claimDispatch(input: ReserveTaskExecutionOperationInput) {
+    assertOperation(input);
+    this.cleanup();
+    const id = key(input.ownerUserId, input.operationId);
+    const current = this.operations.get(id);
+    if (!current || !sameOperationIdentity(current, input)) return 'conflict' as const;
+    if (!['reserved', 'confirmed'].includes(current.state)) return 'in_progress' as const;
+    const claimedAt = this.now();
+    this.operations.set(id, {
+      ...current,
+      expiresAt: new Date(claimedAt + retentionMs).toISOString(),
+      result: undefined,
+      state: 'dispatched',
+      updatedAt: new Date(claimedAt).toISOString()
+    });
+    return 'claimed' as const;
+  }
 
   async reserve(
     input: ReserveTaskExecutionOperationInput
