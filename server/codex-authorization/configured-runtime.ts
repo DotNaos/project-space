@@ -6,6 +6,7 @@ import { connectorSessionGeneration } from '../connector-command-session-registr
 import { createCodexMachineTasksAuthResolver } from '../codex-machine-tasks/auth-context';
 import {
   isDatabaseConfigured,
+  listComputeInventory,
   listPhysicalMachines
 } from '../local-database-store';
 import {
@@ -78,6 +79,7 @@ async function createHandler(options: {
     generationFor: connectorSessionGeneration,
     async inventory(userId) {
       return runWithAuthSession(machineSession(userId), async () => ({
+        computeInventory: await listComputeInventory(userId),
         connectors: (await options.backend.getConnectorOverview()).machines,
         physicalMachines: await listPhysicalMachines(userId)
       }));

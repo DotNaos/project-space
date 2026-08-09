@@ -64,7 +64,7 @@ export function createCodexAuthorizationHttpApi(
 
 function authorizationRequest(body: Record<string, unknown>): CodexAuthorizationRequest {
   const allowed = new Set([
-    'action', 'connectorId', 'operationId', 'physicalMachineId', 'physicalMachineName'
+    'action', 'connectorId', 'environmentId', 'operationId', 'physicalMachineId', 'physicalMachineName'
   ]);
   if (Object.keys(body).some((key) => !allowed.has(key))) {
     throw invalid('The Codex authorization request is invalid.');
@@ -72,6 +72,7 @@ function authorizationRequest(body: Record<string, unknown>): CodexAuthorization
   const request = {
     action: body.action,
     connectorId: optionalIdentifier(body.connectorId),
+    environmentId: optionalIdentifier(body.environmentId),
     operationId: body.operationId,
     physicalMachineId: optionalIdentifier(body.physicalMachineId),
     physicalMachineName: optionalName(body.physicalMachineName)
@@ -81,7 +82,8 @@ function authorizationRequest(body: Record<string, unknown>): CodexAuthorization
     !['cancel', 'start', 'status'].includes(request.action) ||
     typeof request.operationId !== 'string' ||
     !CODEX_OPERATION_ID_PATTERN.test(request.operationId) ||
-    Number(Boolean(request.physicalMachineId)) +
+    Number(Boolean(request.environmentId)) +
+      Number(Boolean(request.physicalMachineId)) +
       Number(Boolean(request.physicalMachineName)) !== 1
   ) {
     throw invalid('The Codex authorization request is invalid.');

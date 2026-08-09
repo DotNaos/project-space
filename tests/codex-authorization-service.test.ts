@@ -59,6 +59,55 @@ function service(options: {
 }
 
 describe('Codex authorization service', () => {
+  test('authorizes an exact provider-managed Codespace environment', async () => {
+    const dispatched: unknown[] = [];
+    const value = createCodexAuthorizationService({
+      async dispatch(input) {
+        dispatched.push(input);
+        return {
+          deadlineAt: '2026-08-09T00:15:00.000Z',
+          state: 'pending',
+          userCode: 'SPACE-1234',
+          verificationUrl: 'https://auth.openai.com/codex/device'
+        };
+      },
+      generationFor: () => 9,
+      async inventory() {
+        return {
+          computeInventory: {
+            connectors: [{ associatedAt: '2026-08-09T00:00:00.000Z', connectorId: 'wsl-connector', environmentId: 'codespace-environment' }],
+            environments: [{
+              hostAssociation: { evidence: 'provider', resolution: 'not_applicable' },
+              id: 'codespace-environment',
+              identity: { key: 'environment:codespace12345678', version: 1 },
+              kind: 'github_codespace',
+              name: 'reliable-space',
+              platformId: 'codespaces',
+              resourceMode: 'dedicated'
+            }],
+            hosts: [],
+            platforms: [{ id: 'codespaces', kind: 'github_codespaces', name: 'GitHub Codespaces' }],
+            violations: []
+          },
+          connectors: [connector([
+            'codex.account.device-login.v1',
+            'codex.authorization-required.v1',
+            'codex.runtime.v1'
+          ])],
+          physicalMachines: []
+        };
+      }
+    });
+    const response = await value.authorize({ userId: 'owner' }, {
+      action: 'start',
+      connectorId: 'wsl-connector',
+      environmentId: 'codespace-environment',
+      operationId: 'codex:login:codespace'
+    });
+    expect(response).toEqual(expect.objectContaining({ state: 'pending', userCode: 'SPACE-1234' }));
+    expect(dispatched).toHaveLength(1);
+  });
+
   test('dispatches one exact current-generation device login', async () => {
     const fixture = service({ generation: 7 });
     const response = await fixture.value.authorize(

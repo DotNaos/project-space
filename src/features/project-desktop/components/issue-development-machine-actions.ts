@@ -46,6 +46,7 @@ function matchesSelectedProject(
 }
 
 export interface IssueMachineProjectRow {
+  environmentId?: string;
   machine?: MachineRecord;
   machineId: string;
   connectorIds?: string[];

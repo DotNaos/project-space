@@ -8,6 +8,7 @@ export type CodexAuthorizationAction = 'cancel' | 'start' | 'status';
 
 export interface CodexAuthorizationSelector {
   connectorId?: string;
+  environmentId?: string;
   physicalMachineId?: string;
   physicalMachineName?: string;
 }

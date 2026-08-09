@@ -1,5 +1,6 @@
 export interface CodexTaskStartAttempt {
   connectorId: string;
+  environmentId?: string;
   expectedBranch: string;
   expectedCommit: string;
   issue: number;
@@ -13,10 +14,10 @@ const storagePrefix = 'project-space:codex-task-start:v1:';
 
 function storageKey(input: Pick<
   CodexTaskStartAttempt,
-  'connectorId' | 'issue' | 'physicalMachineId' | 'repositoryId'
+  'connectorId' | 'environmentId' | 'issue' | 'physicalMachineId' | 'repositoryId'
 >) {
   return `${storagePrefix}${encodeURIComponent(input.repositoryId)}:${input.issue}:` +
-    `${encodeURIComponent(input.physicalMachineId ?? input.connectorId)}`;
+    `${encodeURIComponent(input.environmentId ?? input.physicalMachineId ?? input.connectorId)}`;
 }
 
 function storage() {
@@ -60,7 +61,7 @@ export function readOrCreateCodexTaskStartAttempt(
 }
 
 export function clearCodexTaskStartAttempt(
-  input: Pick<CodexTaskStartAttempt, 'connectorId' | 'issue' | 'physicalMachineId' | 'repositoryId'>
+  input: Pick<CodexTaskStartAttempt, 'connectorId' | 'environmentId' | 'issue' | 'physicalMachineId' | 'repositoryId'>
 ) {
   storage()?.removeItem(storageKey(input));
 }

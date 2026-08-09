@@ -47,6 +47,7 @@ import {
 import { CodexTaskStartRecoveryDialog } from './codex-task-start-recovery-dialog';
 import { IssueDevelopmentServers } from './issue-development-servers';
 import { IssueDevelopmentStart } from './issue-development-start';
+import { GitHubCodespaceDestination } from './github-codespace-destination';
 
 interface IssueDevelopmentSessionProps {
   branches: GitHubBranchRecord[];
@@ -176,6 +177,7 @@ export function IssueDevelopmentSession({
     setMachineMessage('');
     const attempt = recoveredAttempt ?? readOrCreateCodexTaskStartAttempt({
       connectorId: row.machineId,
+      environmentId: row.environmentId,
       expectedBranch: selectedBranch.name,
       expectedCommit: selectedBranch.commitSha,
       issue: issue.number,
@@ -341,10 +343,21 @@ export function IssueDevelopmentSession({
           <div className="mb-2 flex h-8 items-center justify-between">
             <h3 className="text-xs font-semibold text-current/55">Codex</h3>
             <span className="text-[10px] tabular-nums text-current/30">
-              {machineRows.length} {machineRows.length === 1 ? 'machine' : 'machines'}
+              {machineRows.length + (repoFullName ? 1 : 0)} destinations
             </span>
           </div>
           <div className="grid gap-1.5">
+            {repoFullName ? (
+              <GitHubCodespaceDestination
+                branch={selectedBranch.name}
+                issue={issue.number}
+                onStart={({ connectorId, environmentId, name }) => {
+                  const machine = connectorOverview.machines.find((candidate) => candidate.id === connectorId);
+                  void startDevelopment({ environmentId, machine, machineId: connectorId, physicalMachineName: name });
+                }}
+                repositoryFullName={repoFullName}
+              />
+            ) : null}
             {machineRows.map((row) => {
               const hasCheckout = Boolean(row.project);
               const location = row.machine ? connectorLocationPresentation({ connector: row.machine, physicalMachines: connectorOverview.physicalMachines ?? [] }) : undefined;
