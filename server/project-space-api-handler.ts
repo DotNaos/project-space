@@ -30,11 +30,13 @@ import type {
 import type {
   createConfiguredMachinePowerHandler
 } from './machine-power/configured-runtime';
+import type { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
 
 interface ProjectSpaceApiHandlerOptions {
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
+  githubCodespaceRunner?: ReturnType<typeof createGitHubCodespaceRunnerHttpHandler>;
   machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
   machinePower?: ReturnType<typeof createConfiguredMachinePowerHandler>;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
@@ -119,6 +121,8 @@ export function createProjectSpaceApiHandler(
       return await runWithGitHubCatalogRequestTiming({ authMs, requestStartedAt }, () => runWithAuthSession(authSession, async () => {
         if (await handleIssueCreationRoute(request, response, url)) return true;
         if (await handleIssueAttachmentContentRoute(request, response, url)) return true;
+        if (options.githubCodespaceRunner &&
+            await options.githubCodespaceRunner(request, response, url)) return true;
         if (options.codexSessions && await options.codexSessions(request, response, url)) {
           return true;
         }

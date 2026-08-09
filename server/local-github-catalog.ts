@@ -104,6 +104,7 @@ interface GitHubApiIssue {
 
 export interface TokenResolution {
   login?: string;
+  scope?: string;
   source: GitHubAuthSource;
   token: string;
 }
@@ -245,6 +246,7 @@ export async function resolveToken(): Promise<TokenResolution | null> {
     if (storedForUser) {
       return {
         login: storedForUser.login ?? currentSession.login,
+        scope: storedForUser.scope,
         source: 'stored-oauth',
         token: storedForUser.accessToken
       };
@@ -256,6 +258,7 @@ export async function resolveToken(): Promise<TokenResolution | null> {
   if (stored) {
     return {
       login: stored.login,
+      scope: stored.scope,
       source: 'stored-oauth',
       token: stored.accessToken
     };
@@ -291,6 +294,7 @@ export async function resolveOAuthToken(): Promise<TokenResolution | null> {
     if (storedForUser) {
       return {
         login: storedForUser.login ?? currentSession.login,
+        scope: storedForUser.scope,
         source: 'stored-oauth',
         token: storedForUser.accessToken
       };
@@ -302,6 +306,7 @@ export async function resolveOAuthToken(): Promise<TokenResolution | null> {
   if (stored) {
     return {
       login: stored.login,
+      scope: stored.scope,
       source: 'stored-oauth',
       token: stored.accessToken
     };
@@ -1015,7 +1020,7 @@ export async function startGitHubOAuthDeviceFlow(): Promise<GitHubOAuthDeviceSta
   const response = await fetch(githubDeviceCodeUrl, {
     body: new URLSearchParams({
       client_id: clientId,
-      scope: 'repo read:user'
+      scope: 'repo read:user codespace'
     }),
     headers: {
       Accept: 'application/json'

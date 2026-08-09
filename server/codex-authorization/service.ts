@@ -18,6 +18,7 @@ import type {
   MachineRecord,
   PhysicalMachineRecord
 } from '../../src/shared/project-space-api';
+import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
 import {
   CodexConnectorNotDispatchedError,
   CodexConnectorOutcomeUnknownError,
@@ -44,6 +45,7 @@ export interface CodexAuthorizationServiceOptions {
   }): Promise<CodexAuthorizationConnectorResult>;
   generationFor(connectorId: string): number | undefined;
   inventory(userId: string): Promise<{
+    computeInventory?: ComputeInventorySnapshot;
     connectors: MachineRecord[];
     physicalMachines: PhysicalMachineRecord[];
   }>;
@@ -74,7 +76,7 @@ export function createCodexAuthorizationService(
         return result(
           request.operationId,
           'offline',
-          'The selected WSL connector is offline.',
+          'The selected connector is offline.',
           target
         );
       }
@@ -111,7 +113,7 @@ export function createCodexAuthorizationService(
           return result(
             request.operationId,
             'offline',
-            'The selected WSL connector went offline.',
+            'The selected connector went offline.',
             target
           );
         }
@@ -157,6 +159,56 @@ async function selectTarget(
     }
 > {
   const inventory = await options.inventory(userId);
+  if (selector.environmentId) {
+    const environment = inventory.computeInventory?.environments.find(
+      (candidate) => candidate.id === selector.environmentId
+    );
+    if (!environment) {
+      return {
+        result: result(selector.operationId, 'unauthorized', 'Select one exact environment.')
+      };
+    }
+    const associatedIds = inventory.computeInventory!.connectors
+      .filter((candidate) => candidate.environmentId === environment.id)
+      .map((candidate) => candidate.connectorId);
+    const connectorIds = selector.connectorId
+      ? associatedIds.filter((id) => id === selector.connectorId)
+      : associatedIds;
+    if (connectorIds.length !== 1) {
+      return {
+        result: result(
+          selector.operationId,
+          connectorIds.length > 1 ? 'ambiguous' : 'offline',
+          connectorIds.length > 1
+            ? 'Select one exact connector.'
+            : 'The selected environment has no online connector.'
+        )
+      };
+    }
+    const connector = inventory.connectors.find((entry) => entry.id === connectorIds[0]);
+    if (!connector) {
+      return {
+        result: result(selector.operationId, 'offline', 'The selected connector is not registered.')
+      };
+    }
+    const generation = options.generationFor(connector.id);
+    return {
+      connector,
+      generation,
+      target: {
+        connector: {
+          ...(connector.environment
+            ? { environment: connector.environment.label ?? connector.environment.kind }
+            : {}),
+          generation: generation ?? 0,
+          id: connector.id,
+          name: connector.name
+        },
+        environment: { id: environment.id, name: environment.name },
+        physicalMachine: { id: environment.id, name: environment.name }
+      }
+    };
+  }
   const physicalMatches = inventory.physicalMachines.filter((machine) => (
     selector.physicalMachineId
       ? machine.id === selector.physicalMachineId
@@ -183,7 +235,7 @@ async function selectTarget(
         selector.operationId,
         connectorIds.length > 1 ? 'ambiguous' : 'unauthorized',
         connectorIds.length > 1
-          ? 'Select one exact WSL connector with --connector.'
+          ? 'Select one exact connector.'
           : 'Connector access is required.'
       )
     };
@@ -194,7 +246,7 @@ async function selectTarget(
       result: result(
         selector.operationId,
         'offline',
-        'The selected WSL connector is not registered.'
+        'The selected connector is not registered.'
       )
     };
   }

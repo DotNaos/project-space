@@ -92,6 +92,14 @@ import type {
   CodexMachineTaskStartRequest,
   CodexMachineTaskStartResult
 } from '@/shared/codex-machine-tasks-api';
+import type {
+  CodexAuthorizationRequest,
+  CodexAuthorizationResult
+} from '@/shared/codex-authorization-api';
+import type {
+  GitHubCodespaceRunnerRequest,
+  GitHubCodespaceRunnerResult
+} from '@/shared/github-codespace-runner-api';
 import { GitHubProjectSpaceClient } from './project-space-client-github';
 import { resolveApiBaseUrl, resolveApiRequestUrl } from './project-space-client-http';
 
@@ -217,6 +225,24 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     request: CodexMachineTaskStartRequest
   ): Promise<CodexMachineTaskStartResult> {
     return this.request('/api/codex/tasks/start', {
+      body: JSON.stringify(request),
+      headers: { 'Idempotency-Key': request.operationId },
+      method: 'POST'
+    });
+  }
+
+  authorizeCodex(request: CodexAuthorizationRequest): Promise<CodexAuthorizationResult> {
+    return this.request('/api/codex/authorization', {
+      body: JSON.stringify(request),
+      headers: { 'Idempotency-Key': request.operationId },
+      method: 'POST'
+    });
+  }
+
+  runGitHubCodespace(
+    request: GitHubCodespaceRunnerRequest
+  ): Promise<GitHubCodespaceRunnerResult> {
+    return this.request('/api/github/codespace-runner', {
       body: JSON.stringify(request),
       headers: { 'Idempotency-Key': request.operationId },
       method: 'POST'

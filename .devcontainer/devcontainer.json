@@ -1,0 +1,38 @@
+{
+  "name": "Project Space Codespace Runner",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "24.15.0",
+      "nodeGypDependencies": true,
+      "pnpmVersion": "none"
+    },
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.26"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "2.97.0"
+    }
+  },
+  "remoteEnv": {
+    "PATH": "/home/vscode/.local/bin:/home/vscode/.bun/bin:${containerEnv:PATH}"
+  },
+  "customizations": {
+    "codespaces": {
+      "repositories": {
+        "DotNaos/project-space": {
+          "permissions": {
+            "contents": "write",
+            "issues": "write",
+            "pull_requests": "write",
+            "workflows": "write"
+          }
+        }
+      }
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/bootstrap.sh",
+  "postStartCommand": "bash .devcontainer/start-runner.sh"
+}

@@ -42,6 +42,7 @@ import {
 import {
   createConfiguredCodexAuthorizationHandler
 } from './codex-authorization/configured-runtime';
+import { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
 import { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
 import {
   createConfiguredProjectCatalogCliHandler
@@ -127,6 +128,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const githubCodespaceRunner = createGitHubCodespaceRunnerHttpHandler({ backend: rawBackend });
   const machineReadiness = createConfiguredMachineReadinessHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
@@ -151,6 +153,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       codexAuthorization,
       codexSessions,
       codexMachineTasks,
+      githubCodespaceRunner,
       machineReadiness,
       machinePower,
       machineConnection: options.machineConnectionRuntime,
