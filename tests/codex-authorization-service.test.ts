@@ -108,6 +108,63 @@ describe('Codex authorization service', () => {
     expect(dispatched).toHaveLength(1);
   });
 
+  test('freshly verifies a ready managed environment through the connector', async () => {
+    const dispatched: unknown[] = [];
+    const value = createCodexAuthorizationService({
+      async dispatch(input) {
+        dispatched.push(input);
+        return { state: 'ready' };
+      },
+      generationFor: () => 12,
+      async inventory() {
+        return {
+          computeInventory: {
+            connectors: [{
+              associatedAt: '2026-08-09T00:00:00.000Z',
+              connectorId: 'wsl-connector',
+              environmentId: 'codespace-environment'
+            }],
+            environments: [{
+              hostAssociation: { evidence: 'provider', resolution: 'not_applicable' },
+              id: 'codespace-environment',
+              identity: { key: 'environment:codespace12345678', version: 1 },
+              kind: 'github_codespace',
+              name: 'reliable-space',
+              platformId: 'codespaces',
+              resourceMode: 'dedicated'
+            }],
+            hosts: [],
+            platforms: [{
+              id: 'codespaces',
+              kind: 'github_codespaces',
+              name: 'GitHub Codespaces'
+            }],
+            violations: []
+          },
+          connectors: [connector([
+            'codex.account.device-login.v1',
+            'codex.machine-tasks.v1',
+            'codex.runtime.v1'
+          ])],
+          physicalMachines: []
+        };
+      }
+    });
+
+    for (const action of ['status', 'start', 'cancel'] as const) {
+      await expect(value.authorize({ userId: 'owner' }, {
+        action,
+        environmentId: 'codespace-environment',
+        operationId: `codex:login:fresh-${action}`
+      })).resolves.toEqual(expect.objectContaining({ state: 'ready' }));
+    }
+    expect(dispatched).toEqual([
+      expect.objectContaining({ action: 'status', generation: 12 }),
+      expect.objectContaining({ action: 'start', generation: 12 }),
+      expect.objectContaining({ action: 'cancel', generation: 12 })
+    ]);
+  });
+
   test('dispatches one exact current-generation device login', async () => {
     const fixture = service({ generation: 7 });
     const response = await fixture.value.authorize(

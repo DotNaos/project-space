@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import {
+  projectSpaceMcpAgentAuthorizeScope,
   projectSpaceMcpEnvironmentDeleteScope,
   projectSpaceMcpEnvironmentManageScope,
   projectSpaceMcpReadScope,
@@ -22,6 +23,16 @@ const operationIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
 const operationIdJsonPattern = '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$';
 const branchJsonPattern = '^(?!/)(?!\\.{1,2}$)(?!.*(?:^|/)\\.)(?!.*(?:\\.\\.|@\\{|//))(?!.*(?:/|\\.lock|\\.)$)[^\\s~^:?*\\\\[\\]\\u0000-\\u001f\\u007f]{1,255}$';
 const branchPattern = new RegExp(branchJsonPattern);
+const agentSchema = z.literal('codex');
+const environmentIdSchema = z.string().trim().min(1).max(512);
+const operationIdSchema = z.string().regex(operationIdPattern);
+const agentStatusSchema = z.object({
+  agent: agentSchema,
+  environmentId: environmentIdSchema
+}).strict();
+const agentAuthorizationSchema = agentStatusSchema.extend({
+  operationId: operationIdSchema
+}).strict();
 
 const selectorFields = {
   connectorId: z.string().trim().min(1).optional(),
@@ -96,6 +107,10 @@ export const toolSchemas = {
   get_execution_environment: z.object({
     environmentId: z.string().trim().min(1).max(512)
   }),
+  get_agent_status: agentStatusSchema,
+  start_agent_authorization: agentAuthorizationSchema,
+  get_agent_authorization: agentAuthorizationSchema,
+  cancel_agent_authorization: agentAuthorizationSchema,
   provision_execution_environment: z.object({
     branch: z.string().trim().regex(branchPattern),
     operationId: z.string().regex(operationIdPattern),
@@ -216,6 +231,41 @@ export const tools: OAuthTool[] = [
       environmentId: { type: 'string', description: 'Canonical execution Environment id.' }
     }, additionalProperties: false
   }, { readOnlyHint: true, openWorldHint: true }),
+  tool('get_agent_status', 'Get agent status', 'Read current runtime and authorization evidence for one agent in one exact execution Environment.', {
+    type: 'object', required: ['agent', 'environmentId'], properties: {
+      agent: { type: 'string', enum: ['codex'], description: 'Agent runtime kind.' },
+      environmentId: { type: 'string', minLength: 1, maxLength: 512, description: 'Canonical execution Environment id.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true }),
+  tool('start_agent_authorization', 'Start agent authorization', 'Start one managed agent device-authorization attempt. Reuse operationId only for this exact attempt.', {
+    type: 'object', required: ['agent', 'environmentId', 'operationId'], properties: {
+      agent: { type: 'string', enum: ['codex'], description: 'Agent runtime kind.' },
+      environmentId: { type: 'string', minLength: 1, maxLength: 512, description: 'Canonical execution Environment id.' },
+      operationId: { type: 'string', minLength: 8, maxLength: 128, pattern: operationIdJsonPattern, description: 'Caller-supplied idempotency key for this exact login attempt.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }, [
+    projectSpaceMcpReadScope,
+    projectSpaceMcpWriteScope,
+    projectSpaceMcpAgentAuthorizeScope
+  ]),
+  tool('get_agent_authorization', 'Get agent authorization', 'Reconcile one exact managed agent authorization attempt against fresh account evidence.', {
+    type: 'object', required: ['agent', 'environmentId', 'operationId'], properties: {
+      agent: { type: 'string', enum: ['codex'], description: 'Agent runtime kind.' },
+      environmentId: { type: 'string', minLength: 1, maxLength: 512, description: 'Canonical execution Environment id.' },
+      operationId: { type: 'string', minLength: 8, maxLength: 128, pattern: operationIdJsonPattern, description: 'The operationId returned by start_agent_authorization.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true }),
+  tool('cancel_agent_authorization', 'Cancel agent authorization', 'Cancel only the exact managed agent authorization attempt named by operationId.', {
+    type: 'object', required: ['agent', 'environmentId', 'operationId'], properties: {
+      agent: { type: 'string', enum: ['codex'], description: 'Agent runtime kind.' },
+      environmentId: { type: 'string', minLength: 1, maxLength: 512, description: 'Canonical execution Environment id.' },
+      operationId: { type: 'string', minLength: 8, maxLength: 128, pattern: operationIdJsonPattern, description: 'The exact active authorization attempt to cancel.' }
+    }, additionalProperties: false
+  }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }, [
+    projectSpaceMcpReadScope,
+    projectSpaceMcpWriteScope,
+    projectSpaceMcpAgentAuthorizeScope
+  ]),
   tool('provision_execution_environment', 'Provision execution environment', 'Provision a provider-managed execution Environment for one authorized repository task and branch.', {
     type: 'object', required: ['branch', 'operationId', 'provider', 'repositoryId', 'task'], properties: {
       branch: { type: 'string', minLength: 1, maxLength: 255, pattern: branchJsonPattern, description: 'Existing task branch to provision.' },

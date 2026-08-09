@@ -1106,12 +1106,12 @@ is approved, merged, deployed, and verified.
 
 ### WP3 — add agent runtime and authorization tools
 
-- [ ] Expose agent runtime/status by `environmentId`.
-- [ ] Expose start/status/cancel for Codex device authorization.
-- [ ] Return verification URL and user code without credentials.
-- [ ] Poll `account/read` for actual readiness.
-- [ ] Reject API-key fallback in managed Environments.
-- [ ] Test fresh, already-ready, denied, cancelled, expired, connector restart,
+- [x] Expose agent runtime/status by `environmentId`.
+- [x] Expose start/status/cancel for Codex device authorization.
+- [x] Return verification URL and user code without credentials.
+- [x] Poll `account/read` for actual readiness.
+- [x] Reject API-key fallback in managed Environments.
+- [x] Test fresh, already-ready, denied, cancelled, expired, connector restart,
       and ambiguous login outcomes.
 
 ### WP4 — introduce Handoff and Task Execution storage

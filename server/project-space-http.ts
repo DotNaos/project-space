@@ -40,8 +40,10 @@ import {
   createConfiguredMachinePowerHandler
 } from './machine-power/configured-runtime';
 import {
-  createConfiguredCodexAuthorizationHandler
+  createConfiguredCodexAuthorizationHandler,
+  createConfiguredCodexAuthorizationRuntime
 } from './codex-authorization/configured-runtime';
+import { createConfiguredAgentRuntime } from './agent-authorization/configured-runtime';
 import { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
 import { createConfiguredGitHubCodespaceRunnerRuntime } from './github-codespace-runner/configured-runtime';
 import {
@@ -133,8 +135,16 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   const githubCodespaceRunnerRuntime = createConfiguredGitHubCodespaceRunnerRuntime({
     backend: rawBackend
   });
+  const codexAuthorizationRuntime = createConfiguredCodexAuthorizationRuntime({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const projectSpaceMcp = createProjectSpaceMcpHandler({
     backend,
+    createAgentRuntime: () => createConfiguredAgentRuntime({
+      authorization: codexAuthorizationRuntime,
+      backend
+    }),
     createEnvironmentLifecycle: () => createConfiguredExecutionEnvironmentLifecycle({
       backend,
       createCodexRuntime: getMcpCodexRuntime,
@@ -145,7 +155,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   });
   const codexAuthorization = createConfiguredCodexAuthorizationHandler({
     backend: rawBackend,
-    machineConnection: options.machineConnectionRuntime
+    machineConnection: options.machineConnectionRuntime,
+    runtime: codexAuthorizationRuntime
   });
   const githubCodespaceRunner = createGitHubCodespaceRunnerHttpHandler({
     runtime: githubCodespaceRunnerRuntime

@@ -45,8 +45,10 @@ class FakeCodexProcess extends EventEmitter implements CodexChildProcess {
 }
 
 function authorizationProcess(options: {
+  account?: () => unknown;
   authorized?: () => boolean;
   omitAccount?: boolean;
+  requiresOpenaiAuth?: boolean;
   verificationUrl?: string;
 } = {}) {
   return new FakeCodexProcess((message, server) => {
@@ -56,9 +58,15 @@ function authorizationProcess(options: {
         id: message.id,
         result: {
           ...(!options.omitAccount
-            ? { account: options.authorized?.() ? { type: 'chatgpt' } : null }
+            ? {
+                account: options.account
+                  ? options.account()
+                  : options.authorized?.()
+                    ? { type: 'chatgpt' }
+                    : null
+              }
             : {}),
-          requiresOpenaiAuth: true
+          requiresOpenaiAuth: options.requiresOpenaiAuth ?? true
         }
       });
     }
@@ -168,6 +176,29 @@ describe('managed Codex device authorization', () => {
     }
   });
 
+  test('accepts only a ChatGPT subscription account as managed authorization', async () => {
+    const cases = [
+      { account: () => null, requiresOpenaiAuth: false },
+      { account: () => ({ type: 'apiKey' }), requiresOpenaiAuth: true },
+      { account: () => ({ type: 'unknown' }), requiresOpenaiAuth: true }
+    ];
+    for (const [index, account] of cases.entries()) {
+      const process = authorizationProcess(account);
+      const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+      try {
+        await expect(manager.execute({
+          action: 'start',
+          machineId: 'connector-wsl',
+          operationId: `codex:login:managed-account-${index}`
+        })).resolves.toMatchObject({ state: 'pending' });
+        expect(process.requests.filter((entry) => entry.method === 'account/login/start'))
+          .toHaveLength(1);
+      } finally {
+        await manager.close();
+      }
+    }
+  });
+
   test('reconciles completion through account state without exposing account details', async () => {
     let authorized = false;
     let readyTransitions = 0;
@@ -198,6 +229,34 @@ describe('managed Codex device authorization', () => {
         operationId: 'codex:login:operation-one'
       })).resolves.toEqual({ state: 'ready' });
       expect(readyTransitions).toBe(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('keeps a denied device login failed even if status is polled', async () => {
+    const process = authorizationProcess();
+    const manager = new CodexDeviceAuthorizationManager({ processFactory: () => process });
+    try {
+      await manager.execute({
+        action: 'start',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:denied'
+      });
+      process.send({
+        method: 'account/login/completed',
+        params: {
+          error: 'access_denied',
+          loginId: 'login-internal-1',
+          success: false
+        }
+      });
+      await Bun.sleep(0);
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:denied'
+      })).resolves.toEqual({ state: 'failed' });
     } finally {
       await manager.close();
     }
@@ -428,6 +487,87 @@ describe('managed Codex device authorization', () => {
     })).resolves.toEqual({ state: 'ambiguous' });
     await second.close();
     await first.close();
+  });
+
+  test('reconciles a restart-ambiguous operation through fresh account state', async () => {
+    const process = authorizationProcess({ authorized: () => true });
+    const manager = new CodexDeviceAuthorizationManager({
+      operationPersistence: {
+        persist: async () => {},
+        snapshot: [{
+          deadlineAt: '2099-01-01T00:15:00.000Z',
+          operationId: 'codex:login:restart-ambiguous',
+          state: 'ambiguous',
+          updatedAt: '2026-08-09T00:00:00.000Z'
+        }]
+      },
+      processFactory: () => process
+    });
+    try {
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:restart-ambiguous'
+      })).resolves.toEqual({ state: 'ready' });
+      expect(process.requests.filter((entry) => entry.method === 'account/read'))
+        .toHaveLength(1);
+      expect(process.requests.filter((entry) => entry.method === 'account/login/start'))
+        .toHaveLength(0);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('does not replay stored ready after the managed account is logged out', async () => {
+    const process = authorizationProcess({ authorized: () => false });
+    const manager = new CodexDeviceAuthorizationManager({
+      operationPersistence: {
+        persist: async () => {},
+        snapshot: [{
+          operationId: 'codex:login:stored-ready',
+          state: 'ready',
+          updatedAt: '2026-08-09T00:00:00.000Z'
+        }]
+      },
+      processFactory: () => process
+    });
+    try {
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:stored-ready'
+      })).resolves.toEqual({ state: 'authorization-required' });
+      expect(process.requests.filter((entry) => entry.method === 'account/read'))
+        .toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('reconciles stored cancellation when a ChatGPT account is now ready', async () => {
+    const process = authorizationProcess({ authorized: () => true });
+    const manager = new CodexDeviceAuthorizationManager({
+      operationPersistence: {
+        persist: async () => {},
+        snapshot: [{
+          operationId: 'codex:login:stored-cancelled',
+          state: 'cancelled',
+          updatedAt: '2026-08-09T00:00:00.000Z'
+        }]
+      },
+      processFactory: () => process
+    });
+    try {
+      await expect(manager.execute({
+        action: 'status',
+        machineId: 'connector-wsl',
+        operationId: 'codex:login:stored-cancelled'
+      })).resolves.toEqual({ state: 'ready' });
+      expect(process.requests.filter((entry) => entry.method === 'account/read'))
+        .toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
   });
 
   test('keeps a disconnected start RPC ambiguous and replayable', async () => {

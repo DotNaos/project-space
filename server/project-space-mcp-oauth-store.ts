@@ -14,12 +14,15 @@ export const projectSpaceMcpEnvironmentManageScope =
   'project-space:environment.manage';
 export const projectSpaceMcpEnvironmentDeleteScope =
   'project-space:environment.delete';
+export const projectSpaceMcpAgentAuthorizeScope =
+  'project-space:agent.authorize';
 export const projectSpaceMcpDefaultScopes = [
   projectSpaceMcpReadScope,
   projectSpaceMcpWriteScope
 ] as const;
 export const projectSpaceMcpSupportedScopes = [
   ...projectSpaceMcpDefaultScopes,
+  projectSpaceMcpAgentAuthorizeScope,
   projectSpaceMcpEnvironmentManageScope,
   projectSpaceMcpEnvironmentDeleteScope
 ] as const;

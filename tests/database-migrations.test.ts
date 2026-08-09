@@ -116,7 +116,8 @@ describe('database migrations', () => {
       '0029_project_space_mcp_oauth',
       '0030_compute_inventory',
       '0031_compute_environment_identity_resolution',
-      '0032_environment_lifecycle'
+      '0032_environment_lifecycle',
+      '0033_agent_authorization_operations'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -172,6 +173,8 @@ describe('database migrations', () => {
     expect(sql).toContain('create table environment_provider_bindings');
     expect(sql).toContain('create table environment_lifecycle_operations');
     expect(sql).toContain('environment_lifecycle_one_unresolved_per_scope');
+    expect(sql).toContain('create table agent_authorization_operations');
+    expect(sql).toContain('agent_authorization_one_unresolved_per_environment');
     expect(sql).toContain('primary key (owner_user_id, connector_id)');
     expect(sql).toContain('insert into physical_machines');
     expect(sql).toContain('from machine_execution_scopes');

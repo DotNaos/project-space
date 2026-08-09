@@ -1,5 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import type {
+  CodexAuthorizationRequest,
+  CodexAuthorizationResult
+} from '../../src/shared/codex-authorization-api';
 import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
 import { requestConnectorCodexSessions } from '../connector-command-hub';
 import { connectorSessionGeneration } from '../connector-command-session-registry';
@@ -19,43 +23,22 @@ import { writeJson } from '../project-space-http-response';
 import { createCodexAuthorizationHttpApi } from './http';
 import { createCodexAuthorizationService } from './service';
 
-export function createConfiguredCodexAuthorizationHandler(options: {
-  backend: Pick<ProjectSpaceBackend, 'getConnectorOverview'>;
-  machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
-}) {
-  let runtime: Promise<ReturnType<typeof createCodexAuthorizationHttpApi>> | undefined;
-  return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
-    if (url.pathname !== '/api/codex/authorization') return false;
-    if (!isDatabaseConfigured()) {
-      writeJson(response, 503, {
-        error: {
-          code: 'codex_authorization_unavailable',
-          message: 'Codex authorization requires the Project Space database.'
-        }
-      });
-      return true;
-    }
-    try {
-      runtime ??= createHandler(options);
-      return await (await runtime)(request, response, url);
-    } catch {
-      runtime = undefined;
-      writeJson(response, 503, {
-        error: {
-          code: 'codex_authorization_unavailable',
-          message: 'Codex authorization is temporarily unavailable.'
-        }
-      });
-      return true;
-    }
-  };
+export interface CodexAuthorizationRuntime {
+  authorize(
+    actor: { userId: string },
+    request: CodexAuthorizationRequest
+  ): Promise<CodexAuthorizationResult>;
 }
 
-async function createHandler(options: {
+export interface ConfiguredCodexAuthorizationOptions {
   backend: Pick<ProjectSpaceBackend, 'getConnectorOverview'>;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
-}) {
-  const service = createCodexAuthorizationService({
+}
+
+export function createConfiguredCodexAuthorizationRuntime(
+  options: ConfiguredCodexAuthorizationOptions
+): CodexAuthorizationRuntime {
+  return createCodexAuthorizationService({
     async dispatch(input) {
       const response = await requestConnectorCodexSessions(
         'authorization',
@@ -85,6 +68,48 @@ async function createHandler(options: {
       }));
     }
   });
+}
+
+export function createConfiguredCodexAuthorizationHandler(
+  options: ConfiguredCodexAuthorizationOptions & {
+    runtime?: CodexAuthorizationRuntime;
+  }
+) {
+  let httpApi: ReturnType<typeof createCodexAuthorizationHttpApi> | undefined;
+  return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+    if (url.pathname !== '/api/codex/authorization') return false;
+    if (!isDatabaseConfigured()) {
+      writeJson(response, 503, {
+        error: {
+          code: 'codex_authorization_unavailable',
+          message: 'Codex authorization requires the Project Space database.'
+        }
+      });
+      return true;
+    }
+    try {
+      httpApi ??= createHttpApi(
+        options.runtime ?? createConfiguredCodexAuthorizationRuntime(options),
+        options
+      );
+      return await httpApi(request, response, url);
+    } catch {
+      httpApi = undefined;
+      writeJson(response, 503, {
+        error: {
+          code: 'codex_authorization_unavailable',
+          message: 'Codex authorization is temporarily unavailable.'
+        }
+      });
+      return true;
+    }
+  };
+}
+
+function createHttpApi(
+  runtime: CodexAuthorizationRuntime,
+  options: ConfiguredCodexAuthorizationOptions
+) {
   const resolveActor = createCodexMachineTasksAuthResolver({
     authenticateMachine: async ({ machineId, token }) => (
       options.machineConnection?.resolveMachineCredentialIdentity(token, machineId) ?? null
@@ -95,7 +120,7 @@ async function createHandler(options: {
       return session ? { userId: session.userId } : null;
     }
   });
-  return createCodexAuthorizationHttpApi(service, resolveActor);
+  return createCodexAuthorizationHttpApi(runtime, resolveActor);
 }
 
 function machineSession(userId: string) {

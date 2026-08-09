@@ -69,7 +69,11 @@ export function createCodexAuthorizationService(
       if ('result' in selected) return selected.result;
       const { connector, generation, target } = selected;
       const capabilities = connector.connector.capabilities ?? [];
-      if (capabilities.includes(CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY)) {
+      const machineTasksReady = capabilities.includes(
+        CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY
+      );
+      const managedEnvironment = request.environmentId !== undefined;
+      if (machineTasksReady && !managedEnvironment) {
         return result(request.operationId, 'ready', 'Codex is authorized and ready.', target);
       }
       if (generation === undefined) {
@@ -80,10 +84,12 @@ export function createCodexAuthorizationService(
           target
         );
       }
-      if (
-        !capabilities.includes(CODEX_RUNTIME_CONNECTOR_CAPABILITY) ||
-        !capabilities.includes(CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY)
-      ) {
+      const canFreshCheckReadyEnvironment = managedEnvironment &&
+        machineTasksReady &&
+        (request.action === 'start' || request.action === 'status' || request.action === 'cancel');
+      if (!capabilities.includes(CODEX_RUNTIME_CONNECTOR_CAPABILITY) ||
+          (!capabilities.includes(CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY) &&
+            !canFreshCheckReadyEnvironment)) {
         return result(
           request.operationId,
           'unsupported',
