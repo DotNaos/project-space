@@ -61,18 +61,18 @@ describe('GitHub Codespace runner runtime', () => {
     });
   });
 
-  test('omits an unknown recommended location instead of sending an invalid value', () => {
+  test('falls back to West Europe instead of sending an invalid recommendation', () => {
     expect(githubCodespaceCreateBody({
       branch: 'issue-456-codespace',
       displayName: 'Project Space #456'
-    }, 'UnknownRegion')).not.toHaveProperty('location');
+    }, 'UnknownRegion')).toHaveProperty('location', 'WestEurope');
   });
 
-  test('still creates without a location when GitHub has no recommendation', () => {
+  test('falls back to West Europe when GitHub has no recommendation', () => {
     expect(githubCodespaceCreateBody({
       branch: 'issue-456-codespace',
       displayName: 'Project Space #456'
-    })).not.toHaveProperty('location');
+    })).toHaveProperty('location', 'WestEurope');
   });
 
   test('requires an authenticated server session when authentication is enabled', async () => {

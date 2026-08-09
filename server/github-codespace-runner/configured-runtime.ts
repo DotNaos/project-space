@@ -208,7 +208,7 @@ export function githubCodespaceCreateLocation(recommendedLocation?: string) {
     : recommendedLocation;
   return ['EastUs', 'SouthEastAsia', 'WestEurope', 'WestUs2'].includes(location ?? '')
     ? location
-    : undefined;
+    : 'WestEurope';
 }
 
 async function mutateCodespace(token: string, name: string, action: 'start' | 'stop') {
