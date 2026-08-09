@@ -19,7 +19,7 @@
       }
     }
   },
-  "onCreateCommand": "bash .devcontainer/bootstrap.sh",
-  "postCreateCommand": "bash .devcontainer/start-runner.sh",
-  "postStartCommand": "bash .devcontainer/start-runner.sh"
+  "onCreateCommand": "bash .devcontainer/initialize-runner.sh",
+  "postCreateCommand": "bash .devcontainer/initialize-runner.sh",
+  "postStartCommand": "bash .devcontainer/initialize-runner.sh"
 }
