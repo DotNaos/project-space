@@ -141,13 +141,12 @@ describe('Codespaces runner devcontainer', () => {
   test('pins the released connector that retains Codespaces metadata', async () => {
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
 
-    expect(bootstrap).toContain('readonly project_version="0.10.6"');
+    expect(bootstrap).toContain('readonly project_version="0.10.16"');
     expect(bootstrap).toContain(
-      'readonly archive_sha256="ecc6f972a65dad1cfdae48ee4be84263d5a7239b76a0b6519fe02767c200ad64"'
+      'readonly archive_sha256="e3a0c85f96424565cb32b489e75c8978f9cf9772f0d2ba132ba1b26b5be507b6"'
     );
-    expect(bootstrap).toContain('project self-update --yes --format json');
-    expect(bootstrap.indexOf('project self-update --yes --format json'))
-      .toBeGreaterThan(bootstrap.indexOf('/install.sh"'));
+    expect(bootstrap).toContain('--external-connector-supervisor');
+    expect(bootstrap).toContain('sort -V');
   });
 
   test('installs and starts the pinned Codex daemon runtime idempotently', async () => {

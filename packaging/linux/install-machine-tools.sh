@@ -3,13 +3,14 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: ./install.sh [--install-dir <absolute-path>]
+Usage: ./install.sh [--install-dir <absolute-path>] [--external-connector-supervisor]
 
 Installs the Project CLI and its bundled connector for the current user.
 EOF
 }
 
 install_directory="${HOME}/.local/bin"
+connector_service_mode=${PROJECT_SPACE_MACHINE_TOOLS_SERVICE_MODE:-auto}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install-dir)
@@ -19,6 +20,10 @@ while [[ $# -gt 0 ]]; do
       fi
       install_directory=$2
       shift 2
+      ;;
+    --external-connector-supervisor)
+      connector_service_mode=external
+      shift
       ;;
     -h|--help)
       usage
@@ -30,6 +35,21 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+case $connector_service_mode in
+  auto)
+    if [[ -d /run/systemd/system ]]; then
+      connector_service_mode=managed
+    else
+      connector_service_mode=external
+    fi
+    ;;
+  managed|external) ;;
+  *)
+    echo "Invalid connector service mode: $connector_service_mode" >&2
+    exit 64
+    ;;
+esac
 
 if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
   echo "This bundle supports Linux x86_64 only." >&2
@@ -234,7 +254,7 @@ elif [[ -x $existing_project ]]; then
   previous_service_project=$existing_project
 fi
 installation_started=1
-if [[ -n $previous_service_project ]]; then
+if [[ $connector_service_mode == managed && -n $previous_service_project ]]; then
   # Treat the old service as needing restoration before stopping it. This also
   # keeps a partial stop failure fail-safe: rollback retries the idempotent start.
   stopped_existing=1
@@ -270,7 +290,8 @@ if ! verify_installed_pair; then
   exit 70
 fi
 
-if ! "${install_directory}/project" connector service start-if-connected; then
+if [[ $connector_service_mode == managed ]] && \
+  ! "${install_directory}/project" connector service start-if-connected; then
   echo "The new connector could not be started; the previous machine-tools release was restored." >&2
   exit 70
 fi

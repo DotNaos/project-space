@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PROJECT_SPACE_MACHINE_TOOLS_SERVICE_MODE=managed
+
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 temporary_root=$(mktemp -d)
 trap 'rm -rf -- "$temporary_root"' EXIT
@@ -141,6 +143,17 @@ cmp "$temporary_root/source/release-manifest-signing-public-key.pem" \
 first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $first_current == versions/${version}-* ]]
 grep -Fx 'project fixture v1:connector service start-if-connected' "$service_log"
+
+# Containers such as GitHub Codespaces own the foreground connector lifecycle.
+# Installing there must switch the verified tools without touching systemd.
+external_root="$temporary_root/external-installed"
+external_service_log="$temporary_root/external-service.log"
+PROJECT_FIXTURE_SERVICE_LOG="$external_service_log" \
+  "$bundle_root/install.sh" --install-dir "$external_root" \
+  --external-connector-supervisor >/dev/null
+[[ $($external_root/project) == 'project fixture v1' ]]
+[[ $($external_root/project-space-connector) == 'connector fixture' ]]
+[[ ! -e $external_service_log ]]
 
 # An upgrade stops the old service and starts the new paired release only after
 # the single current pointer has switched.
