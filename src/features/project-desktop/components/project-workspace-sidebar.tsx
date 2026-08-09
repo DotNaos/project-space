@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Button, Modal, SearchField } from '@heroui/react';
 import {
-  BookOpen,
   ChevronDown,
   CircleDot,
   FileCheck2,
@@ -16,18 +15,20 @@ import {
   PanelLeftOpen,
   PencilLine,
   Rocket,
-  ScrollText,
   Settings,
   Workflow
 } from 'lucide-react';
 
 import type { ProjectSpaceRecord } from '@/shared/project-space-api';
+import type { ReleaseChangelogEntry } from '@/shared/release-changelog-api';
+import { ReleaseChangelogCard } from '@/features/release-changelog/release-changelog-card';
 import type {
   ProjectDetailTab,
   ProjectMainView,
   SettingsSection
 } from '../hooks/project-desktop-routing';
 import { AccountMenu, type RailAccount } from './account-menu';
+import { InformationMenu } from './information-menu';
 
 interface WorkspaceNavItem {
   icon: typeof CircleDot;
@@ -263,16 +264,21 @@ export function ProjectWorkspaceSidebar({
   onClose,
   onCollapsedChange,
   onOpenChat,
-  onOpenChangelog,
+  onDismissRelease,
   onOpenDocumentation,
   onNewTask,
   onOpenMachines,
+  onOpenPreviewChangelog,
   onOpenProjects,
+  onOpenReleaseChangelog,
   onOpenSettings,
   onSelectProject,
   onSelectTab,
   projectTab,
   projects,
+  release,
+  releaseCardVisible,
+  releaseVersion,
   settingsSection
 }: {
   account?: RailAccount;
@@ -282,16 +288,21 @@ export function ProjectWorkspaceSidebar({
   onClose(): void;
   onCollapsedChange(collapsed: boolean): void;
   onOpenChat(): void;
-  onOpenChangelog?(): void;
+  onDismissRelease(): void;
   onOpenDocumentation(): void;
   onNewTask(): void;
   onOpenMachines(): void;
+  onOpenPreviewChangelog?(): void;
   onOpenProjects(): void;
+  onOpenReleaseChangelog(): void;
   onOpenSettings(): void;
   onSelectProject(projectId: string): void;
   onSelectTab(tab: ProjectDetailTab): void;
   projectTab: ProjectDetailTab;
   projects: ProjectSpaceRecord[];
+  release?: ReleaseChangelogEntry;
+  releaseCardVisible: boolean;
+  releaseVersion?: string;
   settingsSection: SettingsSection;
 }) {
   const selectedItem = workspaceSidebarActiveItem(mainView, projectTab, settingsSection);
@@ -380,6 +391,17 @@ export function ProjectWorkspaceSidebar({
         </div>
       </nav>
 
+      {releaseCardVisible && release ? (
+        <div className={`${collapsed ? 'mx-2' : 'mx-4'} mb-2 shrink-0`}>
+          <ReleaseChangelogCard
+            collapsed={collapsed}
+            onDismiss={onDismissRelease}
+            onOpen={onOpenReleaseChangelog}
+            release={release}
+          />
+        </div>
+      ) : null}
+
       <div className={`${collapsed ? 'mx-2' : 'mx-4'} mb-3 shrink-0 border-t border-white/[.06] pt-3`}>
         <div className={`flex items-center ${collapsed ? 'flex-col gap-1' : 'gap-1 px-1'}`}>
           {account ? <AccountMenu account={account} placement="top start" /> : null}
@@ -388,14 +410,14 @@ export function ProjectWorkspaceSidebar({
               {account?.name ?? account?.email ?? 'Project Space'}
             </span>
           )}
-          <Button isIconOnly aria-label="Documentation" data-testid="sidebar-documentation" className="size-8 min-w-8 text-neutral-600 hover:text-neutral-300" size="sm" variant="ghost" onPress={onOpenDocumentation}>
-            <BookOpen className="size-3.5" />
-          </Button>
-          {onOpenChangelog ? (
-            <Button isIconOnly aria-label="Preview changelog" data-testid="sidebar-preview-changelog" className="size-8 min-w-8 text-neutral-600 hover:text-neutral-300" size="sm" variant="ghost" onPress={onOpenChangelog}>
-              <ScrollText className="size-3.5" />
-            </Button>
-          ) : null}
+          <InformationMenu
+            currentVersion={releaseVersion}
+            hasUnreadRelease={releaseCardVisible}
+            onOpenDocumentation={onOpenDocumentation}
+            onOpenPreviewChangelog={onOpenPreviewChangelog}
+            onOpenReleaseChangelog={onOpenReleaseChangelog}
+            placement="top right"
+          />
           <Button isIconOnly aria-label="Settings" data-testid="sidebar-settings" className="size-8 min-w-8 text-neutral-600 hover:text-neutral-300" size="sm" variant="ghost" onPress={onOpenSettings}>
             <Settings className="size-3.5" />
           </Button>

@@ -15,6 +15,8 @@ import {
 import { isClerkConfigured } from '@/auth/clerk-provider';
 import type { ProjectSpaceAuthSessionResult } from '@/shared/project-space-api';
 import { PullRequestChangelogDialog } from '@/features/pr-preview-changelog/pull-request-changelog-dialog';
+import { ReleaseChangelogDialog } from '@/features/release-changelog/release-changelog-dialog';
+import { useReleaseChangelog } from '@/features/release-changelog/use-release-changelog';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
 import { routeForView } from '../hooks/use-project-desktop';
 import type { RailAccount } from './account-menu';
@@ -122,6 +124,10 @@ function ProjectSpaceLoginScreen({
 
 function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }) {
   const desktop = useProjectDesktop();
+  const releaseChangelog = useReleaseChangelog({
+    currentVersion: desktop.appMeta.version,
+    enabled: !desktop.appMeta.preview && desktop.appMeta.version !== 'unknown'
+  });
   const [changelogOpenRequestId, setChangelogOpenRequestId] = useState(0);
   const [isCompact, setIsCompact] = useState(isCompactViewport);
   const [isProjectSidebarCollapsed, setIsProjectSidebarCollapsed] = useState(false);
@@ -145,7 +151,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
     isCompact,
     isProjectSidebarCollapsed
   );
-  const openChangelog = desktop.appMeta.preview
+  const openPreviewChangelog = desktop.appMeta.preview
     ? () => {
         setChangelogOpenRequestId((current) => current + 1);
       }
@@ -210,11 +216,13 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
                 window.location.assign(`${routeForView('project', desktop.project.id, 'issues')}/new`);
               }
             }}
+            onDismissRelease={releaseChangelog.dismissCurrent}
             onOpenChat={desktop.openChat}
-            onOpenChangelog={openChangelog}
             onOpenDocumentation={openDocumentation}
             onOpenMachines={desktop.openMachines}
+            onOpenPreviewChangelog={openPreviewChangelog}
             onOpenProjects={desktop.openProjects}
+            onOpenReleaseChangelog={() => releaseChangelog.open()}
             onOpenSettings={desktop.openSettings}
             onSelectProject={desktop.selectProject}
             onSelectTab={(tab) => {
@@ -227,6 +235,9 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             }}
             projectTab={desktop.projectTab}
             projects={desktop.projects}
+            release={releaseChangelog.currentRelease}
+            releaseCardVisible={releaseChangelog.isCardVisible}
+            releaseVersion={releaseChangelog.currentVersion}
             settingsSection={desktop.settingsSection}
           />
         </aside>
@@ -337,6 +348,18 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
       <PullRequestChangelogDialog
         openRequestId={changelogOpenRequestId}
         preview={desktop.appMeta.preview}
+      />
+      <ReleaseChangelogDialog
+        currentVersion={releaseChangelog.currentVersion}
+        error={releaseChangelog.error}
+        isLoading={releaseChangelog.isLoading}
+        isOpen={releaseChangelog.isDialogOpen}
+        onClose={releaseChangelog.close}
+        onDismissCurrent={releaseChangelog.dismissCurrent}
+        onSelect={releaseChangelog.select}
+        releases={releaseChangelog.releases}
+        selectedRelease={releaseChangelog.selectedRelease}
+        selectedVersion={releaseChangelog.selectedVersion}
       />
     </div>
   );

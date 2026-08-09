@@ -20,6 +20,7 @@ import type {
 } from '../src/shared/project-space-api';
 import { createPullRequestDevServerConnectorRoutes } from './pr-test-surfaces/connector-http';
 import { readExactPullRequestChangelogSource } from './pr-preview-changelog-source';
+import { releaseChangelogForVersion } from './release-changelog';
 
 const exactSourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -39,6 +40,16 @@ export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) 
 
     if (request.method === 'GET' && url.pathname === '/api/app/meta') {
       writeJson(response, 200, await backend.getAppMeta());
+      return true;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/app/releases') {
+      try {
+        const meta = await backend.getAppMeta();
+        writeJson(response, 200, await releaseChangelogForVersion(meta.version));
+      } catch {
+        writeJson(response, 503, { error: 'Release changelog is temporarily unavailable.' });
+      }
       return true;
     }
 

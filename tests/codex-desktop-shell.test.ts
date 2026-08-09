@@ -45,4 +45,22 @@ describe('Project desktop canonical shell', () => {
     expect(source).not.toContain('CompactUtilityBar');
     expect(source).not.toContain('MobileTabBar');
   });
+
+  test('keeps release notes and durable information access in the canonical sidebar', () => {
+    const shellSource = readFileSync(
+      join(import.meta.dir, '../src/features/project-desktop/components/project-desktop-shell.tsx'),
+      'utf8'
+    );
+    const sidebarSource = readFileSync(
+      join(import.meta.dir, '../src/features/project-desktop/components/project-workspace-sidebar.tsx'),
+      'utf8'
+    );
+
+    expect(shellSource).toContain('useReleaseChangelog');
+    expect(shellSource).toContain('<ReleaseChangelogDialog');
+    expect(sidebarSource).toContain('<ReleaseChangelogCard');
+    expect(sidebarSource).toContain('<InformationMenu');
+    expect(sidebarSource).toContain('<AccountMenu');
+    expect(sidebarSource).not.toContain('app-rail');
+  });
 });
