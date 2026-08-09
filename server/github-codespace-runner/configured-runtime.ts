@@ -130,6 +130,12 @@ interface GitHubApiCodespace {
   web_url?: string;
 }
 
+interface GitHubCodespaceDefaultsResponse {
+  defaults?: {
+    location?: string;
+  };
+}
+
 async function listCodespaces(token: string) {
   const codespaces: GitHubApiCodespace[] = [];
   for (let page = 1; page <= 10; page += 1) {
@@ -148,21 +154,51 @@ async function createCodespace(
   input: { branch: string; displayName: string; repositoryFullName: string }
 ) {
   const [owner, repository] = input.repositoryFullName.split('/');
+  const repositoryPath = `/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(repository!)}`;
+  const recommendedLocation = await resolveRecommendedCodespaceLocation(
+    token,
+    repositoryPath,
+    input.branch
+  );
   return mapCodespace(await requestGitHub<GitHubApiCodespace>(
-    `/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(repository!)}/codespaces`,
+    `${repositoryPath}/codespaces`,
     token,
     {
-      body: JSON.stringify({
-        devcontainer_path: '.devcontainer/devcontainer.json',
-        display_name: input.displayName,
-        idle_timeout_minutes: 30,
-        ref: input.branch,
-        retention_period_minutes: 4_320
-      }),
+      body: JSON.stringify(githubCodespaceCreateBody(input, recommendedLocation)),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST'
     }
   ));
+}
+
+async function resolveRecommendedCodespaceLocation(
+  token: string,
+  repositoryPath: string,
+  branch: string
+) {
+  try {
+    const response = await requestGitHub<GitHubCodespaceDefaultsResponse>(
+      `${repositoryPath}/codespaces/new?ref=${encodeURIComponent(branch)}`,
+      token
+    );
+    return response.defaults?.location;
+  } catch {
+    return undefined;
+  }
+}
+
+export function githubCodespaceCreateBody(
+  input: { branch: string; displayName: string },
+  recommendedLocation?: string
+) {
+  return {
+    devcontainer_path: '.devcontainer/devcontainer.json',
+    display_name: input.displayName,
+    idle_timeout_minutes: 30,
+    ...(recommendedLocation ? { location: recommendedLocation } : {}),
+    ref: input.branch,
+    retention_period_minutes: 4_320
+  };
 }
 
 async function mutateCodespace(token: string, name: string, action: 'start' | 'stop') {
