@@ -30,6 +30,7 @@ interface GitHubReleaseSource {
 
 export interface ReleaseChangelogDependencies {
   fetch?: typeof fetch;
+  githubToken?: string | null;
   now?: () => Date;
 }
 
@@ -69,14 +70,21 @@ export async function loadReleaseChangelog(
   if (!normalizedVersion) return emptyResult(currentVersion, now);
 
   const fetchRelease = dependencies.fetch ?? fetch;
+  const githubToken = githubAuthorizationToken(
+    dependencies.githubToken === undefined
+      ? process.env.GITHUB_TOKEN
+      : dependencies.githubToken
+  );
+  const headers: Record<string, string> = {
+    accept: 'application/vnd.github+json',
+    'user-agent': 'project-space',
+    'x-github-api-version': '2022-11-28'
+  };
+  if (githubToken) headers.authorization = `Bearer ${githubToken}`;
   const response = await fetchRelease(
     `https://api.github.com/repos/${repository}/releases?per_page=100`,
     {
-      headers: {
-        accept: 'application/vnd.github+json',
-        'user-agent': 'project-space',
-        'x-github-api-version': '2022-11-28'
-      },
+      headers,
       signal: AbortSignal.timeout(fetchTimeoutMs)
     }
   );
@@ -160,6 +168,11 @@ function stringValue(value: unknown) {
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim();
   return normalized || undefined;
+}
+
+function githubAuthorizationToken(value: unknown) {
+  const token = stringValue(value);
+  return token && !/[\r\n]/.test(token) ? token : undefined;
 }
 
 function isRealDate(value: string) {
