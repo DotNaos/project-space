@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { readFile } from 'node:fs/promises';
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('Codespaces runner devcontainer', () => {
   test('uses the pinned prebuilt image with the required runner toolchain', async () => {
@@ -41,7 +50,7 @@ describe('Codespaces runner devcontainer', () => {
     expect(verification).toContain("python3 -c 'import shlex'");
   });
 
-  test('prepares reusable runner tools before the fast connection step', async () => {
+  test('prepares reusable runner tools without blocking Codespace availability', async () => {
     const devcontainer = JSON.parse(
       await readFile('.devcontainer/devcontainer.json', 'utf8')
     ) as {
@@ -52,16 +61,77 @@ describe('Codespaces runner devcontainer', () => {
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
 
     expect(devcontainer.onCreateCommand).toBe(
-      'bash .devcontainer/bootstrap.sh'
+      'bash .devcontainer/initialize-runner.sh'
     );
     expect(devcontainer.postCreateCommand).toBe(
-      'bash .devcontainer/start-runner.sh'
+      'bash .devcontainer/initialize-runner.sh'
     );
     expect(devcontainer.postStartCommand).toBe(
-      'bash .devcontainer/start-runner.sh'
+      'bash .devcontainer/initialize-runner.sh'
     );
+    const initializer = await readFile(
+      '.devcontainer/initialize-runner.sh',
+      'utf8'
+    );
+    expect(initializer).toContain('nohup bash "${initializer}" --run');
+    expect(initializer).toContain('.devcontainer/bootstrap.sh');
+    expect(initializer).toContain('.devcontainer/start-runner.sh');
+    expect(initializer).toContain('for attempt in 1 2 3');
     expect(bootstrap).not.toContain('.devcontainer/start-runner.sh');
     expect(bootstrap).not.toContain('bun install --frozen-lockfile');
+  });
+
+  test('returns immediately while one background initializer finishes', async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'codespace-initializer-'));
+    const devcontainerRoot = join(fixtureRoot, '.devcontainer');
+    const markerPath = join(fixtureRoot, 'marker.log');
+    const stateRoot = join(fixtureRoot, 'state');
+
+    try {
+      await mkdir(devcontainerRoot, { recursive: true });
+      await copyFile(
+        '.devcontainer/initialize-runner.sh',
+        join(devcontainerRoot, 'initialize-runner.sh')
+      );
+      await writeFile(
+        join(devcontainerRoot, 'bootstrap.sh'),
+        `#!/usr/bin/env bash\nsleep 1\nprintf 'bootstrap\\n' >> ${JSON.stringify(markerPath)}\n`
+      );
+      await writeFile(
+        join(devcontainerRoot, 'start-runner.sh'),
+        `#!/usr/bin/env bash\nprintf 'runner\\n' >> ${JSON.stringify(markerPath)}\n`
+      );
+
+      const environment = {
+        ...process.env,
+        CODESPACE_NAME: 'fixture-codespace',
+        HOME: join(fixtureRoot, 'home'),
+        XDG_STATE_HOME: stateRoot,
+      };
+      const startedAt = performance.now();
+      const first = Bun.spawn(
+        ['bash', join(devcontainerRoot, 'initialize-runner.sh')],
+        { cwd: fixtureRoot, env: environment }
+      );
+      expect(await first.exited).toBe(0);
+      expect(performance.now() - startedAt).toBeLessThan(2_000);
+
+      const duplicate = Bun.spawn(
+        ['bash', join(devcontainerRoot, 'initialize-runner.sh')],
+        { cwd: fixtureRoot, env: environment }
+      );
+      expect(await duplicate.exited).toBe(0);
+
+      let marker = '';
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        marker = await readFile(markerPath, 'utf8').catch(() => '');
+        if (marker.includes('runner')) break;
+        await Bun.sleep(100);
+      }
+      expect(marker).toBe('bootstrap\nrunner\n');
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   test('pins the released connector that retains Codespaces metadata', async () => {
