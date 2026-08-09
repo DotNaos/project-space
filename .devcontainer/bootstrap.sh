@@ -4,6 +4,7 @@ set -euo pipefail
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly repository_root
 readonly bun_version="1.3.14"
+readonly node_gyp_version="13.0.1"
 readonly project_version="0.9.1"
 readonly archive="project-space-machine-tools-linux-x64-v${project_version}.tar.gz"
 readonly archive_sha256="413ac5706f6b8f245cf5890de5caa240d11e1af334047afa7ee2f8d033227e8d"
@@ -22,6 +23,10 @@ trap cleanup EXIT
 if [[ "$(bun --version 2>/dev/null || true)" != "${bun_version}" ]]; then
   curl --fail --location --proto '=https' --tlsv1.2 https://bun.sh/install |
     bash -s "bun-v${bun_version}"
+fi
+current_node_gyp_version="$(node-gyp --version 2>/dev/null | sed 's/^v//' || true)"
+if [[ "${current_node_gyp_version}" != "${node_gyp_version}" ]]; then
+  npm install --global --no-audit --no-fund "node-gyp@${node_gyp_version}"
 fi
 bun install --frozen-lockfile
 
