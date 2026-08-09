@@ -228,7 +228,7 @@ func TestConnectorSupervisorRejectsInvalidCodexOperationSnapshotPath(t *testing.
 	}
 }
 
-func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t *testing.T) {
+func TestConnectorEnvironmentForwardsCodespacesMetadataAndRejectsOtherProjectValues(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "machine-home")
 	existingEntries := []string{
 		supervisorTestSystemPathEntry(),
@@ -240,6 +240,8 @@ func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t
 		"HOME=" + home,
 		ConnectorCommandSigningKeyFileEnv + "=/project-space/public-key.pem",
 		CodexOperationSnapshotFileEnv + "=/untrusted/codex-operations.json",
+		"CODESPACES=true",
+		"CODESPACE_NAME=project-space--537-example",
 		"PROJECT_CONNECTOR_REGISTRATION_TOKEN=must-not-pass",
 		"PROJECT_ARBITRARY_VALUE=must-not-pass",
 		"GH_TOKEN=must-not-pass",
@@ -254,6 +256,10 @@ func TestConnectorEnvironmentAddsUnixNonLoginToolsAndRejectsOtherProjectValues(t
 	}
 	if actual[ConnectorRuntimeProtocolEnv] != ConnectorRuntimeCredentialVersion {
 		t.Fatalf("connector runtime protocol = %q", actual[ConnectorRuntimeProtocolEnv])
+	}
+	if actual["CODESPACES"] != "true" ||
+		actual["CODESPACE_NAME"] != "project-space--537-example" {
+		t.Fatalf("Codespaces metadata was not forwarded: %#v", actual)
 	}
 	for _, forbidden := range []string{
 		"PROJECT_CONNECTOR_REGISTRATION_TOKEN",
