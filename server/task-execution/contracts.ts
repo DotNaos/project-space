@@ -156,6 +156,7 @@ export interface ReserveTaskExecutionOperationInput {
   fingerprint: string;
   operationId: string;
   ownerUserId: string;
+  scopeKey?: string;
 }
 
 export type TaskExecutionOperationReservation =
@@ -176,6 +177,7 @@ export interface TaskExecutionOperationStore {
     fingerprint: string;
     ownerUserId: string;
     operationId: string;
+    scopeKey?: string;
     state: Exclude<TaskExecutionOperationState, 'reserved'>;
     result?: Record<string, unknown>;
   }): Promise<TaskExecutionOperationRecord>;

@@ -22,6 +22,10 @@ export const projectSpaceMcpExecutionApproveScope =
   'project-space:execution.approve';
 export const projectSpaceMcpTaskWriteScope =
   'project-space:task.write';
+export const projectSpaceMcpDeliveryWriteScope =
+  'project-space:delivery.write';
+export const projectSpaceMcpDeliveryMergeScope =
+  'project-space:delivery.merge';
 export const projectSpaceMcpShellWorkspaceScope =
   'project-space:shell.workspace';
 export const projectSpaceMcpShellRecoveryScope =
@@ -36,6 +40,8 @@ export const projectSpaceMcpSupportedScopes = [
   projectSpaceMcpExecutionApproveScope,
   projectSpaceMcpExecutionWriteScope,
   projectSpaceMcpTaskWriteScope,
+  projectSpaceMcpDeliveryWriteScope,
+  projectSpaceMcpDeliveryMergeScope,
   projectSpaceMcpShellWorkspaceScope,
   projectSpaceMcpShellRecoveryScope,
   projectSpaceMcpEnvironmentManageScope,

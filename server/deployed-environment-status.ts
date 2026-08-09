@@ -11,12 +11,14 @@ import type {
 } from '../src/shared/project-space-api';
 
 const fullSha = /^[0-9a-f]{40}$/i;
+const deployVersion = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,127}$/;
 const repositoryName = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const execFileAsync = promisify(execFile);
 
 interface RawEnvironment {
   branch?: unknown;
   buildCommit?: unknown;
+  buildVersion?: unknown;
   environment?: unknown;
   evidence?: {
     composeHealthy?: unknown;
@@ -88,10 +90,14 @@ export function sanitizeDeployedEnvironment(raw: RawEnvironment): DeployedEnviro
   else if (raw.status === 'unhealthy') verification = 'unhealthy';
 
   const liveUrl = publicHttpsUrl(raw.webUrl);
+  const deployedVersion = typeof raw.buildVersion === 'string' && deployVersion.test(raw.buildVersion.trim())
+    ? raw.buildVersion.trim()
+    : undefined;
   return {
     id,
     displayName: displayName(id),
     deployedSha: fullSha.test(running) ? running : undefined,
+    deployedVersion,
     liveUrl,
     liveUrlState: liveUrl
       ? 'available'
@@ -110,6 +116,7 @@ async function reconcileCurrentEnvironment(
 ) {
   const currentId = process.env.PROJECT_DEPLOY_ENVIRONMENT?.trim();
   const buildCommit = process.env.PROJECT_SPACE_BUILD_COMMIT?.trim().toLowerCase();
+  const buildVersion = process.env.PROJECT_SPACE_BUILD_VERSION?.trim();
   const stateRoot = process.env.PROJECT_DEPLOY_STATE_ROOT?.trim();
   if (!currentId || environment.id !== currentId || !stateRoot || !buildCommit || !fullSha.test(buildCommit)) {
     return environment;
@@ -121,8 +128,10 @@ async function reconcileCurrentEnvironment(
     return {
       ...environment,
       deployedSha: buildCommit,
+      deployedVersion: buildVersion && deployVersion.test(buildVersion)
+        ? buildVersion
+        : environment.deployedVersion,
       githubUrl: `https://github.com/${repositoryFullName}/commit/${buildCommit}`,
-      verification: environment.verification === 'unavailable' ? 'healthy' as const : environment.verification,
       verifiedAt: checkedAt
     };
   } catch {

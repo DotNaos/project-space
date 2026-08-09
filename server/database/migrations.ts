@@ -75,6 +75,10 @@ import {
   workspaceCommandMigrationId,
   workspaceCommandMigrationSql
 } from './workspace-command-migration';
+import {
+  taskDeliveryMigrationId,
+  taskDeliveryMigrationSql
+} from './task-delivery-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -731,6 +735,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: workspaceCommandMigrationId,
     sql: workspaceCommandMigrationSql
+  },
+  {
+    id: taskDeliveryMigrationId,
+    sql: taskDeliveryMigrationSql
   }
 ];
 

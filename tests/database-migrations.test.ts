@@ -120,7 +120,8 @@ describe('database migrations', () => {
       '0033_agent_authorization_operations',
       '0034_task_execution_storage',
       '0035_task_handoff_artifacts',
-      '0036_workspace_commands'
+      '0036_workspace_commands',
+      '0037_task_delivery'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -180,6 +181,9 @@ describe('database migrations', () => {
     expect(sql).toContain('agent_authorization_one_unresolved_per_environment');
     expect(sql).toContain('create table task_handoffs');
     expect(sql).toContain('create table workspace_commands');
+    expect(sql).toContain('create table task_deliveries');
+    expect(sql).toContain('create table task_delivery_evidence');
+    expect(sql).toContain('create table task_delivery_revision_reviews');
     expect(sql).toContain('runner_workspaces_target_check');
     expect(sql).toContain("scope in ('workspace', 'environment_recovery')");
     expect(sql).toContain('create table task_handoff_revisions');

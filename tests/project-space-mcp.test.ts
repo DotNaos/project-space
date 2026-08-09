@@ -21,6 +21,7 @@ import {
 import { createProjectSpaceMcpHandler } from '../server/project-space-mcp';
 import type { LoadMcpComputeInventory } from '../server/project-space-mcp/compute-environments';
 import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oauth-store';
+import type { TaskDeliveryService } from '../server/task-delivery/service';
 import type { TaskExecutionService } from '../server/task-execution/service';
 import type { WorkspaceCommandService } from '../server/workspace-command/service';
 
@@ -464,6 +465,17 @@ function taskExecutionRuntime(
   };
 }
 
+function taskDeliveryRuntime(
+  calls: Array<{ kind: string; request: unknown; userId: string }>
+): TaskDeliveryService {
+  return {
+    async getStatus(actor, request) {
+      calls.push({ kind: 'delivery-status', request, userId: actor.userId });
+      return { apiVersion: 1, deliveries: [] };
+    }
+  } as TaskDeliveryService;
+}
+
 async function startMcp(
   calls: Array<{ kind: string; request: unknown; userId: string }>,
   options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {},
@@ -473,6 +485,7 @@ async function startMcp(
     environmentLifecycle?: ExecutionEnvironmentLifecycleService;
     loadComputeInventory?: LoadMcpComputeInventory;
     logger?: ProjectSpaceLogger;
+    taskDelivery?: TaskDeliveryService;
     taskExecutions?: TaskExecutionService;
     workspaceCommands?: WorkspaceCommandService;
   } = {}
@@ -488,6 +501,7 @@ async function startMcp(
     createEnvironmentLifecycle: async () => (
       dependencies.environmentLifecycle ?? environmentLifecycle(calls)
     ),
+    createTaskDelivery: async () => dependencies.taskDelivery ?? taskDeliveryRuntime(calls),
     ...(dependencies.taskExecutions ? {
       createTaskExecutions: async () => dependencies.taskExecutions!
     } : {}),
@@ -564,6 +578,8 @@ describe('Project Space remote MCP server', () => {
     expect(await metadataResponse.json()).toMatchObject({
       authorization_servers: [`${origin}/`],
       resource: `${origin}/mcp`,
+      resource_documentation: `${origin}/docs/project-mcp`,
+      resource_name: 'Project Space MCP',
       scopes_supported: [
         'project-space:read',
         'project-space:write',
@@ -571,6 +587,8 @@ describe('Project Space remote MCP server', () => {
         'project-space:execution.approve',
         'project-space:execution.write',
         'project-space:task.write',
+        'project-space:delivery.write',
+        'project-space:delivery.merge',
         'project-space:shell.workspace',
         'project-space:shell.recovery',
         'project-space:environment.manage',
@@ -672,6 +690,11 @@ describe('Project Space remote MCP server', () => {
       'respond_task_execution_input',
       'cancel_task_execution',
       'archive_task_execution',
+      'get_task_delivery_status',
+      'create_or_update_task_pull_request',
+      'request_task_review',
+      'merge_task_pull_request',
+      'complete_task',
       'start_workspace_command',
       'get_workspace_command',
       'cancel_workspace_command',
@@ -688,6 +711,17 @@ describe('Project Space remote MCP server', () => {
         securitySchemes: [{ scopes: ['project-space:read'], type: 'oauth2' }]
       },
       annotations: { readOnlyHint: true },
+    });
+
+    const delivery = await client.callTool({
+      name: 'get_task_delivery_status',
+      arguments: { executionId: '44444444-4444-4444-8444-444444444444' }
+    });
+    expect(delivery.structuredContent).toEqual({ result: { apiVersion: 1, deliveries: [] } });
+    expect(calls).toContainEqual({
+      kind: 'delivery-status',
+      request: { executionId: '44444444-4444-4444-8444-444444444444' },
+      userId: 'local-development-user'
     });
 
     const workspaceCommand = await client.callTool({

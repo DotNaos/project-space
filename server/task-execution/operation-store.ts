@@ -18,12 +18,13 @@ interface OperationRow {
   fingerprint_sha256: string;
   operation_id: string;
   result: unknown;
+  scope_key: string | null;
   state: TaskExecutionOperationState;
   updated_at: Date | string;
 }
 
 const columns = `
-  operation_id, execution_id, action, fingerprint_sha256, state, result,
+  operation_id, execution_id, action, fingerprint_sha256, scope_key, state, result,
   created_at, updated_at, expires_at
 `;
 const terminalStates = new Set<TaskExecutionOperationState>(['blocked', 'completed']);
@@ -34,23 +35,32 @@ export class PostgresTaskExecutionOperationStore implements TaskExecutionOperati
 
   async claimDispatch(input: ReserveTaskExecutionOperationInput) {
     assertOperation(input);
-    const result = await this.client.query<OperationRow>(
+    let result;
+    try {
+      result = await this.client.query<OperationRow>(
       `update execution_operations
           set state = 'dispatched', result = null, updated_at = now(),
               expires_at = now() + interval '30 days'
         where owner_user_id = $1 and operation_id = $2
           and action = $3 and fingerprint_sha256 = $4
           and execution_id is not distinct from $5::uuid
+          and scope_key is not distinct from $6
           and state in ('reserved', 'confirmed')
         returning ${columns}`,
       [
         input.ownerUserId, input.operationId, input.action, input.fingerprint,
-        input.executionId ?? null
+        input.executionId ?? null, input.scopeKey ?? null
       ]
-    );
+      );
+    } catch (error) {
+      if (input.scopeKey && isScopeFenceConflict(error)) return 'in_progress' as const;
+      throw error;
+    }
     if (result.rows[0]) return 'claimed' as const;
-    const current = await this.read(input.ownerUserId, input.operationId);
-    if (!current || !sameOperationIdentity(current, input)) return 'conflict' as const;
+    const current = await readCurrent(this.client, input.ownerUserId, input.operationId);
+    if (!current || !sameOperationIdentity(mapOperation(current), input, current.scope_key ?? undefined)) {
+      return 'conflict' as const;
+    }
     return 'in_progress' as const;
   }
 
@@ -74,14 +84,14 @@ export class PostgresTaskExecutionOperationStore implements TaskExecutionOperati
       if (existing) return reservationFor(existing, input);
       const inserted = await client.query<OperationRow>(
         `insert into execution_operations (
-           owner_user_id, operation_id, execution_id, action, fingerprint_sha256,
+           owner_user_id, operation_id, execution_id, action, fingerprint_sha256, scope_key,
            state, created_at, updated_at, expires_at
-         ) values ($1, $2, $3::uuid, $4, $5, 'reserved', now(), now(), now() + interval '30 days')
+         ) values ($1, $2, $3::uuid, $4, $5, $6, 'reserved', now(), now(), now() + interval '30 days')
          on conflict (owner_user_id, operation_id) do nothing
          returning ${columns}`,
         [
           input.ownerUserId, input.operationId, input.executionId ?? null,
-          input.action, input.fingerprint
+          input.action, input.fingerprint, input.scopeKey ?? null
         ]
       );
       if (inserted.rows[0]) return { kind: 'new', operation: mapOperation(inserted.rows[0]) };
@@ -92,13 +102,8 @@ export class PostgresTaskExecutionOperationStore implements TaskExecutionOperati
   }
 
   async read(ownerUserId: string, operationId: string) {
-    const result = await this.client.query<OperationRow>(
-      `select ${columns} from execution_operations
-        where owner_user_id = $1 and operation_id = $2
-          and (state not in ('completed', 'blocked') or expires_at > now())`,
-      [ownerUserId, operationId]
-    );
-    return result.rows[0] ? mapOperation(result.rows[0]) : undefined;
+    const row = await readCurrent(this.client, ownerUserId, operationId);
+    return row ? mapOperation(row) : undefined;
   }
 
   async transition(input: {
@@ -107,6 +112,7 @@ export class PostgresTaskExecutionOperationStore implements TaskExecutionOperati
     fingerprint: string;
     ownerUserId: string;
     operationId: string;
+    scopeKey?: string;
     state: Exclude<TaskExecutionOperationState, 'reserved'>;
     result?: Record<string, unknown>;
   }) {
@@ -121,24 +127,28 @@ export class PostgresTaskExecutionOperationStore implements TaskExecutionOperati
         where owner_user_id = $1 and operation_id = $2
           and action = $5 and fingerprint_sha256 = $6
           and execution_id is not distinct from $7::uuid
-          and state = any($8::text[])
+          and scope_key is not distinct from $8
+          and state = any($9::text[])
         returning ${columns}`,
       [
         input.ownerUserId, input.operationId, input.state,
         input.result ? JSON.stringify(input.result) : null, input.action,
-        input.fingerprint, input.executionId ?? null, allowed
+        input.fingerprint, input.executionId ?? null, input.scopeKey ?? null, allowed
       ]
     );
     if (result.rows[0]) return mapOperation(result.rows[0]);
-    const current = await this.read(input.ownerUserId, input.operationId);
-    if (current && sameOperationIdentity(current, input) && current.state === input.state &&
-        sameSafeResult(current.result, input.result)) return current;
+    const current = await readCurrent(this.client, input.ownerUserId, input.operationId);
+    if (current && sameOperationIdentity(mapOperation(current), input, current.scope_key ?? undefined) &&
+        current.state === input.state && sameSafeResult(mapOperation(current).result, input.result)) {
+      return mapOperation(current);
+    }
     throw new Error('Task Execution operation was not updated.');
   }
 }
 
 interface MemoryOperation extends TaskExecutionOperationRecord {
   ownerUserId: string;
+  scopeKey?: string;
 }
 
 export class MemoryTaskExecutionOperationStore implements TaskExecutionOperationStore {
@@ -153,6 +163,11 @@ export class MemoryTaskExecutionOperationStore implements TaskExecutionOperation
     const current = this.operations.get(id);
     if (!current || !sameOperationIdentity(current, input)) return 'conflict' as const;
     if (!['reserved', 'confirmed'].includes(current.state)) return 'in_progress' as const;
+    if (input.scopeKey && [...this.operations.values()].some((operation) => (
+      operation !== current && operation.ownerUserId === input.ownerUserId &&
+      operation.scopeKey === input.scopeKey &&
+      ['dispatched', 'confirmed', 'uncertain'].includes(operation.state)
+    ))) return 'in_progress' as const;
     const claimedAt = this.now();
     this.operations.set(id, {
       ...current,
@@ -181,6 +196,7 @@ export class MemoryTaskExecutionOperationStore implements TaskExecutionOperation
       fingerprint: input.fingerprint,
       operationId: input.operationId,
       ownerUserId: input.ownerUserId,
+      ...(input.scopeKey ? { scopeKey: input.scopeKey } : {}),
       state: 'reserved',
       updatedAt: now
     };
@@ -200,6 +216,7 @@ export class MemoryTaskExecutionOperationStore implements TaskExecutionOperation
     fingerprint: string;
     ownerUserId: string;
     operationId: string;
+    scopeKey?: string;
     state: Exclude<TaskExecutionOperationState, 'reserved'>;
     result?: Record<string, unknown>;
   }) {
@@ -246,18 +263,25 @@ function reservationFor(
   row: OperationRow,
   input: ReserveTaskExecutionOperationInput
 ): TaskExecutionOperationReservation {
-  return memoryReservation(mapOperation(row), input);
+  return memoryReservation(mapOperation(row), input, row.scope_key ?? undefined);
 }
 
 function memoryReservation(
   operation: TaskExecutionOperationRecord,
-  input: ReserveTaskExecutionOperationInput
+  input: ReserveTaskExecutionOperationInput,
+  storedScope = 'scopeKey' in operation ? operation.scopeKey as string | undefined : undefined
 ): TaskExecutionOperationReservation {
   if (operation.action !== input.action || operation.executionId !== input.executionId ||
-      operation.fingerprint !== input.fingerprint) return { kind: 'conflict' };
+      operation.fingerprint !== input.fingerprint ||
+      storedScope !== input.scopeKey) {
+    return { kind: 'conflict' };
+  }
+  const publicRecord = 'ownerUserId' in operation
+    ? publicOperation(operation as MemoryOperation)
+    : structuredClone(operation);
   return terminalStates.has(operation.state)
-    ? { kind: 'replayed', operation: structuredClone(operation) }
-    : { kind: 'in_progress', operation: structuredClone(operation) };
+    ? { kind: 'replayed', operation: publicRecord }
+    : { kind: 'in_progress', operation: publicRecord };
 }
 
 async function readForUpdate(
@@ -268,6 +292,20 @@ async function readForUpdate(
   const result = await client.query<OperationRow>(
     `select ${columns} from execution_operations
       where owner_user_id = $1 and operation_id = $2 for update`,
+    [ownerUserId, operationId]
+  );
+  return result.rows[0];
+}
+
+async function readCurrent(
+  client: DatabaseQueryClient,
+  ownerUserId: string,
+  operationId: string
+) {
+  const result = await client.query<OperationRow>(
+    `select ${columns} from execution_operations
+      where owner_user_id = $1 and operation_id = $2
+        and (state not in ('completed', 'blocked') or expires_at > now())`,
     [ownerUserId, operationId]
   );
   return result.rows[0];
@@ -293,14 +331,16 @@ function mapOperation(row: OperationRow): TaskExecutionOperationRecord {
 
 function sameOperationIdentity(
   operation: TaskExecutionOperationRecord,
-  input: ReserveTaskExecutionOperationInput
+  input: ReserveTaskExecutionOperationInput,
+  storedScope = 'scopeKey' in operation ? operation.scopeKey as string | undefined : undefined
 ) {
   return operation.action === input.action && operation.executionId === input.executionId &&
-    operation.fingerprint === input.fingerprint;
+    operation.fingerprint === input.fingerprint &&
+    storedScope === input.scopeKey;
 }
 
 function publicOperation(operation: MemoryOperation) {
-  const { ownerUserId: _, ...record } = operation;
+  const { ownerUserId: _, scopeKey: __, ...record } = operation;
   return structuredClone(record);
 }
 
@@ -323,7 +363,16 @@ function assertTerminalResult(
 function assertOperation(input: ReserveTaskExecutionOperationInput) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(input.operationId) ||
       !/^[0-9a-f]{64}$/.test(input.fingerprint) || !input.action.trim() ||
-      input.action.length > 80) throw new Error('Task Execution operation is invalid.');
+      input.action.length > 80 || (input.scopeKey !== undefined &&
+        (!input.scopeKey.trim() || input.scopeKey.length > 512))) {
+    throw new Error('Task Execution operation is invalid.');
+  }
+}
+
+function isScopeFenceConflict(error: unknown) {
+  const databaseError = error as { code?: unknown; constraint?: unknown };
+  return databaseError.code === '23505' &&
+    databaseError.constraint === 'execution_operations_one_unresolved_scope';
 }
 
 function key(ownerUserId: string, operationId: string) {

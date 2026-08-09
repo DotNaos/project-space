@@ -1141,6 +1141,7 @@ export type DeployedEnvironmentVerification =
 
 export interface DeployedEnvironmentStatus {
   deployedSha?: string;
+  deployedVersion?: string;
   displayName: string;
   id: string;
   githubUrl?: string;
