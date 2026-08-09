@@ -40,9 +40,9 @@ describe('Codespaces runner devcontainer', () => {
   test('pins the released connector that retains Codespaces metadata', async () => {
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
 
-    expect(bootstrap).toContain('readonly project_version="0.10.4"');
+    expect(bootstrap).toContain('readonly project_version="0.10.6"');
     expect(bootstrap).toContain(
-      'readonly archive_sha256="50081bcc5572f3f038c7e46e9418963129debaf32367e86458e1306c2f54284a"'
+      'readonly archive_sha256="ecc6f972a65dad1cfdae48ee4be84263d5a7239b76a0b6519fe02767c200ad64"'
     );
   });
 });
