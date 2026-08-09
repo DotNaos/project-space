@@ -1,30 +1,9 @@
 {
   "name": "Project Space Codespace Runner",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
-  "remoteUser": "vscode",
-  "features": {
-    "ghcr.io/devcontainers/features/node:2": {
-      "version": "24.15.0",
-      "nodeGypDependencies": true,
-      "pnpmVersion": "none"
-    },
-    "ghcr.io/devcontainers/features/go:1": {
-      "version": "1.26"
-    },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {
-      "version": "2.97.0"
-    },
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "os-provided",
-      "installTools": false
-    },
-    "ghcr.io/devcontainers/features/sshd:1": {
-      "version": "latest"
-    }
-  },
+  "image": "mcr.microsoft.com/devcontainers/universal:6.1.1-linux@sha256:cb1ccdf5e3c10b4134ffe8f2c03e8481e7c41058d27a70192fa54146a8c327c2",
+  "remoteUser": "codespace",
   "remoteEnv": {
-    "PATH": "/home/vscode/.local/bin:/home/vscode/.bun/bin:${containerEnv:PATH}"
+    "PATH": "/home/codespace/.local/bin:/home/codespace/.bun/bin:${containerEnv:PATH}"
   },
   "customizations": {
     "codespaces": {

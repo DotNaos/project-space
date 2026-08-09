@@ -2,30 +2,32 @@ import { describe, expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 
 describe('Codespaces runner devcontainer', () => {
-  test('installs and verifies the SSH server required by GitHub diagnostics', async () => {
+  test('uses the pinned prebuilt image with the required runner toolchain', async () => {
     const devcontainer = JSON.parse(
       await readFile('.devcontainer/devcontainer.json', 'utf8')
-    ) as { features?: Record<string, unknown> };
+    ) as {
+      features?: Record<string, unknown>;
+      image?: string;
+      remoteEnv?: { PATH?: string };
+      remoteUser?: string;
+    };
     const verification = await readFile('.devcontainer/verify-runner.sh', 'utf8');
 
-    expect(
-      devcontainer.features?.['ghcr.io/devcontainers/features/sshd:1']
-    ).toEqual({ version: 'latest' });
+    expect(devcontainer.image).toBe(
+      'mcr.microsoft.com/devcontainers/universal:6.1.1-linux@sha256:cb1ccdf5e3c10b4134ffe8f2c03e8481e7c41058d27a70192fa54146a8c327c2'
+    );
+    expect(devcontainer.remoteUser).toBe('codespace');
+    expect(devcontainer.remoteEnv?.PATH).toStartWith('/home/codespace/');
+    expect(devcontainer.features).toBeUndefined();
     expect(verification).toMatch(
       /for command_name in [^\n]*\bsshd\b/
     );
   });
 
   test('installs node-gyp without blocking on repository dependencies', async () => {
-    const devcontainer = JSON.parse(
-      await readFile('.devcontainer/devcontainer.json', 'utf8')
-    ) as { features?: Record<string, unknown> };
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
     const verification = await readFile('.devcontainer/verify-runner.sh', 'utf8');
 
-    expect(
-      devcontainer.features?.['ghcr.io/devcontainers/features/python:1']
-    ).toEqual({ version: 'os-provided', installTools: false });
     expect(bootstrap).toMatch(/readonly node_gyp_version="\d+\.\d+\.\d+"/);
     expect(bootstrap.indexOf('bun add --global')).toBeGreaterThan(-1);
     expect(bootstrap).not.toContain('bun install --frozen-lockfile');
