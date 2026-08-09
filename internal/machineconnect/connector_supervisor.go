@@ -40,6 +40,8 @@ var connectorEnvironmentAllowlist = []string{
 	"WINDIR",
 	"ComSpec",
 	"PATHEXT",
+	"CODESPACES",
+	"CODESPACE_NAME",
 }
 
 // ConnectorRuntimeCredential is the least-privilege identity passed to the
