@@ -162,7 +162,10 @@ export class MemoryTaskExecutionStore implements TaskExecutionStore {
         current.version !== input.expectedVersion ||
         (current.handoff.id === input.handoff.id &&
           current.handoff.revision === input.handoff.revision) ||
-        ['completed', 'failed', 'cancelled', 'archived'].includes(current.state)) {
+        this.bindings.has(id) || ![
+          'planned', 'preparing_environment', 'waiting_for_connector',
+          'waiting_for_authorization', 'preparing_workspace', 'blocked'
+        ].includes(current.state)) {
       return { current: current ? structuredClone(current) : undefined, kind: 'conflict' };
     }
     const execution = {

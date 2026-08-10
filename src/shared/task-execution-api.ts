@@ -3,6 +3,14 @@ export const TASK_EXECUTION_API_VERSION = 1 as const;
 export type TaskHandoffMode = 'implement' | 'plan' | 'repair' | 'review';
 export type TaskAgentKind = 'codex';
 
+export interface TaskHandoffRequestedPermissions {
+  delivery: 'none' | 'pull_request';
+  network: 'none' | 'restricted' | 'open';
+  repository: 'read' | 'write';
+  task: 'read' | 'write';
+  workspace: 'read' | 'write';
+}
+
 export interface TaskHandoffReference {
   id: string;
   revision: number;
@@ -15,7 +23,9 @@ export interface TaskHandoffArtifactRef {
   };
   digest: `sha256:${string}`;
   id: string;
+  kind: 'decision' | 'design' | 'document' | 'other' | 'screenshot';
   mediaType: string;
+  name: string;
   provenance: {
     kind: 'orchestrator' | 'provider' | 'user_upload';
     reference?: string;
@@ -24,6 +34,10 @@ export interface TaskHandoffArtifactRef {
   storage: {
     kind: 'github_attachment' | 'project_space_blob' | 'task_artifact';
     reference: string;
+  };
+  verification: {
+    state: 'unavailable' | 'verified';
+    verifiedAt?: string;
   };
 }
 
@@ -41,6 +55,7 @@ export interface TaskHandoffRevision {
   handoffId: string;
   objective: string;
   requestedMode: TaskHandoffMode;
+  requestedPermissions: TaskHandoffRequestedPermissions;
   revision: number;
   taskId: string;
 }

@@ -6,6 +6,10 @@ import type { DatabaseQueryClient } from '../database/client';
 import type { ExecutionEnvironmentLifecycleService } from '../execution-environment-lifecycle/service';
 import { getMachineConnectionDatabaseClient } from '../local-database-store';
 import { PostgresTaskExecutionCapacityStore } from './capacity-store';
+import {
+  PostgresTaskHandoffArtifactBlobStore,
+  type TaskHandoffArtifactBlobStore
+} from './artifact-store';
 import type {
   TaskExecutionCapacityStore,
   TaskExecutionOperationStore,
@@ -32,6 +36,7 @@ type ConfiguredTaskExecutionBackend = Pick<
 
 export interface ConfiguredTaskExecutionOptions {
   agentRuntime: AgentRuntimeService;
+  artifacts?: TaskHandoffArtifactBlobStore;
   backend: ConfiguredTaskExecutionBackend;
   capacity?: TaskExecutionCapacityStore;
   codex: ConfiguredCodexMachineTasksRuntime;
@@ -48,12 +53,13 @@ export async function createConfiguredTaskExecutionService(
   options: ConfiguredTaskExecutionOptions
 ): Promise<TaskExecutionService> {
   const database = options.database ?? (
-    options.capacity && options.handoffs && options.operations && options.store
+    options.artifacts && options.capacity && options.handoffs && options.operations && options.store
       ? undefined
       : await getMachineConnectionDatabaseClient()
   );
   return createTaskExecutionService({
     agentRuntime: options.agentRuntime,
+    artifacts: options.artifacts ?? new PostgresTaskHandoffArtifactBlobStore(database!),
     capacity: options.capacity ?? new PostgresTaskExecutionCapacityStore(database!),
     codex: options.codex,
     environmentLifecycle: options.environmentLifecycle,

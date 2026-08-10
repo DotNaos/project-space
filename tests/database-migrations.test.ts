@@ -118,7 +118,8 @@ describe('database migrations', () => {
       '0031_compute_environment_identity_resolution',
       '0032_environment_lifecycle',
       '0033_agent_authorization_operations',
-      '0034_task_execution_storage'
+      '0034_task_execution_storage',
+      '0035_task_handoff_artifacts'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

@@ -10,6 +10,7 @@ import {
   projectSpaceMcpEnvironmentManageScope,
   projectSpaceMcpExecutionApproveScope,
   projectSpaceMcpExecutionWriteScope,
+  projectSpaceMcpTaskWriteScope,
   projectSpaceMcpSupportedScopes
 } from '../server/project-space-mcp-oauth-store';
 
@@ -85,6 +86,9 @@ describe('Project Space MCP lifecycle OAuth scopes', () => {
     expect(projectSpaceMcpDefaultScopes).not.toContain(
       projectSpaceMcpExecutionApproveScope
     );
+    expect(projectSpaceMcpDefaultScopes).not.toContain(
+      projectSpaceMcpTaskWriteScope
+    );
   });
 
   test('allows explicit lifecycle scope registration and rejects unknown scopes', async () => {
@@ -158,5 +162,22 @@ describe('Project Space MCP lifecycle OAuth scopes', () => {
     expect(registered.status).toBe(201);
     expect(await registered.json()).toMatchObject({ scope: requested });
     expect(projectSpaceMcpSupportedScopes).toContain(projectSpaceMcpExecutionApproveScope);
+  });
+
+  test('allows explicit Task Handoff writes without granting them by default', async () => {
+    const origin = await startOAuthServer();
+    const requested = [
+      projectSpaceMcpDefaultScopes[0],
+      projectSpaceMcpTaskWriteScope
+    ].join(' ');
+    const registered = await fetch(`${origin}/register`, {
+      body: JSON.stringify(registration(requested)),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+
+    expect(registered.status).toBe(201);
+    expect(await registered.json()).toMatchObject({ scope: requested });
+    expect(projectSpaceMcpSupportedScopes).toContain(projectSpaceMcpTaskWriteScope);
   });
 });

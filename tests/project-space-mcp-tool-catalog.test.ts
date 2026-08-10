@@ -11,6 +11,7 @@ import {
   projectSpaceMcpEnvironmentManageScope,
   projectSpaceMcpExecutionWriteScope,
   projectSpaceMcpReadScope,
+  projectSpaceMcpTaskWriteScope,
   projectSpaceMcpWriteScope
 } from '../server/project-space-mcp-oauth-store';
 
@@ -147,6 +148,106 @@ describe('Project Space MCP execution Environment lifecycle catalogue', () => {
       environmentId: 'environment-codespace',
       operationId,
       repositoryId: 'attacker/repository'
+    }).success).toBe(false);
+  });
+});
+
+describe('Project Space MCP Task Handoff catalogue', () => {
+  const names = [
+    'create_task_handoff',
+    'get_task_handoff',
+    'update_task_execution_handoff'
+  ];
+  const writeScopes = [
+    projectSpaceMcpReadScope,
+    projectSpaceMcpWriteScope,
+    projectSpaceMcpTaskWriteScope
+  ];
+
+  test('publishes exactly the three immutable Handoff operations', () => {
+    const published = tools.filter(({ name }) => names.includes(name));
+    expect(published.map(({ name }) => name)).toEqual(names);
+    expect(published.map(({ annotations }) => annotations)).toEqual([
+      expect.objectContaining({
+        destructiveHint: false, idempotentHint: true, openWorldHint: true,
+        readOnlyHint: false
+      }),
+      expect.objectContaining({
+        destructiveHint: false, idempotentHint: true, openWorldHint: false,
+        readOnlyHint: true
+      }),
+      expect.objectContaining({
+        destructiveHint: false, idempotentHint: true, openWorldHint: false,
+        readOnlyHint: false
+      })
+    ]);
+    for (const entry of published) {
+      expect(entry.outputSchema).toMatchObject({
+        properties: { result: expect.any(Object) }, required: ['result'], type: 'object'
+      });
+      expect(entry._meta?.securitySchemes).toEqual(entry.securitySchemes);
+    }
+  });
+
+  test('separates Handoff writes from reads and active Execution steering', () => {
+    expect(scopesForTool('create_task_handoff')).toEqual(writeScopes);
+    expect(scopesForTool('get_task_handoff')).toEqual([projectSpaceMcpReadScope]);
+    expect(scopesForTool('update_task_execution_handoff')).toEqual([
+      ...writeScopes,
+      projectSpaceMcpExecutionWriteScope
+    ]);
+  });
+
+  test('accepts verified bytes or an existing Handoff reference, never paths or URLs', () => {
+    const base = {
+      objective: 'Implement the design.',
+      operationId: 'handoff:create:0001',
+      requestedMode: 'implement',
+      requestedPermissions: {
+        delivery: 'pull_request', network: 'restricted', repository: 'write',
+        task: 'write', workspace: 'write'
+      },
+      task: { number: 554, provider: 'github', repositoryId: '42' }
+    };
+    expect(toolSchemas.create_task_handoff.safeParse({
+      ...base,
+      artifacts: [{
+        digest: `sha256:${'0'.repeat(64)}`,
+        id: 'design',
+        kind: 'design',
+        mediaType: 'text/markdown',
+        name: 'Implementation design',
+        sizeBytes: 6,
+        source: { data: 'design', encoding: 'utf8', kind: 'inline' }
+      }]
+    }).success).toBe(true);
+    expect(toolSchemas.create_task_handoff.safeParse({
+      ...base,
+      artifacts: [{
+        id: 'design-copy',
+        source: {
+          artifactId: 'design', handoffId: '11111111-1111-4111-8111-111111111111',
+          kind: 'handoff', revision: 1
+        }
+      }],
+      baseRevision: 1,
+      handoffId: '11111111-1111-4111-8111-111111111111'
+    }).success).toBe(true);
+    for (const unsafe of [
+      { path: '/tmp/design.md' },
+      { url: 'https://attacker.invalid/design' },
+      { source: { kind: 'inline', data: 'x', encoding: 'utf8' }, id: '../design' }
+    ]) {
+      expect(toolSchemas.create_task_handoff.safeParse({
+        ...base,
+        artifacts: [unsafe]
+      }).success).toBe(false);
+    }
+    expect(toolSchemas.create_task_handoff.safeParse({ ...base, requestedPermissions: undefined })
+      .success).toBe(false);
+    expect(toolSchemas.create_task_handoff.safeParse({
+      ...base,
+      baseRevision: 1
     }).success).toBe(false);
   });
 });

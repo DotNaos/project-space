@@ -364,6 +364,27 @@ function agentRuntime(
 function taskExecutionRuntime(
   calls: Array<{ kind: string; request: unknown; userId: string }>
 ): TaskExecutionService {
+  const handoff = {
+    acceptanceCriteria: ['The implementation matches the approved design.'],
+    artifacts: [],
+    constraints: ['Do not depend on a local filesystem path.'],
+    context: 'The design was produced by another orchestrator.',
+    createdAt: '2026-08-09T00:00:00.000Z',
+    createdBy: { id: 'mcp:test-client', kind: 'orchestrator' as const },
+    decisions: ['Transfer the complete design through Project Space.'],
+    handoffId: '33333333-3333-4333-8333-333333333333',
+    objective: 'Implement the verified cross-machine design.',
+    requestedMode: 'implement' as const,
+    requestedPermissions: {
+      delivery: 'pull_request' as const,
+      network: 'restricted' as const,
+      repository: 'write' as const,
+      task: 'write' as const,
+      workspace: 'write' as const
+    },
+    revision: 1,
+    taskId: 'github:DotNaos/project-space:548'
+  };
   const execution = {
     agent: 'codex' as const,
     createdAt: '2026-08-09T00:00:00.000Z',
@@ -394,7 +415,20 @@ function taskExecutionRuntime(
   return {
     archive: async (actor, request) => record('execution-archive', actor, request),
     cancel: async (actor, request) => record('execution-cancel', actor, request),
+    createHandoff: async (actor, request) => {
+      calls.push({ kind: 'handoff-create', request, userId: actor.userId });
+      return {
+        apiVersion: 1,
+        handoff,
+        message: 'Task Handoff revision created.',
+        operationId: request.operationId
+      };
+    },
     get: async (actor, request) => record('execution-get', actor, request),
+    getHandoff: async (actor, request) => {
+      calls.push({ kind: 'handoff-get', request, userId: actor.userId });
+      return { apiVersion: 1, handoff, message: 'Task Handoff revision loaded.' };
+    },
     list: async (actor, request) => {
       calls.push({ kind: 'execution-list', request, userId: actor.userId });
       return { apiVersion: 1, executions: [execution] };
@@ -411,6 +445,16 @@ function taskExecutionRuntime(
     respondInput: async (actor, request) => record('execution-input', actor, request),
     send: async (actor, request) => record('execution-send', actor, request),
     start: async (actor, request) => record('execution-start', actor, request),
+    updateHandoff: async (actor, request) => {
+      calls.push({ kind: 'handoff-update', request, userId: actor.userId });
+      return {
+        apiVersion: 1,
+        execution,
+        message: 'Task Execution Handoff updated.',
+        operationId: request.operationId,
+        state: 'updated'
+      };
+    },
     wait: async (actor, request) => {
       calls.push({ kind: 'execution-wait', request, userId: actor.userId });
       return { apiVersion: 1, executions: [result()], timedOut: false };
@@ -489,6 +533,7 @@ describe('Project Space remote MCP server', () => {
         'project-space:agent.authorize',
         'project-space:execution.approve',
         'project-space:execution.write',
+        'project-space:task.write',
         'project-space:environment.manage',
         'project-space:environment.delete'
       ]
@@ -576,6 +621,9 @@ describe('Project Space remote MCP server', () => {
       'start_execution_environment',
       'stop_execution_environment',
       'delete_execution_environment',
+      'create_task_handoff',
+      'get_task_handoff',
+      'update_task_execution_handoff',
       'start_task_execution',
       'list_task_executions',
       'get_task_execution',
@@ -854,6 +902,45 @@ describe('Project Space remote MCP server', () => {
       outputSchema: { properties: { result: expect.any(Object) }, required: ['result'] }
     });
 
+    const createdHandoff = await client.callTool({
+      arguments: {
+        objective: 'Implement the verified cross-machine design.',
+        operationId: 'task-handoff:create:001',
+        requestedMode: 'implement',
+        requestedPermissions: {
+          delivery: 'pull_request', network: 'restricted', repository: 'write',
+          task: 'write', workspace: 'write'
+        },
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'create_task_handoff'
+    });
+    expect(createdHandoff.structuredContent).toMatchObject({
+      result: {
+        handoff: { handoffId: '33333333-3333-4333-8333-333333333333', revision: 1 },
+        operationId: 'task-handoff:create:001'
+      }
+    });
+    const loadedHandoff = await client.callTool({
+      arguments: { handoffId: '33333333-3333-4333-8333-333333333333', revision: 1 },
+      name: 'get_task_handoff'
+    });
+    expect(loadedHandoff.structuredContent).toMatchObject({
+      result: { handoff: { objective: 'Implement the verified cross-machine design.' } }
+    });
+    const updatedHandoff = await client.callTool({
+      arguments: {
+        executionId: '44444444-4444-4444-8444-444444444444',
+        handoffId: '33333333-3333-4333-8333-333333333333',
+        operationId: 'task-handoff:update:001',
+        revision: 1
+      },
+      name: 'update_task_execution_handoff'
+    });
+    expect(updatedHandoff.structuredContent).toMatchObject({
+      result: { operationId: 'task-handoff:update:001', state: 'updated' }
+    });
+
     const started = await client.callTool({
       arguments: {
         environmentId: '11111111-1111-4111-8111-111111111111',
@@ -926,6 +1013,11 @@ describe('Project Space remote MCP server', () => {
       { kind: 'execution-read-by-executor', userId: 'local-development-user' },
       { kind: 'execution-read-by-executor', userId: 'local-development-user' },
       { kind: 'execution-send', userId: 'local-development-user' }
+    ]);
+    expect(calls.filter(({ kind }) => kind.startsWith('handoff-'))).toMatchObject([
+      { kind: 'handoff-create', userId: 'local-development-user' },
+      { kind: 'handoff-get', userId: 'local-development-user' },
+      { kind: 'handoff-update', userId: 'local-development-user' }
     ]);
   });
 
@@ -1056,6 +1148,25 @@ describe('Project Space remote MCP server', () => {
       'mcp/www_authenticate': [
         `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
         'scope="project-space:read project-space:write project-space:execution.write"'
+      ]
+    });
+    const rejectedHandoffWrite = await readOnlyClient.callTool({
+      arguments: {
+        objective: 'Create a verified design Handoff.',
+        operationId: 'task-handoff:create:oauth',
+        requestedMode: 'implement',
+        requestedPermissions: {
+          delivery: 'pull_request', network: 'restricted', repository: 'write',
+          task: 'write', workspace: 'write'
+        },
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'create_task_handoff'
+    });
+    expect(rejectedHandoffWrite._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:task.write"'
       ]
     });
     const rejectedExecutionApproval = await readOnlyClient.callTool({

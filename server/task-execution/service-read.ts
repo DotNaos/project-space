@@ -54,7 +54,7 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
       ...(activity ? { activity } : {}),
       apiVersion: TASK_EXECUTION_MCP_API_VERSION,
       events,
-      execution: projectExecution(execution, binding, workspace),
+      execution: projectTaskExecution(execution, binding, workspace),
       message: messageFor(execution),
       ...(events.at(-1) ? { nextCursor: events.at(-1)!.cursor } : {})
     };
@@ -78,7 +78,7 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
       taskId: request.taskId
     });
     const page = records.slice(0, limit);
-    const executions = await Promise.all(page.map(async (execution) => projectExecution(
+    const executions = await Promise.all(page.map(async (execution) => projectTaskExecution(
       execution,
       await dependencies.store.readExecutorBinding(actor.userId, execution.id),
       await dependencies.store.readWorkspace(actor.userId, execution.id)
@@ -175,7 +175,7 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
   return { get, list, readByExecutor, wait };
 }
 
-function projectExecution(
+export function projectTaskExecution(
   execution: StoredTaskExecution,
   binding?: Awaited<ReturnType<TaskExecutionServiceDependencies['store']['readExecutorBinding']>>,
   workspace?: Awaited<ReturnType<TaskExecutionServiceDependencies['store']['readWorkspace']>>

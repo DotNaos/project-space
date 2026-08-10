@@ -313,6 +313,7 @@ function createMcpServer(
           taskExecutions,
           runtime,
           loadComputeInventory,
+          extra.authInfo?.clientId,
           userId,
           toolName,
           request.params.arguments ?? {},
@@ -343,6 +344,7 @@ async function callTool(
   taskExecutions: () => Promise<TaskExecutionService> | undefined,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   loadComputeInventory: LoadMcpComputeInventory,
+  clientId: string | undefined,
   userId: string,
   name: string,
   rawArguments: Record<string, unknown>,
@@ -355,6 +357,7 @@ async function callTool(
       name,
       rawArguments,
       service: await service,
+      clientId,
       userId
     });
     if (result) return result;

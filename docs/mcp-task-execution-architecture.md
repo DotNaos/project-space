@@ -221,15 +221,26 @@ interface TaskHandoff {
   constraints: string[];
   artifacts: HandoffArtifactRef[];
   requestedMode: 'plan' | 'implement' | 'review' | 'repair';
+  requestedPermissions: {
+    delivery: 'none' | 'pull_request';
+    network: 'none' | 'restricted' | 'open';
+    repository: 'read' | 'write';
+    task: 'read' | 'write';
+    workspace: 'read' | 'write';
+  };
   createdBy: ActorRef;
   createdAt: string;
 }
 ```
 
-Artifacts are stored references with media type, digest, size, authorization,
-and provenance. Browser clients must not provide arbitrary target-machine paths
-or unrestricted URLs. A design produced by Claude can therefore be handed to
-Codex as a verified artifact and exact handoff revision.
+Artifacts are owner-scoped stored bytes with media type, digest, size,
+authorization, verification time, and opaque client provenance. MCP clients
+may provide bounded inline UTF-8/base64 content or reuse an artifact from an
+already verified Handoff for the same Task. They cannot provide arbitrary
+target-machine paths or unrestricted URLs. A design produced by Claude can
+therefore be handed to Codex on another machine as a verified artifact and
+exact Handoff revision. Requested permissions remain a request; the Handoff is
+not an authorization grant.
 
 Changing a handoff creates a new revision. A running Task Execution retains the
 revision it started with unless an explicit `update_task_execution_handoff`
@@ -723,8 +734,10 @@ Cancels only the exact active attempt. Write scope; idempotent.
 
 #### `create_task_handoff`
 
-Arguments: `taskId`, structured objective, context, decisions, acceptance
-criteria, constraints, artifact references, requested mode, and `operationId`.
+Arguments: a canonical provider Task locator, structured objective, context,
+decisions, acceptance criteria, constraints, bounded inline artifacts or
+verified prior-Handoff artifact references, requested mode, explicit requested
+permissions, and `operationId`.
 
 Returns an immutable handoff ID and revision. Write scope; idempotent for the
 same content fingerprint.
@@ -733,14 +746,15 @@ same content fingerprint.
 
 Arguments: `handoffId`, optional revision.
 
-Returns the sanitized immutable briefing and artifact metadata. Read-only.
+Returns the sanitized immutable briefing and verified artifact content directly
+over MCP. Read-only and owner-scoped.
 
 #### `update_task_execution_handoff`
 
 Arguments: `executionId`, `handoffId`, `revision`, `operationId`.
 
-Allowed only while the execution is not in an active turn, unless the executor
-supports an explicit steer operation. The transition is recorded in execution
+Allowed only before an executor is bound and while the execution remains in a
+safe pre-start state. The versioned transition is recorded in execution
 history. Write scope; idempotent.
 
 ### Task Execution
@@ -1004,7 +1018,8 @@ Disallowed states:
 
 The database needs durable records for:
 
-- `task_handoffs` and immutable `task_handoff_revisions`;
+- `task_handoffs`, immutable `task_handoff_revisions`, artifact metadata, and
+  owner-scoped verified artifact blobs;
 - `task_executions`;
 - `task_execution_events` with monotonic cursors;
 - `task_execution_bindings` for agent-specific identities;
@@ -1089,9 +1104,9 @@ modify neutral task or environment records.
 
 ### WP0 — stabilize shared Codespaces runtime
 
-Owner dependency: Issue #456 / PR #529. The checked items below are present in
-PR #529 revision `f4ae9ea`; they are not production evidence until that revision
-is approved, merged, deployed, and verified.
+Owner dependency: Issue #456 / PR #529. The shared Codespaces runtime contract
+and subsequent fixes are merged and production-delivered. The final item remains
+open until the real production UI-to-Codespace-to-ChatGPT-to-PR proof completes.
 
 - [x] Keep `src/shared/github-codespace-runner-api.ts` UI-independent.
 - [x] Keep `server/github-codespace-runner/service.ts` pure and reusable.
@@ -1156,12 +1171,12 @@ is approved, merged, deployed, and verified.
 
 ### WP6 — structured cross-orchestrator handoff
 
-- [ ] Add create/get/update-execution-handoff tools.
-- [ ] Support referenced designs, documents, screenshots, and decisions.
-- [ ] Verify artifact digest, access, size, and provenance.
-- [ ] Make a Claude-produced design consumable by Codex without local-path
+- [x] Add create/get/update-execution-handoff tools.
+- [x] Support referenced designs, documents, screenshots, and decisions.
+- [x] Verify artifact digest, access, size, and provenance.
+- [x] Make a Claude-produced design consumable by Codex without local-path
       assumptions.
-- [ ] Record explicit mode and permissions separately from descriptive context.
+- [x] Record explicit mode and permissions separately from descriptive context.
 
 ### WP7 — safe shell and recovery
 
