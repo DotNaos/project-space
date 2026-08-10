@@ -63,6 +63,10 @@ import {
   agentAuthorizationMigrationId,
   agentAuthorizationMigrationSql
 } from './agent-authorization-migration';
+import {
+  taskExecutionMigrationId,
+  taskExecutionMigrationSql
+} from './task-execution-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -707,6 +711,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: agentAuthorizationMigrationId,
     sql: agentAuthorizationMigrationSql
+  },
+  {
+    id: taskExecutionMigrationId,
+    sql: taskExecutionMigrationSql
   }
 ];
 

@@ -117,7 +117,8 @@ describe('database migrations', () => {
       '0030_compute_inventory',
       '0031_compute_environment_identity_resolution',
       '0032_environment_lifecycle',
-      '0033_agent_authorization_operations'
+      '0033_agent_authorization_operations',
+      '0034_task_execution_storage'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -175,6 +176,12 @@ describe('database migrations', () => {
     expect(sql).toContain('environment_lifecycle_one_unresolved_per_scope');
     expect(sql).toContain('create table agent_authorization_operations');
     expect(sql).toContain('agent_authorization_one_unresolved_per_environment');
+    expect(sql).toContain('create table task_handoffs');
+    expect(sql).toContain('create table task_handoff_revisions');
+    expect(sql).toContain('create table task_executions');
+    expect(sql).toContain('create table task_execution_events');
+    expect(sql).toContain('create table execution_operations');
+    expect(sql).toContain('create table capacity_leases');
     expect(sql).toContain('primary key (owner_user_id, connector_id)');
     expect(sql).toContain('insert into physical_machines');
     expect(sql).toContain('from machine_execution_scopes');

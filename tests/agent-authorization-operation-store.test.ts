@@ -41,7 +41,7 @@ class FakeDatabase implements DatabaseQueryClient {
 describe('agent authorization migration', () => {
   test('registers an owner-scoped, fenced operation ledger without secrets', () => {
     expect(agentAuthorizationMigrationId).toBe('0033_agent_authorization_operations');
-    expect(databaseMigrations.at(-1)).toEqual({
+    expect(databaseMigrations.find(({ id }) => id === agentAuthorizationMigrationId)).toEqual({
       id: agentAuthorizationMigrationId,
       sql: agentAuthorizationMigrationSql
     });
