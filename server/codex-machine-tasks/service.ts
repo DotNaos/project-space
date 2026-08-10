@@ -16,7 +16,7 @@ import type {
   CodexMachineTaskTarget
 } from '../../src/shared/codex-machine-tasks-api';
 import { CODEX_MACHINE_TASKS_API_VERSION } from '../../src/shared/codex-machine-tasks-api';
-import type { CodexSessionOperationResult, CodexSessionStreamEvent } from '../../src/shared/codex-sessions-api';
+import type { CodexSessionStreamEvent } from '../../src/shared/codex-sessions-api';
 import { canonicalJson } from '../codex-sessions/canonical-json';
 import {
   CodexMachineTaskTargetError,
@@ -26,17 +26,15 @@ import { CodexMachineTaskIssueError } from './issue-provider';
 import {
   blocked,
   readBlocked,
-  sendResult,
-  sessionSendResult,
   targetAtGeneration,
   uncertain
 } from './results';
 import type {
-  CodexMachineTaskSendOperation,
   CodexMachineTasksServiceOptions,
   CodexMachineTaskStartPayload,
   CodexMachineTaskStartOperation
 } from './contracts';
+import { createCodexMachineTaskSendService } from './send-service';
 export type {
   CodexMachineTaskSendOperation,
   CodexMachineTaskSendReservation,
@@ -83,23 +81,15 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
     });
   }
 
-  function reconcileSend(
-    generation: number,
-    durableOperations: boolean,
-    selected: CodexMachineTaskTarget,
-    userId: string,
-    request: CodexMachineTaskSendRequest
-  ) {
-    return options.sessions.reconcileSend?.({
-      connectorId: selected.connector.id,
-      durableOperations,
-      generation,
-      message: request.message,
-      operationId: request.operationId,
-      threadId: request.threadId,
-      userId
-    });
-  }
+  const sendService = createCodexMachineTaskSendService({
+    conflict() {
+      throw new CodexMachineTasksConflictError();
+    },
+    durableGenerationFor: options.durableGenerationFor,
+    sessions: options.sessions,
+    store: options.store,
+    target: (userId, selector) => target(userId, selector)
+  });
 
   return {
     async existing(
@@ -464,182 +454,9 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       };
     },
 
-    async send(
-      actor: { userId: string },
-      request: CodexMachineTaskSendRequest
-    ): Promise<CodexMachineTaskSendResult> {
-      let selected: CodexMachineTaskTarget;
-      try {
-        selected = await target(actor.userId, request);
-      } catch (error) {
-        if (!(error instanceof CodexMachineTaskTargetError)) throw error;
-        return blocked(request.operationId, error.reason, error.message);
-      }
-      const operation: CodexMachineTaskSendOperation = {
-        connectorId: selected.connector.id,
-        durableOperations: options.durableGenerationFor?.(
-          selected.connector.id,
-          selected.connector.generation
-        ) ?? false,
-        fingerprint: fingerprint({
-          connectorId: selected.connector.id,
-          message: request.message,
-          threadId: request.threadId,
-          userId: actor.userId
-        }),
-        generation: selected.connector.generation,
-        operationId: request.operationId,
-        threadId: request.threadId,
-        userId: actor.userId
-      };
-      const reservation = await options.store.reserveSend(operation);
-      if (reservation.kind === 'conflict') throw new CodexMachineTasksConflictError();
-      if (reservation.kind === 'replayed') {
-        return { ...reservation.result, operationId: request.operationId };
-      }
-      if (reservation.kind === 'fenced') {
-        return blocked(
-          request.operationId,
-          'thread_active',
-          'A prior turn on this thread is still active or requires reconciliation.',
-          selected
-        );
-      }
-      const executionGeneration = reservation.kind === 'pending' || reservation.kind === 'uncertain'
-        ? reservation.generation
-        : operation.generation;
-      const durableOperations = reservation.kind === 'pending' || reservation.kind === 'uncertain'
-        ? reservation.durableOperations
-        : operation.durableOperations;
-      const mustReconcile = reservation.kind === 'uncertain' ||
-        reservation.kind === 'pending' && selected.connector.generation !== reservation.generation;
-      let resultGeneration = executionGeneration;
-      operation.generation = executionGeneration;
-      let attempted = false;
-      const reconcile = async () => {
-        const reconciliation = await reconcileSend(
-          executionGeneration,
-          durableOperations,
-          targetAtGeneration(selected, executionGeneration),
-          actor.userId,
-          request
-        );
-        if (!reconciliation) return {
-          operationId: request.operationId,
-          replayed: true,
-          status: 'ambiguous' as const,
-          threadId: request.threadId
-        };
-        resultGeneration = reconciliation.generation;
-        return reconciliation.result;
-      };
-      const send = () => {
-        attempted = true;
-        if (mustReconcile) return reconcile();
-        return options.sessions.send({
-          connectorId: selected.connector.id,
-          generation: executionGeneration,
-          message: request.message,
-          operationId: request.operationId,
-          threadId: request.threadId,
-          userId: actor.userId
-        });
-      };
-      try {
-        let result: CodexSessionOperationResult;
-        let terminal: { event?: CodexSessionStreamEvent; sequence?: number } | undefined;
-        let waitedGeneration: number | undefined;
-        if (request.wait && !mustReconcile) {
-          const before = await options.sessions.read({
-            connectorId: selected.connector.id,
-            generation: executionGeneration,
-            threadId: request.threadId,
-            userId: actor.userId
-          });
-          const waited = await options.sessions.wait({
-            afterSequence: before.streamCursor,
-            connectorId: selected.connector.id,
-            generation: executionGeneration,
-            start: send,
-            threadId: request.threadId,
-            userId: actor.userId
-          });
-          result = waited.result;
-          terminal = waited;
-          waitedGeneration = executionGeneration;
-        } else {
-          result = await send();
-        }
-        if (result.status === 'ambiguous' && !mustReconcile) {
-          result = await reconcile();
-        }
-        if (
-          request.wait &&
-          waitedGeneration !== resultGeneration &&
-          result.status !== 'ambiguous' &&
-          result.status !== 'rejected' &&
-          result.turnId
-        ) {
-          const waited = await options.sessions.wait({
-            connectorId: selected.connector.id,
-            generation: resultGeneration,
-            start: async () => result,
-            threadId: request.threadId,
-            userId: actor.userId
-          });
-          result = waited.result;
-          terminal = waited;
-          waitedGeneration = resultGeneration;
-        }
-        const resultTarget = targetAtGeneration(selected, resultGeneration);
-        if (result.status === 'ambiguous' || !result.turnId && result.status !== 'rejected') {
-          await options.store.markSendUncertain(operation);
-          return uncertain(request.operationId, resultTarget);
-        }
-        let final = sessionSendResult(resultTarget, request, result);
-        if (request.wait && result.status !== 'rejected') {
-          if (!terminal?.event) {
-            await options.store.markSendUncertain(operation);
-            return uncertain(request.operationId, resultTarget);
-          }
-          if (terminal.event.type === 'approval-requested') {
-            final = blocked(
-              request.operationId, 'approval_required', 'Codex requires approval.', resultTarget
-            );
-          } else if (terminal.event.type === 'user-input-requested') {
-            final = blocked(
-              request.operationId, 'input_required', 'Codex requires user input.', resultTarget
-            );
-          } else {
-            const finalRead = await options.sessions.read({
-              connectorId: selected.connector.id,
-              generation: resultGeneration,
-              threadId: request.threadId,
-              userId: actor.userId
-            });
-            final = sendResult('completed', resultTarget, request, result.turnId!, finalRead);
-          }
-        }
-        await options.store.completeSend(operation, final);
-        return final;
-      } catch {
-        if (!attempted && reservation.kind === 'new') {
-          await options.store.releaseSend(operation);
-          return blocked(
-            request.operationId,
-            'offline',
-            'The selected connector could not open the turn stream.',
-            targetAtGeneration(selected, resultGeneration)
-          );
-        }
-        if (!attempted) return uncertain(
-          request.operationId,
-          targetAtGeneration(selected, resultGeneration)
-        );
-        await options.store.markSendUncertain(operation);
-        return uncertain(request.operationId, targetAtGeneration(selected, resultGeneration));
-      }
-    },
+    send: sendService.send,
+
+    resumeQueued: sendService.resumeQueued,
 
     async stream(
       actor: { userId: string },

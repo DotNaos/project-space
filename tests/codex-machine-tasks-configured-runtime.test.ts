@@ -6,6 +6,7 @@ import {
   connectorReconciliationGeneration,
   waitForTerminal
 } from '../server/codex-machine-tasks/configured-runtime';
+import { waitUntilCodexTurnFinishes } from '../server/codex-machine-tasks/queued-send-waiter';
 import {
   registerConnectorSession,
   removeConnectorSession
@@ -196,5 +197,44 @@ describe('configured Codex machine-task runtime', () => {
       }),
       sequence: 501
     }));
+  });
+
+  test('waits for the exact active turn before releasing a queued send', async () => {
+    let localAborted = false;
+    let transportAborted = false;
+    const sessions = {
+      service: {
+        async read() {
+          return {
+            openedReadOnly: true as const,
+            session: {
+              archived: false, id: threadId, lastActivityAt: '2026-07-17T00:00:00.000Z',
+              loadedByProjectSpace: false, machineId: 'connector-local',
+              machineName: 'Local macOS', status: 'active' as const, title: '#602'
+            },
+            turns: [{ id: 'turn-active', items: [], status: 'in-progress' as const }]
+          };
+        },
+        async stream(_actor, _request, emit, signal, onReady) {
+          onReady?.();
+          queueMicrotask(() => emit({
+            eventId: 'turn-completed', turnId: 'turn-active', type: 'turn-completed'
+          }));
+          await untilAborted(signal, () => { localAborted = true; });
+        },
+        async transportStream(_actor, request, signal) {
+          request.onDispatched?.();
+          await untilAborted(signal, () => { transportAborted = true; });
+        }
+      }
+    } as unknown as CodexSessionsRuntime;
+
+    await waitUntilCodexTurnFinishes(sessions, {
+      connectorId: 'connector-local', generation: 7, threadId, turnId: 'turn-active',
+      userId: 'user-owner'
+    });
+
+    expect(localAborted).toBeTrue();
+    expect(transportAborted).toBeTrue();
   });
 });

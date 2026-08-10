@@ -629,7 +629,7 @@ human provider approval or Codex device login is needed.
 | `list_codex_tasks` | Compatibility alias for `list_task_executions(agent = codex)` |
 | `read_codex_task` | Compatibility alias for `get_task_execution` |
 | `start_codex_task` | Compatibility alias for `start_task_execution(agent = codex)` |
-| `send_codex_message` | Compatibility alias for `send_task_execution_message` |
+| `send_codex_message` | Compatibility alias for `send_task_execution_message`; preserves exact Environment/connector/physical-machine targeting while exposing the same auto, steer, and queue modes |
 
 ### Environment discovery and lifecycle
 
@@ -802,9 +802,40 @@ every wait. Read-only.
 
 #### `send_task_execution_message`
 
-Arguments: `executionId`, message, `operationId`, optional wait behavior.
+Arguments: `executionId`, message, caller-supplied stable `operationId`, optional
+`mode` (`auto`, `steer`, or `queue`), optional `expectedTurnId`, and optional
+wait behavior. `mode` defaults to `auto`. `expectedTurnId` is required for
+`steer` and is not accepted for the other modes.
 
-Rejected while an incompatible active turn exists. Write scope; idempotent.
+All modes resolve the same exact executor binding, Environment, connector
+generation, ownership, and authorization evidence as reads. They inspect the
+same authoritative Codex session state before deciding how to deliver:
+
+- `auto` creates a new turn only when the authoritative state is idle. An
+  active turn returns `blocked` rather than choosing a behavior for the caller.
+- `steer` targets only the verified active turn matching `expectedTurnId`. A
+  missing, completed, or replaced turn returns `blocked` with `turn_changed`;
+  a connector race must never redirect the message to a newer turn.
+- `queue` durably appends the complete request to the per-task FIFO when a turn
+  is active and returns `queued` immediately. A restart-safe dispatcher sends
+  queued requests in order when the authoritative state becomes idle. If the
+  session is already idle, delivery may proceed immediately and return `sent`.
+
+Immediate calls return delivery `sent` or `steered`. With wait disabled, that
+is the terminal response for the call. With wait enabled, the call follows the
+affected turn and returns `completed`, retaining its original delivery value;
+approval or user-input boundaries return `blocked`, and an outcome that cannot
+be reconciled returns `uncertain`. Queue acceptance behind active or earlier
+work returns `queued` immediately even when wait was requested; later dispatch
+does not hold the MCP request open. With an idle task and no older queue, queue
+mode dispatches immediately and honors the requested wait behavior.
+
+`operationId` identifies the complete logical request. Replaying the same ID
+and fingerprint returns the recorded outcome, including `queued`; reusing it
+with a different message, mode, target, or expected turn is a conflict. Write
+scope; idempotent. Task Execution projections persist this exact result as
+`messageOutcome`, including a blocked reason, so an unchanged `running`
+execution cannot hide a refused message and replay returns the same evidence.
 
 #### `respond_task_execution_approval`
 
@@ -1032,6 +1063,8 @@ The database needs durable records for:
 - `task_execution_bindings` for agent-specific identities;
 - `runner_workspaces` and exact repository/branch/commit ownership;
 - `execution_operations` with fingerprint, result, and reconciliation state;
+- durable Codex message queue entries containing the complete sanitized send
+  request, per-task FIFO order, dispatch claim, and final reconciled outcome;
 - `environment_provider_bindings` for provider resource identity and lifecycle;
 - `agent_authorization_operations`;
 - `workspace_commands` and output cursors;
@@ -1169,6 +1202,8 @@ open until the real production UI-to-Codespace-to-ChatGPT-to-PR proof completes.
 ### WP5 — implement generic execution MCP tools
 
 - [x] Add start/list/get/wait/message/cancel/archive.
+- [x] Support authoritative idle sends, exact-turn steering, and durable FIFO
+      queueing through both Task Execution and compatibility message tools.
 - [x] Add exact approval and input response tools.
 - [x] Make normal start own environment start, readiness, authorization block,
       worktree preparation, and executor start.
@@ -1259,7 +1294,7 @@ evidence.
 | Connector | Signed grant, generation fencing, revoke, reconnect, capability freshness, output limits |
 | Agent auth | required, pending, ready, denied, cancelled, expired, ambiguous, restart, no API-key fallback |
 | Workspace | exact repository, branch, commit, path classification, ownership, collision, broken registration |
-| Execution | start, replay, block/resume, message, approval, input, cancel, wait cursor, archive |
+| Execution | start, replay, block/resume, authoritative idle message, exact-turn steer and turn-change race, durable FIFO queue and restart, idempotent retry, approval, input, cancel, wait cursor, archive |
 | Handoff | immutable revision, artifact digest/access, explicit update, executor receives exact revision |
 | Shell | workspace isolation, sanitized environment, cancel, timeout, truncation, secret safety, recovery approval |
 | Delivery | PR reconciliation, current commit checks, revision approval invalidation, merge reconciliation, deploy evidence |

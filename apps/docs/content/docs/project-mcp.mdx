@@ -28,9 +28,25 @@ The server exposes these task tools:
 - `list_codex_tasks` lists Codex tasks already running on connector machines.
 - `read_codex_task` reads a Codex task transcript.
 - `start_codex_task` starts a Codex task from a GitHub task number and repository id, creating a Project-managed worktree. Set `dryRun: true` to validate the open task and target without starting Codex.
-- `send_codex_message` sends a follow-up message to an existing Codex task.
+- `send_codex_message` sends, steers, or durably queues a message for an existing Codex task. Its Task Execution equivalent is `send_task_execution_message`.
 
 Assignees are not exposed yet because the current Project Space GitHub backend does not support them. GitHub is the only task provider in this iteration. Azure DevOps is reserved for a later provider addition. Creating or changing a task, starting a task, or sending a message are marked as consequential tool calls so ChatGPT can request confirmation before invoking them.
+
+## Send modes and results
+
+Both message tools accept `mode: "auto" | "steer" | "queue"`; omitting it uses `auto`.
+
+- `auto` uses the same authoritative state as the read tools. It returns `sent` for a verified idle session and `blocked` when a turn is active.
+- `steer` targets one exact active turn. Pass the `expectedTurnId` returned by the latest read; it is required for this mode. If the active turn changes before delivery, the tool returns `blocked` with reason `turn_changed`.
+- `queue` durably stores the message in first-in, first-out order when a turn is active, returns `queued` immediately, and dispatches it automatically when the session becomes idle. If the session is already idle, it can return `sent` immediately.
+
+Supply one stable caller-generated `operationId` for every logical message, and reuse it only to retry that identical request. This makes retries idempotent instead of creating duplicate turns or queue entries.
+
+Immediate sends and steering return `sent` or `steered` when accepted. With `wait: true`, they wait for the affected turn and return `completed`; `delivery` preserves the original `sent` or `steered` outcome. Approval or input requests produce `blocked`, while a delivery that cannot be safely reconciled produces `uncertain`. Queue acceptance behind active or earlier work returns `queued` immediately, including when `wait` is true. If no work is ahead and the task is idle, queue mode dispatches immediately and honors `wait` like a normal send.
+
+Task Execution responses also include `messageOutcome`. It preserves the message result and any blocked reason even when the surrounding execution remains `running`, including on an idempotent replay.
+
+The new modes do not broaden access. The legacy tool keeps its exact Environment, connector, and physical-machine selectors, and the Task Execution tool remains bound to its existing execution. Project Space applies the same user membership, machine ownership, connector-generation, and `project-space:write` checks before any message is sent or queued.
 
 ## Connect Codex
 

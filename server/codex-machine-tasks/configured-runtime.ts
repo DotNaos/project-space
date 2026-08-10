@@ -43,6 +43,7 @@ import { createCodexMachineTaskIssueProvider } from './issue-provider';
 import { createCodexMachineTasksService } from './service';
 import { PostgresCodexMachineTasksStore } from './store';
 import { CodexAttachLeaseStore } from './attach-lease-store';
+import { waitUntilCodexTurnFinishes } from './queued-send-waiter';
 
 export interface ConfiguredCodexMachineTasksOptions {
   attachLeases?: CodexAttachLeaseStore;
@@ -64,6 +65,14 @@ export function createConfiguredCodexMachineTasksHandler(
   options: ConfiguredCodexMachineTasksOptions
 ): CodexMachineTasksHttpHandler {
   let runtime: Promise<CodexMachineTasksHttpHandler> | undefined;
+  const load = () => {
+    runtime ??= createHandler(options).catch((error) => {
+      runtime = undefined;
+      throw error;
+    });
+    return runtime;
+  };
+  if (isDatabaseConfigured()) void load().catch(() => undefined);
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     if (!url.pathname.startsWith('/api/codex/tasks')) return false;
     if (!isDatabaseConfigured()) {
@@ -76,10 +85,8 @@ export function createConfiguredCodexMachineTasksHandler(
       return true;
     }
     try {
-      runtime ??= createHandler(options);
-      return await (await runtime)(request, response, url);
+      return await (await load())(request, response, url);
     } catch {
-      runtime = undefined;
       writeJson(response, 503, {
         error: {
           code: 'codex_machine_tasks_unavailable',
@@ -143,6 +150,9 @@ export async function createConfiguredCodexMachineTasksRuntime(
     },
     issue: createCodexMachineTaskIssueProvider(options.backend),
     sessions: {
+      inspect: ({ connectorId, generation, threadId, userId }) => sessions.service.inspect(
+        { userId }, { connectorGeneration: generation, machineId: connectorId, threadId }
+      ),
       read: ({ connectorId, generation, threadId, userId }) => sessions.service.read(
         { userId }, { connectorGeneration: generation, machineId: connectorId, threadId }
       ),
@@ -167,6 +177,8 @@ export async function createConfiguredCodexMachineTasksRuntime(
           generation,
           result: await sessions.service.reconcileContinue({ userId: input.userId }, {
             connectorGeneration: generation,
+            delivery: input.delivery,
+            ...(input.expectedTurnId ? { expectedTurnId: input.expectedTurnId } : {}),
             machineId: input.connectorId,
             message: input.message,
             operationId: input.operationId,
@@ -174,9 +186,13 @@ export async function createConfiguredCodexMachineTasksRuntime(
           })
         };
       },
-      send: ({ connectorId, generation, message, operationId, threadId, userId }) => sessions.service.continue(
+      send: ({
+        connectorId, delivery, expectedTurnId, generation, message, operationId, threadId, userId
+      }) => sessions.service.continue(
         { userId }, {
-          connectorGeneration: generation, machineId: connectorId, message, operationId, threadId
+          connectorGeneration: generation, delivery,
+          ...(expectedTurnId ? { expectedTurnId } : {}),
+          machineId: connectorId, message, operationId, threadId
         }
       ),
       async stream(input) {
@@ -215,7 +231,8 @@ export async function createConfiguredCodexMachineTasksRuntime(
         input.onReady?.();
         await running;
       },
-      wait: (input) => waitForTerminal(sessions, input)
+      wait: (input) => waitForTerminal(sessions, input),
+      waitUntilIdle: (input) => waitUntilCodexTurnFinishes(sessions, input)
     },
     async start(input) {
       const generation = input.reconcile
@@ -278,6 +295,7 @@ export async function createConfiguredCodexMachineTasksRuntime(
     },
     userCanUseConnector: undefined
   });
+  await service.resumeQueued();
   return { service, sessions };
 }
 

@@ -164,11 +164,20 @@ export const toolSchemas = {
     task: z.number().int().positive()
   }),
   send_codex_message: selectorSchema({
+    expectedTurnId: z.string().trim().min(1).max(256).optional(),
     last: z.number().int().min(1).max(100).optional(),
     message: z.string().trim().min(1).max(100_000),
+    mode: z.enum(['auto', 'queue', 'steer']).optional(),
     operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/).optional(),
     threadId: z.string().uuid(),
     wait: z.boolean().optional()
+  }).superRefine((value, context) => {
+    if (value.mode === 'steer' && !value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'Steering requires expectedTurnId.' });
+    }
+    if (value.mode !== 'steer' && value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'expectedTurnId is only valid for steering.' });
+    }
   })
 };
 
@@ -347,11 +356,26 @@ export const tools: OAuthTool[] = [
       operationId: { type: 'string' }, repositoryId: { type: 'string' }, task: { type: 'integer', minimum: 1, description: 'GitHub task number.' }
     }, ...selectorConstraints, additionalProperties: false
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }),
-  tool('send_codex_message', 'Send Codex message', 'Send a follow-up message to an existing Codex task in one exact execution Environment.', {
+  tool('send_codex_message', 'Send Codex message', 'Send, steer, or durably queue a message for an existing Codex task in one exact execution Environment.', {
     type: 'object', required: ['message', 'threadId'], properties: {
-      ...selectorProperties, last: { type: 'integer', minimum: 1, maximum: 100 }, message: { type: 'string' },
-      operationId: { type: 'string' }, threadId: { type: 'string', format: 'uuid' }, wait: { type: 'boolean' }
-    }, ...selectorConstraints, additionalProperties: false
+      ...selectorProperties,
+      expectedTurnId: { type: 'string', description: 'Exact active turn from read_codex_task; required for steer.' },
+      last: { type: 'integer', minimum: 1, maximum: 100 },
+      message: { type: 'string' },
+      mode: {
+        type: 'string', enum: ['auto', 'queue', 'steer'],
+        description: 'auto sends only when idle; steer updates one exact active turn; queue persists for the next idle turn.'
+      },
+      operationId: { type: 'string', description: 'Stable caller-supplied key for idempotent retries.' },
+      threadId: { type: 'string', format: 'uuid' }, wait: { type: 'boolean' }
+    }, allOf: [
+      ...selectorConstraints.allOf,
+      {
+      if: { properties: { mode: { const: 'steer' } }, required: ['mode'] },
+      then: { required: ['expectedTurnId'] },
+      else: { not: { required: ['expectedTurnId'] } }
+      }
+    ], additionalProperties: false
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false })
 ];
 

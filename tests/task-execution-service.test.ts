@@ -229,8 +229,81 @@ describe('Task Execution service', () => {
     const first = await fixture.service.send(actor, request);
     const replayed = await fixture.service.send(actor, request);
     expect(first.execution.executor?.turnId).toBe('turn-2');
+    expect(first.delivery).toBe('sent');
+    expect(first.messageOutcome).toEqual({ state: 'sent' });
     expect(replayed.replayed).toBe(true);
+    expect(replayed.delivery).toBe('sent');
+    expect(replayed.messageOutcome).toEqual({ state: 'sent' });
     expect(fixture.counts.send).toBe(1);
+  });
+
+  it('forwards exact steering and queue choices through the bound executor', async () => {
+    const steering = createFixture();
+    const started = await steering.service.start(actor, startRequest());
+    const steered = await steering.service.send(actor, {
+      executionId: started.execution.id,
+      expectedTurnId: 'turn-1',
+      message: 'Use the narrower approach.',
+      mode: 'steer',
+      operationId: 'send-operation-steer'
+    });
+    expect(steered.delivery).toBe('steered');
+    expect(steered.messageOutcome).toEqual({ state: 'steered' });
+    expect(steering.sendRequests[0]).toMatchObject({
+      expectedTurnId: 'turn-1', mode: 'steer'
+    });
+
+    const queuedFixture = createFixture();
+    const queuedStarted = await queuedFixture.service.start(actor, startRequest());
+    const queued = await queuedFixture.service.send(actor, {
+      executionId: queuedStarted.execution.id,
+      message: 'Run this next.',
+      mode: 'queue',
+      operationId: 'send-operation-queue'
+    });
+    expect(queued.delivery).toBe('queued');
+    expect(queued.messageOutcome).toEqual({ state: 'queued' });
+    expect(queuedFixture.sendRequests[0]).toMatchObject({ mode: 'queue' });
+  });
+
+  it('reports and replays a blocked message without relabeling the running execution', async () => {
+    const fixture = createFixture();
+    const started = await fixture.service.start(actor, startRequest());
+    fixture.setSendState('blocked');
+    const request = {
+      executionId: started.execution.id,
+      message: 'Continue while active.',
+      operationId: 'send-operation-blocked'
+    };
+
+    const first = await fixture.service.send(actor, request);
+    const replayed = await fixture.service.send(actor, request);
+    expect(first).toMatchObject({
+      execution: { state: 'running' },
+      messageOutcome: { reason: 'thread_active', state: 'blocked' }
+    });
+    expect(replayed).toMatchObject({
+      execution: { state: 'running' },
+      messageOutcome: { reason: 'thread_active', state: 'blocked' },
+      replayed: true
+    });
+    expect(fixture.counts.send).toBe(1);
+  });
+
+  it('records a thrown message dispatch as an uncertain message outcome', async () => {
+    const fixture = createFixture();
+    const started = await fixture.service.start(actor, startRequest());
+    fixture.setSendState('throws');
+    const result = await fixture.service.send(actor, {
+      executionId: started.execution.id,
+      message: 'Continue exactly once.',
+      operationId: 'send-operation-throws'
+    });
+
+    expect(result).toMatchObject({
+      execution: { state: 'uncertain' },
+      messageOutcome: { state: 'uncertain' }
+    });
   });
 
   it('reconciles an uncertain message with the same nested operation', async () => {
@@ -262,6 +335,7 @@ describe('Task Execution service', () => {
       operationId: 'send-after-cancel'
     });
     expect(refused.execution.state).toBe('cancelled');
+    expect(refused.messageOutcome).toEqual({ state: 'blocked' });
     expect(fixture.counts.send).toBe(0);
   });
 
@@ -459,7 +533,7 @@ function createFixture() {
   let managedStopped = false;
   let readThrows = false;
   let releaseThrowsOnce = false;
-  let sendState: 'accepted' | 'uncertain' = 'accepted';
+  let sendState: 'accepted' | 'blocked' | 'throws' | 'uncertain' = 'accepted';
   let sessionMutationStatus: 'ambiguous' | 'completed' = 'completed';
   let activeTurnId: string | undefined;
   let interruptStatus: 'ambiguous' | 'completed' = 'completed';
@@ -471,6 +545,12 @@ function createFixture() {
   const approvalOperationIds: string[] = [];
   const interruptOperationIds: string[] = [];
   const sendOperationIds: string[] = [];
+  const sendRequests: Array<{
+    expectedTurnId?: string;
+    mode?: 'auto' | 'queue' | 'steer';
+    operationId: string;
+    threadId: string;
+  }> = [];
   const startOperationIds: string[] = [];
   const executionStore = new MemoryTaskExecutionStore();
   const capacityStore = new MemoryTaskExecutionCapacityStore();
@@ -506,14 +586,31 @@ function createFixture() {
           if (readThrows) throw new Error('Connector is offline.');
           return confirmedRead(attention);
         },
-        send: async (_actor: unknown, request: { operationId: string; threadId: string }) => {
+        send: async (_actor: unknown, request: {
+          expectedTurnId?: string;
+          mode?: 'auto' | 'queue' | 'steer';
+          operationId: string;
+          threadId: string;
+        }) => {
           counts.send += 1;
           sendOperationIds.push(request.operationId);
+          sendRequests.push(request);
+          if (sendState === 'throws') throw new Error('Connector response was lost.');
           return sendState === 'uncertain'
             ? { apiVersion: 1, message: 'Unknown outcome.', operationId: request.operationId,
                 reconcile: 'required', state: 'uncertain' }
-            : { apiVersion: 1, operationId: request.operationId, state: 'accepted',
-                target: target(), threadId: request.threadId, turnId: 'turn-2' };
+            : sendState === 'blocked'
+              ? { apiVersion: 1, message: 'The thread is active.',
+                  operationId: request.operationId, reason: 'thread_active' as const,
+                  state: 'blocked' as const, target: target() }
+            : request.mode === 'queue'
+              ? { apiVersion: 1, delivery: 'queued' as const, operationId: request.operationId,
+                  state: 'queued' as const, target: target(), threadId: request.threadId }
+              : { apiVersion: 1,
+                  delivery: request.mode === 'steer' ? 'steered' as const : 'sent' as const,
+                  operationId: request.operationId,
+                  state: request.mode === 'steer' ? 'steered' as const : 'sent' as const,
+                  target: target(), threadId: request.threadId, turnId: 'turn-2' };
         },
         start: async (_actor: unknown, request: { operationId: string }) => {
           counts.start += 1;
@@ -625,7 +722,7 @@ function createFixture() {
   };
   return {
     approvalOperationIds, capacityStore, counts, environmentOperationIds, executionStore,
-    interruptOperationIds, sendOperationIds, startOperationIds,
+    interruptOperationIds, sendOperationIds, sendRequests, startOperationIds,
     get approval() { return approval; },
     get input() { return input; },
     service: createTaskExecutionService(dependencies),

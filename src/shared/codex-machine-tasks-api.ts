@@ -19,7 +19,10 @@ export type CodexMachineTaskBlockedReason =
   | 'machine_not_ready'
   | 'offline'
   | 'stale_connector'
+  | 'send_in_progress'
   | 'thread_active'
+  | 'turn_changed'
+  | 'turn_required'
   | 'unauthorized'
   | 'worktree_failure';
 
@@ -185,20 +188,25 @@ export type CodexMachineTaskReadResult =
   | Omit<CodexMachineTaskBlockedResult, 'operationId'>;
 
 export interface CodexMachineTaskSendRequest extends CodexMachineTaskReadRequest {
+  expectedTurnId?: string;
   message: string;
+  mode?: 'auto' | 'queue' | 'steer';
   operationId: string;
   wait?: boolean;
 }
 
+export type CodexMachineTaskSendDelivery = 'queued' | 'sent' | 'steered';
+
 export type CodexMachineTaskSendResult =
   | {
       apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
+      delivery: CodexMachineTaskSendDelivery;
       operationId: string;
       result?: CodexSessionReadResult;
-      state: 'accepted' | 'completed';
+      state: CodexMachineTaskSendDelivery | 'completed';
       target: CodexMachineTaskTarget;
       threadId: string;
-      turnId: string;
+      turnId?: string;
     }
   | CodexMachineTaskBlockedResult
   | CodexMachineTaskUncertainResult;

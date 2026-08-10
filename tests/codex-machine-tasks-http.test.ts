@@ -233,6 +233,38 @@ describe('Codex machine-task HTTP boundary', () => {
     expect(calls).toEqual([]);
   });
 
+  test('preserves exact steering and queue choices at the HTTP boundary', async () => {
+    const { calls, stub } = service();
+    const origin = await startApi(stub);
+    const steered = await fetch(
+      `${origin}/api/codex/tasks/${threadId}/send`,
+      mutation('send-steer', {
+        expectedTurnId: 'turn-active', message: 'Use the focused approach.', mode: 'steer',
+        physicalMachineId: 'physical-pc'
+      })
+    );
+    const queued = await fetch(
+      `${origin}/api/codex/tasks/${threadId}/send`,
+      mutation('send-queue', {
+        message: 'Run this next.', mode: 'queue', physicalMachineId: 'physical-pc'
+      })
+    );
+
+    expect([steered.status, queued.status]).toEqual([200, 200]);
+    expect(calls).toEqual([
+      {
+        kind: 'send',
+        request: expect.objectContaining({
+          expectedTurnId: 'turn-active', mode: 'steer', operationId: 'send-steer', threadId
+        })
+      },
+      {
+        kind: 'send',
+        request: expect.objectContaining({ mode: 'queue', operationId: 'send-queue', threadId })
+      }
+    ]);
+  });
+
   test('ends an opened progress stream without trying to replace it with JSON', async () => {
     const { stub } = service();
     stub.stream = async (_actor, _request, _emit, _signal, onReady) => {

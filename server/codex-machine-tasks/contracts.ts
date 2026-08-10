@@ -3,6 +3,7 @@ import type {
   CodexMachineTaskStartResult
 } from '../../src/shared/codex-machine-tasks-api';
 import type {
+  CodexSessionInspectResult,
   CodexSessionOperationResult,
   CodexSessionReadResult,
   CodexSessionStreamEvent
@@ -76,10 +77,20 @@ export type CodexMachineTaskAssociationLookup =
 
 export interface CodexMachineTaskSendOperation {
   connectorId: string;
+  dispatchAttempt?: number;
   durableOperations: boolean;
   fingerprint: string;
   generation: number;
   operationId: string;
+  request: {
+    expectedTurnId?: string;
+    message: string;
+    mode: 'auto' | 'queue' | 'steer';
+    target: {
+      environmentId?: string;
+      physicalMachineId: string;
+    };
+  };
   threadId: string;
   userId: string;
 }
@@ -88,21 +99,38 @@ export type CodexMachineTaskSendReservation =
   | { kind: 'new' }
   | { kind: 'conflict' }
   | { kind: 'fenced' }
-  | { durableOperations: boolean; generation: number; kind: 'pending' }
-  | { durableOperations: boolean; generation: number; kind: 'uncertain' }
+  | { dispatchAttempt: number; durableOperations: boolean; generation: number; kind: 'pending' }
+  | { dispatchAttempt: number; durableOperations: boolean; generation: number; kind: 'uncertain' }
   | { kind: 'replayed'; result: CodexMachineTaskSendResult };
 
 export interface CodexMachineTasksStore {
   completeSend(
     operation: CodexMachineTaskSendOperation,
-    result: CodexMachineTaskSendResult
+    result: CodexMachineTaskSendResult,
+    nextGeneration?: number
   ): Promise<void>;
   completeStart(
     operation: CodexMachineTaskStartOperation,
     result: CodexMachineTaskStartResult
   ): Promise<void>;
   markStartUncertain(operation: CodexMachineTaskStartOperation): Promise<void>;
-  markSendUncertain(operation: CodexMachineTaskSendOperation): Promise<void>;
+  markSendUncertain(
+    operation: CodexMachineTaskSendOperation,
+    nextGeneration?: number
+  ): Promise<void>;
+  markSendQueued(
+    operation: CodexMachineTaskSendOperation,
+    result: CodexMachineTaskSendResult,
+    nextGeneration?: number
+  ): Promise<void>;
+  claimQueuedSend(operation: CodexMachineTaskSendOperation): Promise<number | undefined>;
+  listPendingSends(): Promise<CodexMachineTaskSendOperation[]>;
+  listQueuedSends(): Promise<CodexMachineTaskSendOperation[]>;
+  nextQueuedSend(input: {
+    connectorId: string;
+    threadId: string;
+    userId: string;
+  }): Promise<CodexMachineTaskSendOperation | undefined>;
   lookupStart(input: {
     fingerprint: string;
     operationId: string;
@@ -153,6 +181,12 @@ export interface CodexMachineTasksServiceOptions {
     userId: string;
   }): Promise<CodexMachineTaskStartPayload>;
   sessions: {
+    inspect(input: {
+      connectorId: string;
+      generation: number;
+      threadId: string;
+      userId: string;
+    }): Promise<CodexSessionInspectResult>;
     read(input: {
       connectorId: string;
       generation: number;
@@ -161,7 +195,9 @@ export interface CodexMachineTasksServiceOptions {
     }): Promise<CodexSessionReadResult>;
     reconcileSend?(input: {
       connectorId: string;
+      delivery: 'new-turn' | 'steer';
       durableOperations: boolean;
+      expectedTurnId?: string;
       generation: number;
       message: string;
       operationId: string;
@@ -173,12 +209,21 @@ export interface CodexMachineTasksServiceOptions {
     }>;
     send(input: {
       connectorId: string;
+      delivery: 'new-turn' | 'steer';
+      expectedTurnId?: string;
       generation: number;
       message: string;
       operationId: string;
       threadId: string;
       userId: string;
     }): Promise<CodexSessionOperationResult>;
+    waitUntilIdle(input: {
+      connectorId: string;
+      generation: number;
+      threadId: string;
+      turnId: string;
+      userId: string;
+    }): Promise<void>;
     wait(input: {
       afterSequence?: number;
       connectorId: string;

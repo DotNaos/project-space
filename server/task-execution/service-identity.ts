@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../codex-sessions/canonical-json';
+import type { TaskExecutionResult } from '../../src/shared/task-execution-mcp-api';
 
 export function taskExecutionFingerprint(value: unknown) {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
@@ -39,15 +40,19 @@ export function decodeTaskExecutionCursor(value: string | undefined) {
 }
 
 export function compactOperationResult(input: {
+  delivery?: 'queued' | 'sent' | 'steered';
   executionId: string;
   message: string;
+  messageOutcome?: TaskExecutionResult['messageOutcome'];
   reconcileState?: string;
   state: string;
   version: number;
 }) {
   return {
+    ...(input.delivery ? { delivery: input.delivery } : {}),
     executionId: input.executionId,
     message: input.message.slice(0, 500),
+    ...(input.messageOutcome ? { messageOutcome: input.messageOutcome } : {}),
     ...(input.reconcileState ? { reconcileState: input.reconcileState } : {}),
     state: input.state,
     version: input.version

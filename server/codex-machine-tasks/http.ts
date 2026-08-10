@@ -142,9 +142,22 @@ export function createCodexMachineTasksHttpApi(
         if (typeof body.message !== 'string' || !body.message || body.message.length > 16_000) {
           throw invalid('Message is required and must be 16000 characters or fewer.');
         }
+        const mode = body.mode ?? 'auto';
+        if (mode !== 'auto' && mode !== 'queue' && mode !== 'steer') {
+          throw invalid('mode must be auto, queue, or steer.');
+        }
+        const expectedTurnId = body.expectedTurnId;
+        if (mode === 'steer' && (typeof expectedTurnId !== 'string' || !expectedTurnId)) {
+          throw invalid('expectedTurnId is required for steering.');
+        }
+        if (mode !== 'steer' && expectedTurnId !== undefined) {
+          throw invalid('expectedTurnId is only valid for steering.');
+        }
         writeJson(response, 200, await service.send(actor, {
           ...selector,
+          ...(typeof expectedTurnId === 'string' ? { expectedTurnId } : {}),
           message: body.message,
+          mode,
           operationId,
           wait: body.wait === true
         }));

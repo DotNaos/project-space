@@ -36,7 +36,23 @@ The GitHub-first task flow is:
 6. Call `get_agent_status` with the selected `environmentId` and `agent: "codex"`. If authorization is required, call `start_agent_authorization` with a stable `operationId`, show its short-lived user code and verification URL to the user, then poll `get_agent_authorization` with that same operation ID. `cancel_agent_authorization` cancels only that exact attempt.
 7. Call `start_codex_task` with the GitHub task number, repository id, and selected `environmentId`. Use `dryRun: true` to validate the open task and target without starting Codex.
 8. When one Environment has multiple live connector channels, also pass the exact `connectorId` returned by Environment discovery.
-9. Use `list_codex_tasks`, `read_codex_task`, and `send_codex_message` to follow up on the running Codex task. The read and send tools also accept `environmentId`.
+9. Use `list_codex_tasks`, `read_codex_task`, and `send_codex_message` to follow up on the running Codex task. The read and send tools also accept `environmentId`. Supply a stable caller-generated `operationId` when sending so the same request can be retried safely.
+
+## Sending, steering, and queueing messages
+
+`send_codex_message` and its Task Execution equivalent, `send_task_execution_message`, accept `mode: "auto" | "steer" | "queue"`. The default is `auto`.
+
+- `auto` reads the same authoritative session state used by `read_codex_task`. It starts a new turn only when the session is verified as idle. If a turn is active, it returns a genuine `blocked` result instead of guessing whether to steer or queue.
+- `steer` sends the message to the currently active turn. It requires `expectedTurnId`, copied from the latest verified read. If that exact turn is no longer active when the send reaches the connector, the result is `blocked` with reason `turn_changed`.
+- `queue` stores the message durably behind earlier queued messages for the same Codex task. When a turn is active, it returns `queued` immediately and dispatches the messages in first-in, first-out order as the session becomes idle. If the session is already idle, the message can be sent immediately and returns `sent`.
+
+Always generate one stable `operationId` for the logical message and reuse that value only when retrying the identical request. A retry with the same ID and content returns the recorded result; changing the message, mode, target, or expected turn while reusing the ID is a conflict.
+
+Without `wait`, an immediate delivery returns `sent` or `steered` as soon as the connector accepts it. With `wait: true`, an immediate send or steer waits for that turn to finish and returns `completed`; the `delivery` field still records whether it was `sent` or `steered`. Approval or input requests return `blocked`, and an outcome that cannot be reconciled safely returns `uncertain`. Queue acceptance behind active or earlier work returns `queued` immediately, even when `wait` is requested. If no work is ahead and the task is already idle, queue mode dispatches immediately and honors `wait` like a normal send.
+
+Task Execution responses also include `messageOutcome`. It records the message result and any blocked reason even when the surrounding execution correctly remains `running`, and the same outcome is returned when an identical `operationId` is replayed.
+
+These modes do not change targeting or authorization. `send_codex_message` still resolves the exact authorized Environment and connector selected by `environmentId`, `connectorId`, or the supported physical-machine selectors, and `send_task_execution_message` remains bound to its exact Task Execution. Neither tool can use steering or queueing to bypass Project Space membership, machine ownership, connector generation, or write-scope checks.
 
 An Environment is the canonical execution target. A physical Host is optional, and provider-managed Environments such as GitHub Codespaces never receive a fictional physical machine. Connector records are runtime association evidence rather than Environment identities. `list_machines` remains available as a compatibility projection for older clients.
 

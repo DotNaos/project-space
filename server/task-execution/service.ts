@@ -26,11 +26,18 @@ export function createTaskExecutionService(
     executionId: string,
     operationId: string,
     replayed?: boolean
-  ): Promise<TaskExecutionResult> => ({
-    ...await reader.get(actor, { executionId, limit: 100 }),
-    operationId,
-    ...(replayed ? { replayed: true } : {})
-  });
+  ): Promise<TaskExecutionResult> => {
+    const operation = await dependencies.operations.read(actor.userId, operationId);
+    const delivery = operationDelivery(operation?.result);
+    const messageOutcome = operationMessageOutcome(operation?.result);
+    return {
+      ...await reader.get(actor, { executionId, limit: 100 }),
+      ...(delivery ? { delivery } : {}),
+      ...(messageOutcome ? { messageOutcome } : {}),
+      operationId,
+      ...(replayed ? { replayed: true } : {})
+    };
+  };
   const mutations = createTaskExecutionMutations(dependencies, readResult);
   const handoffs = createTaskHandoffService(dependencies);
   const start = createTaskExecutionStarter(dependencies, readResult);
@@ -53,4 +60,27 @@ export function createTaskExecutionService(
     updateHandoff: handoffs.updateExecution,
     wait: reader.wait
   };
+}
+
+function operationMessageOutcome(value: unknown): TaskExecutionResult['messageOutcome'] {
+  if (!value || typeof value !== 'object') return undefined;
+  const outcome = (value as { messageOutcome?: unknown }).messageOutcome;
+  if (!outcome || typeof outcome !== 'object') return undefined;
+  const state = (outcome as { state?: unknown }).state;
+  if (!['blocked', 'completed', 'queued', 'sent', 'steered', 'uncertain'].includes(
+    String(state)
+  )) return undefined;
+  const reason = (outcome as { reason?: unknown }).reason;
+  return {
+    ...(typeof reason === 'string' ? { reason } : {}),
+    state
+  } as TaskExecutionResult['messageOutcome'];
+}
+
+function operationDelivery(value: unknown) {
+  if (!value || typeof value !== 'object') return undefined;
+  const delivery = (value as { delivery?: unknown }).delivery;
+  return delivery === 'queued' || delivery === 'sent' || delivery === 'steered'
+    ? delivery
+    : undefined;
 }

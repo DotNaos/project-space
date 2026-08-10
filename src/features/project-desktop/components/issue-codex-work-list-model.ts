@@ -366,8 +366,11 @@ const blockedLabels: Record<CodexMachineTaskBlockedReason, string> = {
   input_required: 'Input required',
   machine_not_ready: 'Machine not ready',
   offline: 'Offline',
+  send_in_progress: 'Message dispatch in progress',
   stale_connector: 'Connector state stale',
   thread_active: 'Thread already running',
+  turn_changed: 'Codex turn changed',
+  turn_required: 'Exact Codex turn required',
   unauthorized: 'Sign in required',
   worktree_failure: 'Workspace unavailable'
 };
