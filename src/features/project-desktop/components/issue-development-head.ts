@@ -50,6 +50,17 @@ export function canChooseIssueCodingDestination(
   return resolution.state === 'verified';
 }
 
+/**
+ * Existing task discovery may use a historical PR head name even when that
+ * branch is no longer verified for new work.
+ */
+export function issueDevelopmentTaskProbeBranch(
+  branch?: GitHubBranchRecord,
+  pullRequest?: GitHubPullRequestRecord
+) {
+  return normalizeBranch(branch?.name || pullRequest?.headBranch) || undefined;
+}
+
 export function resolveIssueDevelopmentHead(input: {
   branches: GitHubBranchRecord[];
   issue: GitHubIssueRecord;

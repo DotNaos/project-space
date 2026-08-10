@@ -19,14 +19,24 @@ import type { GitHubOAuthDeviceStartResult } from '@/shared/project-space-api';
 import { codexSessionRoute } from '../../codex-sessions/codex-session-route';
 
 interface GitHubCodespaceDestinationProps {
+  availableConnectorIds: readonly string[];
   branch: string;
   issue: number;
+  onExistingTaskChange?(task?: GitHubCodespaceExistingTask): void;
   onStart(input: {
     connectorId: string;
     environmentId: string;
     name: string;
   }): void;
+  probeOnly?: boolean;
   repositoryFullName: string;
+}
+
+export interface GitHubCodespaceExistingTask {
+  environmentLabel: string;
+  key: string;
+  physicalMachineName: string;
+  result: Exclude<CodexMachineTaskExistingResult, { state: 'missing' }>;
 }
 
 function operation(prefix: 'authorization' | 'codespace') {
@@ -34,15 +44,19 @@ function operation(prefix: 'authorization' | 'codespace') {
 }
 
 export function GitHubCodespaceDestination({
+  availableConnectorIds,
   branch,
   issue,
+  onExistingTaskChange,
   onStart,
+  probeOnly = false,
   repositoryFullName
 }: GitHubCodespaceDestinationProps) {
   const [runner, setRunner] = useState<GitHubCodespaceRunnerResult>();
   const [authorization, setAuthorization] = useState<CodexAuthorizationResult>();
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
   const [existingTask, setExistingTask] = useState<CodexMachineTaskExistingResult>();
+  const [existingTaskError, setExistingTaskError] = useState('');
   const [checkingExistingTask, setCheckingExistingTask] = useState(false);
   const [flowModalOpen, setFlowModalOpen] = useState(false);
   const [flowFailure, setFlowFailure] = useState<{
@@ -68,6 +82,7 @@ export function GitHubCodespaceDestination({
         operationId: action === 'status' ? statusOperation.current : operation('codespace'),
         repositoryFullName
       });
+      if (next.connectorId) setCheckingExistingTask(true);
       setRunner(next);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'The Codespace could not be updated.';
@@ -166,6 +181,8 @@ export function GitHubCodespaceDestination({
     setRunner(undefined);
     setAuthorization(undefined);
     setGitHubFlow(undefined);
+    setExistingTask(undefined);
+    setExistingTaskError('');
     statusOperation.current = operation('codespace');
     authorizationOperation.current = '';
     void pollRunner();
@@ -173,25 +190,56 @@ export function GitHubCodespaceDestination({
 
   useEffect(() => {
     let cancelled = false;
-    if (runner?.state !== 'ready' || !runner.connectorId) {
-      setExistingTask(undefined);
+    let inFlight = false;
+    if (!runner) return;
+    if (!runner.connectorId) {
       setCheckingExistingTask(false);
       return;
     }
-    setCheckingExistingTask(true);
-    void projectSpaceClient.getExistingCodexMachineTask({
-      connectorId: runner.connectorId,
-      issue,
-      repositoryId: repositoryFullName
-    }).then((result) => {
-      if (!cancelled) setExistingTask(result);
-    }).catch(() => {
-      if (!cancelled) setExistingTask(undefined);
-    }).finally(() => {
-      if (!cancelled) setCheckingExistingTask(false);
-    });
-    return () => { cancelled = true; };
-  }, [issue, repositoryFullName, runner?.connectorId, runner?.state]);
+    const connectorId = runner.connectorId;
+    const codespaceName = runner.codespace?.name;
+
+    async function refreshExistingTask() {
+      if (inFlight) return;
+      inFlight = true;
+      setCheckingExistingTask(true);
+      setExistingTaskError('');
+      try {
+        const result = await projectSpaceClient.getExistingCodexMachineTask({
+          connectorId,
+          issue,
+          repositoryId: repositoryFullName
+        });
+        if (cancelled) return;
+        setExistingTask(result);
+        onExistingTaskChange?.(result.state === 'missing'
+          ? undefined
+          : {
+              environmentLabel: result.state === 'confirmed'
+                ? result.task.environment?.name ?? codespaceName ?? 'Codespace'
+                : codespaceName ?? 'Codespace',
+              key: connectorId,
+              physicalMachineName: 'GitHub Codespace',
+              result
+            });
+      } catch (cause) {
+        if (cancelled) return;
+        setExistingTaskError(
+          cause instanceof Error ? cause.message : 'Existing tasks could not be checked.'
+        );
+      } finally {
+        inFlight = false;
+        if (!cancelled) setCheckingExistingTask(false);
+      }
+    }
+
+    void refreshExistingTask();
+    const timer = window.setInterval(() => void refreshExistingTask(), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [issue, onExistingTaskChange, repositoryFullName, runner?.codespace?.name, runner?.connectorId]);
 
   useEffect(() => {
     if (!runner || !['provisioning', 'connector-approval-required'].includes(runner.state)) return;
@@ -219,6 +267,9 @@ export function GitHubCodespaceDestination({
 
   const online = runner?.state === 'ready' || runner?.state === 'authorization-required';
   const pending = busy !== '' || runner?.state === 'provisioning';
+  const connectorAvailable = Boolean(
+    runner?.connectorId && availableConnectorIds.includes(runner.connectorId)
+  );
   const name = runner?.codespace?.name ?? 'New task Codespace';
   const existingAction = existingTask?.state === 'confirmed'
     ? existingTask.action === 'open-running'
@@ -253,9 +304,11 @@ export function GitHubCodespaceDestination({
     }));
   }
 
+  if (probeOnly) return null;
+
   return (
     <div className="grid gap-2">
-      <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl bg-current/[.04] px-3">
+      <div className="flex min-h-11 min-w-0 flex-wrap items-center gap-2 rounded-2xl bg-current/[.04] px-3 py-2 sm:flex-nowrap sm:py-0">
         <Cloud className="size-3.5 shrink-0 text-current/30" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">
           GitHub Codespace · {name}
@@ -267,32 +320,38 @@ export function GitHubCodespaceDestination({
         )}
 
         {runner?.state === 'not-created' ? (
-          <Button isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('provision')}>
+          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('provision')}>
             <Cloud className="size-3.5" /> Create
           </Button>
         ) : runner?.state === 'github-reauthorization-required' ? (
-          <Button isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => githubFlow?.status === 'pending' ? setFlowModalOpen(true) : void startGitHubLogin()}>
+          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => githubFlow?.status === 'pending' ? setFlowModalOpen(true) : void startGitHubLogin()}>
             <RefreshCw className="size-3.5" /> {githubFlow?.status === 'pending' ? 'Continue GitHub login' : 'Reconnect GitHub'}
           </Button>
         ) : runner?.state === 'connector-approval-required' && runner.approvalUrl ? (
-          <Button size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
+          <Button className="ml-auto shrink-0" size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
             Approve connector <ExternalLink className="size-3.5" />
           </Button>
         ) : runner?.state === 'authorization-required' ? (
-          <Button isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => authorization?.state === 'pending' ? setFlowModalOpen(true) : void authorizeCodex('start')}>
+          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => authorization?.state === 'pending' ? setFlowModalOpen(true) : void authorizeCodex('start')}>
             <Bot className="size-3.5" /> {authorization?.state === 'pending' ? 'Continue Codex sign in' : 'Sign in to Codex'}
           </Button>
         ) : runner?.state === 'failed' ? (
-          <Button isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
+          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
             <RefreshCw className="size-3.5" /> Resolve connection
           </Button>
         ) : runner?.state === 'offline' ? (
-          <Button isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('start')}>
+          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('start')}>
             Start Codespace
           </Button>
         ) : runner?.state === 'ready' && runner.connectorId && runner.environmentId ? (
           <Button
-            isDisabled={Boolean(busy) || checkingExistingTask}
+            className="ml-auto shrink-0"
+            isDisabled={
+              Boolean(busy)
+              || !connectorAvailable
+              || checkingExistingTask
+              || Boolean(existingTaskError)
+            }
             size="sm"
             variant="ghost"
             onPress={() => existingAction
@@ -303,8 +362,16 @@ export function GitHubCodespaceDestination({
                   name
                 })}
           >
-            <Bot className="size-3.5" />
-            {checkingExistingTask ? 'Checking task…' : existingAction ?? 'Start Codex'}
+            {!connectorAvailable
+              ? <LoaderCircle className="size-3.5 animate-spin" />
+              : <Bot className="size-3.5" />}
+            {!connectorAvailable
+              ? 'Refreshing environment…'
+              : checkingExistingTask
+              ? 'Checking task…'
+              : existingTaskError
+                ? 'Task check unavailable'
+                : existingAction ?? 'Start Codex'}
           </Button>
         ) : null}
       </div>
@@ -324,6 +391,9 @@ export function GitHubCodespaceDestination({
         </details>
       ) : null}
       {error ? <p className="px-3 text-xs text-red-300">{error}</p> : null}
+      {existingTaskError ? (
+        <p className="px-3 text-xs text-red-300">{existingTaskError}</p>
+      ) : null}
 
       <Modal isOpen={Boolean(modalKind) && flowModalOpen} onOpenChange={setFlowModalOpen}>
         <Modal.Backdrop className="z-[140] bg-black/75" variant="blur">
