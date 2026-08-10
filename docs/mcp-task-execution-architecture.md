@@ -93,7 +93,7 @@ new shared provider service and the canonical compute Environment identity.
 
 ## Current MCP surface
 
-The remote MCP currently exposes thirteen tools.
+The remote MCP exposes fifteen tools after WP1.
 
 ### Project and task discovery
 
@@ -111,6 +111,8 @@ The remote MCP currently exposes thirteen tools.
 
 ### Connector and Codex discovery
 
+- `list_execution_environments`
+- `get_execution_environment`
 - `list_machines`
 - `list_codex_tasks`
 - `read_codex_task`
@@ -120,11 +122,12 @@ The remote MCP currently exposes thirteen tools.
 - `start_codex_task`
 - `send_codex_message`
 
-These tools prove the remote OAuth, task-provider, connector, Codex session,
-and worktree path. They do not yet provide the complete task lifecycle because:
+These tools prove the remote OAuth, task-provider, canonical Environment,
+connector, Codex session, and worktree path. They do not yet provide the
+complete task lifecycle because:
 
-- `list_machines` presents a historical connector/machine projection instead
-  of the canonical compute inventory;
+- `list_machines` remains a deprecated historical connector/machine
+  compatibility projection;
 - `start_codex_task` is Codex- and GitHub-specific;
 - no structured handoff is stored;
 - no generic Task Execution identity exists;
@@ -1080,13 +1083,13 @@ is approved, merged, deployed, and verified.
 
 ### WP1 — expose canonical compute inventory through MCP
 
-- [ ] Add `list_execution_environments` and `get_execution_environment`.
-- [ ] Return Platform, optional Host, Environment, connector association,
+- [x] Add `list_execution_environments` and `get_execution_environment`.
+- [x] Return Platform, optional Host, Environment, connector association,
       resources, lifecycle evidence, runtime, authorization, and capacity.
-- [ ] Sanitize provider and connector identity data for remote clients.
-- [ ] Add `environmentId` to current Codex compatibility tools.
-- [ ] Deprecate `list_machines` without removing it.
-- [ ] Test hostless Codespaces, nested WSL/devbox, multiple connectors, stale
+- [x] Sanitize provider and connector identity data for remote clients.
+- [x] Add `environmentId` to current Codex compatibility tools.
+- [x] Deprecate `list_machines` without removing it.
+- [x] Test hostless Codespaces, nested WSL/devbox, multiple connectors, stale
       connector generation, conflict, unresolved, and not-applicable Host state.
 
 ### WP2 — add Environment lifecycle MCP tools

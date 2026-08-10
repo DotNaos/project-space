@@ -18,20 +18,18 @@ import {
   isMachineClaimed,
   deleteMachineExecutionScope,
   listConnectorCredentials,
-  listComputeInventory,
   listPhysicalMachines,
   listMachineExecutionScopes,
   listDevServerSessions,
   readMachineMembership,
   readProjectRunSettings,
   revokeConnectorCredential,
-  reconcileConnectorComputeInventory,
   savePhysicalMachine,
   saveMachineExecutionScope,
   transitionDevServerSession,
   upsertProjectRunSettings
 } from './local-database-store';
-import { computeInventoryFromConnectors } from './compute-inventory';
+import { loadConfiguredComputeInventory } from './configured-compute-inventory';
 import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
 import { readJson, writeJson } from './project-space-http-response';
 import type {
@@ -613,15 +611,11 @@ export function createProjectSpaceCoreApiRoutes(
     if (request.method === 'GET' && url.pathname === '/api/connectors/overview') {
       const overview = await backend.getConnectorOverview();
       const physicalMachines = await loadPhysicalMachines(userId);
-      if (isDatabaseConfigured()) {
-        await reconcileConnectorComputeInventory(userId, overview.machines);
-      }
-      const computeInventory = isDatabaseConfigured()
-        ? await listComputeInventory(userId)
-        : computeInventoryFromConnectors({
-            connectors: overview.machines,
-            physicalMachines
-          });
+      const { snapshot: computeInventory } = await loadConfiguredComputeInventory({
+        backend,
+        overview: { ...overview, physicalMachines },
+        userId
+      });
       writeJson(response, 200, {
         ...overview,
         computeInventory,
