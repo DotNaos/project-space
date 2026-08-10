@@ -35,11 +35,14 @@ interface OperationRow {
 interface SendRow {
   connector_generation: string | number;
   connector_id: string;
+  dispatch_attempt: string | number;
   durable_operations: boolean;
   fingerprint_sha256: string;
   operation_id: string;
+  owner_user_id: string;
+  request_payload: unknown;
   result: unknown;
-  state: 'completed' | 'pending' | 'uncertain';
+  state: 'completed' | 'pending' | 'queued' | 'uncertain';
   thread_id: string;
 }
 
@@ -242,24 +245,27 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
         connectorId: operation.connectorId,
         userId: operation.userId
       })) return { kind: 'fenced' } as const;
+      await acquireSendThreadLock(client, operation);
       const inserted = await client.query<{ operation_id: string }>(
         `insert into codex_machine_task_sends (
            owner_user_id, operation_id, connector_id, thread_id,
-           connector_generation, durable_operations, fingerprint_sha256, state
-         ) values ($1, $2, $3, $4, $5, $6, $7, 'pending')
+           connector_generation, durable_operations, fingerprint_sha256, request_payload, state
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'pending')
          on conflict do nothing
          returning operation_id`,
         [operation.userId, operation.operationId, operation.connectorId, operation.threadId,
-          operation.generation, operation.durableOperations, operation.fingerprint]
+          operation.generation, operation.durableOperations, operation.fingerprint,
+          JSON.stringify(operation.request)]
       );
       if (inserted.rows.length > 0) return { kind: 'new' } as const;
       const existing = await client.query<SendRow>(
-        `select operation_id, connector_id, thread_id, connector_generation,
-                durable_operations, fingerprint_sha256, state, result
+        `select owner_user_id, operation_id, connector_id, thread_id, connector_generation,
+                dispatch_attempt, durable_operations, fingerprint_sha256,
+                request_payload, state, result
            from codex_machine_task_sends
           where owner_user_id = $1 and (
             operation_id = $2 or (
-              connector_id = $3 and thread_id = $4 and state in ('pending', 'uncertain')
+              connector_id = $3 and thread_id = $4 and state = 'pending'
             )
           )
           order by (operation_id = $2) desc
@@ -275,15 +281,28 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       if (row.state === 'completed' && isSendResult(row.result)) {
         return { kind: 'replayed', result: row.result } as const;
       }
+      if (row.state === 'queued' && isSendResult(row.result)) {
+        return { kind: 'replayed', result: row.result } as const;
+      }
       if (row.state === 'uncertain') {
-        const generation = Number(row.connector_generation);
-        return Number.isSafeInteger(generation) && generation > 0
-          ? { durableOperations: row.durable_operations, generation, kind: 'uncertain' } as const
-          : { kind: 'fenced' } as const;
+      const generation = Number(row.connector_generation);
+      const dispatchAttempt = Number(row.dispatch_attempt ?? 0);
+      return Number.isSafeInteger(generation) && generation > 0 &&
+        Number.isSafeInteger(dispatchAttempt) && dispatchAttempt >= 0
+        ? {
+            dispatchAttempt, durableOperations: row.durable_operations,
+            generation, kind: 'uncertain'
+          } as const
+        : { kind: 'fenced' } as const;
       }
       const generation = Number(row.connector_generation);
-      return Number.isSafeInteger(generation) && generation > 0
-        ? { durableOperations: row.durable_operations, generation, kind: 'pending' } as const
+      const dispatchAttempt = Number(row.dispatch_attempt ?? 0);
+      return Number.isSafeInteger(generation) && generation > 0 &&
+        Number.isSafeInteger(dispatchAttempt) && dispatchAttempt >= 0
+        ? {
+            dispatchAttempt, durableOperations: row.durable_operations,
+            generation, kind: 'pending'
+          } as const
         : { kind: 'fenced' } as const;
     };
     return this.client.transaction ? this.client.transaction(run) : run(this.client);
@@ -291,13 +310,120 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
 
   async completeSend(
     operation: CodexMachineTaskSendOperation,
-    result: CodexMachineTaskSendResult
+    result: CodexMachineTaskSendResult,
+    nextGeneration = operation.generation
   ) {
-    await this.transitionSend(operation, 'completed', result);
+    if (await this.transitionSend(operation, 'completed', result, nextGeneration)) return;
+    const existing = await this.client.query<Pick<SendRow, 'state'>>(
+      `select state from codex_machine_task_sends
+        where owner_user_id = $1 and operation_id = $2 and connector_id = $3
+          and thread_id = $4 and fingerprint_sha256 = $5`,
+      [operation.userId, operation.operationId, operation.connectorId, operation.threadId,
+        operation.fingerprint]
+    );
+    if (existing.rows[0]?.state !== 'completed') {
+      throw new Error('Codex task send reservation was not updated.');
+    }
   }
 
-  async markSendUncertain(operation: CodexMachineTaskSendOperation) {
-    await this.transitionSend(operation, 'uncertain');
+  async markSendUncertain(
+    operation: CodexMachineTaskSendOperation,
+    nextGeneration = operation.generation
+  ) {
+    if (!await this.transitionSend(operation, 'uncertain', undefined, nextGeneration)) {
+      throw new Error('Codex task send reservation was not updated.');
+    }
+  }
+
+  async markSendQueued(
+    operation: CodexMachineTaskSendOperation,
+    result: CodexMachineTaskSendResult,
+    nextGeneration = operation.generation
+  ) {
+    const transitioned = await this.client.query<{ operation_id: string }>(
+      `update codex_machine_task_sends
+          set state = 'queued', result = $7::jsonb, connector_generation = $8,
+              updated_at = now()
+        where owner_user_id = $1 and operation_id = $2 and connector_id = $3
+          and thread_id = $4 and connector_generation = $5
+          and fingerprint_sha256 = $6 and state in ('pending', 'queued', 'uncertain')
+        returning operation_id`,
+      [operation.userId, operation.operationId, operation.connectorId, operation.threadId,
+        operation.generation, operation.fingerprint, JSON.stringify(result), nextGeneration]
+    );
+    if (transitioned.rows.length !== 1) {
+      throw new Error('Codex task send reservation was not queued.');
+    }
+  }
+
+  async claimQueuedSend(operation: CodexMachineTaskSendOperation) {
+    const run = async (client: DatabaseQueryClient) => {
+      await acquireSendThreadLock(client, operation);
+      const claimed = await client.query<{ dispatch_attempt: number }>(
+        `update codex_machine_task_sends queued
+            set state = 'pending', connector_generation = $5,
+                dispatch_attempt = dispatch_attempt + 1, updated_at = now()
+          where owner_user_id = $1 and operation_id = $2 and connector_id = $3
+            and thread_id = $4 and fingerprint_sha256 = $6 and state = 'queued'
+            and not exists (
+              select 1 from codex_machine_task_sends pending
+               where pending.owner_user_id = queued.owner_user_id
+                 and pending.connector_id = queued.connector_id
+                 and pending.thread_id = queued.thread_id
+                 and pending.state = 'pending'
+            )
+          returning dispatch_attempt`,
+        [operation.userId, operation.operationId, operation.connectorId, operation.threadId,
+          operation.generation, operation.fingerprint]
+      );
+      const attempt = Number(claimed.rows[0]?.dispatch_attempt);
+      return Number.isSafeInteger(attempt) && attempt > 0 ? attempt : undefined;
+    };
+    return this.client.transaction ? this.client.transaction(run) : run(this.client);
+  }
+
+  async listQueuedSends() {
+    const queued = await this.client.query<SendRow>(
+      `select owner_user_id, operation_id, connector_id, thread_id, connector_generation,
+              dispatch_attempt,
+              durable_operations, fingerprint_sha256, request_payload, state, result
+         from codex_machine_task_sends
+        where state = 'queued'
+        order by created_at, operation_id`
+    );
+    return queued.rows.flatMap((row) => {
+      const operation = operationFromSendRow(row, row.owner_user_id);
+      return operation ? [operation] : [];
+    });
+  }
+
+  async listPendingSends() {
+    const pending = await this.client.query<SendRow>(
+      `select owner_user_id, operation_id, connector_id, thread_id, connector_generation,
+              dispatch_attempt,
+              durable_operations, fingerprint_sha256, request_payload, state, result
+         from codex_machine_task_sends
+        where state = 'pending' and request_payload is not null
+        order by created_at, operation_id`
+    );
+    return pending.rows.flatMap((row) => {
+      const operation = operationFromSendRow(row, row.owner_user_id);
+      return operation ? [operation] : [];
+    });
+  }
+
+  async nextQueuedSend(input: { connectorId: string; threadId: string; userId: string }) {
+    const queued = await this.client.query<SendRow>(
+      `select owner_user_id, operation_id, connector_id, thread_id, connector_generation,
+              dispatch_attempt,
+              durable_operations, fingerprint_sha256, request_payload, state, result
+         from codex_machine_task_sends
+        where owner_user_id = $1 and connector_id = $2 and thread_id = $3 and state = 'queued'
+        order by created_at, operation_id
+        limit 1`,
+      [input.userId, input.connectorId, input.threadId]
+    );
+    return operationFromSendRow(queued.rows[0], input.userId);
   }
 
   async releaseSend(operation: CodexMachineTaskSendOperation) {
@@ -352,23 +478,55 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
   private async transitionSend(
     operation: CodexMachineTaskSendOperation,
     state: 'completed' | 'uncertain',
-    result?: CodexMachineTaskSendResult
+    result?: CodexMachineTaskSendResult,
+    nextGeneration = operation.generation
   ) {
     const transitioned = await this.client.query<{ operation_id: string }>(
       `update codex_machine_task_sends
-          set state = $7, result = $8::jsonb, updated_at = now()
+          set state = $7, result = $8::jsonb, connector_generation = $9,
+              updated_at = now()
         where owner_user_id = $1 and operation_id = $2 and connector_id = $3
           and thread_id = $4 and connector_generation = $5
-          and fingerprint_sha256 = $6 and state in ('pending', 'uncertain')
+          and fingerprint_sha256 = $6 and state in ('pending', 'queued', 'uncertain')
         returning operation_id`,
       [operation.userId, operation.operationId, operation.connectorId, operation.threadId,
         operation.generation, operation.fingerprint, state,
-        result ? JSON.stringify(result) : null]
+        result ? JSON.stringify(result) : null, nextGeneration]
     );
-    if (transitioned.rows.length !== 1) {
-      throw new Error('Codex task send reservation was not updated.');
-    }
+    return transitioned.rows.length === 1;
   }
+}
+
+async function acquireSendThreadLock(
+  client: DatabaseQueryClient,
+  operation: Pick<CodexMachineTaskSendOperation, 'connectorId' | 'threadId' | 'userId'>
+) {
+  await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+    `codex-machine-task-send:${operation.userId}\0${operation.connectorId}\0${operation.threadId}`
+  ]);
+}
+
+function operationFromSendRow(
+  row: SendRow | undefined,
+  userId?: string
+): CodexMachineTaskSendOperation | undefined {
+  if (!row) return undefined;
+  const generation = Number(row.connector_generation);
+  const dispatchAttempt = Number(row.dispatch_attempt ?? 0);
+  if (!userId || !Number.isSafeInteger(generation) || generation < 1 ||
+    !Number.isSafeInteger(dispatchAttempt) || dispatchAttempt < 0 ||
+    !isSendRequestPayload(row.request_payload)) return undefined;
+  return {
+    connectorId: row.connector_id,
+    dispatchAttempt,
+    durableOperations: row.durable_operations,
+    fingerprint: row.fingerprint_sha256,
+    generation,
+    operationId: row.operation_id,
+    request: row.request_payload,
+    threadId: row.thread_id,
+    userId
+  };
 }
 
 async function acquireExecutionEnvironmentAdmission(
@@ -446,5 +604,24 @@ function isSendResult(value: unknown): value is CodexMachineTaskSendResult {
   const result = value as Record<string, unknown>;
   return result.apiVersion === 1 && typeof result.operationId === 'string' &&
     typeof result.state === 'string' &&
-    ['accepted', 'blocked', 'completed', 'uncertain'].includes(result.state);
+    ['accepted', 'blocked', 'completed', 'queued', 'sent', 'steered', 'uncertain']
+      .includes(result.state);
+}
+
+function isSendRequestPayload(
+  value: unknown
+): value is CodexMachineTaskSendOperation['request'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const request = value as Record<string, unknown>;
+  const target = request.target;
+  return typeof request.message === 'string' && request.message.length > 0 &&
+    typeof request.mode === 'string' && ['auto', 'queue', 'steer'].includes(request.mode) &&
+    !!target && typeof target === 'object' && !Array.isArray(target) &&
+    typeof (target as Record<string, unknown>).physicalMachineId === 'string' &&
+    (target as Record<string, unknown>).physicalMachineId !== '' &&
+    ((target as Record<string, unknown>).environmentId === undefined ||
+      typeof (target as Record<string, unknown>).environmentId === 'string' &&
+      (target as Record<string, unknown>).environmentId !== '') &&
+    (request.expectedTurnId === undefined ||
+      typeof request.expectedTurnId === 'string' && request.expectedTurnId.length > 0);
 }

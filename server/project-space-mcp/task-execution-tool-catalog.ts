@@ -77,11 +77,20 @@ export const taskExecutionToolSchemas = {
     timeoutSeconds: z.number().int().min(0).max(30).optional()
   }).strict(),
   send_task_execution_message: z.object({
+    expectedTurnId: z.string().trim().min(1).max(256).optional(),
     executionId: executionIdSchema,
     message: z.string().trim().min(1).max(100_000),
+    mode: z.enum(['auto', 'queue', 'steer']).optional(),
     operationId: operationIdSchema,
     wait: z.boolean().optional()
-  }).strict(),
+  }).strict().superRefine((value, context) => {
+    if (value.mode === 'steer' && !value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'Steering requires expectedTurnId.' });
+    }
+    if (value.mode !== 'steer' && value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'expectedTurnId is only valid for steering.' });
+    }
+  }),
   respond_task_execution_approval: z.object({
     approvalId: z.string().trim().min(1).max(256).optional(),
     decision: z.enum(['allow-once', 'deny']),
@@ -149,7 +158,24 @@ const executionResultSchema = {
   type: 'object', required: ['apiVersion', 'events', 'execution', 'message'],
   properties: {
     apiVersion: { type: 'integer', enum: [1] }, events: { type: 'array', items: { type: 'object' } },
+    delivery: { type: 'string', enum: ['queued', 'sent', 'steered'] },
     execution: executionProjectionSchema, message: { type: 'string' },
+    messageOutcome: {
+      type: 'object', required: ['state'],
+      properties: {
+        reason: {
+          type: 'string',
+          enum: [
+            'approval_required', 'codex_start_failed', 'connector_required', 'input_required',
+            'machine_not_ready', 'offline', 'stale_connector', 'send_in_progress',
+            'thread_active', 'turn_changed', 'turn_required', 'unauthorized', 'worktree_failure'
+          ]
+        },
+        state: {
+          type: 'string', enum: ['blocked', 'completed', 'queued', 'sent', 'steered', 'uncertain']
+        }
+      }
+    },
     nextCursor: { type: 'integer' }, operationId: { type: 'string' }, replayed: { type: 'boolean' }
   }
 } as const;
@@ -232,10 +258,18 @@ export const taskExecutionTools = [
       } }, timeoutSeconds: { type: 'integer', minimum: 0, maximum: 30 }
     }
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true }, undefined, waitOutput),
-  defineOAuthTool('send_task_execution_message', 'Send task execution message', 'Send one idempotent follow-up message to the executor bound to an exact Task Execution.', {
+  defineOAuthTool('send_task_execution_message', 'Send task execution message', 'Send, steer, or durably queue one idempotent message for the executor bound to an exact Task Execution.', {
     type: 'object', required: ['executionId', 'message', 'operationId'], additionalProperties: false, properties: {
-      ...mutationProperties, message: { type: 'string', minLength: 1, maxLength: 100_000 }, wait: { type: 'boolean' }
-    }
+      ...mutationProperties,
+      expectedTurnId: { type: 'string', minLength: 1, maxLength: 256 },
+      message: { type: 'string', minLength: 1, maxLength: 100_000 },
+      mode: { type: 'string', enum: ['auto', 'queue', 'steer'] },
+      wait: { type: 'boolean' }
+    }, allOf: [{
+      if: { properties: { mode: { const: 'steer' } }, required: ['mode'] },
+      then: { required: ['expectedTurnId'] },
+      else: { not: { required: ['expectedTurnId'] } }
+    }]
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }, writeScopes, executionOutput),
   defineOAuthTool('respond_task_execution_approval', 'Respond to task execution approval', 'Respond only to the exact pending approval request, turn, and item identities. No default approval is invented.', {
     type: 'object', required: ['decision', 'executionId', 'operationId', 'requestId', 'turnId'], additionalProperties: false, properties: {

@@ -27,14 +27,19 @@ export function connector(): MachineRecord {
 
 export function memoryStore(): CodexMachineTasksStore & {
   operations: Map<string, CodexMachineTaskStartOperation>;
+  sends: Map<string, CodexMachineTaskSendOperation & {
+    result?: Awaited<ReturnType<ReturnType<typeof service>['send']>>;
+    state: 'completed' | 'pending' | 'queued' | 'uncertain';
+  }>;
 } {
   const operations = new Map<string, CodexMachineTaskStartOperation>();
   const sends = new Map<string, CodexMachineTaskSendOperation & {
     result?: Awaited<ReturnType<ReturnType<typeof service>['send']>>;
-    state: 'completed' | 'pending' | 'uncertain';
+    state: 'completed' | 'pending' | 'queued' | 'uncertain';
   }>();
   return {
     operations,
+    sends,
     async findStart(input) {
       const current = [...operations.values()].find((candidate) => (
         candidate.userId === input.userId
@@ -58,8 +63,9 @@ export function memoryStore(): CodexMachineTasksStore & {
       }
       return {
         connectorId: current.connectorId,
-        durableOperations: current.durableOperations,
-        generation: current.generation,
+            durableOperations: current.durableOperations,
+              dispatchAttempt: current.dispatchAttempt ?? 0,
+              generation: current.generation,
         kind: 'reserved',
         physicalMachineId: current.physicalMachineId,
         startPayload: current.startPayload,
@@ -86,30 +92,65 @@ export function memoryStore(): CodexMachineTasksStore & {
         if (current.state === 'completed' && current.result) {
           return { kind: 'replayed', result: current.result };
         }
+        if (current.state === 'queued' && current.result) {
+          return { kind: 'replayed', result: current.result };
+        }
         return current.state === 'uncertain'
           ? {
               durableOperations: current.durableOperations,
+              dispatchAttempt: current.dispatchAttempt ?? 0,
               generation: current.generation,
               kind: 'uncertain'
             }
           : {
               durableOperations: current.durableOperations,
+              dispatchAttempt: current.dispatchAttempt ?? 0,
               generation: current.generation,
               kind: 'pending'
             };
       }
       if ([...sends.values()].some((candidate) => candidate.connectorId === operation.connectorId &&
-        candidate.threadId === operation.threadId && candidate.state !== 'completed')) {
+        candidate.threadId === operation.threadId && candidate.state === 'pending')) {
         return { kind: 'fenced' };
       }
       sends.set(operation.operationId, { ...operation, state: 'pending' });
       return { kind: 'new' };
     },
-    async completeSend(operation, result) {
-      sends.set(operation.operationId, { ...operation, result, state: 'completed' });
+    async completeSend(operation, result, nextGeneration = operation.generation) {
+      sends.set(operation.operationId, {
+        ...operation, generation: nextGeneration, result, state: 'completed'
+      });
     },
-    async markSendUncertain(operation) {
-      sends.set(operation.operationId, { ...operation, state: 'uncertain' });
+    async markSendUncertain(operation, nextGeneration = operation.generation) {
+      sends.set(operation.operationId, {
+        ...operation, generation: nextGeneration, state: 'uncertain'
+      });
+    },
+    async markSendQueued(operation, result, nextGeneration = operation.generation) {
+      sends.set(operation.operationId, {
+        ...operation, generation: nextGeneration, result, state: 'queued'
+      });
+    },
+    async claimQueuedSend(operation) {
+      const current = sends.get(operation.operationId);
+      if (current?.state !== 'queued') return undefined;
+      if ([...sends.values()].some((candidate) => candidate.operationId !== operation.operationId &&
+        candidate.connectorId === operation.connectorId && candidate.threadId === operation.threadId &&
+        candidate.state === 'pending')) return undefined;
+      const dispatchAttempt = (current.dispatchAttempt ?? 0) + 1;
+      sends.set(operation.operationId, { ...current, dispatchAttempt, state: 'pending' });
+      return dispatchAttempt;
+    },
+    async listQueuedSends() {
+      return [...sends.values()].filter((candidate) => candidate.state === 'queued');
+    },
+    async listPendingSends() {
+      return [...sends.values()].filter((candidate) => candidate.state === 'pending');
+    },
+    async nextQueuedSend(input) {
+      return [...sends.values()].find((candidate) => candidate.state === 'queued' &&
+        candidate.connectorId === input.connectorId && candidate.threadId === input.threadId &&
+        candidate.userId === input.userId);
     },
     async releaseSend(operation) {
       sends.delete(operation.operationId);
@@ -205,15 +246,33 @@ export function service(options: {
     issue: { number: number; url: string };
     repository: { id: string; nameWithOwner: string };
   }>;
-  send?: (input: { generation: number }) => Promise<{
+  inspect?: () => Promise<{ activeTurnId?: string; status?: 'active' | 'idle' }>;
+  read?: () => Promise<void>;
+  send?: (input: {
+    delivery: 'new-turn' | 'steer';
+    expectedTurnId?: string;
+    generation: number;
+    message: string;
     operationId: string;
+    threadId: string;
+  }) => Promise<{
+    operationId: string;
+    reason?: 'thread_active' | 'unavailable';
     replayed: boolean;
     status: 'accepted' | 'ambiguous' | 'completed' | 'rejected';
     threadId: string;
     turnId?: string;
   }>;
-  reconcileSend?: (input: { generation: number }) => Promise<{
+  reconcileSend?: (input: {
+    delivery: 'new-turn' | 'steer';
+    expectedTurnId?: string;
+    generation: number;
+    message: string;
     operationId: string;
+    threadId: string;
+  }) => Promise<{
+    operationId: string;
+    reason?: 'thread_active' | 'unavailable';
     replayed: boolean;
     status: 'accepted' | 'ambiguous' | 'completed' | 'rejected';
     threadId: string;
@@ -242,6 +301,7 @@ export function service(options: {
     turnId?: string;
     type: 'approval-requested' | 'turn-completed' | 'user-input-requested';
   } }>;
+  waitUntilIdle?: () => Promise<void>;
 } = {}) {
   return createCodexMachineTasksService({
     ...(options.attachments ? { attachments: options.attachments } : {}),
@@ -258,7 +318,27 @@ export function service(options: {
     generationFor: options.generationFor ?? (() => 7),
     durableGenerationFor: options.durableGenerationFor ?? (() => true),
     sessions: {
+      async inspect() {
+        const inspected = await options.inspect?.() ?? { status: 'idle' as const };
+        return {
+          ...(inspected.activeTurnId ? { activeTurnId: inspected.activeTurnId } : {}),
+          checkedAt: '2026-07-17T00:00:00.000Z',
+          openedReadOnly: true as const,
+          session: {
+            archived: false, id: threadId, lastActivityAt: '2026-07-17T00:00:00.000Z',
+            loadedByProjectSpace: false, machineId: 'connector-local', machineName: 'Local macOS',
+            status: inspected.status ?? (inspected.activeTurnId ? 'active' : 'idle'), title: '#262'
+          },
+          sessionRevision: 'a'.repeat(64),
+          taskLocation: {
+            canonicalCwd: '/workspace', checkedAt: '2026-07-17T00:00:00.000Z',
+            machineId: 'connector-local', sessionRevision: 'a'.repeat(64),
+            source: 'connector-realpath' as const, threadId, worktreeRoot: '/workspace'
+          }
+        };
+      },
       async read() {
+        await options.read?.();
         return {
           openedReadOnly: true as const,
           session: {
@@ -282,7 +362,7 @@ export function service(options: {
         turnId: 'turn-one'
       })),
       ...(options.reconcileSend ? {
-        async reconcileSend(input: { generation: number }) {
+        async reconcileSend(input) {
           return {
             generation: options.reconciledGeneration?.(input) ?? input.generation,
             result: await options.reconcileSend!(input)
@@ -294,7 +374,10 @@ export function service(options: {
         ...(options.wait
           ? await options.wait()
           : { event: { eventId: 'done-one', turnId: 'turn-one', type: 'turn-completed' as const } })
-      })
+      }),
+      async waitUntilIdle() {
+        await options.waitUntilIdle?.();
+      }
     },
     async start(input) {
       return {

@@ -974,6 +974,21 @@ describe('Project Space remote MCP server', () => {
     expect(invalidDryRun.isError).toBe(true);
     expect(calls.filter((call) => call.kind === 'start')).toHaveLength(2);
 
+    await client.callTool({
+      name: 'send_codex_message',
+      arguments: {
+        message: 'Run this next.', mode: 'queue', operationId: 'mcp:queue:integration',
+        physicalMachineId: 'physical-pc', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c'
+      }
+    });
+    expect(calls).toContainEqual({
+      kind: 'send',
+      request: expect.objectContaining({
+        mode: 'queue', operationId: 'mcp:queue:integration'
+      }),
+      userId: 'local-development-user'
+    });
+
     const invalidUpdate = await client.callTool({
       name: 'update_task',
       arguments: { repositoryId: '480', task: 480 }
@@ -1157,7 +1172,8 @@ describe('Project Space remote MCP server', () => {
     });
     await client.callTool({
       arguments: {
-        message: 'Continue.', operationId: 'task-execution:alias:send',
+        expectedTurnId: 'turn-active', message: 'Continue.', mode: 'steer',
+        operationId: 'task-execution:alias:send',
         threadId: '22222222-2222-4222-8222-222222222222'
       },
       name: 'send_codex_message'
@@ -1173,6 +1189,10 @@ describe('Project Space remote MCP server', () => {
       { kind: 'execution-read-by-executor', userId: 'local-development-user' },
       { kind: 'execution-send', userId: 'local-development-user' }
     ]);
+    expect(calls.find(({ kind }) => kind === 'execution-send')?.request).toMatchObject({
+      expectedTurnId: 'turn-active', mode: 'steer',
+      operationId: 'task-execution:alias:send'
+    });
     expect(calls.filter(({ kind }) => kind.startsWith('handoff-'))).toMatchObject([
       { kind: 'handoff-create', userId: 'local-development-user' },
       { kind: 'handoff-get', userId: 'local-development-user' },

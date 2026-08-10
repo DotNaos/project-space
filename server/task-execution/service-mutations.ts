@@ -45,28 +45,55 @@ export function createTaskExecutionMutations(
   async function send(actor: TaskExecutionActor, request: SendTaskExecutionMessageRequest) {
     return mutate(actor, 'send_task_execution_message', request, async (execution, binding) => {
       if (!['running', 'waiting_for_approval', 'waiting_for_input'].includes(execution.state)) {
-        return unchangedBlocked(execution, `A ${execution.state} Task Execution cannot accept messages.`);
+        return withMessageOutcome(
+          unchangedBlocked(execution, `A ${execution.state} Task Execution cannot accept messages.`),
+          { state: 'blocked' }
+        );
       }
-      if (!binding) return blocked(execution, 'agent_runtime_missing',
-        'The Task Execution has no executor binding.');
+      if (!binding) return withMessageOutcome(
+        await blocked(execution, 'agent_runtime_missing',
+          'The Task Execution has no executor binding.'),
+        { reason: 'connector_required', state: 'blocked' }
+      );
       const result = await dependencies.codex.service.send(actor, {
         connectorId: execution.connectorBinding?.connectorId,
         environmentId: execution.environmentId,
+        ...(request.expectedTurnId ? { expectedTurnId: request.expectedTurnId } : {}),
         message: request.message,
+        mode: request.mode,
         operationId: nestedOperationId(request.operationId, 'codex-message'),
         threadId: binding.externalId,
         wait: request.wait ?? false
       });
-      if (result.state === 'uncertain') return uncertain(execution, result.message);
+      if (result.state === 'uncertain') {
+        return withMessageOutcome(
+          await uncertain(execution, result.message),
+          { state: 'uncertain' }
+        );
+      }
       if (result.state === 'blocked') {
         if (result.reason === 'approval_required') {
-          return state(execution, 'waiting_for_approval', result.message);
+          return withMessageOutcome(
+            await state(execution, 'waiting_for_approval', result.message),
+            { reason: result.reason, state: 'blocked' }
+          );
         }
         if (result.reason === 'input_required') {
-          return state(execution, 'waiting_for_input', result.message);
+          return withMessageOutcome(
+            await state(execution, 'waiting_for_input', result.message),
+            { reason: result.reason, state: 'blocked' }
+          );
         }
-        if (result.reason === 'thread_active') return unchangedBlocked(execution, result.message);
-        return blocked(execution, 'connector_stale', result.message);
+        if (['send_in_progress', 'thread_active', 'turn_changed', 'turn_required'].includes(
+          result.reason
+        )) return withMessageOutcome(
+          unchangedBlocked(execution, result.message),
+          { reason: result.reason, state: 'blocked' }
+        );
+        return withMessageOutcome(
+          await blocked(execution, 'connector_stale', result.message),
+          { reason: result.reason, state: 'blocked' }
+        );
       }
       if (result.turnId) {
         await dependencies.store.updateExecutorTurn({
@@ -74,7 +101,14 @@ export function createTaskExecutionMutations(
           ownerUserId: actor.userId, turnId: result.turnId, updatedAt: now().toISOString()
         });
       }
-      return state(execution, 'running', 'The message was accepted by the executor.');
+      return withMessageOutcome(await state(
+        execution,
+        'running',
+        result.delivery === 'queued'
+          ? 'The message was queued for the executor.'
+          : 'The message was accepted by the executor.',
+        result.delivery
+      ), { state: result.state });
     });
   }
 
@@ -283,6 +317,9 @@ export function createTaskExecutionMutations(
         operationId: request.operationId, ownerUserId: actor.userId,
         result: compactOperationResult({
           executionId: execution.id, message: 'The mutation requires reconciliation.',
+          ...(action === 'send_task_execution_message'
+            ? { messageOutcome: { state: 'uncertain' as const } }
+            : {}),
           reconcileState: execution.state, state: 'uncertain', version: uncertainExecution.version
         }),
         state: 'uncertain'
@@ -298,7 +335,9 @@ export function createTaskExecutionMutations(
       action, executionId: execution.id, fingerprint,
       operationId: request.operationId, ownerUserId: actor.userId,
       result: compactOperationResult({
+        ...(outcome.delivery ? { delivery: outcome.delivery } : {}),
         executionId: outcome.execution.id, message: outcome.message,
+        ...(outcome.messageOutcome ? { messageOutcome: outcome.messageOutcome } : {}),
         ...(operationState === 'uncertain' && outcome.reconcileState
           ? { reconcileState: outcome.reconcileState }
           : {}),
@@ -327,13 +366,14 @@ export function createTaskExecutionMutations(
   async function state(
     execution: StoredTaskExecution,
     next: StoredTaskExecution['state'],
-    message: string
+    message: string,
+    delivery?: 'queued' | 'sent' | 'steered'
   ): Promise<MutationOutcome> {
     return {
       execution: await transitionTaskExecution({
         execution, message, now: now(), state: next, store: dependencies.store
       }),
-      kind: 'completed', message
+      ...(delivery ? { delivery } : {}), kind: 'completed', message
     };
   }
 
@@ -379,10 +419,19 @@ export function createTaskExecutionMutations(
   return { archive, cancel, respondApproval, respondInput, send };
 }
 
+function withMessageOutcome(
+  outcome: MutationOutcome,
+  messageOutcome: NonNullable<TaskExecutionResult['messageOutcome']>
+): MutationOutcome {
+  return { ...outcome, messageOutcome };
+}
+
 type MutationOutcome = {
+  delivery?: 'queued' | 'sent' | 'steered';
   execution: StoredTaskExecution;
   kind?: 'blocked' | 'completed' | 'uncertain';
   message: string;
+  messageOutcome?: TaskExecutionResult['messageOutcome'];
   reconcileState?: StoredTaskExecution['state'];
   terminal?: true;
 };

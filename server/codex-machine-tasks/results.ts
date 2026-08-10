@@ -2,6 +2,7 @@ import type {
   CodexMachineTaskBlockedReason,
   CodexMachineTaskReadResult,
   CodexMachineTaskSendRequest,
+  CodexMachineTaskSendDelivery,
   CodexMachineTaskSendResult,
   CodexMachineTaskStartResult,
   CodexMachineTaskTarget
@@ -52,27 +53,30 @@ export function readBlocked(
 }
 
 export function sendResult(
-  state: 'accepted' | 'completed',
+  delivery: CodexMachineTaskSendDelivery,
   target: CodexMachineTaskTarget,
   request: CodexMachineTaskSendRequest,
-  turnId: string,
+  turnId?: string,
+  completed = false,
   result?: CodexSessionReadResult
 ): CodexMachineTaskSendResult {
   return {
     apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+    delivery,
     operationId: request.operationId,
     ...(result ? { result } : {}),
-    state,
+    state: completed ? 'completed' : delivery,
     target,
     threadId: request.threadId,
-    turnId
+    ...(turnId ? { turnId } : {})
   };
 }
 
 export function sessionSendResult(
   target: CodexMachineTaskTarget,
   request: CodexMachineTaskSendRequest,
-  result: CodexSessionOperationResult
+  result: CodexSessionOperationResult,
+  delivery: Exclude<CodexMachineTaskSendDelivery, 'queued'>
 ): CodexMachineTaskSendResult {
   if (result.status === 'rejected') {
     return result.reason === 'unavailable'
@@ -84,13 +88,15 @@ export function sessionSendResult(
         )
       : blocked(
           request.operationId,
-          'thread_active',
-          'The Codex thread already has an active turn.',
+          delivery === 'steered' ? 'turn_changed' : 'thread_active',
+          delivery === 'steered'
+            ? 'The verified active Codex turn changed before it could be steered.'
+            : 'The Codex thread already has an active turn.',
           target
         );
   }
   return result.turnId
-    ? sendResult('accepted', target, request, result.turnId)
+    ? sendResult(delivery, target, request, result.turnId)
     : uncertain(request.operationId, target);
 }
 

@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
 import { PostgresCodexMachineTasksStore } from '../server/codex-machine-tasks/store';
-import type { CodexMachineTaskStartOperation } from '../server/codex-machine-tasks/service';
+import type {
+  CodexMachineTaskSendOperation,
+  CodexMachineTaskStartOperation
+} from '../server/codex-machine-tasks/service';
 import type { DatabaseQueryClient, DatabaseQueryResult } from '../server/database/client';
 
 class FakeDatabase implements DatabaseQueryClient {
@@ -330,12 +333,18 @@ describe('Codex machine-task durable start store', () => {
 });
 
 describe('Codex machine-task durable send store', () => {
-  const send = {
+  const send: CodexMachineTaskSendOperation = {
     connectorId: 'connector-one',
+    dispatchAttempt: 0,
     durableOperations: true,
     fingerprint: 'f'.repeat(64),
     generation: 9,
     operationId: 'send-operation-one',
+    request: {
+      message: 'Please continue with the implementation.',
+      mode: 'queue',
+      target: { physicalMachineId: 'physical-one' }
+    },
     threadId: completed.task.threadId,
     userId: 'user-owner'
   };
@@ -346,32 +355,209 @@ describe('Codex machine-task durable send store', () => {
     expect(await new PostgresCodexMachineTasksStore(fresh).reserveSend(send)).toEqual({
       kind: 'new'
     });
+    expect(fresh.calls.find(({ sql }) => sql.includes('insert into codex_machine_task_sends'))?.values)
+      .toContain(JSON.stringify(send.request));
 
     const uncertain = new FakeDatabase();
     uncertain.responses.push({ rows: [] }, { rows: [{
       connector_generation: '9', connector_id: send.connectorId,
+      dispatch_attempt: 3,
       durable_operations: true,
       fingerprint_sha256: send.fingerprint, operation_id: send.operationId,
       result: null, state: 'uncertain', thread_id: send.threadId
     }] });
     expect(await new PostgresCodexMachineTasksStore(uncertain).reserveSend(send)).toEqual({
+      dispatchAttempt: 3,
       generation: 9,
       durableOperations: true,
       kind: 'uncertain'
     });
   });
 
-  test('fences another operation while an uncertain turn remains', async () => {
+  test('fences another operation only while a pending dispatch remains', async () => {
     const database = new FakeDatabase();
     database.responses.push({ rows: [] }, { rows: [{
       connector_generation: 9, connector_id: send.connectorId,
       durable_operations: true,
       fingerprint_sha256: send.fingerprint, operation_id: 'send-operation-earlier',
-      result: null, state: 'uncertain', thread_id: send.threadId
+      result: null, state: 'pending', thread_id: send.threadId
     }] });
     expect(await new PostgresCodexMachineTasksStore(database).reserveSend(send)).toEqual({
       kind: 'fenced'
     });
+    const lookup = database.calls.find(({ sql }) => sql.includes('order by (operation_id = $2)'));
+    expect(lookup?.sql).toContain("thread_id = $4 and state = 'pending'");
+    expect(lookup?.sql).not.toContain("state in ('pending', 'uncertain')");
+  });
+
+  test('replays the durable queued result for the same operation and payload', async () => {
+    const database = new FakeDatabase();
+    const queuedResult = {
+      apiVersion: 1 as const,
+      delivery: 'queued' as const,
+      operationId: send.operationId,
+      state: 'queued' as const,
+      target: {
+        connector: { generation: send.generation, id: send.connectorId, name: 'Connector' },
+        physicalMachine: { id: 'physical-one', name: 'Machine' }
+      },
+      threadId: send.threadId
+    };
+    database.responses.push({ rows: [] }, { rows: [{
+      connector_generation: send.generation,
+      connector_id: send.connectorId,
+      durable_operations: send.durableOperations,
+      fingerprint_sha256: send.fingerprint,
+      operation_id: send.operationId,
+      request_payload: send.request,
+      result: queuedResult,
+      state: 'queued',
+      thread_id: send.threadId
+    }] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).reserveSend(send)).toEqual({
+      kind: 'replayed',
+      result: queuedResult
+    });
+  });
+
+  test('rejects a changed payload when an operation id is reused', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [] }, { rows: [{
+      connector_generation: send.generation,
+      connector_id: send.connectorId,
+      durable_operations: send.durableOperations,
+      fingerprint_sha256: 'a'.repeat(64),
+      operation_id: send.operationId,
+      request_payload: { message: 'Different', mode: 'queue' },
+      result: null,
+      state: 'queued',
+      thread_id: send.threadId
+    }] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).reserveSend(send)).toEqual({
+      kind: 'conflict'
+    });
+  });
+
+  test('queues, claims, and completes the same durable operation', async () => {
+    const queuedResult = {
+      apiVersion: 1 as const,
+      delivery: 'queued' as const,
+      operationId: send.operationId,
+      state: 'queued' as const,
+      target: {
+        connector: { generation: send.generation, id: send.connectorId, name: 'Connector' },
+        physicalMachine: { id: 'physical-one', name: 'Machine' }
+      },
+      threadId: send.threadId
+    };
+    const queued = new FakeDatabase();
+    queued.responses.push({ rows: [{ operation_id: send.operationId }] });
+    await new PostgresCodexMachineTasksStore(queued).markSendQueued(send, queuedResult);
+    expect(queued.calls[0]?.sql).toContain("state in ('pending', 'queued', 'uncertain')");
+
+    const claimed = new FakeDatabase();
+    claimed.responses.push({ rows: [{ dispatch_attempt: 1 }] });
+    expect(await new PostgresCodexMachineTasksStore(claimed).claimQueuedSend(send)).toBe(1);
+    const claim = claimed.calls.find(({ sql }) => sql.includes("set state = 'pending'"));
+    expect(claim?.sql).toContain("pending.state = 'pending'");
+    expect(claim?.sql).toContain('dispatch_attempt = dispatch_attempt + 1');
+    expect(claim?.values[4]).toBe(send.generation);
+
+    const completedSend = new FakeDatabase();
+    completedSend.responses.push({ rows: [{ operation_id: send.operationId }] });
+    await new PostgresCodexMachineTasksStore(completedSend).completeSend(send, queuedResult);
+    expect(completedSend.calls[0]?.sql).toContain(
+      "state in ('pending', 'queued', 'uncertain')"
+    );
+
+    const reconciledSend = new FakeDatabase();
+    reconciledSend.responses.push({ rows: [{ operation_id: send.operationId }] });
+    await new PostgresCodexMachineTasksStore(reconciledSend)
+      .completeSend(send, queuedResult, 11);
+    expect(reconciledSend.calls[0]?.values[4]).toBe(send.generation);
+    expect(reconciledSend.calls[0]?.values[8]).toBe(11);
+
+    const concurrentlyCompleted = new FakeDatabase();
+    concurrentlyCompleted.responses.push({ rows: [] }, { rows: [{ state: 'completed' }] });
+    await expect(new PostgresCodexMachineTasksStore(concurrentlyCompleted)
+      .completeSend(send, queuedResult)).resolves.toBeUndefined();
+
+    const uncertainSend = new FakeDatabase();
+    uncertainSend.responses.push({ rows: [{ operation_id: send.operationId }] });
+    await new PostgresCodexMachineTasksStore(uncertainSend).markSendUncertain(send);
+    expect(uncertainSend.calls[0]?.sql).toContain(
+      "state in ('pending', 'queued', 'uncertain')"
+    );
+  });
+
+  test('restores queued requests in FIFO order', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [
+      {
+        connector_generation: '9', connector_id: send.connectorId,
+        durable_operations: true, fingerprint_sha256: send.fingerprint,
+        operation_id: send.operationId, owner_user_id: send.userId,
+        request_payload: send.request, result: null, state: 'queued', thread_id: send.threadId
+      },
+      {
+        connector_generation: '9', connector_id: send.connectorId,
+        durable_operations: true, fingerprint_sha256: 'e'.repeat(64),
+        operation_id: 'send-operation-two', owner_user_id: send.userId,
+        request_payload: {
+          message: 'And then verify it.', mode: 'queue',
+          target: { physicalMachineId: 'physical-one' }
+        },
+        result: null, state: 'queued', thread_id: send.threadId
+      }
+    ] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).listQueuedSends()).toEqual([
+      send,
+      {
+        ...send,
+        fingerprint: 'e'.repeat(64),
+        operationId: 'send-operation-two',
+        request: {
+          message: 'And then verify it.', mode: 'queue',
+          target: { physicalMachineId: 'physical-one' }
+        }
+      }
+    ]);
+    expect(database.calls[0]?.sql).toContain('order by created_at, operation_id');
+  });
+
+  test('restores claimed pending requests for restart reconciliation', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{
+      connector_generation: '9', connector_id: send.connectorId,
+      durable_operations: true, fingerprint_sha256: send.fingerprint,
+      operation_id: send.operationId, owner_user_id: send.userId,
+      request_payload: send.request, result: null, state: 'pending', thread_id: send.threadId
+    }] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).listPendingSends()).toEqual([send]);
+    expect(database.calls[0]?.sql).toContain("state = 'pending'");
+    expect(database.calls[0]?.sql).toContain('request_payload is not null');
+  });
+
+  test('returns the oldest queued request for one thread', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{
+      connector_generation: '9', connector_id: send.connectorId,
+      durable_operations: true, fingerprint_sha256: send.fingerprint,
+      operation_id: send.operationId, request_payload: send.request,
+      result: null, state: 'queued', thread_id: send.threadId
+    }] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).nextQueuedSend({
+      connectorId: send.connectorId,
+      threadId: send.threadId,
+      userId: send.userId
+    })).toEqual(send);
+    expect(database.calls[0]?.sql).toContain('order by created_at, operation_id');
+    expect(database.calls[0]?.sql).toContain('limit 1');
   });
 
   test('fences a send unless its provider Environment is running', async () => {

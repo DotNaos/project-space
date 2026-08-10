@@ -10,6 +10,10 @@ import {
   codexMachineTasksMigrationId,
   codexMachineTasksMigrationSql
 } from '../server/database/codex-machine-tasks-migration';
+import {
+  codexMachineTaskSendQueueMigrationId,
+  codexMachineTaskSendQueueMigrationSql
+} from '../server/database/codex-machine-task-send-queue-migration';
 import { computeInventoryMigrationSql } from '../server/database/compute-inventory-migration';
 import {
   computeEnvironmentIdentityResolutionMigrationId,
@@ -121,7 +125,8 @@ describe('database migrations', () => {
       '0034_task_execution_storage',
       '0035_task_handoff_artifacts',
       '0036_workspace_commands',
-      '0037_task_delivery'
+      '0037_task_delivery',
+      '0038_codex_machine_task_send_queue'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -202,6 +207,7 @@ describe('database migrations', () => {
     expect(sql).toContain('primary key (owner_user_id, operation_id)');
     expect(sql).toContain('create table if not exists codex_machine_task_sends');
     expect(sql).toContain('codex_machine_task_sends_one_unresolved_per_thread');
+    expect(sql).toContain('codex_machine_task_sends_one_pending_per_thread');
     expect(sql).toContain('add column if not exists durable_operations boolean');
     expect(sql).toContain('set durable_operations = false');
     expect(sql).toContain('alter column durable_operations set not null');
@@ -262,6 +268,33 @@ describe('database migrations', () => {
     expect(sql).toContain('revision bigint not null default 0');
     expect(sql).toContain('create table pull_request_dev_server_leases');
     expect(sql).toContain('pull_request_dev_server_leases_current_scope_idx');
+  });
+
+  test('migrates sends to a durable FIFO queue without stale uncertain fences', () => {
+    expect(codexMachineTaskSendQueueMigrationId).toBe(
+      '0038_codex_machine_task_send_queue'
+    );
+    expect(codexMachineTaskSendQueueMigrationSql).toContain('add column request_payload jsonb');
+    expect(codexMachineTaskSendQueueMigrationSql).toContain(
+      'add column dispatch_attempt integer not null default 0'
+    );
+    expect(codexMachineTaskSendQueueMigrationSql).toContain("set state = 'uncertain'");
+    expect(codexMachineTaskSendQueueMigrationSql).toContain("where state = 'pending'");
+    expect(codexMachineTaskSendQueueMigrationSql).toContain(
+      'drop index if exists codex_machine_task_sends_one_unresolved_per_thread'
+    );
+    expect(codexMachineTaskSendQueueMigrationSql).toContain(
+      "state in ('pending', 'queued', 'completed', 'uncertain')"
+    );
+    expect(codexMachineTaskSendQueueMigrationSql).toContain(
+      'codex_machine_task_sends_one_pending_per_thread'
+    );
+    expect(codexMachineTaskSendQueueMigrationSql).toContain(
+      "where state = 'pending'"
+    );
+    expect(codexMachineTaskSendQueueMigrationSql).toContain(
+      'codex_machine_task_sends_queued_fifo_idx'
+    );
   });
 
   test('applies pending migrations once under a transaction and records checksums', async () => {

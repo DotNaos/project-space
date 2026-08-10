@@ -7,6 +7,7 @@ import type {
   TaskHandoffMode,
   TaskHandoffReference
 } from './task-execution-api';
+import type { CodexMachineTaskBlockedReason } from './codex-machine-tasks-api';
 
 export const TASK_EXECUTION_MCP_API_VERSION = 1 as const;
 
@@ -67,7 +68,9 @@ export interface TaskExecutionMutationRequest {
 }
 
 export interface SendTaskExecutionMessageRequest extends TaskExecutionMutationRequest {
+  expectedTurnId?: string;
   message: string;
+  mode?: 'auto' | 'queue' | 'steer';
   wait?: boolean;
 }
 
@@ -186,9 +189,14 @@ export interface TaskExecutionProjection {
 export interface TaskExecutionResult {
   activity?: TaskExecutionActivityProjection;
   apiVersion: typeof TASK_EXECUTION_MCP_API_VERSION;
+  delivery?: 'queued' | 'sent' | 'steered';
   events: TaskExecutionEvent[];
   execution: TaskExecutionProjection;
   message: string;
+  messageOutcome?: {
+    reason?: CodexMachineTaskBlockedReason;
+    state: 'blocked' | 'completed' | 'queued' | 'sent' | 'steered' | 'uncertain';
+  };
   nextCursor?: number;
   operationId?: string;
   replayed?: boolean;

@@ -322,6 +322,26 @@ describe('Project Space MCP Task Execution catalogue', () => {
       .toBe(false);
     expect(toolSchemas.start_task_execution.safeParse({ ...request, operationId: 'short' }).success)
       .toBe(false);
+    const send = {
+      executionId: request.environmentId,
+      message: 'Continue.',
+      operationId: 'task-execution:send:001'
+    };
+    expect(toolSchemas.send_task_execution_message.safeParse({ ...send, mode: 'queue' }).success)
+      .toBe(true);
+    expect(toolSchemas.send_task_execution_message.safeParse({
+      ...send, expectedTurnId: 'turn-1', mode: 'steer'
+    }).success).toBe(true);
+    expect(toolSchemas.send_task_execution_message.safeParse({ ...send, mode: 'steer' }).success)
+      .toBe(false);
+    expect(toolSchemas.send_task_execution_message.safeParse({
+      ...send, expectedTurnId: 'turn-1', mode: 'auto'
+    }).success).toBe(false);
+    const advertised = tools.find(({ name }) => name === 'send_task_execution_message')
+      ?.inputSchema as { allOf?: Array<{ else?: unknown }> } | undefined;
+    expect(advertised?.allOf?.find((constraint) => constraint.else)?.else).toEqual({
+      not: { required: ['expectedTurnId'] }
+    });
     expect(toolSchemas.respond_task_execution_approval.safeParse({
       decision: 'allow-once', executionId: request.environmentId,
       operationId: 'task-execution:approval:001', requestId: 'request-1', turnId: 'turn-1'
@@ -331,5 +351,29 @@ describe('Project Space MCP Task Execution catalogue', () => {
       executionId: request.environmentId, operationId: 'task-execution:input:001',
       requestId: 'request-1', turnId: 'turn-1'
     }).success).toBe(true);
+  });
+});
+
+describe('Project Space MCP Codex message catalogue', () => {
+  const send = {
+    message: 'Continue.',
+    operationId: 'codex-message:send:001',
+    threadId: '11111111-1111-4111-8111-111111111111'
+  };
+
+  test('requires exact turn evidence only for steering', () => {
+    expect(toolSchemas.send_codex_message.safeParse({ ...send, mode: 'queue' }).success).toBe(true);
+    expect(toolSchemas.send_codex_message.safeParse({
+      ...send, expectedTurnId: 'turn-1', mode: 'steer'
+    }).success).toBe(true);
+    expect(toolSchemas.send_codex_message.safeParse({ ...send, mode: 'steer' }).success).toBe(false);
+    expect(toolSchemas.send_codex_message.safeParse({
+      ...send, expectedTurnId: 'turn-1', mode: 'auto'
+    }).success).toBe(false);
+    const advertised = tools.find(({ name }) => name === 'send_codex_message')
+      ?.inputSchema as { allOf?: Array<{ else?: unknown }> } | undefined;
+    expect(advertised?.allOf?.find((constraint) => constraint.else)?.else).toEqual({
+      not: { required: ['expectedTurnId'] }
+    });
   });
 });

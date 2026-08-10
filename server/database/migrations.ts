@@ -79,6 +79,10 @@ import {
   taskDeliveryMigrationId,
   taskDeliveryMigrationSql
 } from './task-delivery-migration';
+import {
+  codexMachineTaskSendQueueMigrationId,
+  codexMachineTaskSendQueueMigrationSql
+} from './codex-machine-task-send-queue-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -739,6 +743,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: taskDeliveryMigrationId,
     sql: taskDeliveryMigrationSql
+  },
+  {
+    id: codexMachineTaskSendQueueMigrationId,
+    sql: codexMachineTaskSendQueueMigrationSql
   }
 ];
 
