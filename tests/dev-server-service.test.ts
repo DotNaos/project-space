@@ -5,6 +5,7 @@ import {
   type DevServerConnectorGateway,
   type DevServerDatabaseGateway
 } from '../server/dev-server-service';
+import { issueDevelopmentEmptyState } from '../src/features/project-desktop/components/issue-development-server-model';
 import type {
   DevServerSession,
   MachineMembership,
@@ -15,8 +16,10 @@ import type {
 import type {
   ConfiguredDevServerRecord,
   DevServerConnectorResult,
+  DevServerListConnectorResult,
   ProjectWorktreeRecord
 } from '../src/shared/project-space-api';
+import { DEV_SERVER_DECLARATION_MISSING_MESSAGE } from '../src/shared/dev-server-api';
 
 const now = new Date('2026-07-11T12:00:00.000Z');
 const machineId = 'machine-a';
@@ -39,6 +42,8 @@ const worktree: ProjectWorktreeRecord = {
 type ConnectorRequest = Parameters<DevServerConnectorGateway['inspect']>[0];
 type ConnectorActor = Parameters<DevServerConnectorGateway['inspect']>[1];
 type ConnectorOperation = 'inspect' | 'start' | 'stop';
+type ConnectorListRequest = Parameters<DevServerConnectorGateway['list']>[0];
+type ConnectorListActor = Parameters<DevServerConnectorGateway['list']>[1];
 
 interface ConnectorCall {
   actor: ConnectorActor;
@@ -51,6 +56,11 @@ type ConnectorResultFactory = (
   request: ConnectorRequest,
   actor: ConnectorActor
 ) => DevServerConnectorResult | Promise<DevServerConnectorResult>;
+
+type ConnectorListResultFactory = (
+  request: ConnectorListRequest,
+  actor: ConnectorListActor
+) => DevServerListConnectorResult | Promise<DevServerListConnectorResult>;
 
 function membership(userId: string, role: 'member' | 'owner' = 'owner'): MachineMembership {
   return {
@@ -287,6 +297,7 @@ class InMemoryDatabase implements DevServerDatabaseGateway {
 interface HarnessOptions {
   configuredServers?: ConfiguredDevServerRecord[];
   configured?: boolean;
+  connectorListResult?: ConnectorListResultFactory;
   connectorResult?: ConnectorResultFactory;
   currentUser?: string;
   inspectConcurrency?: number;
@@ -324,6 +335,9 @@ function createHarness(options: HarnessOptions = {}) {
   const connector: DevServerConnectorGateway = {
     inspect: (request, actor) => invoke('inspect', request, actor),
     async list(request, actor) {
+      if (options.connectorListResult) {
+        return options.connectorListResult(request, actor);
+      }
       return {
         capability: 'configured',
         checkedAt: now.toISOString(),
@@ -572,6 +586,79 @@ describe('development-server service trusted execution inputs', () => {
 
     expect(overview.servers).toHaveLength(1);
     expect(overview.servers[0]?.worktreeId).toBe(worktree.id);
+  });
+
+  test('maps a missing scripts declaration through the service to the UI configure state', async () => {
+    const harness = createHarness({
+      connectorListResult: (request, actor) => ({
+        capability: 'unavailable',
+        checkedAt: now.toISOString(),
+        generation: actor.generation,
+        lastError: 'project scripts are not configured: missing .project/scripts.yaml',
+        machineId: request.machineId,
+        projectId: request.projectId,
+        servers: [],
+        worktreeId: request.worktreeId
+      }),
+      memberships: [membership('user-a')]
+    });
+
+    const overview = await harness.service.inspect({
+      branchName: worktree.branchName,
+      machineId,
+      projectId
+    });
+
+    expect(overview.servers).toEqual([]);
+    expect(overview.message).toBe(DEV_SERVER_DECLARATION_MISSING_MESSAGE);
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      error: overview.message,
+      hasProject: true,
+      isChecking: false,
+      isOnline: true,
+      surfaceCount: overview.servers.length
+    })).toEqual({
+      kind: 'no-declaration',
+      message: DEV_SERVER_DECLARATION_MISSING_MESSAGE
+    });
+  });
+
+  test('keeps other unavailable declaration inventories fail-closed', async () => {
+    const harness = createHarness({
+      connectorListResult: (request, actor) => ({
+        capability: 'unavailable',
+        checkedAt: now.toISOString(),
+        generation: actor.generation,
+        lastError: 'could not parse .project/scripts.yaml',
+        machineId: request.machineId,
+        projectId: request.projectId,
+        servers: [],
+        worktreeId: request.worktreeId
+      }),
+      memberships: [membership('user-a')]
+    });
+
+    const overview = await harness.service.inspect({
+      branchName: worktree.branchName,
+      machineId,
+      projectId
+    });
+
+    expect(overview.message).toBe(
+      'Could not read development-server declarations for 1 worktree.'
+    );
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      error: overview.message,
+      hasProject: true,
+      isChecking: false,
+      isOnline: true,
+      surfaceCount: overview.servers.length
+    })).toEqual({
+      kind: 'runtime-error',
+      message: 'Could not read development-server declarations for 1 worktree.'
+    });
   });
 
   test('keeps a mutation response focused on the selected task branch', async () => {

@@ -4,6 +4,9 @@ export type DevServerOperation = 'inspect' | 'list' | 'start' | 'stop';
 export type MachineMembershipAccess =
   'owner' | 'member' | 'unclaimed' | 'denied' | 'database-required';
 
+export const DEV_SERVER_DECLARATION_MISSING_MESSAGE =
+  'No development servers are declared for this worktree.';
+
 /** Browser-safe identity for a known project on a known connector machine. */
 export interface DevServerInspectRequest {
   machineId: string;

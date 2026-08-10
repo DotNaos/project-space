@@ -3,6 +3,7 @@ import type {
   WorktreeDevServerRecord
 } from '@/shared/project-space-api';
 import type { WorktreeSetupResult } from '@/shared/worktree-action-api';
+import { DEV_SERVER_DECLARATION_MISSING_MESSAGE } from '../../../shared/dev-server-api';
 import { resolvedProjectMachineId } from '../../../shared/project-machine-identity';
 import {
   devServerFreshnessMaxAgeMs,
@@ -132,6 +133,12 @@ export function issueDevelopmentEmptyState({
       message: 'Project is not registered in this environment.'
     };
   }
+  if (error === DEV_SERVER_DECLARATION_MISSING_MESSAGE) {
+    return {
+      kind: 'no-declaration',
+      message: DEV_SERVER_DECLARATION_MISSING_MESSAGE
+    };
+  }
   if (error) {
     return { kind: 'runtime-error', message: error };
   }
@@ -140,7 +147,7 @@ export function issueDevelopmentEmptyState({
   }
   return {
     kind: 'no-declaration',
-    message: 'No development servers are declared for this worktree.'
+    message: DEV_SERVER_DECLARATION_MISSING_MESSAGE
   };
 }
 

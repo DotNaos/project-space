@@ -12,6 +12,7 @@ import type {
   ProjectWorktreeRecord,
   WorktreeDevServerRecord
 } from '../src/shared/project-space-api';
+import { DEV_SERVER_DECLARATION_MISSING_MESSAGE } from '../src/shared/dev-server-api';
 import type {
   DevServerSession,
   MachineMembership,
@@ -117,6 +118,15 @@ interface ResolvedMachineScope {
 
 interface ResolvedTarget extends ResolvedScope {
   worktree: ProjectWorktreeRecord;
+}
+
+const missingDevServerDeclarationConnectorError =
+  'project scripts are not configured: missing .project/scripts.yaml';
+
+class MissingDevServerDeclarationError extends Error {
+  constructor() {
+    super(DEV_SERVER_DECLARATION_MISSING_MESSAGE);
+  }
 }
 
 function mapSettings(settings: ProjectRunSettings): ProjectRunSettingsRecord {
@@ -387,6 +397,12 @@ export function createDevServerService(options: DevServerServiceOptions) {
       now
     );
     if (result.capability === 'unavailable') {
+      if (
+        result.servers.length === 0 &&
+        result.lastError === missingDevServerDeclarationConnectorError
+      ) {
+        throw new MissingDevServerDeclarationError();
+      }
       throw new Error('Development-server inventory is unavailable.');
     }
     return result.servers;
@@ -461,7 +477,16 @@ export function createDevServerService(options: DevServerServiceOptions) {
     const servers = inventories.flatMap((inventory) =>
       inventory.status === 'fulfilled' ? inventory.value : []
     );
-    const failedInventories = inventories.filter((inventory) => inventory.status === 'rejected');
+    const missingDeclarationInventories = inventories.filter(
+      (inventory) =>
+        inventory.status === 'rejected' &&
+        inventory.reason instanceof MissingDevServerDeclarationError
+    );
+    const failedInventories = inventories.filter(
+      (inventory) =>
+        inventory.status === 'rejected' &&
+        !(inventory.reason instanceof MissingDevServerDeclarationError)
+    );
     return {
       access,
       machineId: scope.machineId,
@@ -469,7 +494,9 @@ export function createDevServerService(options: DevServerServiceOptions) {
         ? {
             message: `Could not read development-server declarations for ${failedInventories.length} worktree${failedInventories.length === 1 ? '' : 's'}.`
           }
-        : {}),
+        : missingDeclarationInventories.length > 0
+          ? { message: DEV_SERVER_DECLARATION_MISSING_MESSAGE }
+          : {}),
       projectId: scope.projectId,
       servers,
       settings
