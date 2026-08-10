@@ -12,6 +12,65 @@ export interface IssueDevelopmentSurface {
   url?: string;
 }
 
+export type IssueDevelopmentEmptyStateKind =
+  | 'checking'
+  | 'connector-offline'
+  | 'no-connector'
+  | 'no-declaration'
+  | 'project-unavailable'
+  | 'runtime-error';
+
+export interface IssueDevelopmentEmptyState {
+  kind: IssueDevelopmentEmptyStateKind;
+  message: string;
+}
+
+export function issueDevelopmentEmptyState({
+  connectorConfigured,
+  error,
+  hasProject,
+  isChecking,
+  isOnline,
+  surfaceCount
+}: {
+  connectorConfigured: boolean;
+  error?: string;
+  hasProject: boolean;
+  isChecking: boolean;
+  isOnline: boolean;
+  surfaceCount: number;
+}): IssueDevelopmentEmptyState | undefined {
+  if (surfaceCount > 0) return undefined;
+  if (!connectorConfigured) {
+    return {
+      kind: 'no-connector',
+      message: 'No connector is configured for this machine.'
+    };
+  }
+  if (!isOnline) {
+    return {
+      kind: 'connector-offline',
+      message: 'Connector is offline.'
+    };
+  }
+  if (!hasProject) {
+    return {
+      kind: 'project-unavailable',
+      message: 'Project is not registered in this environment.'
+    };
+  }
+  if (error) {
+    return { kind: 'runtime-error', message: error };
+  }
+  if (isChecking) {
+    return { kind: 'checking', message: 'Checking servers…' };
+  }
+  return {
+    kind: 'no-declaration',
+    message: 'No development servers are declared for this worktree.'
+  };
+}
+
 function basename(path: string) {
   return path.split('/').filter(Boolean).pop()?.toLowerCase() ?? '';
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   findDesignSpaceProject,
+  issueDevelopmentEmptyState,
   issueDevelopmentSurfaces
 } from '../src/features/project-desktop/components/issue-development-server-model';
 import type {
@@ -71,5 +72,79 @@ describe('issue development server model', () => {
     }] as ProjectSpaceRecord[];
 
     expect(findDesignSpaceProject(projects, 'connector-1', 'local')?.id).toBe('connector-1:design-space');
+  });
+
+  test('keeps every unavailable machine state explicit', () => {
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: false,
+      hasProject: false,
+      isChecking: false,
+      isOnline: false,
+      surfaceCount: 0
+    })).toEqual({
+      kind: 'no-connector',
+      message: 'No connector is configured for this machine.'
+    });
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      hasProject: true,
+      isChecking: false,
+      isOnline: false,
+      surfaceCount: 0
+    })).toEqual({
+      kind: 'connector-offline',
+      message: 'Connector is offline.'
+    });
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      hasProject: false,
+      isChecking: false,
+      isOnline: true,
+      surfaceCount: 0
+    })).toEqual({
+      kind: 'project-unavailable',
+      message: 'Project is not registered in this environment.'
+    });
+  });
+
+  test('preserves exact inspection errors before falling back to checking or declaration states', () => {
+    const exactError = 'The selected development-server worktree is not available on this machine.';
+
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      error: exactError,
+      hasProject: true,
+      isChecking: true,
+      isOnline: true,
+      surfaceCount: 0
+    })).toEqual({ kind: 'runtime-error', message: exactError });
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      hasProject: true,
+      isChecking: true,
+      isOnline: true,
+      surfaceCount: 0
+    })).toEqual({ kind: 'checking', message: 'Checking servers…' });
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      hasProject: true,
+      isChecking: false,
+      isOnline: true,
+      surfaceCount: 0
+    })).toEqual({
+      kind: 'no-declaration',
+      message: 'No development servers are declared for this worktree.'
+    });
+  });
+
+  test('does not render an empty-state message when a server surface exists', () => {
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      error: 'A partial inspection failed.',
+      hasProject: true,
+      isChecking: true,
+      isOnline: true,
+      surfaceCount: 1
+    })).toBeUndefined();
   });
 });
