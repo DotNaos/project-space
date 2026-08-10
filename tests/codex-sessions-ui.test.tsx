@@ -136,6 +136,9 @@ const { CodexSessionsPage } = await import(
 const { CodexConversationPane, shouldSubmitCodexComposer } = await import(
   '../src/features/codex-sessions/codex-conversation-pane'
 );
+const { CodexSessionModelSelect } = await import(
+  '../src/features/codex-sessions/codex-session-model-select'
+);
 const machine: CodexMachine = {
   id: 'machine-mac',
   inventoryState: 'live',
@@ -191,6 +194,44 @@ const conversation: CodexConversation = {
 };
 
 describe('Canonical Codex task page', () => {
+  test('keeps the selected model visible and retries a genuine catalogue failure', () => {
+    const html = renderToStaticMarkup(<CodexSessionModelSelect
+      disabled
+      error="The connector model catalogue timed out."
+      models={[]}
+      onChange={() => {}}
+      onEffortChange={() => {}}
+      onRetry={() => {}}
+      onServiceTierChange={() => {}}
+      value="gpt-5.4"
+    />);
+
+    expect(html).toContain('gpt-5.4');
+    expect(html).toContain('aria-label="Retry Codex model catalogue"');
+    expect(html).toContain('The connector model catalogue timed out.');
+    expect(html).not.toContain('Models unavailable');
+  });
+
+  test('distinguishes model catalogue loading from an unavailable result', () => {
+    const common = {
+      disabled: true,
+      models: [],
+      onChange: () => {},
+      onEffortChange: () => {},
+      onServiceTierChange: () => {},
+      value: ''
+    };
+    const loading = renderToStaticMarkup(<CodexSessionModelSelect {...common} loading />);
+    const failed = renderToStaticMarkup(<CodexSessionModelSelect
+      {...common}
+      error="No models were returned."
+      onRetry={() => {}}
+    />);
+
+    expect(loading).toContain('Loading models…');
+    expect(failed).toContain('Model catalogue unavailable');
+  });
+
   test('claims empty history only after an available task read completes', () => {
     const common = {
       machines: [machine],
@@ -640,6 +681,7 @@ describe('Canonical Codex task page', () => {
         onOpenProjectChatThread={() => {}}
         onResolveApproval={() => {}}
         onResolveUserInput={() => {}}
+        onSteerThread={() => {}}
         onSelectThread={() => {}}
         readBrowser={async () => ({
           checkedAt: '2026-07-13T09:00:00.000Z',
@@ -655,7 +697,9 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('Integrate Codex sessions');
     expect(html).toContain('Waiting for approval');
     expect(html).toContain('aria-label="Stop active Codex turn"');
-    expect(html).toContain('This task is still working; a new turn can start when it becomes idle.');
+    expect(html).toContain('aria-label="Steer active Codex turn"');
+    expect(html).toContain('aria-label="Queue for the next turn"');
+    expect(html).not.toContain('This task is still working; a new turn can start when it becomes idle.');
     expect(html).toContain('Allow once');
     expect(html).toContain('Deny');
     expect(html).toContain('Waiting for input');

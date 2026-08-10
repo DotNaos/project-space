@@ -4,6 +4,8 @@ import type {
   CodexMachineTaskAttachRequest,
   CodexMachineTaskAttachResult,
   CodexMachineTaskIdentity,
+  CodexMachineTaskExistingRequest,
+  CodexMachineTaskExistingResult,
   CodexMachineTaskReadRequest,
   CodexMachineTaskReadResult,
   CodexMachineTaskSendRequest,
@@ -100,6 +102,67 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
   }
 
   return {
+    async existing(
+      actor: { userId: string },
+      request: CodexMachineTaskExistingRequest
+    ): Promise<CodexMachineTaskExistingResult> {
+      const found = await options.store.findStart?.({ ...request, userId: actor.userId })
+        ?? { kind: 'missing' as const };
+      if (found.kind === 'missing') {
+        return { apiVersion: CODEX_MACHINE_TASKS_API_VERSION, state: 'missing' };
+      }
+      if (found.kind === 'pending' || found.kind === 'uncertain') {
+        return {
+          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+          message: found.kind === 'uncertain'
+            ? 'The existing Codex task start needs recovery before another task can be created.'
+            : 'The existing Codex task is still starting.',
+          state: 'attention'
+        };
+      }
+      if (found.result.state !== 'confirmed') {
+        return {
+          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+          message: 'The existing Codex task needs attention.',
+          state: 'attention'
+        };
+      }
+      const task = found.result.task;
+      try {
+        const generation = options.generationFor(task.connector.id);
+        if (!generation) throw new Error('The owning connector is not currently available.');
+        const read = await options.sessions.read({
+          connectorId: task.connector.id,
+          generation,
+          threadId: task.threadId,
+          userId: actor.userId
+        });
+        const activity = read.session.activity;
+        const action = activity?.conversationState === 'running'
+          ? 'open-running' as const
+          : activity?.currentTurnState === 'waiting-for-approval'
+            || activity?.currentTurnState === 'waiting-for-user'
+            || activity?.conversationState === 'failed'
+            || activity?.freshness === 'stale'
+            ? 'resolve' as const
+            : 'continue' as const;
+        return {
+          action,
+          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+          session: read.session,
+          state: 'confirmed',
+          task
+        };
+      } catch {
+        return {
+          action: 'resolve',
+          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+          state: 'confirmed',
+          task
+        };
+      }
+    },
+
     async recoverStart(
       actor: { callerMachineId?: string; userId: string },
       request: CodexMachineTaskStartRequest

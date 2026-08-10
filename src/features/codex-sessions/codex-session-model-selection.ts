@@ -5,10 +5,12 @@ export interface CodexSessionModelSelection {
   disabled: boolean;
   effort?: string;
   error?: string;
+  loading?: boolean;
   models: CodexModelRecord[];
   onChange(value: string): void;
   onEffortChange(value: string): void;
   onServiceTierChange(value: string | null): void;
+  onRetry?(): void;
   override?: CodexSessionTurnSettings;
   serviceTier?: string | null;
   usesCatalogueDefault?: boolean;

@@ -5,11 +5,12 @@ import type {
 import type { DatabaseQueryClient } from '../database/client';
 import { executionEnvironmentAdmissionLock } from '../execution-environment-lifecycle/store';
 import type {
+  CodexMachineTaskAssociationLookup,
   CodexMachineTaskStartOperation,
   CodexMachineTaskStartPayload,
   CodexMachineTaskSendOperation,
   CodexMachineTasksStore
-} from './service';
+} from './contracts';
 
 interface StartRow {
   connector_generation: string | number;
@@ -75,6 +76,34 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
           state: row.state
         } as const
       : { kind: 'conflict' } as const;
+  }
+
+  async findStart(input: {
+    connectorId: string;
+    issue: number;
+    repositoryId: string;
+    userId: string;
+  }): Promise<CodexMachineTaskAssociationLookup> {
+    const result = await this.client.query<Pick<StartRow, 'result' | 'state'>>(
+      `select state, result
+         from codex_machine_task_starts
+        where owner_user_id = $1
+          and connector_id = $2
+          and start_payload->'issue'->>'number' = $3
+          and (
+            start_payload->'repository'->>'id' = $4
+            or start_payload->'repository'->>'nameWithOwner' = $4
+          )
+        order by updated_at desc
+        limit 1`,
+      [input.userId, input.connectorId, String(input.issue), input.repositoryId]
+    );
+    const row = result.rows[0];
+    if (!row) return { kind: 'missing' };
+    if (row.state === 'completed' && isStartResult(row.result)) {
+      return { kind: 'confirmed', result: row.result };
+    }
+    return row.state === 'uncertain' ? { kind: 'uncertain' } : { kind: 'pending' };
   }
 
   async releaseUncertainStart(input: {

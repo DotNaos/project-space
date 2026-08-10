@@ -24,6 +24,10 @@ function service() {
       calls.push({ kind: 'attach', request });
       return { apiVersion: 1, operationId: request.operationId, state: 'blocked' };
     },
+    async existing(_actor, request) {
+      calls.push({ kind: 'existing', request });
+      return { apiVersion: 1, state: 'missing' };
+    },
     async read(_actor, request) {
       calls.push({ kind: 'read', request });
       return { apiVersion: 1, state: 'confirmed' };
@@ -70,6 +74,24 @@ function mutation(operationId: string, body: Record<string, unknown>) {
 }
 
 describe('Codex machine-task HTTP boundary', () => {
+  test('looks up the durable issue task association before a start', async () => {
+    const { calls, stub } = service();
+    const origin = await startApi(stub);
+    const response = await fetch(
+      `${origin}/api/codex/tasks/existing?connectorId=connector-wsl&issue=572&repositoryId=${encodeURIComponent('DotNaos/project-space')}`
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{
+      kind: 'existing',
+      request: {
+        connectorId: 'connector-wsl',
+        issue: 572,
+        repositoryId: 'DotNaos/project-space'
+      }
+    }]);
+  });
+
   test('passes exact physical and connector selectors to start', async () => {
     const { calls, stub } = service();
     const origin = await startApi(stub);

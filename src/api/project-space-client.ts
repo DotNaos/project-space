@@ -90,7 +90,9 @@ import {
 import type {
   CodexMachineTaskStartRecoveryResult,
   CodexMachineTaskStartRequest,
-  CodexMachineTaskStartResult
+  CodexMachineTaskStartResult,
+  CodexMachineTaskExistingRequest,
+  CodexMachineTaskExistingResult
 } from '@/shared/codex-machine-tasks-api';
 import type {
   CodexAuthorizationRequest,
@@ -235,6 +237,17 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
       headers: { 'Idempotency-Key': request.operationId },
       method: 'POST'
     });
+  }
+
+  getExistingCodexMachineTask(
+    request: CodexMachineTaskExistingRequest
+  ): Promise<CodexMachineTaskExistingResult> {
+    const query = new URLSearchParams({
+      connectorId: request.connectorId,
+      issue: String(request.issue),
+      repositoryId: request.repositoryId
+    });
+    return this.request(`/api/codex/tasks/existing?${query.toString()}`);
   }
 
   authorizeCodex(request: CodexAuthorizationRequest): Promise<CodexAuthorizationResult> {

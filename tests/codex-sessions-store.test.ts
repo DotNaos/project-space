@@ -134,9 +134,9 @@ describe('Codex session durable store', () => {
       userId: 'user-owner'
     });
 
-    expect(database.calls).toHaveLength(2);
-    expect(database.calls[1]?.sql).toContain("set status = 'missing'");
-    expect(database.calls[1]?.values?.[3]).toEqual([operation.threadId]);
+    expect(database.calls).toHaveLength(3);
+    expect(database.calls[2]?.sql).toContain("set status = 'missing'");
+    expect(database.calls[2]?.values?.[3]).toEqual([operation.threadId]);
   });
 
   test('drops malformed persisted snapshots instead of exposing them', async () => {

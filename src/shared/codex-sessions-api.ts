@@ -11,6 +11,56 @@ export type CodexSessionStatus =
   | 'offline'
   | 'unavailable';
 
+export type CodexTaskMachineState = 'connecting' | 'online' | 'offline' | 'stale';
+export type CodexTaskProcessState = 'unavailable' | 'starting' | 'ready' | 'failed';
+export type CodexTaskConversationState =
+  | 'idle'
+  | 'running'
+  | 'waiting-for-user'
+  | 'waiting-for-approval'
+  | 'completed'
+  | 'failed'
+  | 'stopped';
+export type CodexTaskTurnState =
+  | 'none'
+  | 'queued'
+  | 'running'
+  | 'waiting-for-user'
+  | 'waiting-for-approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+export type CodexTaskEvidenceFreshness = 'live' | 'stale' | 'unknown';
+
+/**
+ * Canonical activity evidence shared by the issue handoff, task list, and task detail.
+ * Machine/process/conversation/turn state intentionally remain independent facts.
+ */
+export interface CodexTaskActivitySnapshot {
+  conversationState: CodexTaskConversationState;
+  currentPhase: string;
+  currentTurnId?: string;
+  currentTurnStartedAt?: string;
+  currentTurnState: CodexTaskTurnState;
+  evidenceRevision: string;
+  eventSequence?: number;
+  freshness: CodexTaskEvidenceFreshness;
+  lastEventAt: string;
+  lastSuccessfulRefreshAt?: string;
+  latestActivity: string;
+  latestMilestone?: string;
+  machineState: CodexTaskMachineState;
+  processState: CodexTaskProcessState;
+}
+
+export interface CodexTaskIdentitySnapshot {
+  branch?: string;
+  codespaceName?: string;
+  issueNumber?: number;
+  repository?: string;
+  worktree?: string;
+}
+
 export interface CodexSessionMachineRecord {
   id: string;
   name: string;
@@ -49,6 +99,7 @@ export type CodexSessionWriteCapability =
     };
 
 export interface CodexSessionRecord {
+  activity?: CodexTaskActivitySnapshot;
   attention?: 'approval' | 'input';
   archived: boolean;
   cwd?: string;
@@ -62,6 +113,7 @@ export interface CodexSessionRecord {
   project?: string;
   source?: string;
   status: CodexSessionStatus;
+  taskIdentity?: CodexTaskIdentitySnapshot;
   title: string;
 }
 
@@ -298,10 +350,10 @@ export interface CodexSessionUserInputQuestion {
   prompt: string;
 }
 
-export type CodexSessionStreamEvent =
-  | { eventId: string; item: CodexConversationItemRecord; type: 'item' }
-  | { delta: string; eventId: string; itemId: string; type: 'agent-message-delta' }
-  | { eventId: string; status: CodexSessionStatus; type: 'session-status' }
+export type CodexSessionStreamEvent = (
+  | { eventId: string; item: CodexConversationItemRecord; turnId?: string; type: 'item' }
+  | { delta: string; eventId: string; itemId: string; turnId?: string; type: 'agent-message-delta' }
+  | { eventId: string; status: CodexSessionStatus; turnId?: string; type: 'session-status' }
   | ({ eventId: string } & CodexSessionApprovalEvent)
   | {
       eventId: string;
@@ -321,7 +373,8 @@ export type CodexSessionStreamEvent =
       type: 'token-usage';
       turnId: string;
     }
-  | { eventId: string; reason?: string; type: 'turn-completed'; turnId: string };
+  | { eventId: string; reason?: string; type: 'turn-completed'; turnId: string }
+) & { observedAt?: string };
 
 export type CodexSessionAttentionRequest = Extract<
   CodexSessionStreamEvent,

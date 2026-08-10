@@ -12,6 +12,9 @@ import {
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button } from '@/app/dotnaos-ui';
 import type {
+  CodexMachineTaskExistingResult
+} from '@/shared/codex-machine-tasks-api';
+import type {
   ConnectorOverviewResult,
   GitHubBranchRecord,
   GitHubIssueRecord,
@@ -80,6 +83,10 @@ export function IssueDevelopmentSession({
   const [machineMessage, setMachineMessage] = useState('');
   const [machineError, setMachineError] = useState('');
   const [prototypeMachineId, setPrototypeMachineId] = useState('');
+  const [existingTasks, setExistingTasks] = useState<
+    Record<string, CodexMachineTaskExistingResult | undefined>
+  >({});
+  const [checkingExistingTasks, setCheckingExistingTasks] = useState(false);
   const [uncertainStart, setUncertainStart] = useState<{
     attempt: CodexTaskStartAttempt;
     machineName: string;
@@ -119,6 +126,32 @@ export function IssueDevelopmentSession({
     () => getIssueMachineRows({ connectorOverview, project, projects, repoFullName }),
     [connectorOverview, project, projects, repoFullName]
   );
+  useEffect(() => {
+    let cancelled = false;
+    if (!repoFullName || machineRows.length === 0) {
+      setExistingTasks({});
+      setCheckingExistingTasks(false);
+      return;
+    }
+    setCheckingExistingTasks(true);
+    void Promise.all(machineRows.map(async (row) => {
+      try {
+        const result = await projectSpaceClient.getExistingCodexMachineTask({
+          connectorId: row.machineId,
+          issue: issue.number,
+          repositoryId: repoFullName
+        });
+        return [row.machineId, result] as const;
+      } catch {
+        return [row.machineId, undefined] as const;
+      }
+    })).then((entries) => {
+      if (cancelled) return;
+      setExistingTasks(Object.fromEntries(entries));
+      setCheckingExistingTasks(false);
+    });
+    return () => { cancelled = true; };
+  }, [issue.number, machineRows, repoFullName]);
   const localMachineId =
     connectorOverview.machines.find((machine) => machine.connector.status === 'local')?.id ??
     connectorOverview.machines[0]?.id ??
@@ -236,6 +269,18 @@ export function IssueDevelopmentSession({
     } finally {
       setIsRecoveringStart(false);
     }
+  }
+
+  function openExistingTask(result: CodexMachineTaskExistingResult) {
+    if (result.state === 'attention') {
+      setMachineError(result.message);
+      return;
+    }
+    if (result.state !== 'confirmed') return;
+    window.location.assign(codexSessionRoute({
+      machineId: result.task.connector.id,
+      threadId: result.task.threadId
+    }));
   }
 
   const isMerged = selectedPullRequest?.state === 'merged';
@@ -363,14 +408,39 @@ export function IssueDevelopmentSession({
               const location = row.machine ? connectorLocationPresentation({ connector: row.machine, physicalMachines: connectorOverview.physicalMachines ?? [] }) : undefined;
               const canStart = canRunMachineCommand(row.machine) && Boolean(repoFullName && selectedBranch.commitSha);
               const online = canRunMachineCommand(row.machine);
+              const existingTask = existingTasks[row.machineId];
+              const hasExistingTask = existingTask?.state === 'confirmed'
+                || existingTask?.state === 'attention';
+              const existingAction = existingTask?.state === 'confirmed'
+                ? existingTask.action === 'open-running'
+                  ? 'Open running task'
+                  : existingTask.action === 'resolve'
+                    ? 'Resolve task problem'
+                    : 'Continue task'
+                : existingTask?.state === 'attention'
+                  ? 'Resolve task problem'
+                  : undefined;
               return (
                 <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl bg-current/[.04] px-3" key={row.machineId}>
                   {hasCheckout ? <Monitor className="size-3.5 shrink-0 text-current/30" /> : <Bot className="size-3.5 shrink-0 text-current/30" />}
                   <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">{row.physicalMachineName ?? location?.machineName ?? row.machine?.name ?? row.machineId}</span>
                   <Circle aria-label={online ? 'Online' : 'Offline'} className={`size-2.5 shrink-0 fill-current ${online ? 'text-emerald-400' : 'text-current/20'}`} />
-                  <Button isDisabled={!canStart || busyMachineId === row.machineId} size="sm" variant="ghost" onPress={() => void startDevelopment(row)}>
+                  <Button
+                    isDisabled={(!hasExistingTask && !canStart)
+                      || busyMachineId === row.machineId
+                      || checkingExistingTasks}
+                    size="sm"
+                    variant="ghost"
+                    onPress={() => hasExistingTask
+                      ? openExistingTask(existingTask)
+                      : void startDevelopment(row)}
+                  >
                     {busyMachineId === row.machineId ? <LoaderCircle className="size-3.5 animate-spin" /> : <Bot className="size-3.5" />}
-                    {busyMachineId === row.machineId ? 'Starting…' : 'Start Codex'}
+                    {busyMachineId === row.machineId
+                      ? 'Starting…'
+                      : checkingExistingTasks
+                        ? 'Checking task…'
+                        : existingAction ?? 'Start Codex'}
                   </Button>
                 </div>
               );

@@ -5,6 +5,10 @@ import type {
   CodexSessionStreamEvent
 } from '../../shared/codex-sessions-api';
 import type { MachineRuntimeStatusResult } from '../../shared/project-space-api';
+import {
+  applyCodexActivityEvent,
+  preferCodexTaskActivity
+} from '../../shared/codex-task-activity';
 import type {
   CodexConversation,
   CodexConversationItem,
@@ -75,6 +79,7 @@ export function toCodexSession(
   record: CodexSessionListResult['sessions'][number]
 ): CodexSession {
   return {
+    activity: record.activity,
     attention: record.attention,
     cwd: record.cwd,
     lastActivityAt: record.lastActivityAt,
@@ -84,8 +89,32 @@ export function toCodexSession(
     projectName: record.project,
     status: record.status,
     stored: true,
+    taskIdentity: record.taskIdentity,
     threadId: record.id,
     title: record.title
+  };
+}
+
+export function mergeCodexSession(
+  current: CodexSession | undefined,
+  incoming: CodexSession
+): CodexSession {
+  if (!current) return incoming;
+  const activity = current.activity && incoming.activity
+    ? preferCodexTaskActivity(current.activity, incoming.activity)
+    : incoming.activity ?? current.activity;
+  return {
+    ...current,
+    ...incoming,
+    ...(activity ? { activity } : {}),
+    attention: activity?.currentTurnState === 'waiting-for-approval'
+      ? 'approval'
+      : activity?.currentTurnState === 'waiting-for-user'
+        ? 'input'
+        : incoming.attention,
+    status: activity && (
+      activity.conversationState === 'running' || activity.conversationState.startsWith('waiting-')
+    ) ? 'active' : incoming.status
   };
 }
 
@@ -259,6 +288,26 @@ export function applyCodexStreamEvent(
         : session);
     }
   }
+
+  sessions = sessions.map((session) => {
+    if (!sameCodexOrigin(session, origin) || !session.activity) return session;
+    const activity = applyCodexActivityEvent(session.activity, event);
+    return {
+      ...session,
+      activity,
+      attention: activity.currentTurnState === 'waiting-for-approval'
+        ? 'approval' as const
+        : activity.currentTurnState === 'waiting-for-user'
+          ? 'input' as const
+          : undefined,
+      lastActivityAt: activity.lastEventAt,
+      status: activity.conversationState === 'running' || activity.conversationState.startsWith('waiting-')
+        ? 'active' as const
+        : activity.processState === 'failed'
+          ? 'unavailable' as const
+          : 'idle' as const
+    };
+  });
 
   return {
     ...state,
