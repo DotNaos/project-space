@@ -195,9 +195,15 @@ export class CodexDeviceAuthorizationManager {
     operationId: string,
     signal: AbortSignal
   ): Promise<CodexAuthorizationConnectorResult> {
+    const stored = this.operations.get(operationId);
+    if (await this.accountReady(signal)) {
+      return stored?.state === 'ready'
+        ? { state: 'ready' }
+        : this.finish(operationId, 'ready');
+    }
+    if (stored?.state === 'ready') return { state: 'authorization-required' };
     const replay = await this.replay(operationId);
     if (replay) return replay;
-    if (await this.accountReady(signal)) return this.finish(operationId, 'ready');
     const current = this.attempt;
     if (!current || current.operationId !== operationId) {
       const record = this.operations.get(operationId);
@@ -516,8 +522,9 @@ function readStartedLogin(value: unknown) {
 
 function readAccountReady(value: unknown) {
   return isRecord(value) &&
-    typeof value.requiresOpenaiAuth === 'boolean' &&
-    (value.requiresOpenaiAuth === false || isRecord(value.account));
+    value.requiresOpenaiAuth === true &&
+    isRecord(value.account) &&
+    value.account.type === 'chatgpt';
 }
 
 function validOpaque(value: string, maximum: number) {

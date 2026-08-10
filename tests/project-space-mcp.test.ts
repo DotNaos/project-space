@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
+import type { AgentRuntimeService } from '../server/agent-authorization/service';
 import type { ConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
 import { computeInventoryFromConnectors } from '../server/compute-inventory';
 import type {
@@ -324,11 +325,47 @@ function environmentLifecycle(
   };
 }
 
+function agentRuntime(
+  calls: Array<{ kind: string; request: unknown; userId: string }>
+): AgentRuntimeService {
+  return {
+    async authorize(action, actor, request) {
+      calls.push({ kind: `agent-${action}`, request, userId: actor.userId });
+      return {
+        action,
+        agent: request.agent,
+        apiVersion: 1,
+        checkedAt: '2026-08-07T00:00:00.000Z',
+        environmentId: request.environmentId,
+        message: 'Agent authorization test result.',
+        operationId: request.operationId,
+        state: action === 'start' ? 'pending' : action === 'cancel' ? 'cancelled' : 'ready'
+      };
+    },
+    async status(actor, request) {
+      calls.push({ kind: 'agent-status', request, userId: actor.userId });
+      return {
+        agent: request.agent,
+        apiVersion: 1,
+        environmentId: request.environmentId,
+        message: 'Agent status test result.',
+        runtime: {
+          authorization: { state: 'ready' },
+          capabilities: ['codex.runtime.v1'],
+          checkedAt: '2026-08-07T00:00:00.000Z',
+          state: 'ready'
+        }
+      };
+    }
+  };
+}
+
 async function startMcp(
   calls: Array<{ kind: string; request: unknown; userId: string }>,
   options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {},
   dependencies: {
     backend?: ReturnType<typeof backend>;
+    agentRuntime?: AgentRuntimeService;
     environmentLifecycle?: ExecutionEnvironmentLifecycleService;
     loadComputeInventory?: LoadMcpComputeInventory;
     logger?: ProjectSpaceLogger;
@@ -341,6 +378,7 @@ async function startMcp(
   const selectedBackend = dependencies.backend ?? backend();
   const handler = createProjectSpaceMcpHandler({
     backend: selectedBackend,
+    createAgentRuntime: async () => dependencies.agentRuntime ?? agentRuntime(calls),
     createEnvironmentLifecycle: async () => (
       dependencies.environmentLifecycle ?? environmentLifecycle(calls)
     ),
@@ -386,6 +424,7 @@ describe('Project Space remote MCP server', () => {
       scopes_supported: [
         'project-space:read',
         'project-space:write',
+        'project-space:agent.authorize',
         'project-space:environment.manage',
         'project-space:environment.delete'
       ]
@@ -465,6 +504,10 @@ describe('Project Space remote MCP server', () => {
       'add_task_comment',
       'list_execution_environments',
       'get_execution_environment',
+      'get_agent_status',
+      'start_agent_authorization',
+      'get_agent_authorization',
+      'cancel_agent_authorization',
       'provision_execution_environment',
       'start_execution_environment',
       'stop_execution_environment',
@@ -525,6 +568,20 @@ describe('Project Space remote MCP server', () => {
     });
     expect(exactEnvironment.structuredContent).toMatchObject({
       result: { environment: { id: environmentId, kind: 'native_linux' } }
+    });
+    const agentStatus = await client.callTool({
+      name: 'get_agent_status',
+      arguments: { agent: 'codex', environmentId }
+    });
+    expect(agentStatus.structuredContent).toMatchObject({
+      result: { agent: 'codex', environmentId, runtime: { authorization: { state: 'ready' } } }
+    });
+    const authorization = await client.callTool({
+      name: 'start_agent_authorization',
+      arguments: { agent: 'codex', environmentId, operationId: 'agent:authorization:test' }
+    });
+    expect(authorization.structuredContent).toMatchObject({
+      result: { action: 'start', environmentId, operationId: 'agent:authorization:test', state: 'pending' }
     });
     const missingEnvironment = await client.callTool({
       name: 'get_execution_environment',
@@ -670,7 +727,7 @@ describe('Project Space remote MCP server', () => {
       arguments: { dryRun: true, environmentId, task: 480, repositoryId: '480' }
     });
     expect(started.isError).not.toBe(true);
-    const codexCalls = calls.filter(({ kind }) => !kind.startsWith('environment-'));
+    const codexCalls = calls.filter(({ kind }) => ['list', 'start'].includes(kind));
     expect(codexCalls).toMatchObject([
       { kind: 'list', userId: 'local-development-user' },
       {
@@ -805,6 +862,20 @@ describe('Project Space remote MCP server', () => {
       'mcp/www_authenticate': [expect.stringContaining('project-space:environment.manage')]
     });
     expect(JSON.stringify(rejectedLifecycleWrite._meta)).not.toContain('project-space:environment.delete');
+    const rejectedAgentAuthorization = await readOnlyClient.callTool({
+      arguments: {
+        agent: 'codex',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'agent:authorization:test'
+      },
+      name: 'start_agent_authorization'
+    });
+    expect(rejectedAgentAuthorization._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:agent.authorize"'
+      ]
+    });
 
     const unsafeRegistration = await fetch(`${origin}/register`, {
       body: JSON.stringify({

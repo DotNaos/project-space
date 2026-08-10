@@ -54,7 +54,7 @@ class FakeDatabase implements DatabaseQueryClient {
 describe('environment lifecycle migration', () => {
   test('registers owner-scoped bindings and a fenced durable operation ledger', () => {
     expect(environmentLifecycleMigrationId).toBe('0032_environment_lifecycle');
-    expect(databaseMigrations.at(-1)).toEqual({
+    expect(databaseMigrations.find(({ id }) => id === environmentLifecycleMigrationId)).toEqual({
       id: environmentLifecycleMigrationId,
       sql: environmentLifecycleMigrationSql
     });

@@ -59,6 +59,10 @@ import {
   environmentLifecycleMigrationId,
   environmentLifecycleMigrationSql
 } from './environment-lifecycle-migration';
+import {
+  agentAuthorizationMigrationId,
+  agentAuthorizationMigrationSql
+} from './agent-authorization-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -699,6 +703,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: environmentLifecycleMigrationId,
     sql: environmentLifecycleMigrationSql
+  },
+  {
+    id: agentAuthorizationMigrationId,
+    sql: agentAuthorizationMigrationSql
   }
 ];
 

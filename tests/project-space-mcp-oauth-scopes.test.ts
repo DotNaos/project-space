@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:http';
 import { createProjectSpaceMcpOAuth } from '../server/project-space-mcp-oauth';
 import {
   MemoryProjectSpaceMcpOAuthStore,
+  projectSpaceMcpAgentAuthorizeScope,
   projectSpaceMcpDefaultScopes,
   projectSpaceMcpEnvironmentDeleteScope,
   projectSpaceMcpEnvironmentManageScope,
@@ -73,6 +74,9 @@ describe('Project Space MCP lifecycle OAuth scopes', () => {
     expect(projectSpaceMcpDefaultScopes).not.toContain(
       projectSpaceMcpEnvironmentDeleteScope
     );
+    expect(projectSpaceMcpDefaultScopes).not.toContain(
+      projectSpaceMcpAgentAuthorizeScope
+    );
   });
 
   test('allows explicit lifecycle scope registration and rejects unknown scopes', async () => {
@@ -95,5 +99,22 @@ describe('Project Space MCP lifecycle OAuth scopes', () => {
       method: 'POST'
     });
     expect(rejected.status).toBe(400);
+  });
+
+  test('allows explicit agent authorization without granting it by default', async () => {
+    const origin = await startOAuthServer();
+    const requested = [
+      projectSpaceMcpDefaultScopes[0],
+      projectSpaceMcpAgentAuthorizeScope
+    ].join(' ');
+    const registered = await fetch(`${origin}/register`, {
+      body: JSON.stringify(registration(requested)),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+
+    expect(registered.status).toBe(201);
+    expect(await registered.json()).toMatchObject({ scope: requested });
+    expect(projectSpaceMcpSupportedScopes).toContain(projectSpaceMcpAgentAuthorizeScope);
   });
 });
