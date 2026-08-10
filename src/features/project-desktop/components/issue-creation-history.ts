@@ -5,6 +5,7 @@ import {
 } from './issue-creation-route';
 
 const issueCreationStateKey = 'projectSpaceIssueCreation';
+const issueCreationRequestEvent = 'project-space:issue-creation-request';
 
 interface IssueCreationHistoryMarker {
   projectId: string;
@@ -30,6 +31,16 @@ export interface IssueCreationHistoryCallbacks {
   onCloseRequest(): void;
   onClosed(): void;
   onOpen(): void;
+}
+
+interface IssueCreationRequestDetail {
+  projectId: string;
+}
+
+interface IssueCreationRequestTarget {
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
+  dispatchEvent(event: Event): boolean;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
 }
 
 type EntryKind = 'direct' | 'pushed';
@@ -80,6 +91,33 @@ export function browserIssueCreationHistory(): IssueCreationHistoryAdapter {
     push: (state, url) => window.history.pushState(state, '', url),
     replace: (state, url) => window.history.replaceState(state, '', url)
   };
+}
+
+export function requestIssueCreation(
+  projectId: string,
+  target: IssueCreationRequestTarget = window
+) {
+  target.dispatchEvent(new CustomEvent<IssueCreationRequestDetail>(issueCreationRequestEvent, {
+    detail: { projectId }
+  }));
+}
+
+export function listenForIssueCreationRequests(
+  projectId: string,
+  onRequest: () => void,
+  target: IssueCreationRequestTarget = window
+) {
+  const listener: EventListener = (event) => {
+    if (
+      event instanceof CustomEvent
+      && (event.detail as Partial<IssueCreationRequestDetail> | undefined)?.projectId === projectId
+    ) {
+      onRequest();
+    }
+  };
+
+  target.addEventListener(issueCreationRequestEvent, listener);
+  return () => target.removeEventListener(issueCreationRequestEvent, listener);
 }
 
 /**

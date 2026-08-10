@@ -4,10 +4,12 @@ import type {
   GitHubCatalogRepository,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { IssueCreationOverlay } from '@/features/project-desktop/components/issue-creation-overlay';
 import {
   browserIssueCreationHistory,
-  IssueCreationHistoryController
+  IssueCreationHistoryController,
+  listenForIssueCreationRequests
 } from '@/features/project-desktop/components/issue-creation-history';
 import { isIssueCreationPath } from '@/features/project-desktop/components/issue-creation-route';
 import { ProjectTaskDetail } from './project-task-detail';
@@ -17,6 +19,7 @@ import { useProjectTasks } from './use-project-tasks';
 export function ProjectTasksExperience({
   connectorOverview,
   onOpenHistory,
+  onOpenCodex,
   onOpenTask,
   onShowTasks,
   project,
@@ -27,6 +30,7 @@ export function ProjectTasksExperience({
 }: {
   connectorOverview: ConnectorOverviewResult;
   onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
+  onOpenCodex(target: CodexSessionTarget): void;
   onOpenTask(issueNumber: number): void;
   onShowTasks(): void;
   project: ProjectSpaceRecord;
@@ -92,6 +96,11 @@ export function ProjectTasksExperience({
     creationHistoryRef.current?.openFromControl();
   }, [repository]);
 
+  useEffect(() => listenForIssueCreationRequests(
+    project.id,
+    () => creationHistoryRef.current?.openFromControl()
+  ), [project.id]);
+
   const closeCreation = useCallback(() => {
     creationHistoryRef.current?.finishClose();
   }, []);
@@ -118,6 +127,7 @@ export function ProjectTasksExperience({
           onBack={onShowTasks}
           onBranchCreated={upsertBranch}
           onIssueUpdated={upsertIssue}
+          onOpenCodex={onOpenCodex}
           onOpenHistory={onOpenHistory}
           onPullRequestCreated={upsertPullRequest}
           project={project}

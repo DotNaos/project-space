@@ -4,6 +4,7 @@ import type {
   GitHubPullRequestRecord,
   PullRequestPreviewStatus
 } from '@/shared/project-space-api';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 import {
   previewSortPriority,
   type PullRequestPreviewInventoryState
@@ -36,10 +37,12 @@ function visiblePreviews(previews: PullRequestPreviewStatus[]) {
 
 export function PullRequestPreviewsSection({
   inventory,
+  onOpenCodex,
   projectId,
   repositoryFullName
 }: {
   inventory: PullRequestPreviewInventoryState;
+  onOpenCodex(target: CodexSessionTarget): void;
   projectId: string;
   repositoryFullName: string;
 }) {
@@ -91,6 +94,7 @@ export function PullRequestPreviewsSection({
               />
               <PullRequestPrototypeAction
                 issueNumber={pullRequest.linkedIssueNumbers?.[0]}
+                onOpenCodex={onOpenCodex}
                 projectId={projectId}
                 pullRequest={pullRequest}
                 repositoryFullName={repositoryFullName}

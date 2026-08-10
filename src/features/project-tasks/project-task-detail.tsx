@@ -21,6 +21,7 @@ import type {
   GitHubPullRequestRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { IssueDevelopmentSession } from '@/features/project-desktop/components/issue-development-session';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
 import type { ProjectTaskViewModel } from './task-view-model';
@@ -65,6 +66,7 @@ export function ProjectTaskDetail({
   onBack,
   onBranchCreated,
   onIssueUpdated,
+  onOpenCodex,
   onOpenHistory,
   onPullRequestCreated,
   project,
@@ -83,6 +85,7 @@ export function ProjectTaskDetail({
   onBack(): void;
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
+  onOpenCodex(target: CodexSessionTarget): void;
   onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
   onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
@@ -191,6 +194,7 @@ export function ProjectTaskDetail({
             connectorOverview={connectorOverview}
             issue={task.issue}
             onBranchCreated={onBranchCreated}
+            onOpenCodex={onOpenCodex}
             onOpenHistory={onOpenHistory}
             onPullRequestCreated={onPullRequestCreated}
             project={project}

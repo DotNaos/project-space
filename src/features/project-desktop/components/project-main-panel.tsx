@@ -597,6 +597,7 @@ export function ProjectMainPanel({
             connectorOverview={connectorOverview}
             historyFocus={historyFocus}
             launcherError={launcherError}
+            onOpenCodex={onOpenCodex}
             onOpenMachine={onOpenMachine}
             onOpenWorktreeBranch={openProjectWorktreeBranch}
             onOpenIssue={onOpenProjectIssue}

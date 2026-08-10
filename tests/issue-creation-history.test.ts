@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   IssueCreationHistoryController,
+  listenForIssueCreationRequests,
+  requestIssueCreation,
   type IssueCreationHistoryAdapter,
   type IssueCreationHistoryLocation
 } from '../src/features/project-desktop/components/issue-creation-history';
@@ -73,6 +75,28 @@ function setup(history: FakeHistory) {
 }
 
 describe('issue creation history', () => {
+  test('routes shell creation requests only to the matching project', () => {
+    const target = new EventTarget();
+    const events: string[] = [];
+    const stopProject = listenForIssueCreationRequests(
+      projectId,
+      () => events.push('project'),
+      target
+    );
+    const stopOther = listenForIssueCreationRequests(
+      'github:DotNaos/other',
+      () => events.push('other'),
+      target
+    );
+
+    requestIssueCreation(projectId, target);
+    stopProject();
+    requestIssueCreation(projectId, target);
+
+    expect(events).toEqual(['project']);
+    stopOther();
+  });
+
   test('pushes creation and closes back onto the single existing list entry', () => {
     const history = new FakeHistory([{ state: { preserved: true }, url: `${listPath}?q=bug#issues` }]);
     const { controller, events } = setup(history);
