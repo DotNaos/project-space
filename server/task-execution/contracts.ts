@@ -90,7 +90,22 @@ export interface TaskExecutionStore {
     afterCursor?: number,
     limit?: number
   ): Promise<TaskExecutionEvent[]>;
+  list(input: {
+    agent?: StoredTaskExecution['agent']['kind'];
+    before?: { createdAt: string; id: string };
+    environmentId?: string;
+    includeArchived: boolean;
+    limit: number;
+    ownerUserId: string;
+    state?: TaskExecutionState;
+    taskId?: string;
+  }): Promise<StoredTaskExecution[]>;
   read(ownerUserId: string, executionId: string): Promise<StoredTaskExecution | undefined>;
+  readByExecutor(
+    ownerUserId: string,
+    agent: TaskExecutionExecutorBinding['agent'],
+    externalId: string
+  ): Promise<StoredTaskExecution | undefined>;
   readExecutorBinding(
     ownerUserId: string,
     executionId: string
@@ -106,6 +121,15 @@ export interface TaskExecutionStore {
     turnId: string;
     updatedAt: string;
   }): Promise<TaskExecutionExecutorBinding | undefined>;
+  updateSource(input: {
+    branch: string;
+    commit: string;
+    executionId: string;
+    expectedVersion: number;
+    ownerUserId: string;
+    repositoryId: string;
+    updatedAt: string;
+  }): Promise<TaskExecutionTransitionResult>;
   updateWorkspace(input: {
     commit?: string;
     expectedVersion: number;
@@ -141,6 +165,9 @@ export type TaskExecutionOperationReservation =
   | { kind: 'replayed'; operation: TaskExecutionOperationRecord };
 
 export interface TaskExecutionOperationStore {
+  claimDispatch(
+    input: ReserveTaskExecutionOperationInput
+  ): Promise<'claimed' | 'conflict' | 'in_progress'>;
   read(ownerUserId: string, operationId: string): Promise<TaskExecutionOperationRecord | undefined>;
   reserve(input: ReserveTaskExecutionOperationInput): Promise<TaskExecutionOperationReservation>;
   transition(input: {

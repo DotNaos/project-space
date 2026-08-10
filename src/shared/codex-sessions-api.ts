@@ -183,6 +183,7 @@ export type CodexSessionBrowserResult =
 
 export interface CodexSessionReadResult {
   openedReadOnly: true;
+  pendingRequests?: CodexSessionAttentionRequest[];
   permissionProfileId?: string;
   permissionProfiles?: CodexSessionPermissionProfile[];
   session: CodexSessionRecord;
@@ -229,6 +230,7 @@ export interface CodexSessionContinueRequest {
 }
 
 export interface CodexSessionInterruptRequest {
+  connectorGeneration?: number;
   machineId: string;
   operationId: string;
   threadId: string;
@@ -244,6 +246,7 @@ export interface CodexSessionSettingsRequest {
 
 export interface CodexSessionApprovalRequest {
   approvalId?: string;
+  connectorGeneration?: number;
   decision: 'allow-once' | 'deny';
   itemId?: string;
   machineId: string;
@@ -260,6 +263,7 @@ export interface CodexSessionUserInputAnswer {
 
 export interface CodexSessionUserInputResponse {
   answers: CodexSessionUserInputAnswer[];
+  connectorGeneration?: number;
   machineId: string;
   operationId: string;
   requestId: string;
@@ -318,6 +322,11 @@ export type CodexSessionStreamEvent =
       turnId: string;
     }
   | { eventId: string; reason?: string; type: 'turn-completed'; turnId: string };
+
+export type CodexSessionAttentionRequest = Extract<
+  CodexSessionStreamEvent,
+  { type: 'approval-requested' | 'user-input-requested' }
+>;
 
 export interface CodexSessionsClient {
   approve(request: CodexSessionApprovalRequest): Promise<CodexSessionOperationResult>;

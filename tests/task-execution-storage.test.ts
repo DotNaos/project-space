@@ -74,6 +74,30 @@ const execution: StoredTaskExecution = {
   version: 1
 };
 
+function executionRow(overrides: Record<string, unknown> = {}) {
+  return {
+    agent_kind: execution.agent.kind,
+    archived_at: null,
+    blocked_reason: null,
+    branch: execution.source.branch,
+    commit_sha: execution.source.commit,
+    connector_generation: execution.connectorBinding?.generation ?? null,
+    connector_id: execution.connectorBinding?.connectorId ?? null,
+    created_at: execution.createdAt,
+    environment_id: execution.environmentId,
+    handoff_id: execution.handoff.id,
+    handoff_revision: execution.handoff.revision,
+    id: execution.id,
+    owner_user_id: execution.ownerUserId,
+    repository_id: execution.source.repositoryId,
+    state: execution.state,
+    task_id: execution.source.taskId,
+    updated_at: execution.updatedAt,
+    version: execution.version,
+    ...overrides
+  };
+}
+
 class FakeDatabase implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   readonly responses: Array<DatabaseQueryResult<unknown>> = [];
@@ -354,6 +378,47 @@ describe('neutral task execution identity', () => {
     expect(database.calls[1]?.values).toEqual([owner, executionId]);
   });
 
+  test('uses owner-scoped Postgres filters and stable executor column aliases', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [executionRow()] }, { rows: [executionRow()] });
+    const store = new PostgresTaskExecutionStore(database);
+    expect(await store.list({
+      agent: 'codex', environmentId, includeArchived: false, limit: 250,
+      ownerUserId: owner, state: 'planned', taskId: execution.source.taskId
+    })).toHaveLength(1);
+    expect(database.calls[0]?.values).toEqual([
+      owner, execution.source.taskId, environmentId, 'codex', 'planned', false,
+      null, null, 100
+    ]);
+
+    expect((await store.readByExecutor(owner, 'codex', 'thread:codex-task-544'))?.id)
+      .toBe(executionId);
+    const executorQuery = database.calls[1];
+    expect(executorQuery?.sql).toContain('e.id, e.owner_user_id, e.task_id');
+    expect(executorQuery?.sql).not.toContain('e.select');
+    expect(executorQuery?.values).toEqual([owner, 'codex', 'thread:codex-task-544']);
+  });
+
+  test('pins a previously unresolved source commit with a versioned Postgres write', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [executionRow({ commit_sha: 'd'.repeat(40), version: 2 })] });
+    const store = new PostgresTaskExecutionStore(database);
+    expect(await store.updateSource({
+      branch: execution.source.branch,
+      commit: 'd'.repeat(40),
+      executionId,
+      expectedVersion: 1,
+      ownerUserId: owner,
+      repositoryId: execution.source.repositoryId,
+      updatedAt: '2026-08-09T12:01:00.000Z'
+    })).toMatchObject({ kind: 'updated', execution: { source: { commit: 'd'.repeat(40) } } });
+    expect(database.calls[0]?.sql).toContain('(commit_sha is null or commit_sha = $6)');
+    expect(database.calls[0]?.values).toEqual([
+      owner, executionId, 1, execution.source.repositoryId, execution.source.branch,
+      'd'.repeat(40), '2026-08-09T12:01:00.000Z'
+    ]);
+  });
+
   test('records a Postgres handoff change in the same transaction', async () => {
     const database = new FakeDatabase();
     database.responses.push(
@@ -384,6 +449,22 @@ describe('neutral task execution identity', () => {
 });
 
 describe('task execution operation ledger', () => {
+  test('grants only one atomic dispatcher and permits one confirmed resume', async () => {
+    const store = new MemoryTaskExecutionOperationStore();
+    const operation = {
+      action: 'start_execution', executionId, fingerprint: '0'.repeat(64),
+      operationId: 'task-execution:claim:544', ownerUserId: owner
+    };
+    await store.reserve(operation);
+    expect(await Promise.all([
+      store.claimDispatch(operation),
+      store.claimDispatch(operation)
+    ])).toEqual(['claimed', 'in_progress']);
+    await store.transition({ ...operation, result: { executionId, state: 'blocked' }, state: 'confirmed' });
+    expect(await store.claimDispatch(operation)).toBe('claimed');
+    expect((await store.read(owner, operation.operationId))?.result).toBeUndefined();
+  });
+
   test('replays terminal work, conflicts changed input, and preserves uncertainty', async () => {
     let clock = Date.parse(now);
     const store = new MemoryTaskExecutionOperationStore(() => clock);
@@ -461,5 +542,20 @@ describe('task execution operation ledger', () => {
       `task-execution-operation:${owner}:${operation.operationId}`
     ]);
     expect(database.calls.some(({ sql }) => sql.includes("interval '30 days'"))).toBe(true);
+  });
+
+  test('claims a Postgres dispatch only from resumable states and exact identity', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{ operation_id: 'claimed' }] });
+    const store = new PostgresTaskExecutionOperationStore(database);
+    const operation = {
+      action: 'start_task_execution', executionId, fingerprint: '5'.repeat(64),
+      operationId: 'task-execution:postgres-claim:544', ownerUserId: owner
+    };
+    expect(await store.claimDispatch(operation)).toBe('claimed');
+    expect(database.calls[0]?.sql).toContain("state in ('reserved', 'confirmed')");
+    expect(database.calls[0]?.values).toEqual([
+      owner, operation.operationId, operation.action, operation.fingerprint, executionId
+    ]);
   });
 });

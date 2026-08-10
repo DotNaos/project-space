@@ -231,11 +231,35 @@ describe('Codex connector executor', () => {
     }, 'operation-list-attention-approval'));
     if (result.operation !== 'list') throw new Error('unexpected result');
     expect(result.result.sessions.find((session) => session.id === threadId)?.attention).toBe('approval');
+    let read = await executor.execute('read', signed('read', {
+      machineId,
+      threadId
+    }, 'operation-read-attention-approval'));
+    if (read.operation !== 'read') throw new Error('unexpected result');
+    expect(read.result).toMatchObject({
+      pendingRequests: [{
+        approvalId: 'permissions',
+        canAllow: true,
+        kind: 'permissions',
+        requestId: 'n:70',
+        turnId: 'turn-one',
+        type: 'approval-requested'
+      }],
+      session: { attention: 'approval' }
+    });
 
     manager.emit({
       kind: 'request',
       method: 'item/tool/requestUserInput',
-      params: { threadId, turnId: 'turn-one' },
+      params: {
+        questions: Array.from({ length: 50 }, (_, index) => ({
+          id: `choice-${index + 1}`,
+          options: [{ label: 'Continue' }],
+          question: `Proceed with step ${index + 1}?`
+        })),
+        threadId,
+        turnId: 'turn-one'
+      },
       requestId: 71
     });
     result = await executor.execute('list', signed('list', {
@@ -244,6 +268,21 @@ describe('Codex connector executor', () => {
     }, 'operation-list-attention-input'));
     if (result.operation !== 'list') throw new Error('unexpected result');
     expect(result.result.sessions.find((session) => session.id === threadId)?.attention).toBe('input');
+    read = await executor.execute('read', signed('read', {
+      machineId,
+      threadId
+    }, 'operation-read-attention-input'));
+    if (read.operation !== 'read') throw new Error('unexpected result');
+    expect(read.result.session.attention).toBe('input');
+    expect(read.result.pendingRequests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestId: 'n:70', type: 'approval-requested' }),
+      expect.objectContaining({ requestId: 'n:71', type: 'user-input-requested' })
+    ]));
+    const inputRequest = read.result.pendingRequests?.find(({ requestId }) => requestId === 'n:71');
+    expect(inputRequest).toMatchObject({ type: 'user-input-requested' });
+    if (inputRequest?.type !== 'user-input-requested') throw new Error('Missing input request.');
+    expect(inputRequest.questions).toHaveLength(50);
+    expect(inputRequest.questions.at(-1)?.id).toBe('choice-50');
     executor.close();
   });
 
@@ -608,6 +647,14 @@ describe('Codex connector executor', () => {
       threadId,
       turnId: 'turn-one'
     };
+    const mismatched = await executor.execute('approval', signed('approval', {
+      ...approval,
+      approvalId: 'different-request',
+      operationId: 'operation-permission-mismatch'
+    }, 'operation-permission-mismatch'));
+    if (mismatched.operation !== 'approval') throw new Error('unexpected result');
+    expect(mismatched.result.status).toBe('rejected');
+    expect(manager.calls.some((call) => call.method === 'respondToPermissions')).toBe(false);
     await executor.execute('approval', signed('approval', approval, approval.operationId));
     const permission = manager.calls.find((call) => call.method === 'respondToPermissions')
       ?.input as CodexPermissionResponseInput;
@@ -655,7 +702,11 @@ describe('Codex connector executor', () => {
       kind: 'request',
       method: 'item/tool/requestUserInput',
       params: {
-        questions: [{ id: 'choice', options: [{ label: 'Continue' }], question: 'Proceed?' }],
+        questions: Array.from({ length: 50 }, (_, index) => ({
+          id: `choice-${index + 1}`,
+          options: [{ label: 'Continue' }],
+          question: `Proceed with step ${index + 1}?`
+        })),
         threadId,
         turnId: 'turn-one'
       },
@@ -700,7 +751,10 @@ describe('Codex connector executor', () => {
     expect(JSON.stringify(events)).not.toContain('private reasoning');
 
     const input: CodexSessionUserInputResponse = {
-      answers: [{ questionId: 'choice', value: 'Continue' }],
+      answers: Array.from({ length: 50 }, (_, index) => ({
+        questionId: `choice-${index + 1}`,
+        value: 'Continue'
+      })),
       machineId,
       operationId: 'operation-input-one',
       requestId: 's:request-input',
@@ -710,11 +764,14 @@ describe('Codex connector executor', () => {
     await executor.execute('input', signed('input', input, input.operationId));
     expect(manager.calls.find((call) => call.method === 'respondToUserInput')?.input)
       .toMatchObject({
-        answers: { choice: ['Continue'] },
         requestId: 'request-input',
         threadId,
         turnId: 'turn-one'
       });
+    const mappedAnswers = manager.calls.find((call) => call.method === 'respondToUserInput')
+      ?.input as { answers: Record<string, string[]> };
+    expect(Object.keys(mappedAnswers.answers)).toHaveLength(50);
+    expect(mappedAnswers.answers['choice-50']).toEqual(['Continue']);
     executor.close();
   });
 

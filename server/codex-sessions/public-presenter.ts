@@ -288,7 +288,7 @@ function publicStatus(thread: CodexThreadSummary): CodexSessionRecord['status'] 
 
 function presentQuestions(value: unknown): CodexSessionUserInputQuestion[] {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, 32).flatMap((entry) => {
+  return value.slice(0, 50).flatMap((entry) => {
     const question = record(entry);
     const id = stringValue(question?.id);
     const prompt = safeText(question?.question ?? question?.prompt);

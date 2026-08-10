@@ -6,8 +6,10 @@ import {
   toolSchemas
 } from '../server/project-space-mcp/tool-catalog';
 import {
+  projectSpaceMcpExecutionApproveScope,
   projectSpaceMcpEnvironmentDeleteScope,
   projectSpaceMcpEnvironmentManageScope,
+  projectSpaceMcpExecutionWriteScope,
   projectSpaceMcpReadScope,
   projectSpaceMcpWriteScope
 } from '../server/project-space-mcp-oauth-store';
@@ -146,5 +148,87 @@ describe('Project Space MCP execution Environment lifecycle catalogue', () => {
       operationId,
       repositoryId: 'attacker/repository'
     }).success).toBe(false);
+  });
+});
+
+describe('Project Space MCP Task Execution catalogue', () => {
+  const taskExecutionNames = [
+    'start_task_execution',
+    'list_task_executions',
+    'get_task_execution',
+    'wait_task_execution',
+    'send_task_execution_message',
+    'respond_task_execution_approval',
+    'respond_task_execution_input',
+    'cancel_task_execution',
+    'archive_task_execution'
+  ];
+
+  test('publishes the exact provider-neutral lifecycle with structured results', () => {
+    const published = tools.filter(({ name }) => taskExecutionNames.includes(name));
+    expect(published.map(({ name }) => name)).toEqual(taskExecutionNames);
+    for (const entry of published) {
+      expect(entry.outputSchema).toMatchObject({
+        properties: { result: expect.any(Object) },
+        required: ['result'],
+        type: 'object'
+      });
+      expect(entry._meta?.securitySchemes).toEqual(entry.securitySchemes);
+    }
+    expect(published.find(({ name }) => name === 'respond_task_execution_approval')?.annotations)
+      .toMatchObject({ destructiveHint: true, idempotentHint: true, readOnlyHint: false });
+    expect(published.find(({ name }) => name === 'cancel_task_execution')?.annotations)
+      .toMatchObject({ destructiveHint: true, idempotentHint: true, readOnlyHint: false });
+  });
+
+  test('requires the execution scope only for mutating tools', () => {
+    const mutationScopes = [
+      projectSpaceMcpReadScope,
+      projectSpaceMcpWriteScope,
+      projectSpaceMcpExecutionWriteScope
+    ];
+    for (const name of [
+      'start_task_execution', 'send_task_execution_message',
+      'cancel_task_execution', 'archive_task_execution'
+    ]) {
+      expect(scopesForTool(name)).toEqual(mutationScopes);
+    }
+    for (const name of ['respond_task_execution_approval', 'respond_task_execution_input']) {
+      expect(scopesForTool(name)).toEqual([
+        projectSpaceMcpReadScope,
+        projectSpaceMcpWriteScope,
+        projectSpaceMcpExecutionApproveScope
+      ]);
+    }
+    for (const name of ['list_task_executions', 'get_task_execution', 'wait_task_execution']) {
+      expect(scopesForTool(name)).toEqual([projectSpaceMcpReadScope]);
+    }
+  });
+
+  test('keeps start and response identities strict and unambiguous', () => {
+    const request = {
+      environmentId: '11111111-1111-4111-8111-111111111111',
+      operationId: 'task-execution:start:001',
+      task: { number: 548, provider: 'github', repositoryId: '480' }
+    };
+    expect(toolSchemas.start_task_execution.safeParse(request).success).toBe(true);
+    expect(toolSchemas.start_task_execution.safeParse({
+      ...request,
+      briefing: { objective: 'Implement it.' },
+      handoff: { id: '22222222-2222-4222-8222-222222222222', revision: 1 }
+    }).success).toBe(false);
+    expect(toolSchemas.start_task_execution.safeParse({ ...request, unknown: true }).success)
+      .toBe(false);
+    expect(toolSchemas.start_task_execution.safeParse({ ...request, operationId: 'short' }).success)
+      .toBe(false);
+    expect(toolSchemas.respond_task_execution_approval.safeParse({
+      decision: 'allow-once', executionId: request.environmentId,
+      operationId: 'task-execution:approval:001', requestId: 'request-1', turnId: 'turn-1'
+    }).success).toBe(true);
+    expect(toolSchemas.respond_task_execution_input.safeParse({
+      answers: [{ questionId: 'question-1', value: 'yes' }],
+      executionId: request.environmentId, operationId: 'task-execution:input:001',
+      requestId: 'request-1', turnId: 'turn-1'
+    }).success).toBe(true);
   });
 });

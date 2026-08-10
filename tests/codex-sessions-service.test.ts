@@ -14,12 +14,15 @@ import type {
   CodexStoredOperationReservation
 } from '../server/codex-sessions-store';
 import type {
+  CodexSessionApprovalRequest,
   CodexSessionBrowserResult,
   CodexSessionContinueRequest,
+  CodexSessionInterruptRequest,
   CodexSessionListResult,
   CodexSessionOperationResult,
   CodexSessionReadResult,
-  CodexSessionStreamEvent
+  CodexSessionStreamEvent,
+  CodexSessionUserInputResponse
 } from '../src/shared/codex-sessions-api';
 
 const actor = { userId: 'user-a' };
@@ -573,6 +576,74 @@ describe('Codex sessions hosted service', () => {
       turnId: 'turn-reconciled'
     });
     expect(transport.mutationCalls).toBe(2);
+  });
+
+  test('reconciles exact ambiguous approval, input, and interrupt operations', async () => {
+    const cases = [
+      {
+        call: (service: ReturnType<typeof serviceFor>, request: CodexSessionApprovalRequest) =>
+          service.approve(actor, request),
+        reconcile: (service: ReturnType<typeof serviceFor>, request: CodexSessionApprovalRequest) =>
+          service.reconcileApproval(actor, request),
+        request: {
+          approvalId: 'approval-1', connectorGeneration: 7,
+          decision: 'allow-once' as const, machineId,
+          operationId: 'operation-reconcile-approval', requestId: 'request-1',
+          threadId, turnId: 'turn-1'
+        }
+      },
+      {
+        call: (service: ReturnType<typeof serviceFor>, request: CodexSessionUserInputResponse) =>
+          service.respondToUserInput(actor, request),
+        reconcile: (service: ReturnType<typeof serviceFor>, request: CodexSessionUserInputResponse) =>
+          service.reconcileUserInput(actor, request),
+        request: {
+          answers: [{ questionId: 'question-1', value: 'yes' }], machineId,
+          connectorGeneration: 7,
+          operationId: 'operation-reconcile-input', requestId: 'request-2',
+          threadId, turnId: 'turn-1'
+        }
+      },
+      {
+        call: (service: ReturnType<typeof serviceFor>, request: CodexSessionInterruptRequest) =>
+          service.interrupt(actor, request),
+        reconcile: (service: ReturnType<typeof serviceFor>, request: CodexSessionInterruptRequest) =>
+          service.reconcileInterrupt(actor, request),
+        request: {
+          connectorGeneration: 7, machineId,
+          operationId: 'operation-reconcile-interrupt', threadId, turnId: 'turn-1'
+        }
+      }
+    ] as const;
+
+    for (const contract of cases) {
+      const store = new MemoryStore();
+      const transport = new FakeTransport();
+      transport.mutationResult = new CodexTransportUncertainError('result frame was lost');
+      const service = serviceFor(store, transport);
+      expect(await contract.call(service, contract.request as never)).toMatchObject({
+        replayed: false, status: 'ambiguous'
+      });
+      transport.mutationResult = {
+        machineId,
+        result: {
+          operationId: contract.request.operationId,
+          replayed: false,
+          status: 'completed',
+          threadId,
+          turnId: 'turn-1'
+        },
+        threadId
+      };
+      expect(await contract.reconcile(service, contract.request as never)).toMatchObject({
+        replayed: true, status: 'completed'
+      });
+      expect(await contract.call(service, contract.request as never)).toMatchObject({
+        replayed: true, status: 'completed'
+      });
+      expect(transport.mutationCalls).toBe(2);
+      expect(transport.mutationGenerations).toEqual([7, 7]);
+    }
   });
 
   test('replays persisted events, deduplicates reconnects, and then streams live events', async () => {

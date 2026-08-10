@@ -371,16 +371,56 @@ function isStartResult(value: Record<string, unknown>) {
 
 function isReadResult(value: Record<string, unknown>) {
   return hasOnlyKeys(value, [
-    'openedReadOnly', 'permissionProfileId', 'permissionProfiles', 'session', 'streamCursor',
-    'tokenUsage', 'turns'
+    'openedReadOnly', 'pendingRequests', 'permissionProfileId', 'permissionProfiles', 'session',
+    'streamCursor', 'tokenUsage', 'turns'
   ]) &&
     value.openedReadOnly === true && smallRecord(value.session) &&
     identifier(value.session.id, 128) && identifier(value.session.machineId, 256) &&
     (value.permissionProfileId === undefined || permissionProfileId(value.permissionProfileId)) &&
     (value.permissionProfiles === undefined || permissionProfiles(value.permissionProfiles)) &&
+    (value.pendingRequests === undefined || pendingRequests(value.pendingRequests)) &&
     (value.streamCursor === undefined || nonNegativeSafeInteger(value.streamCursor)) &&
     (value.tokenUsage === undefined || tokenUsage(value.tokenUsage)) &&
     Array.isArray(value.turns) && value.turns.length <= 10_000;
+}
+
+function pendingRequests(value: unknown) {
+  return Array.isArray(value) && value.length <= 100 &&
+    JSON.stringify(value).length <= 128_000 && value.every((request) => {
+      if (!smallRecord(request) || !identifier(request.eventId, 128) ||
+          !identifier(request.requestId, 256) || !identifier(request.turnId, 128)) return false;
+      if (request.type === 'approval-requested') {
+        return hasOnlyKeys(request, [
+          'approvalId', 'canAllow', 'command', 'eventId', 'itemId', 'kind',
+          'permissionSummary', 'requestId', 'turnId', 'type'
+        ]) && ['command', 'file-change', 'permissions'].includes(String(request.kind)) &&
+          [request.approvalId, request.itemId].every((entry) => (
+            entry === undefined || identifier(entry, 256)
+          )) && (request.canAllow === undefined || typeof request.canAllow === 'boolean') &&
+          (request.command === undefined || boundedText(request.command, 4_000)) &&
+          (request.permissionSummary === undefined || (
+            Array.isArray(request.permissionSummary) && request.permissionSummary.length <= 64 &&
+            request.permissionSummary.every((entry) => boundedText(entry, 512))
+          ));
+      }
+      return request.type === 'user-input-requested' && hasOnlyKeys(request, [
+        'eventId', 'questions', 'requestId', 'turnId', 'type'
+      ]) && Array.isArray(request.questions) && request.questions.length > 0 &&
+        request.questions.length <= 50 && request.questions.every((question) => (
+          smallRecord(question) && hasOnlyKeys(question, ['choices', 'id', 'prompt']) &&
+          identifier(question.id, 256) && boundedText(question.prompt, 4_000) &&
+          (question.choices === undefined || (
+            Array.isArray(question.choices) && question.choices.length <= 100 &&
+            question.choices.every((choice) => smallRecord(choice) &&
+              hasOnlyKeys(choice, ['label', 'value']) && boundedText(choice.label, 1_000) &&
+              boundedText(choice.value, 1_000))
+          ))
+        ));
+    });
+}
+
+function boundedText(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maximum;
 }
 
 function permissionProfileId(value: unknown): value is string {

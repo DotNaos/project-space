@@ -1,4 +1,3 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import {
@@ -8,10 +7,11 @@ import {
   projectSpaceMcpReadScope,
   projectSpaceMcpWriteScope
 } from '../project-space-mcp-oauth-store';
-
-type OAuthTool = Tool & {
-  securitySchemes: Array<{ scopes: string[]; type: 'oauth2' }>;
-};
+import {
+  taskExecutionToolSchemas,
+  taskExecutionTools
+} from './task-execution-tool-catalog';
+import { defineOAuthTool as tool, type OAuthTool } from './tool-definition';
 
 const environmentKinds = [
   'native_macos', 'native_windows', 'native_linux', 'wsl', 'docker', 'devbox',
@@ -131,6 +131,7 @@ export const toolSchemas = {
     environmentId: z.string().trim().min(1).max(512),
     operationId: z.string().regex(operationIdPattern)
   }).strict(),
+  ...taskExecutionToolSchemas,
   list_machines: z.object({}),
   list_codex_tasks: z.object({
     connectorId: z.string().trim().min(1).optional(),
@@ -310,6 +311,7 @@ export const tools: OAuthTool[] = [
     projectSpaceMcpWriteScope,
     projectSpaceMcpEnvironmentDeleteScope
   ]),
+  ...taskExecutionTools,
   tool('list_machines', 'List machines', 'List the legacy connector-machine projection. Prefer list_execution_environments for new workflows.', {
     type: 'object', properties: {}, additionalProperties: false
   }, { readOnlyHint: true, openWorldHint: false }),
@@ -339,24 +341,4 @@ export function scopesForTool(name: string) {
   const scopes = tools.find((candidate) => candidate.name === name)
     ?.securitySchemes[0]?.scopes;
   return scopes ? [...scopes] : [projectSpaceMcpReadScope];
-}
-
-function tool(
-  name: string,
-  title: string,
-  description: string,
-  inputSchema: Tool['inputSchema'],
-  annotations: NonNullable<Tool['annotations']>,
-  requiredScopes?: readonly string[]
-): OAuthTool {
-  const scopes = requiredScopes
-    ? [...requiredScopes]
-    : annotations.readOnlyHint
-      ? [projectSpaceMcpReadScope]
-      : [projectSpaceMcpReadScope, projectSpaceMcpWriteScope];
-  const securitySchemes = [{ type: 'oauth2' as const, scopes }];
-  return {
-    name, title, description, inputSchema, annotations, securitySchemes,
-    _meta: { securitySchemes }
-  } as OAuthTool;
 }

@@ -53,7 +53,15 @@ import {
   isAgentRuntimeTool
 } from './project-space-mcp/agent-runtime';
 import {
-  sanitizeCodexTaskStartResult,
+  callTaskExecutionTool,
+  isTaskExecutionTool
+} from './project-space-mcp/task-executions';
+import {
+  callLegacyCodexTaskTool,
+  isLegacyCodexTaskTool
+} from './project-space-mcp/legacy-codex-task-tools';
+import type { TaskExecutionService } from './task-execution/service';
+import {
   sanitizeGitHubBranch,
   sanitizeGitHubComment,
   sanitizeGitHubIssueMutation,
@@ -61,8 +69,6 @@ import {
   sanitizeGitHubTask,
   sanitizeGitHubWorkflowRun,
   sanitizeRepository,
-  sanitizeSession,
-  sanitizeTaskRead,
   toolError,
   toolResult
 } from './project-space-mcp/results';
@@ -98,6 +104,7 @@ export interface ProjectSpaceMcpOptions {
   backend: McpBackend;
   createAgentRuntime?(): Promise<AgentRuntimeService>;
   createEnvironmentLifecycle?(): Promise<ExecutionEnvironmentLifecycleService>;
+  createTaskExecutions?(): Promise<TaskExecutionService>;
   createRuntime(): Promise<ConfiguredCodexMachineTasksRuntime>;
   loadComputeInventory?: LoadMcpComputeInventory;
   logger?: ProjectSpaceLogger;
@@ -132,6 +139,13 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
   const getEnvironmentLifecycle = () => (
     environmentLifecycle ??= options.createEnvironmentLifecycle?.().catch((error) => {
       environmentLifecycle = undefined;
+      throw error;
+    })
+  );
+  let taskExecutions: Promise<TaskExecutionService> | undefined;
+  const getTaskExecutions = () => (
+    taskExecutions ??= options.createTaskExecutions?.().catch((error) => {
+      taskExecutions = undefined;
       throw error;
     })
   );
@@ -198,6 +212,7 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
           options.backend,
           getAgentRuntime,
           getEnvironmentLifecycle,
+          getTaskExecutions,
           getRuntime,
           loadComputeInventory,
           publicOrigin,
@@ -256,6 +271,7 @@ function createMcpServer(
   backend: McpBackend,
   agentRuntime: () => Promise<AgentRuntimeService> | undefined,
   environmentLifecycle: () => Promise<ExecutionEnvironmentLifecycleService> | undefined,
+  taskExecutions: () => Promise<TaskExecutionService> | undefined,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   loadComputeInventory: LoadMcpComputeInventory,
   publicOrigin: string,
@@ -294,6 +310,7 @@ function createMcpServer(
           backend,
           agentRuntime,
           environmentLifecycle,
+          taskExecutions,
           runtime,
           loadComputeInventory,
           userId,
@@ -323,6 +340,7 @@ async function callTool(
   backend: McpBackend,
   agentRuntime: () => Promise<AgentRuntimeService> | undefined,
   environmentLifecycle: () => Promise<ExecutionEnvironmentLifecycleService> | undefined,
+  taskExecutions: () => Promise<TaskExecutionService> | undefined,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   loadComputeInventory: LoadMcpComputeInventory,
   userId: string,
@@ -330,6 +348,22 @@ async function callTool(
   rawArguments: Record<string, unknown>,
   logger: ProjectSpaceLogger
 ): Promise<CallToolResult> {
+  if (isTaskExecutionTool(name)) {
+    const service = taskExecutions();
+    if (!service) return toolError('Task Execution runtime is unavailable.', currentRequestId());
+    const result = await callTaskExecutionTool({
+      name,
+      rawArguments,
+      service: await service,
+      userId
+    });
+    if (result) return result;
+  }
+  if (isLegacyCodexTaskTool(name)) {
+    return callLegacyCodexTaskTool({
+      backend, logger, name, rawArguments, runtime, taskExecutions, userId
+    });
+  }
   if (isAgentRuntimeTool(name)) {
     const service = agentRuntime();
     if (!service) return toolError('Agent runtime is unavailable.', currentRequestId());
@@ -598,81 +632,6 @@ async function callTool(
         status: result.status,
         task: input.task
       }, result.status !== 'connected');
-    }
-    case 'list_codex_tasks': {
-      const input = toolSchemas.list_codex_tasks.parse(rawArguments);
-      const configured = await runtime();
-      const connectorIds = input.connectorId
-        ? [input.connectorId]
-        : (await backend.getConnectorOverview()).machines.map((machine) => machine.id);
-      const results = await Promise.all(connectorIds.map(async (connectorId) => {
-        try {
-          const result = await configured.sessions.service.list({ userId }, {
-            includeArchived: input.includeArchived ?? false,
-            machineId: connectorId,
-            search: input.search
-          });
-          return {
-            checkedAt: result.checkedAt,
-            inventoryState: result.inventoryState,
-            machine: result.machine,
-            sessions: result.sessions.map(sanitizeSession)
-          };
-        } catch (error) {
-          logger.warn('mcp.task_inventory.unavailable', { connectorId, tool: name }, error);
-          return { connectorId, error: error instanceof Error ? error.message : 'Task inventory unavailable.' };
-        }
-      }));
-      return toolResult({ results });
-    }
-    case 'read_codex_task': {
-      const input = toolSchemas.read_codex_task.parse(rawArguments);
-      const result = await (await runtime()).service.read({ userId }, input);
-      return toolResult(sanitizeTaskRead(result));
-    }
-    case 'start_codex_task': {
-      const input = toolSchemas.start_codex_task.parse({
-        ...rawArguments,
-        task: rawArguments.task ?? rawArguments.issue
-      });
-      const { task, ...request } = input;
-      if (input.dryRun) {
-        const { catalog, repository } = await resolveGitHubRepository(backend, input.repositoryId);
-        if (!repository) {
-          return toolError(
-            catalog.message ?? 'The GitHub repository is not available.',
-            currentRequestId()
-          );
-        }
-        const details = await backend.getGitHubRepositoryDetails(repository.fullName);
-        if (details.status !== 'connected') {
-          return toolError(
-            details.message ?? 'GitHub task details are unavailable.',
-            currentRequestId()
-          );
-        }
-        const sourceTask = details.issues.find((candidate) => candidate.number === task);
-        if (!sourceTask) return toolError('The GitHub task was not found.', currentRequestId());
-        if (sourceTask.state !== 'open') {
-          return toolError('Only open GitHub tasks can be started.', currentRequestId());
-        }
-      }
-      const result = await (await runtime()).service.start({ userId }, {
-        ...request,
-        issue: task,
-        dryRun: input.dryRun ?? false,
-        operationId: input.operationId ?? `mcp:start:${randomUUID()}`
-      });
-      return toolResult(sanitizeCodexTaskStartResult(result));
-    }
-    case 'send_codex_message': {
-      const input = toolSchemas.send_codex_message.parse(rawArguments);
-      const result = await (await runtime()).service.send({ userId }, {
-        ...input,
-        operationId: input.operationId ?? `mcp:send:${randomUUID()}`,
-        wait: input.wait ?? false
-      });
-      return toolResult(sanitizeTaskRead(result));
     }
     default:
       return toolError(`Unknown tool: ${name}`, currentRequestId());

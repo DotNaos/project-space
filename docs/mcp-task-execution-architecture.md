@@ -1146,13 +1146,13 @@ is approved, merged, deployed, and verified.
 
 ### WP5 — implement generic execution MCP tools
 
-- [ ] Add start/list/get/wait/message/cancel/archive.
-- [ ] Add exact approval and input response tools.
-- [ ] Make normal start own environment start, readiness, authorization block,
+- [x] Add start/list/get/wait/message/cancel/archive.
+- [x] Add exact approval and input response tools.
+- [x] Make normal start own environment start, readiness, authorization block,
       worktree preparation, and executor start.
-- [ ] Preserve current `start_codex_task`, `read_codex_task`,
+- [x] Preserve current `start_codex_task`, `read_codex_task`,
       `send_codex_message`, and `list_codex_tasks` as aliases.
-- [ ] Add a client-independent structured result schema and pagination.
+- [x] Add a client-independent structured result schema and pagination.
 
 ### WP6 — structured cross-orchestrator handoff
 

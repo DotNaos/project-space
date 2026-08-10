@@ -302,11 +302,13 @@ export function createCodexSessionsService(options: {
     } satisfies ScopedOperation;
   }
 
-  async function reconcileContinue(
+  async function reconcileMutation(
     actor: CodexSessionsActor,
-    request: CodexSessionContinueRequest
+    kind: 'approval' | 'continue' | 'input' | 'interrupt',
+    request: CodexSessionApprovalRequest | CodexSessionContinueRequest |
+      CodexSessionInterruptRequest | CodexSessionUserInputResponse
   ) {
-    const operation = await operationFor(actor, 'continue', request);
+    const operation = await operationFor(actor, kind, request);
     const reserved = await options.store.reserveOperation(operation);
     if (reserved.kind === 'conflict') {
       throw new CodexSessionsConflictError('The operation id was reused for different input.');
@@ -315,7 +317,7 @@ export function createCodexSessionsService(options: {
     if (reserved.kind !== 'ambiguous') return ambiguousResult(operation, true);
     try {
       const response = await options.transport.mutate({
-        kind: 'continue',
+        kind,
         machineId: operation.machineId,
         request,
         threadId: operation.threadId,
@@ -469,7 +471,14 @@ export function createCodexSessionsService(options: {
     list,
     publishEvent,
     read,
-    reconcileContinue,
+    reconcileApproval: (actor: CodexSessionsActor, request: CodexSessionApprovalRequest) =>
+      reconcileMutation(actor, 'approval', request),
+    reconcileContinue: (actor: CodexSessionsActor, request: CodexSessionContinueRequest) =>
+      reconcileMutation(actor, 'continue', request),
+    reconcileInterrupt: (actor: CodexSessionsActor, request: CodexSessionInterruptRequest) =>
+      reconcileMutation(actor, 'interrupt', request),
+    reconcileUserInput: (actor: CodexSessionsActor, request: CodexSessionUserInputResponse) =>
+      reconcileMutation(actor, 'input', request),
     respondToUserInput: (actor: CodexSessionsActor, request: CodexSessionUserInputResponse) => mutate(actor, 'input', request),
     settings: (actor: CodexSessionsActor, request: CodexSessionSettingsRequest) => mutate(actor, 'settings', request),
     stream,

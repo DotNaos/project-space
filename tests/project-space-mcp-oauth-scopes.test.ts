@@ -8,6 +8,8 @@ import {
   projectSpaceMcpDefaultScopes,
   projectSpaceMcpEnvironmentDeleteScope,
   projectSpaceMcpEnvironmentManageScope,
+  projectSpaceMcpExecutionApproveScope,
+  projectSpaceMcpExecutionWriteScope,
   projectSpaceMcpSupportedScopes
 } from '../server/project-space-mcp-oauth-store';
 
@@ -77,6 +79,12 @@ describe('Project Space MCP lifecycle OAuth scopes', () => {
     expect(projectSpaceMcpDefaultScopes).not.toContain(
       projectSpaceMcpAgentAuthorizeScope
     );
+    expect(projectSpaceMcpDefaultScopes).not.toContain(
+      projectSpaceMcpExecutionWriteScope
+    );
+    expect(projectSpaceMcpDefaultScopes).not.toContain(
+      projectSpaceMcpExecutionApproveScope
+    );
   });
 
   test('allows explicit lifecycle scope registration and rejects unknown scopes', async () => {
@@ -116,5 +124,39 @@ describe('Project Space MCP lifecycle OAuth scopes', () => {
     expect(registered.status).toBe(201);
     expect(await registered.json()).toMatchObject({ scope: requested });
     expect(projectSpaceMcpSupportedScopes).toContain(projectSpaceMcpAgentAuthorizeScope);
+  });
+
+  test('allows explicit Task Execution control without granting it by default', async () => {
+    const origin = await startOAuthServer();
+    const requested = [
+      projectSpaceMcpDefaultScopes[0],
+      projectSpaceMcpExecutionWriteScope
+    ].join(' ');
+    const registered = await fetch(`${origin}/register`, {
+      body: JSON.stringify(registration(requested)),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+
+    expect(registered.status).toBe(201);
+    expect(await registered.json()).toMatchObject({ scope: requested });
+    expect(projectSpaceMcpSupportedScopes).toContain(projectSpaceMcpExecutionWriteScope);
+  });
+
+  test('allows explicit Task Execution approvals without granting them by default', async () => {
+    const origin = await startOAuthServer();
+    const requested = [
+      projectSpaceMcpDefaultScopes[0],
+      projectSpaceMcpExecutionApproveScope
+    ].join(' ');
+    const registered = await fetch(`${origin}/register`, {
+      body: JSON.stringify(registration(requested)),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+
+    expect(registered.status).toBe(201);
+    expect(await registered.json()).toMatchObject({ scope: requested });
+    expect(projectSpaceMcpSupportedScopes).toContain(projectSpaceMcpExecutionApproveScope);
   });
 });
