@@ -591,6 +591,7 @@ describe('Canonical Codex task page', () => {
         onOpenProjectChatThread={() => {}}
         onResolveApproval={() => {}}
         onResolveUserInput={() => {}}
+        onSteerThread={() => {}}
         onSelectThread={() => {}}
         readBrowser={async () => ({
           checkedAt: '2026-07-13T09:00:00.000Z',
@@ -606,7 +607,9 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('Integrate Codex sessions');
     expect(html).toContain('Waiting for approval');
     expect(html).toContain('aria-label="Stop active Codex turn"');
-    expect(html).toContain('This task is still working; a new turn can start when it becomes idle.');
+    expect(html).toContain('aria-label="Steer active Codex turn"');
+    expect(html).toContain('aria-label="Queue for the next turn"');
+    expect(html).not.toContain('This task is still working; a new turn can start when it becomes idle.');
     expect(html).toContain('Allow once');
     expect(html).toContain('Deny');
     expect(html).toContain('Waiting for input');
