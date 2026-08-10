@@ -299,14 +299,15 @@ export class PostgresTaskExecutionStore implements TaskExecutionStore {
     if (workspace.version !== 1) return 'conflict';
     const result = await this.client.query<{ id: string }>(
       `insert into runner_workspaces (
-         id, execution_id, owner_user_id, kind, repository_id, branch,
-         commit_sha, state, version, created_at, updated_at
-       ) values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz)
+       id, execution_id, owner_user_id, kind, repository_id, branch,
+         commit_sha, state, target_kind, target_reference, version, created_at, updated_at
+       ) values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $13::timestamptz)
        on conflict do nothing returning id`,
       [
         workspace.id, workspace.executionId, ownerUserId, workspace.kind,
         workspace.repositoryId, workspace.branch, workspace.commit ?? null,
-        workspace.state, workspace.version, workspace.createdAt, workspace.updatedAt
+        workspace.state, workspace.target?.kind ?? null, workspace.target?.reference ?? null,
+        workspace.version, workspace.createdAt, workspace.updatedAt
       ]
     );
     if (result.rows[0]) return 'created';
@@ -316,7 +317,7 @@ export class PostgresTaskExecutionStore implements TaskExecutionStore {
   async readWorkspace(ownerUserId: string, executionId: string) {
     const result = await this.client.query<WorkspaceRow>(
       `select id, execution_id, kind, repository_id, branch, commit_sha,
-              state, version, created_at, updated_at
+              state, target_kind, target_reference, version, created_at, updated_at
          from runner_workspaces
         where owner_user_id = $1 and execution_id = $2::uuid`,
       [ownerUserId, executionId]
@@ -337,7 +338,7 @@ export class PostgresTaskExecutionStore implements TaskExecutionStore {
               version = version + 1, updated_at = $6::timestamptz
         where owner_user_id = $1 and execution_id = $2::uuid and version = $3
         returning id, execution_id, kind, repository_id, branch, commit_sha,
-                  state, version, created_at, updated_at`,
+                  state, target_kind, target_reference, version, created_at, updated_at`,
       [
         input.ownerUserId, input.executionId, input.expectedVersion, input.state,
         input.commit ?? null, input.updatedAt

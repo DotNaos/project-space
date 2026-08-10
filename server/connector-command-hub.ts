@@ -29,6 +29,14 @@ import {
   type WorktreeActionRequestOptions
 } from './connector-worktree-action-routing';
 import {
+  failWorkspaceCommandsForMachine,
+  handleWorkspaceCommandHubMessage
+} from './workspace-command/connector-hub';
+export {
+  registerLocalWorkspaceCommandExecutor,
+  requestConnectorWorkspaceCommand
+} from './workspace-command/connector-hub';
+import {
   type ConnectorHubMessage,
   type ConnectorMachineMessage
 } from './connector-command-protocol';
@@ -136,7 +144,6 @@ const pendingCommands = new Map<string, PendingCommand>();
 export { registerLocalConnectorDevServerExecutor };
 export { registerLocalConnectorWorktreeActionExecutor };
 export type { ConnectorDevServerRequestOptions };
-
 export { authenticateConnectorCredential };
 export type { AuthenticateConnectorCredential };
 function commandId() {
@@ -164,9 +171,7 @@ function socketForMachine(machineId: string, capability?: string) {
 
 function finishPending(id: string, value?: ConnectorCommandResult) {
   const pending = pendingCommands.get(id);
-  if (!pending) {
-    return;
-  }
+  if (!pending) return;
   pendingCommands.delete(id);
   clearTimeout(pending.timeout);
   pending.resolve(value);
@@ -174,9 +179,7 @@ function finishPending(id: string, value?: ConnectorCommandResult) {
 
 function failPending(id: string, error: Error) {
   const pending = pendingCommands.get(id);
-  if (!pending) {
-    return;
-  }
+  if (!pending) return;
   pendingCommands.delete(id);
   clearTimeout(pending.timeout);
   if (pending.kind === 'chat' || pending.kind === 'worktrees') {
@@ -236,11 +239,13 @@ function failCommandsForMachine(machineId: string) {
   }
   failCodexSessionCommandsForMachine(machineId);
   failConnectorRuntimeHubCommandsForMachine(machineId);
+  failWorkspaceCommandsForMachine(machineId);
 }
 
 function handleConnectorResult(machineId: string, message: ConnectorHubMessage) {
   if (handleConnectorRuntimeHubMessage(machineId, message)) return;
   if (handleCodexSessionsConnectorMessage(machineId, message)) return;
+  if (handleWorkspaceCommandHubMessage(machineId, message)) return;
   if ('id' in message) {
     const pending = pendingCommands.get(message.id);
     if (pending && pending.machineId !== machineId) {

@@ -838,32 +838,38 @@ not delete audit, handoff, operation, workspace, or delivery evidence.
 
 ### Shell and repair
 
-#### `start_shell_command`
+#### `start_workspace_command`
 
 Arguments:
 
 ```ts
-interface StartShellCommandInput {
-  environmentId: string;
-  executionId?: string;
+interface StartWorkspaceCommandInput {
+  executionId: string;
   command: string;
-  scope?: 'workspace' | 'environment-recovery';
   timeoutSeconds?: number;
+  maxOutputBytes?: number;
   operationId: string;
 }
 ```
 
-The default `workspace` scope resolves the exact Runner Workspace from
+The command resolves the exact Runner Workspace from
 `executionId`; callers do not provide a raw working-directory path. The command
 runs asynchronously and returns a command ID.
 
-`environment-recovery` is a separate privileged path for repairing a sandbox
+#### `start_environment_recovery_command`
+
+Arguments: exact `environmentId`, command, bounded time/output, and
+`operationId`. The server then uses MCP elicitation to obtain explicit
+client-side user confirmation; a boolean supplied inside tool arguments is
+never trusted as approval.
+
+Environment recovery is a separate privileged path for repairing a sandbox
 when the normal connector is unavailable. It requires explicit approval,
 provider support, complete audit, a bounded lifetime, and an exact Environment.
 For Codespaces this may use the provider's authenticated recovery/SSH channel.
 It must not silently fall back to executing on the Project Space Hub.
 
-#### `get_shell_command`
+#### `get_workspace_command`
 
 Arguments: `commandId`, optional output cursor.
 
@@ -871,7 +877,7 @@ Returns queued/running/completed/failed/cancelled/uncertain state, exit code,
 bounded stdout/stderr chunks, truncation markers, timing, target evidence, and
 audit reference. Read-only.
 
-#### `cancel_shell_command`
+#### `cancel_workspace_command` and `cancel_environment_recovery_command`
 
 Arguments: `commandId`, `operationId`.
 
@@ -935,9 +941,10 @@ no durable cancellation, and no workspace identity.
 
 The replacement must enforce:
 
-1. The signed grant binds user, Environment, connector generation or provider
-   recovery channel, execution/workspace, command digest, scope, operation ID,
-   request ID, expiry, and maximum output/time.
+1. The signed grant binds user, Environment, connector generation,
+   execution/workspace, deterministic command ID, command digest, scope,
+   expiry, and maximum output/time. Provider recovery uses the separately
+   authorized and owner-bound provider channel.
 2. Grants are one-time and replay protected.
 3. Workspace scope executes under an OS-enforced workspace sandbox. String
    validation alone cannot stop `cd`, symlink, subprocess, or interpreter
@@ -1027,7 +1034,7 @@ The database needs durable records for:
 - `execution_operations` with fingerprint, result, and reconciliation state;
 - `environment_provider_bindings` for provider resource identity and lifecycle;
 - `agent_authorization_operations`;
-- `shell_commands` and output cursors;
+- `workspace_commands` and output cursors;
 - `task_delivery_evidence` and exact revision relationships;
 - `capacity_leases`.
 
@@ -1180,15 +1187,15 @@ open until the real production UI-to-Codespace-to-ChatGPT-to-PR proof completes.
 
 ### WP7 — safe shell and recovery
 
-- [ ] Replace direct MCP exposure of legacy `terminal.run` with asynchronous
+- [x] Replace direct MCP exposure of legacy `terminal.run` with asynchronous
       command storage and signed grants.
-- [ ] Add workspace-scoped start/get/cancel tools.
-- [ ] Resolve cwd through execution/workspace identity, not a browser path.
-- [ ] Run with a sanitized environment and OS-enforced workspace isolation.
-- [ ] Add output cursors, limits, cancellation, audit, and uncertainty.
-- [ ] Add a separately approved provider recovery path for a broken Codespace
+- [x] Add workspace-scoped start/get/cancel tools.
+- [x] Resolve cwd through execution/workspace identity, not a browser path.
+- [x] Run with a sanitized environment and OS-enforced workspace isolation.
+- [x] Add output cursors, limits, cancellation, audit, and uncertainty.
+- [x] Add a separately approved provider recovery path for a broken Codespace
       connector.
-- [ ] Prove commands never run on the Hub as fallback.
+- [x] Prove commands never run on the Hub as fallback.
 
 ### WP8 — pull-request delivery and completion
 

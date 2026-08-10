@@ -15,6 +15,10 @@ import {
   taskExecutionToolSchemas,
   taskExecutionTools
 } from './task-execution-tool-catalog';
+import {
+  workspaceCommandToolSchemas,
+  workspaceCommandTools
+} from './workspace-command-tool-catalog';
 import { defineOAuthTool as tool, type OAuthTool } from './tool-definition';
 
 const environmentKinds = [
@@ -137,6 +141,7 @@ export const toolSchemas = {
   }).strict(),
   ...taskHandoffToolSchemas,
   ...taskExecutionToolSchemas,
+  ...workspaceCommandToolSchemas,
   list_machines: z.object({}),
   list_codex_tasks: z.object({
     connectorId: z.string().trim().min(1).optional(),
@@ -318,6 +323,7 @@ export const tools: OAuthTool[] = [
   ]),
   ...taskHandoffTools,
   ...taskExecutionTools,
+  ...workspaceCommandTools,
   tool('list_machines', 'List machines', 'List the legacy connector-machine projection. Prefer list_execution_environments for new workflows.', {
     type: 'object', properties: {}, additionalProperties: false
   }, { readOnlyHint: true, openWorldHint: false }),

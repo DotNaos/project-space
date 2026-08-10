@@ -61,6 +61,13 @@ import {
   isLegacyCodexTaskTool
 } from './project-space-mcp/legacy-codex-task-tools';
 import type { TaskExecutionService } from './task-execution/service';
+import type { WorkspaceCommandService } from './workspace-command/service';
+import {
+  callWorkspaceCommandTool,
+  isWorkspaceCommandTool,
+  recoveryApprovalAccepted,
+  recoveryApprovalRequest
+} from './project-space-mcp/workspace-commands';
 import {
   sanitizeGitHubBranch,
   sanitizeGitHubComment,
@@ -105,6 +112,7 @@ export interface ProjectSpaceMcpOptions {
   createAgentRuntime?(): Promise<AgentRuntimeService>;
   createEnvironmentLifecycle?(): Promise<ExecutionEnvironmentLifecycleService>;
   createTaskExecutions?(): Promise<TaskExecutionService>;
+  createWorkspaceCommands?(): Promise<WorkspaceCommandService>;
   createRuntime(): Promise<ConfiguredCodexMachineTasksRuntime>;
   loadComputeInventory?: LoadMcpComputeInventory;
   logger?: ProjectSpaceLogger;
@@ -146,6 +154,13 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
   const getTaskExecutions = () => (
     taskExecutions ??= options.createTaskExecutions?.().catch((error) => {
       taskExecutions = undefined;
+      throw error;
+    })
+  );
+  let workspaceCommands: Promise<WorkspaceCommandService> | undefined;
+  const getWorkspaceCommands = () => (
+    workspaceCommands ??= options.createWorkspaceCommands?.().catch((error) => {
+      workspaceCommands = undefined;
       throw error;
     })
   );
@@ -213,6 +228,7 @@ export function createProjectSpaceMcpHandler(options: ProjectSpaceMcpOptions) {
           getAgentRuntime,
           getEnvironmentLifecycle,
           getTaskExecutions,
+          getWorkspaceCommands,
           getRuntime,
           loadComputeInventory,
           publicOrigin,
@@ -272,6 +288,7 @@ function createMcpServer(
   agentRuntime: () => Promise<AgentRuntimeService> | undefined,
   environmentLifecycle: () => Promise<ExecutionEnvironmentLifecycleService> | undefined,
   taskExecutions: () => Promise<TaskExecutionService> | undefined,
+  workspaceCommands: () => Promise<WorkspaceCommandService> | undefined,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   loadComputeInventory: LoadMcpComputeInventory,
   publicOrigin: string,
@@ -311,13 +328,17 @@ function createMcpServer(
           agentRuntime,
           environmentLifecycle,
           taskExecutions,
+          workspaceCommands,
           runtime,
           loadComputeInventory,
           extra.authInfo?.clientId,
           userId,
           toolName,
           request.params.arguments ?? {},
-          logger
+          logger,
+          async (input) => recoveryApprovalAccepted(
+            await server.elicitInput(recoveryApprovalRequest(input))
+          )
         )
       ));
       const durationMs = performance.now() - startedAt;
@@ -342,14 +363,24 @@ async function callTool(
   agentRuntime: () => Promise<AgentRuntimeService> | undefined,
   environmentLifecycle: () => Promise<ExecutionEnvironmentLifecycleService> | undefined,
   taskExecutions: () => Promise<TaskExecutionService> | undefined,
+  workspaceCommands: () => Promise<WorkspaceCommandService> | undefined,
   runtime: () => Promise<ConfiguredCodexMachineTasksRuntime>,
   loadComputeInventory: LoadMcpComputeInventory,
   clientId: string | undefined,
   userId: string,
   name: string,
   rawArguments: Record<string, unknown>,
-  logger: ProjectSpaceLogger
+  logger: ProjectSpaceLogger,
+  approveRecovery: (input: { command: string; environmentId: string }) => Promise<boolean>
 ): Promise<CallToolResult> {
+  if (isWorkspaceCommandTool(name)) {
+    const service = workspaceCommands();
+    if (!service) return toolError('Workspace command runtime is unavailable.', currentRequestId());
+    const result = await callWorkspaceCommandTool({
+      approveRecovery, name, rawArguments, service: await service, userId
+    });
+    if (result) return result;
+  }
   if (isTaskExecutionTool(name)) {
     const service = taskExecutions();
     if (!service) return toolError('Task Execution runtime is unavailable.', currentRequestId());

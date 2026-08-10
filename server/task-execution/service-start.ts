@@ -217,6 +217,7 @@ export function createTaskExecutionStarter(
         kind: await taskExecutionWorkspaceKind(dependencies, actor, execution.environmentId),
         repositoryId: execution.source.repositoryId,
         state: 'ready',
+        target: { kind: 'project_worktree', reference: started.task.worktree.id },
         updatedAt: timestamp,
         version: 1
       }
