@@ -35,6 +35,7 @@ export interface CodexMachineTaskStartOperation {
 export type CodexMachineTaskStartReservation =
   | { kind: 'new' }
   | { kind: 'conflict' }
+  | { kind: 'fenced' }
   | {
       dispatchOperationId: string;
       durableOperations: boolean;

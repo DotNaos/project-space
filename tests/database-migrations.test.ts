@@ -115,7 +115,8 @@ describe('database migrations', () => {
       '0028_codex_session_settings_operations',
       '0029_project_space_mcp_oauth',
       '0030_compute_inventory',
-      '0031_compute_environment_identity_resolution'
+      '0031_compute_environment_identity_resolution',
+      '0032_environment_lifecycle'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -168,6 +169,9 @@ describe('database migrations', () => {
     expect(sql).toContain('association_source');
     expect(sql).toContain('host_resolution');
     expect(sql).toContain('identity_resolution');
+    expect(sql).toContain('create table environment_provider_bindings');
+    expect(sql).toContain('create table environment_lifecycle_operations');
+    expect(sql).toContain('environment_lifecycle_one_unresolved_per_scope');
     expect(sql).toContain('primary key (owner_user_id, connector_id)');
     expect(sql).toContain('insert into physical_machines');
     expect(sql).toContain('from machine_execution_scopes');

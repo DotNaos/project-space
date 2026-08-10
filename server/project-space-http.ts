@@ -44,6 +44,9 @@ import {
 } from './codex-authorization/configured-runtime';
 import { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
 import { createConfiguredGitHubCodespaceRunnerRuntime } from './github-codespace-runner/configured-runtime';
+import {
+  createConfiguredExecutionEnvironmentLifecycle
+} from './execution-environment-lifecycle/configured-runtime';
 import { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
 import {
   createConfiguredProjectCatalogCliHandler
@@ -116,21 +119,33 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
-  const projectSpaceMcp = createProjectSpaceMcpHandler({
-    backend,
-    createRuntime: () => createConfiguredCodexMachineTasksRuntime({
+  let mcpCodexRuntime: ReturnType<typeof createConfiguredCodexMachineTasksRuntime> | undefined;
+  const getMcpCodexRuntime = () => (
+    mcpCodexRuntime ??= createConfiguredCodexMachineTasksRuntime({
       attachLeases: codexAttachLeases,
       backend: rawBackend,
       machineConnection: options.machineConnectionRuntime
+    }).catch((error) => {
+      mcpCodexRuntime = undefined;
+      throw error;
+    })
+  );
+  const githubCodespaceRunnerRuntime = createConfiguredGitHubCodespaceRunnerRuntime({
+    backend: rawBackend
+  });
+  const projectSpaceMcp = createProjectSpaceMcpHandler({
+    backend,
+    createEnvironmentLifecycle: () => createConfiguredExecutionEnvironmentLifecycle({
+      backend,
+      createCodexRuntime: getMcpCodexRuntime,
+      githubCodespaceRunnerRuntime
     }),
+    createRuntime: getMcpCodexRuntime,
     logger
   });
   const codexAuthorization = createConfiguredCodexAuthorizationHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
-  });
-  const githubCodespaceRunnerRuntime = createConfiguredGitHubCodespaceRunnerRuntime({
-    backend: rawBackend
   });
   const githubCodespaceRunner = createGitHubCodespaceRunnerHttpHandler({
     runtime: githubCodespaceRunnerRuntime

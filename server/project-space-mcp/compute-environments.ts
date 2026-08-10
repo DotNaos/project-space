@@ -8,6 +8,10 @@ import type {
 import { resourceCapacityOwner } from '../../src/shared/compute-environment-api';
 import type { MachineRecord } from '../../src/shared/project-space-api';
 import type { ConfiguredComputeInventoryResult } from '../configured-compute-inventory';
+import type {
+  ExecutionEnvironmentLifecycleBindingProjection,
+  ExecutionEnvironmentLifecycleService
+} from '../execution-environment-lifecycle/service';
 import { currentRequestId } from '../observability';
 import { toolSchemas } from './tool-catalog';
 import { toolError, toolResult } from './results';
@@ -20,17 +24,30 @@ export type LoadMcpComputeInventory = (
 
 export async function callComputeEnvironmentTool(input: {
   loadInventory: LoadMcpComputeInventory;
+  lifecycle?: ExecutionEnvironmentLifecycleService;
   name: string;
   rawArguments: Record<string, unknown>;
   userId: string;
 }): Promise<CallToolResult | undefined> {
   if (input.name === 'list_execution_environments') {
     const filters = toolSchemas.list_execution_environments.parse(input.rawArguments);
-    return toolResult(projectExecutionEnvironments(await input.loadInventory(input.userId), filters));
+    const bindings = await input.lifecycle?.list(input.userId) ?? [];
+    return toolResult(overlayProviderBindings(
+      projectExecutionEnvironments(await input.loadInventory(input.userId), filters),
+      bindings
+    ));
   }
   if (input.name === 'get_execution_environment') {
     const selector = toolSchemas.get_execution_environment.parse(input.rawArguments);
-    const result = projectExecutionEnvironments(await input.loadInventory(input.userId), {});
+    let bindings = await input.lifecycle?.list(input.userId) ?? [];
+    if (input.lifecycle && bindings.some(({ environmentId }) => environmentId === selector.environmentId)) {
+      await input.lifecycle.status({ userId: input.userId }, selector.environmentId);
+      bindings = await input.lifecycle.list(input.userId);
+    }
+    const result = overlayProviderBindings(
+      projectExecutionEnvironments(await input.loadInventory(input.userId), {}),
+      bindings
+    );
     const environment = result.environments.find(({ id }) => id === selector.environmentId);
     return environment
       ? toolResult({
@@ -42,6 +59,34 @@ export async function callComputeEnvironmentTool(input: {
       : toolError('The execution Environment was not found.', currentRequestId());
   }
   return undefined;
+}
+
+function overlayProviderBindings<Result extends ReturnType<typeof projectExecutionEnvironments>>(
+  result: Result,
+  bindings: ExecutionEnvironmentLifecycleBindingProjection[]
+) {
+  const byEnvironment = new Map(bindings
+    .filter((binding): binding is typeof binding & { environmentId: string } => Boolean(binding.environmentId))
+    .map((binding) => [binding.environmentId, binding]));
+  return {
+    ...result,
+    environments: result.environments.map((environment) => {
+      const binding = byEnvironment.get(environment.id);
+      if (!binding) return environment;
+      const normalized = binding.lifecycle.normalized;
+      return {
+        ...environment,
+        providerLifecycle: binding.lifecycle,
+        supportedLifecycleActions: normalized === 'deleted'
+          ? []
+          : normalized === 'stopped'
+            ? ['start', 'delete']
+            : normalized === 'running'
+              ? ['stop']
+              : ['status']
+      };
+    })
+  };
 }
 
 export function projectExecutionEnvironments(
