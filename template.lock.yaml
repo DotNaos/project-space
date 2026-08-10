@@ -36,7 +36,6 @@ addons:
     status: missing
 capabilities:
   - connector-backed-development
-  - electron-legacy
   - git-actions
   - project-config
   - template-lock
@@ -70,10 +69,6 @@ platforms:
     status: disabled
     path: desktop/windows
     runtime: C# WebView2
-  desktopElectron:
-    status: custom
-    path: electron
-    runtime: Electron legacy shell
 features:
   projectConfig:
     status: enabled
@@ -96,9 +91,6 @@ features:
   terminalCommands:
     status: custom
     path: server/local-command-runner.ts
-  electronLegacy:
-    status: custom
-    path: electron
   onePasswordEnvironments:
     status: missing
     path: docs/secrets.md

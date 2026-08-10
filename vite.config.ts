@@ -6,7 +6,6 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
-import electron from 'vite-plugin-electron/simple';
 
 import {
   createLocalProjectSpaceBackend,
@@ -195,7 +194,7 @@ function positiveInteger(value: string | null) {
   return Number.isSafeInteger(number) && number > 0 ? number : undefined;
 }
 
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ command }) => {
   if (
     command === 'serve' &&
     !process.env.PORTLESS_URL &&
@@ -215,25 +214,7 @@ export default defineConfig(({ command, mode }) => {
   plugins: [
     react(),
     tailwindcss(),
-    projectSpaceApiPlugin(),
-    mode === 'electron'
-      ? electron({
-          main: {
-            entry: 'electron/main/index.ts',
-            vite: {
-              build: {
-                outDir: 'dist-electron/main',
-                rollupOptions: {
-                  output: {
-                    entryFileNames: 'index.js'
-                  }
-                }
-              }
-            }
-          },
-          renderer: {}
-        })
-      : null
+    projectSpaceApiPlugin()
   ],
   resolve: {
     alias: {

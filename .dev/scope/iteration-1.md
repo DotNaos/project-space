@@ -13,7 +13,7 @@ This file describes the reduced MVP target for the current phase.
 
 ## Included In The MVP
 
-- Electron `main`, `preload`, and renderer separation
+- browser frontend and HTTP backend separation
 - typed domain model for project workflow and future extension points
 - single-project mock data for `project-space`
 - workflow explorer with Project -> Sprint -> Feature -> Task hierarchy
@@ -43,7 +43,7 @@ This file describes the reduced MVP target for the current phase.
 
 ## Exit Criteria
 
-- the app boots as a single-project desktop shell
+- the app boots as a single-project web workspace
 - the left side is a workflow explorer
 - the right side shows the selected node, worktree context, issue doc placeholder, and actions
 - the docs clearly separate long-term vision from the reduced MVP
