@@ -72,6 +72,30 @@ export interface CodexMachineTaskStartRequest {
   repositoryId?: string;
 }
 
+export interface CodexMachineTaskExistingRequest {
+  connectorId: string;
+  issue: number;
+  repositoryId: string;
+}
+
+export type CodexMachineTaskExistingResult =
+  | {
+      apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
+      state: 'missing';
+    }
+  | {
+      apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
+      message: string;
+      state: 'attention';
+    }
+  | {
+      action: 'continue' | 'open-running' | 'resolve';
+      apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
+      session?: CodexSessionReadResult['session'];
+      state: 'confirmed';
+      task: CodexMachineTaskIdentity;
+    };
+
 export interface CodexMachineTaskStartRecoveryResult {
   apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
   operationId: string;

@@ -22,6 +22,7 @@ export function useCodexSessionModels(
 ): CodexSessionModelSelection {
   const key = `${session.machineId}\u0000${session.threadId}`;
   const [state, setState] = useState<ModelState>(() => initialState(key, session.model));
+  const [retryRevision, setRetryRevision] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +79,7 @@ export function useCodexSessionModels(
     });
 
     return () => { cancelled = true; };
-  }, [enabled, key, session.cwd, session.machineId, session.model]);
+  }, [enabled, key, retryRevision, session.cwd, session.machineId, session.model]);
 
   if (state.key !== key) {
     return disabledSelection(key, session.model);
@@ -89,6 +90,7 @@ export function useCodexSessionModels(
     disabled: state.loading || state.models.length === 0,
     effort: state.effort,
     error: state.error,
+    loading: state.loading,
     models: state.models,
     onChange(value) {
       setState((current) => {
@@ -125,6 +127,9 @@ export function useCodexSessionModels(
         return { ...current, dirty: true, serviceTier, usesCatalogueDefault: false };
       });
     },
+    onRetry: state.error && enabled && session.cwd
+      ? () => setRetryRevision((revision) => revision + 1)
+      : undefined,
     override: state.dirty && selectedModel ? {
       ...(state.effort ? { effort: state.effort } : {}),
       model: state.value,

@@ -6,6 +6,10 @@ import type {
   CodexSessionRecord,
   CodexSessionStreamEvent
 } from '../src/shared/codex-sessions-api';
+import {
+  applyCodexActivityEvent,
+  mergeCodexSessionEvidence
+} from '../src/shared/codex-task-activity';
 import { canonicalJson } from './codex-sessions/canonical-json';
 
 export type CodexStoredOperationName =
@@ -60,6 +64,17 @@ export class CodexSessionsStore {
   }) {
     const run = async (client: DatabaseQueryClient) => {
       for (const session of input.sessions) {
+        const existing = await client.query<SnapshotRow>(
+          `select snapshot
+             from codex_session_snapshots
+            where owner_user_id = $1 and machine_id = $2 and thread_id = $3
+            for update`,
+          [input.userId, input.machineId, session.id]
+        );
+        const current = existing.rows[0]?.snapshot;
+        const reconciled = isSessionRecord(current)
+          ? mergeCodexSessionEvidence(current, session)
+          : session;
         await client.query(
           `insert into codex_session_snapshots (
              owner_user_id, machine_id, thread_id, snapshot, archived,
@@ -77,12 +92,12 @@ export class CodexSessionsStore {
           [
             input.userId,
             input.machineId,
-            session.id,
-            JSON.stringify(session),
-            session.archived,
-            session.loadedByProjectSpace,
-            session.status,
-            session.lastActivityAt,
+            reconciled.id,
+            JSON.stringify(reconciled),
+            reconciled.archived,
+            reconciled.loadedByProjectSpace,
+            reconciled.status,
+            reconciled.lastActivityAt,
             input.checkedAt
           ]
         );
@@ -118,6 +133,58 @@ export class CodexSessionsStore {
       [userId, machineId]
     );
     return result.rows.flatMap((row) => isSessionRecord(row.snapshot) ? [row.snapshot] : []);
+  }
+
+  async applyActivityEvent(input: {
+    event: CodexSessionStreamEvent;
+    machineId: string;
+    sequence: number;
+    threadId: string;
+    userId: string;
+  }) {
+    const run = async (client: DatabaseQueryClient) => {
+      const existing = await client.query<SnapshotRow>(
+        `select snapshot
+           from codex_session_snapshots
+          where owner_user_id = $1 and machine_id = $2 and thread_id = $3
+          for update`,
+        [input.userId, input.machineId, input.threadId]
+      );
+      const session = existing.rows[0]?.snapshot;
+      if (!isSessionRecord(session) || !session.activity) return;
+      if (
+        session.activity.eventSequence !== undefined
+        && input.sequence <= session.activity.eventSequence
+      ) return;
+      const activity = applyCodexActivityEvent(session.activity, input.event, input.sequence);
+      const next: CodexSessionRecord = {
+        ...session,
+        activity,
+        attention: activity.currentTurnState === 'waiting-for-approval'
+          ? 'approval'
+          : activity.currentTurnState === 'waiting-for-user'
+            ? 'input'
+            : undefined,
+        lastActivityAt: activity.lastEventAt,
+        status: activity.machineState === 'offline'
+          ? 'offline'
+          : activity.processState === 'failed'
+            ? 'unavailable'
+            : activity.conversationState === 'running' || activity.conversationState.startsWith('waiting-')
+              ? 'active'
+              : 'idle'
+      };
+      await client.query(
+        `update codex_session_snapshots
+            set snapshot = $4::jsonb,
+                status = $5,
+                last_activity_at = $6::timestamptz,
+                updated_at = now()
+          where owner_user_id = $1 and machine_id = $2 and thread_id = $3`,
+        [input.userId, input.machineId, input.threadId, JSON.stringify(next), next.status, next.lastActivityAt]
+      );
+    };
+    return this.client.transaction ? this.client.transaction(run) : run(this.client);
   }
 
   async reserveOperation(input: CodexStoredOperationInput): Promise<CodexStoredOperationReservation> {

@@ -68,6 +68,12 @@ export type CodexMachineTaskStartLookup =
     }
   | { kind: 'replayed'; result: CodexMachineTaskStartResult };
 
+export type CodexMachineTaskAssociationLookup =
+  | { kind: 'missing' }
+  | { kind: 'pending' }
+  | { kind: 'uncertain' }
+  | { kind: 'confirmed'; result: CodexMachineTaskStartResult };
+
 export interface CodexMachineTaskSendOperation {
   connectorId: string;
   durableOperations: boolean;
@@ -102,6 +108,12 @@ export interface CodexMachineTasksStore {
     operationId: string;
     userId: string;
   }): Promise<CodexMachineTaskStartLookup>;
+  findStart?(input: {
+    connectorId: string;
+    issue: number;
+    repositoryId: string;
+    userId: string;
+  }): Promise<CodexMachineTaskAssociationLookup>;
   releaseUncertainStart(input: {
     fingerprint: string;
     operationId: string;

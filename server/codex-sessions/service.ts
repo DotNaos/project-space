@@ -28,6 +28,10 @@ import type {
 } from '../codex-sessions-store';
 import { canonicalJson } from './canonical-json';
 import {
+  mergeCodexSessionEvidence,
+  withCodexInventoryFreshness
+} from '../../src/shared/codex-task-activity';
+import {
   codexSessionInspectionMatchesScope,
   withCodexSessionWriteCapability
 } from './task-access-evidence';
@@ -89,7 +93,7 @@ export type CodexSessionsServiceStore = Pick<
   | 'reconcileOperation'
   | 'reserveOperation'
   | 'saveInventory'
->;
+> & Partial<Pick<CodexSessionsStore, 'applyActivityEvent'>>;
 
 interface SessionScope extends CodexSessionsMachineScope {
   threadId: string;
@@ -153,21 +157,41 @@ export function createCodexSessionsService(options: {
         throw new CodexTransportUncertainError('The Codex task inventory expired before it could be verified.');
       }
       const inventory = asLiveCodexSessionInventory(localized.inventory);
+      const stored = new Map(
+        (await options.store.listInventory(machineScope.userId, machineScope.machineId))
+          .map((session) => [session.id, session])
+      );
+      const reconciled = {
+        ...inventory,
+        sessions: inventory.sessions.map((session) => mergeCodexSessionEvidence(
+          stored.get(session.id),
+          withCodexInventoryFreshness(session, {
+            checkedAt: inventory.checkedAt,
+            inventoryState: inventory.inventoryState,
+            online: inventory.machine.online
+          })
+        ))
+      };
       await options.store.saveInventory({
         ...machineScope,
-        checkedAt: inventory.checkedAt,
+        checkedAt: reconciled.checkedAt,
         completeInventory: true,
-        sessions: inventory.sessions
+        sessions: reconciled.sessions
       });
-      return filterCodexSessionInventory(inventory, request);
+      return filterCodexSessionInventory(reconciled, request);
     } catch (error) {
       if (!(error instanceof CodexTransportUnavailableError)) throw error;
       const machine = await offlineMachine(options.transport, machineScope);
       const sessions = await options.store.listInventory(machineScope.userId, machineScope.machineId);
-      return filterCodexSessionInventory(
-        asOfflineCodexSessionInventory(machine, sessions, now),
-        request
-      );
+      const offline = asOfflineCodexSessionInventory(machine, sessions, now);
+      return filterCodexSessionInventory({
+        ...offline,
+        sessions: offline.sessions.map((session) => withCodexInventoryFreshness(session, {
+          checkedAt: offline.checkedAt,
+          inventoryState: 'stale',
+          online: false
+        }))
+      }, request);
     }
   }
 
@@ -178,7 +202,17 @@ export function createCodexSessionsService(options: {
         await options.transport.read({ ...request, userId: sessionScope.userId }),
         sessionScope
       );
-      return withStreamCursor(result, await options.store.latestEventSequence(sessionScope));
+      const checkedAt = now().toISOString();
+      const previous = await storedRecord(options.store, sessionScope).catch(() => undefined);
+      const session = mergeCodexSessionEvidence(previous, withCodexInventoryFreshness(result.session, {
+        checkedAt,
+        inventoryState: 'live',
+        online: true
+      }));
+      return withStreamCursor(
+        { ...result, session },
+        await options.store.latestEventSequence(sessionScope)
+      );
     } catch (error) {
       if (error instanceof CodexThreadMissingError) {
         return withStreamCursor(
@@ -378,9 +412,17 @@ export function createCodexSessionsService(options: {
   async function publishEvent(actor: CodexSessionsActor, request: CodexSessionReadRequest, event: CodexSessionStreamEvent) {
     const sessionScope = { ...(await scope(actor, request.machineId)), threadId: required(request.threadId, 'threadId') };
     required(event.eventId, 'eventId');
-    const sequence = await options.store.appendEvent({ ...sessionScope, event });
+    const observedEvent = event.observedAt
+      ? event
+      : { ...event, observedAt: now().toISOString() };
+    const sequence = await options.store.appendEvent({ ...sessionScope, event: observedEvent });
+    await options.store.applyActivityEvent?.({
+      ...sessionScope,
+      event: observedEvent,
+      sequence
+    });
     for (const subscriber of subscribers.get(sessionKey(sessionScope)) ?? []) {
-      deliver(subscriber, event, sequence);
+      deliver(subscriber, observedEvent, sequence);
     }
     return true;
   }
@@ -440,9 +482,17 @@ export function createCodexSessionsService(options: {
     const deliverLiveEvent = (event: CodexSessionStreamEvent) => {
       delivery = delivery.then(async () => {
         required(event.eventId, 'eventId');
-        const sequence = await options.store.appendEvent({ ...sessionScope, event });
+        const observedEvent = event.observedAt
+          ? event
+          : { ...event, observedAt: now().toISOString() };
+        const sequence = await options.store.appendEvent({ ...sessionScope, event: observedEvent });
+        await options.store.applyActivityEvent?.({
+          ...sessionScope,
+          event: observedEvent,
+          sequence
+        });
         for (const subscriber of subscribers.get(sessionKey(sessionScope)) ?? []) {
-          deliver(subscriber, event, sequence);
+          deliver(subscriber, observedEvent, sequence);
         }
       }).catch((error) => {
         deliveryError = error;

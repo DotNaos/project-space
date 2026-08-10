@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Drawer, Popover } from '@heroui/react';
-import { Check, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronRight, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { ListBox, ListBoxItem, Select } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
@@ -19,7 +19,8 @@ export function CodexSessionModelSelect(selection: CodexSessionModelSelection) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const selected = selection.models.find((model) => model.model === selection.value);
-  const modelLabel = (selected?.displayName ?? selection.value) || 'Models unavailable';
+  const modelLabel = (selected?.displayName ?? selection.value)
+    || (selection.loading ? 'Loading models…' : 'Model catalogue unavailable');
   const summary = [
     selection.usesCatalogueDefault ? `Default: ${modelLabel}` : modelLabel,
     selection.effort ? settingLabel(selection.effort) : undefined
@@ -28,13 +29,15 @@ export function CodexSessionModelSelect(selection: CodexSessionModelSelection) {
   if (selection.disabled || selection.models.length === 0) {
     return (
       <button
-        aria-label="Codex model settings"
-        className="h-9 max-w-52 truncate rounded-full px-2.5 text-xs font-medium text-neutral-500"
-        disabled
+        aria-label={selection.onRetry ? 'Retry Codex model catalogue' : 'Codex model settings'}
+        className="inline-flex h-9 max-w-60 items-center gap-1.5 truncate rounded-full px-2.5 text-xs font-medium text-neutral-500 enabled:hover:bg-neutral-800 enabled:hover:text-neutral-200"
+        disabled={!selection.onRetry}
+        onClick={selection.onRetry}
         title={selection.error}
         type="button"
       >
-        {summary}
+        <span className="truncate">{summary}</span>
+        {selection.onRetry ? <RefreshCw className="size-3 shrink-0" /> : null}
       </button>
     );
   }

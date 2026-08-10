@@ -44,6 +44,7 @@ export interface CodexSessionsPageProps {
   ): Promise<void>;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
+  onSteerThread?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
   onSelectThread?(origin: CodexThreadOrigin): void;
   reading?: boolean;
   readBrowser?(request: CodexSessionReadRequest): Promise<CodexSessionBrowserResult>;
@@ -72,6 +73,7 @@ export function CodexSessionsPage({
   onPermissionProfileChange,
   onResolveApproval,
   onResolveUserInput,
+  onSteerThread,
   onSelectThread,
   reading = false,
   readBrowser,
@@ -147,6 +149,7 @@ export function CodexSessionsPage({
           onPermissionChange={onPermissionProfileChange}
           onResolveApproval={onResolveApproval}
           onResolveUserInput={onResolveUserInput}
+          onSteer={onSteerThread}
           session={selectedSession}
         />
       ) : (

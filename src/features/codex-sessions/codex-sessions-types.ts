@@ -2,7 +2,9 @@ import type {
   CodexConversationImageRecord,
   CodexConversationItemKind,
   CodexSessionPermissionProfile,
-  CodexSessionTokenUsage
+  CodexSessionTokenUsage,
+  CodexTaskActivitySnapshot,
+  CodexTaskIdentitySnapshot
 } from '@/shared/codex-sessions-api';
 
 export type CodexMachineStatus = 'connected' | 'offline' | 'unavailable';
@@ -34,6 +36,7 @@ export interface CodexMachine {
 }
 
 export interface CodexSession {
+  activity?: CodexTaskActivitySnapshot;
   attention?: 'approval' | 'input';
   cwd?: string;
   lastActivityAt: string;
@@ -46,6 +49,7 @@ export interface CodexSession {
   status: CodexSessionStatus;
   statusDetail?: string;
   stored: boolean;
+  taskIdentity?: CodexTaskIdentitySnapshot;
   threadId: string;
   title: string;
   tokenUsage?: CodexSessionTokenUsage;
