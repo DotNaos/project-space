@@ -110,6 +110,7 @@ export function CodexTaskWorkspace({
   onContinue,
   onInterrupt,
   onPermissionChange,
+  onSteer,
   onResolveApproval,
   onResolveUserInput,
   session
@@ -128,6 +129,7 @@ export function CodexTaskWorkspace({
   ): Promise<void> | void;
   onInterrupt?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onPermissionChange?(origin: CodexThreadOrigin, permissionProfileId: string): Promise<void>;
+  onSteer?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
   session: CodexSession;
@@ -201,6 +203,7 @@ export function CodexTaskWorkspace({
   );
   const chat = (
     <CodexConversationPane
+      activeTurnId={activeTurnId}
       conversation={conversation}
       historyState={historyState}
       historyStatusDetail={historyStatusDetail}
@@ -208,6 +211,7 @@ export function CodexTaskWorkspace({
       modelSelection={modelSelection}
       onContinue={onContinue}
       onPermissionChange={onPermissionChange}
+      onSteer={onSteer}
       session={session}
       showHeader={false}
       supplemental={decisions}

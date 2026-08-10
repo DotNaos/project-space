@@ -85,7 +85,7 @@ export function CodexSessionsControllerPage({
       now={inventoryObservedAt}
       onBackFromThread={onBackFromThread}
       onContinueThread={async (origin, message, settings) => {
-        try { await controller.continue(origin, message, settings); } catch { /* Controller exposes the error in page state. */ }
+        await controller.continue(origin, message, settings);
       }}
       onInterruptThread={async (origin, turnId) => {
         try { await controller.interrupt(origin, turnId); } catch { /* Controller exposes the error in page state. */ }
@@ -100,6 +100,9 @@ export function CodexSessionsControllerPage({
       }}
       onResolveUserInput={async (decision) => {
         try { await controller.resolveUserInput(decision); } catch { /* Keep every answer visible for retry. */ }
+      }}
+      onSteerThread={async (origin, message) => {
+        await controller.steer(origin, message);
       }}
       reading={state.reading}
       runtimeByMachineId={state.runtimeByMachineId}
