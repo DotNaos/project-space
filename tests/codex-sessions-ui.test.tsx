@@ -133,7 +133,7 @@ mock.module('@heroui/react', () => ({
 const { CodexSessionsPage } = await import(
   '../src/features/codex-sessions/codex-sessions-page'
 );
-const { CodexConversationPane } = await import(
+const { CodexConversationPane, shouldSubmitCodexComposer } = await import(
   '../src/features/codex-sessions/codex-conversation-pane'
 );
 const machine: CodexMachine = {
@@ -531,6 +531,55 @@ describe('Canonical Codex task page', () => {
     expect(html).toContain('aria-label="Continue this Codex session"');
     expect(html).toContain('aria-label="Send to this Codex session"');
     expect(html).toContain('rounded-full bg-neutral-100');
+  });
+
+  test('submits with Enter while preserving Shift+Enter and IME composition', () => {
+    expect(shouldSubmitCodexComposer({
+      isComposing: false,
+      key: 'Enter',
+      shiftKey: false
+    })).toBe(true);
+    expect(shouldSubmitCodexComposer({
+      isComposing: false,
+      key: 'Enter',
+      shiftKey: true
+    })).toBe(false);
+    expect(shouldSubmitCodexComposer({
+      isComposing: true,
+      key: 'Enter',
+      shiftKey: false
+    })).toBe(false);
+  });
+
+  test('keeps model settings selectable for the next turn while Codex is working', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={conversation}
+        machine={machine}
+        modelSelection={{
+          disabled: false,
+          models: [{
+            description: 'Best for everyday coding.',
+            displayName: 'GPT-5',
+            id: 'gpt-5',
+            isDefault: true,
+            model: 'gpt-5'
+          }],
+          onChange: () => {},
+          onEffortChange: () => {},
+          onServiceTierChange: () => {},
+          value: 'gpt-5'
+        }}
+        onContinue={() => {}}
+        session={activeSession}
+      />
+    );
+    const trigger = html.match(/<button[^>]*aria-label="Codex model settings"[^>]*>/)?.[0];
+
+    expect(trigger).toBeDefined();
+    expect(trigger).not.toContain('disabled');
+    expect(html).toContain('GPT-5');
+    expect(html).not.toContain('Models unavailable');
   });
 
   test('exposes advertised permission profiles in the full task composer', () => {

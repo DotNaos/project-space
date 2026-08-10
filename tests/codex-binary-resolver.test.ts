@@ -4,8 +4,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { resolveCodexBinary } from '../server/codex-sessions/binary-resolver';
+import { resolveCodexCliPath } from '../server/local-codex-client';
 
 describe('Codex binary discovery', () => {
+  test('uses the managed connector runtime for model catalogue discovery', async () => {
+    const connector = '/opt/project-space/releases/current/project-space-connector';
+    expect(await resolveCodexCliPath({
+      environment: {
+        PATH: '/usr/bin',
+        PROJECT_SPACE_INSTALL_SOURCE: 'managed'
+      },
+      executable: () => true,
+      platform: 'linux',
+      runtimeExecutable: connector,
+      validate: () => true
+    })).toBe('/opt/project-space/releases/current/codex');
+  });
+
   test('skips a present but broken PATH shim and reports no working binary', () => {
     const result = resolveCodexBinary({
       environment: { PATH: '/broken/bin' },
