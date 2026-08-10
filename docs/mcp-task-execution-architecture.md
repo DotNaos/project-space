@@ -93,7 +93,7 @@ new shared provider service and the canonical compute Environment identity.
 
 ## Current MCP surface
 
-The remote MCP currently exposes thirteen tools.
+The remote MCP exposes fifteen tools after WP1.
 
 ### Project and task discovery
 
@@ -111,6 +111,8 @@ The remote MCP currently exposes thirteen tools.
 
 ### Connector and Codex discovery
 
+- `list_execution_environments`
+- `get_execution_environment`
 - `list_machines`
 - `list_codex_tasks`
 - `read_codex_task`
@@ -120,11 +122,12 @@ The remote MCP currently exposes thirteen tools.
 - `start_codex_task`
 - `send_codex_message`
 
-These tools prove the remote OAuth, task-provider, connector, Codex session,
-and worktree path. They do not yet provide the complete task lifecycle because:
+These tools prove the remote OAuth, task-provider, canonical Environment,
+connector, Codex session, and worktree path. They do not yet provide the
+complete task lifecycle because:
 
-- `list_machines` presents a historical connector/machine projection instead
-  of the canonical compute inventory;
+- `list_machines` remains a deprecated historical connector/machine
+  compatibility projection;
 - `start_codex_task` is Codex- and GitHub-specific;
 - no structured handoff is stored;
 - no generic Task Execution identity exists;
@@ -218,15 +221,26 @@ interface TaskHandoff {
   constraints: string[];
   artifacts: HandoffArtifactRef[];
   requestedMode: 'plan' | 'implement' | 'review' | 'repair';
+  requestedPermissions: {
+    delivery: 'none' | 'pull_request';
+    network: 'none' | 'restricted' | 'open';
+    repository: 'read' | 'write';
+    task: 'read' | 'write';
+    workspace: 'read' | 'write';
+  };
   createdBy: ActorRef;
   createdAt: string;
 }
 ```
 
-Artifacts are stored references with media type, digest, size, authorization,
-and provenance. Browser clients must not provide arbitrary target-machine paths
-or unrestricted URLs. A design produced by Claude can therefore be handed to
-Codex as a verified artifact and exact handoff revision.
+Artifacts are owner-scoped stored bytes with media type, digest, size,
+authorization, verification time, and opaque client provenance. MCP clients
+may provide bounded inline UTF-8/base64 content or reuse an artifact from an
+already verified Handoff for the same Task. They cannot provide arbitrary
+target-machine paths or unrestricted URLs. A design produced by Claude can
+therefore be handed to Codex on another machine as a verified artifact and
+exact Handoff revision. Requested permissions remain a request; the Handoff is
+not an authorization grant.
 
 Changing a handoff creates a new revision. A running Task Execution retains the
 revision it started with unless an explicit `update_task_execution_handoff`
@@ -676,12 +690,14 @@ released the lease.
 
 #### `delete_execution_environment`
 
-Arguments: `environmentId`, `operationId`, optional evidence receipt.
+Arguments: `environmentId`, `operationId`.
 
-Destructive write scope. Requires proof that no execution, uncertain operation,
-unpublished branch, unreviewed change, or retained artifact depends on the
-Environment. Deletion never becomes an automatic retry after an uncertain
-response.
+Destructive write scope. WP2 proves that no execution or uncertain operation is
+active. The later Task Execution and Delivery work packages add proof for
+unpublished branches, unreviewed changes, and retained artifacts before the
+complete deletion policy is enabled. Deletion never becomes an automatic retry
+after an uncertain response. An evidence receipt remains deferred until Project
+Space has an authoritative verifier for those delivery and artifact dependencies.
 
 ### Agent runtime and authorization
 
@@ -718,8 +734,10 @@ Cancels only the exact active attempt. Write scope; idempotent.
 
 #### `create_task_handoff`
 
-Arguments: `taskId`, structured objective, context, decisions, acceptance
-criteria, constraints, artifact references, requested mode, and `operationId`.
+Arguments: a canonical provider Task locator, structured objective, context,
+decisions, acceptance criteria, constraints, bounded inline artifacts or
+verified prior-Handoff artifact references, requested mode, explicit requested
+permissions, and `operationId`.
 
 Returns an immutable handoff ID and revision. Write scope; idempotent for the
 same content fingerprint.
@@ -728,14 +746,15 @@ same content fingerprint.
 
 Arguments: `handoffId`, optional revision.
 
-Returns the sanitized immutable briefing and artifact metadata. Read-only.
+Returns the sanitized immutable briefing and verified artifact content directly
+over MCP. Read-only and owner-scoped.
 
 #### `update_task_execution_handoff`
 
 Arguments: `executionId`, `handoffId`, `revision`, `operationId`.
 
-Allowed only while the execution is not in an active turn, unless the executor
-supports an explicit steer operation. The transition is recorded in execution
+Allowed only before an executor is bound and while the execution remains in a
+safe pre-start state. The versioned transition is recorded in execution
 history. Write scope; idempotent.
 
 ### Task Execution
@@ -819,32 +838,38 @@ not delete audit, handoff, operation, workspace, or delivery evidence.
 
 ### Shell and repair
 
-#### `start_shell_command`
+#### `start_workspace_command`
 
 Arguments:
 
 ```ts
-interface StartShellCommandInput {
-  environmentId: string;
-  executionId?: string;
+interface StartWorkspaceCommandInput {
+  executionId: string;
   command: string;
-  scope?: 'workspace' | 'environment-recovery';
   timeoutSeconds?: number;
+  maxOutputBytes?: number;
   operationId: string;
 }
 ```
 
-The default `workspace` scope resolves the exact Runner Workspace from
+The command resolves the exact Runner Workspace from
 `executionId`; callers do not provide a raw working-directory path. The command
 runs asynchronously and returns a command ID.
 
-`environment-recovery` is a separate privileged path for repairing a sandbox
+#### `start_environment_recovery_command`
+
+Arguments: exact `environmentId`, command, bounded time/output, and
+`operationId`. The server then uses MCP elicitation to obtain explicit
+client-side user confirmation; a boolean supplied inside tool arguments is
+never trusted as approval.
+
+Environment recovery is a separate privileged path for repairing a sandbox
 when the normal connector is unavailable. It requires explicit approval,
 provider support, complete audit, a bounded lifetime, and an exact Environment.
 For Codespaces this may use the provider's authenticated recovery/SSH channel.
 It must not silently fall back to executing on the Project Space Hub.
 
-#### `get_shell_command`
+#### `get_workspace_command`
 
 Arguments: `commandId`, optional output cursor.
 
@@ -852,7 +877,7 @@ Returns queued/running/completed/failed/cancelled/uncertain state, exit code,
 bounded stdout/stderr chunks, truncation markers, timing, target evidence, and
 audit reference. Read-only.
 
-#### `cancel_shell_command`
+#### `cancel_workspace_command` and `cancel_environment_recovery_command`
 
 Arguments: `commandId`, `operationId`.
 
@@ -916,9 +941,10 @@ no durable cancellation, and no workspace identity.
 
 The replacement must enforce:
 
-1. The signed grant binds user, Environment, connector generation or provider
-   recovery channel, execution/workspace, command digest, scope, operation ID,
-   request ID, expiry, and maximum output/time.
+1. The signed grant binds user, Environment, connector generation,
+   execution/workspace, deterministic command ID, command digest, scope,
+   expiry, and maximum output/time. Provider recovery uses the separately
+   authorized and owner-bound provider channel.
 2. Grants are one-time and replay protected.
 3. Workspace scope executes under an OS-enforced workspace sandbox. String
    validation alone cannot stop `cd`, symlink, subprocess, or interpreter
@@ -999,7 +1025,8 @@ Disallowed states:
 
 The database needs durable records for:
 
-- `task_handoffs` and immutable `task_handoff_revisions`;
+- `task_handoffs`, immutable `task_handoff_revisions`, artifact metadata, and
+  owner-scoped verified artifact blobs;
 - `task_executions`;
 - `task_execution_events` with monotonic cursors;
 - `task_execution_bindings` for agent-specific identities;
@@ -1007,13 +1034,33 @@ The database needs durable records for:
 - `execution_operations` with fingerprint, result, and reconciliation state;
 - `environment_provider_bindings` for provider resource identity and lifecycle;
 - `agent_authorization_operations`;
-- `shell_commands` and output cursors;
+- `workspace_commands` and output cursors;
 - `task_delivery_evidence` and exact revision relationships;
 - `capacity_leases`.
 
 Sensitive provider or agent credentials stay in their existing protected stores
 or on the target Environment. These tables store opaque references and
 sanitized evidence only.
+
+### Task execution retention and archive policy
+
+- Handoff revisions and artifact metadata are append-only. Archiving a Handoff
+  removes it from normal selection but never changes a revision already used by
+  an execution.
+- A Task Execution may be archived only after it reaches `completed`, `failed`,
+  or `cancelled`. Its events, exact handoff revision, executor binding, workspace
+  metadata, and source relationships remain available as audit history.
+- Completed or blocked operation-ledger results are retained for 30 days after
+  their last transition and may then be pruned in bounded batches. Reserved,
+  dispatched, confirmed-in-progress, and uncertain operations are never removed
+  by age alone; they must reconcile first so expiry cannot permit duplicate work.
+- Capacity leases expire automatically after at most 24 hours unless renewed.
+  Released and expired lease records remain audit evidence; only one active
+  lease may exist for an owner and Environment.
+- These storage tables contain opaque artifact references and sanitized results,
+  not credentials, device codes, transcripts, raw workspace paths, or
+  unrestricted URLs. Rows use restrictive foreign keys rather than cascading
+  deletion.
 
 ## Provider and executor extension boundaries
 
@@ -1064,9 +1111,9 @@ modify neutral task or environment records.
 
 ### WP0 — stabilize shared Codespaces runtime
 
-Owner dependency: Issue #456 / PR #529. The checked items below are present in
-PR #529 revision `f4ae9ea`; they are not production evidence until that revision
-is approved, merged, deployed, and verified.
+Owner dependency: Issue #456 / PR #529. The shared Codespaces runtime contract
+and subsequent fixes are merged and production-delivered. The final item remains
+open until the real production UI-to-Codespace-to-ChatGPT-to-PR proof completes.
 
 - [x] Keep `src/shared/github-codespace-runner-api.ts` UI-independent.
 - [x] Keep `server/github-codespace-runner/service.ts` pure and reusable.
@@ -1080,75 +1127,75 @@ is approved, merged, deployed, and verified.
 
 ### WP1 — expose canonical compute inventory through MCP
 
-- [ ] Add `list_execution_environments` and `get_execution_environment`.
-- [ ] Return Platform, optional Host, Environment, connector association,
+- [x] Add `list_execution_environments` and `get_execution_environment`.
+- [x] Return Platform, optional Host, Environment, connector association,
       resources, lifecycle evidence, runtime, authorization, and capacity.
-- [ ] Sanitize provider and connector identity data for remote clients.
-- [ ] Add `environmentId` to current Codex compatibility tools.
-- [ ] Deprecate `list_machines` without removing it.
-- [ ] Test hostless Codespaces, nested WSL/devbox, multiple connectors, stale
+- [x] Sanitize provider and connector identity data for remote clients.
+- [x] Add `environmentId` to current Codex compatibility tools.
+- [x] Deprecate `list_machines` without removing it.
+- [x] Test hostless Codespaces, nested WSL/devbox, multiple connectors, stale
       connector generation, conflict, unresolved, and not-applicable Host state.
 
 ### WP2 — add Environment lifecycle MCP tools
 
-- [ ] Add provision, start, stop, and delete tools.
-- [ ] Route GitHub Codespaces through the shared PR #529 configured runtime.
-- [ ] Persist provider binding and operation results.
-- [ ] Normalize lifecycle while retaining provider-native evidence.
-- [ ] Reconcile uncertain create/start/stop/delete responses.
-- [ ] Enforce no-active-execution stop/delete gates.
-- [ ] Add Codespaces OAuth scope and provider reauthorization results to MCP.
+- [x] Add provision, start, stop, and delete tools.
+- [x] Route GitHub Codespaces through the shared PR #529 configured runtime.
+- [x] Persist provider binding and operation results.
+- [x] Normalize lifecycle while retaining provider-native evidence.
+- [x] Reconcile uncertain create/start/stop/delete responses.
+- [x] Enforce no-active-execution stop/delete gates.
+- [x] Add Codespaces OAuth scope and provider reauthorization results to MCP.
 
 ### WP3 — add agent runtime and authorization tools
 
-- [ ] Expose agent runtime/status by `environmentId`.
-- [ ] Expose start/status/cancel for Codex device authorization.
-- [ ] Return verification URL and user code without credentials.
-- [ ] Poll `account/read` for actual readiness.
-- [ ] Reject API-key fallback in managed Environments.
-- [ ] Test fresh, already-ready, denied, cancelled, expired, connector restart,
+- [x] Expose agent runtime/status by `environmentId`.
+- [x] Expose start/status/cancel for Codex device authorization.
+- [x] Return verification URL and user code without credentials.
+- [x] Poll `account/read` for actual readiness.
+- [x] Reject API-key fallback in managed Environments.
+- [x] Test fresh, already-ready, denied, cancelled, expired, connector restart,
       and ambiguous login outcomes.
 
 ### WP4 — introduce Handoff and Task Execution storage
 
-- [ ] Add immutable Handoff revisions and artifact references.
-- [ ] Add neutral Task Execution identity and event cursor.
-- [ ] Move Codex thread identity under executor binding.
-- [ ] Store exact Environment, connector generation, workspace, handoff revision,
+- [x] Add immutable Handoff revisions and artifact references.
+- [x] Add neutral Task Execution identity and event cursor.
+- [x] Move Codex thread identity under executor binding.
+- [x] Store exact Environment, connector generation, workspace, handoff revision,
       task, repository, branch, and commit relationships.
-- [ ] Add a durable operation ledger and capacity lease.
-- [ ] Define retention and archive policy.
+- [x] Add a durable operation ledger and capacity lease.
+- [x] Define retention and archive policy.
 
 ### WP5 — implement generic execution MCP tools
 
-- [ ] Add start/list/get/wait/message/cancel/archive.
-- [ ] Add exact approval and input response tools.
-- [ ] Make normal start own environment start, readiness, authorization block,
+- [x] Add start/list/get/wait/message/cancel/archive.
+- [x] Add exact approval and input response tools.
+- [x] Make normal start own environment start, readiness, authorization block,
       worktree preparation, and executor start.
-- [ ] Preserve current `start_codex_task`, `read_codex_task`,
+- [x] Preserve current `start_codex_task`, `read_codex_task`,
       `send_codex_message`, and `list_codex_tasks` as aliases.
-- [ ] Add a client-independent structured result schema and pagination.
+- [x] Add a client-independent structured result schema and pagination.
 
 ### WP6 — structured cross-orchestrator handoff
 
-- [ ] Add create/get/update-execution-handoff tools.
-- [ ] Support referenced designs, documents, screenshots, and decisions.
-- [ ] Verify artifact digest, access, size, and provenance.
-- [ ] Make a Claude-produced design consumable by Codex without local-path
+- [x] Add create/get/update-execution-handoff tools.
+- [x] Support referenced designs, documents, screenshots, and decisions.
+- [x] Verify artifact digest, access, size, and provenance.
+- [x] Make a Claude-produced design consumable by Codex without local-path
       assumptions.
-- [ ] Record explicit mode and permissions separately from descriptive context.
+- [x] Record explicit mode and permissions separately from descriptive context.
 
 ### WP7 — safe shell and recovery
 
-- [ ] Replace direct MCP exposure of legacy `terminal.run` with asynchronous
+- [x] Replace direct MCP exposure of legacy `terminal.run` with asynchronous
       command storage and signed grants.
-- [ ] Add workspace-scoped start/get/cancel tools.
-- [ ] Resolve cwd through execution/workspace identity, not a browser path.
-- [ ] Run with a sanitized environment and OS-enforced workspace isolation.
-- [ ] Add output cursors, limits, cancellation, audit, and uncertainty.
-- [ ] Add a separately approved provider recovery path for a broken Codespace
+- [x] Add workspace-scoped start/get/cancel tools.
+- [x] Resolve cwd through execution/workspace identity, not a browser path.
+- [x] Run with a sanitized environment and OS-enforced workspace isolation.
+- [x] Add output cursors, limits, cancellation, audit, and uncertainty.
+- [x] Add a separately approved provider recovery path for a broken Codespace
       connector.
-- [ ] Prove commands never run on the Hub as fallback.
+- [x] Prove commands never run on the Hub as fallback.
 
 ### WP8 — pull-request delivery and completion
 

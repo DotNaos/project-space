@@ -3,6 +3,7 @@ import type {
   CodexMachineTaskStartResult
 } from '../../src/shared/codex-machine-tasks-api';
 import type { DatabaseQueryClient } from '../database/client';
+import { executionEnvironmentAdmissionLock } from '../execution-environment-lifecycle/store';
 import type {
   CodexMachineTaskStartOperation,
   CodexMachineTaskStartPayload,
@@ -117,6 +118,10 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
 
   async reserveStart(operation: CodexMachineTaskStartOperation) {
     const run = async (client: DatabaseQueryClient) => {
+      if (!await acquireExecutionEnvironmentAdmission(client, {
+        environmentId: operation.physicalMachineId,
+        userId: operation.userId
+      })) return { kind: 'fenced' } as const;
       const insertedAssociation = await client.query<{ association_key: string }>(
          `insert into codex_machine_task_starts (
            owner_user_id, association_key, dispatch_operation_id,
@@ -204,6 +209,10 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
 
   async reserveSend(operation: CodexMachineTaskSendOperation) {
     const run = async (client: DatabaseQueryClient) => {
+      if (!await acquireExecutionEnvironmentAdmission(client, {
+        connectorId: operation.connectorId,
+        userId: operation.userId
+      })) return { kind: 'fenced' } as const;
       const inserted = await client.query<{ operation_id: string }>(
         `insert into codex_machine_task_sends (
            owner_user_id, operation_id, connector_id, thread_id,
@@ -331,6 +340,49 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       throw new Error('Codex task send reservation was not updated.');
     }
   }
+}
+
+async function acquireExecutionEnvironmentAdmission(
+  client: DatabaseQueryClient,
+  input: { connectorId?: string; environmentId?: string; userId: string }
+) {
+  const binding = await client.query<{ environment_id: string }>(
+    input.environmentId
+      ? `select environment_id::text
+           from environment_provider_bindings
+          where owner_user_id = $1 and environment_id::text = $2
+          limit 1`
+      : `select binding.environment_id::text
+           from connector_compute_environments association
+           join environment_provider_bindings binding
+             on binding.owner_user_id = association.owner_user_id
+            and binding.environment_id = association.environment_id
+          where association.owner_user_id = $1 and association.connector_id = $2
+          limit 1`,
+    [input.userId, input.environmentId ?? input.connectorId]
+  );
+  const environmentId = binding.rows[0]?.environment_id;
+  if (!environmentId) return true;
+  await client.query('select pg_advisory_xact_lock(hashtext($1))', [
+    executionEnvironmentAdmissionLock(input.userId, environmentId)
+  ]);
+  const lifecycle = await client.query<{ admitted: boolean }>(
+    `select binding.lifecycle_state = 'running' and not exists (
+       select 1 from environment_lifecycle_operations operation
+        where operation.owner_user_id = binding.owner_user_id
+          and operation.environment_id = binding.environment_id
+          and operation.action in ('stop', 'delete')
+          and (
+            operation.state = 'dispatching'
+            or (operation.state = 'uncertain' and operation.dispatch_attempted)
+          )
+     ) as admitted
+       from environment_provider_bindings binding
+      where binding.owner_user_id = $1 and binding.environment_id = $2::uuid
+      limit 1`,
+    [input.userId, environmentId]
+  );
+  return lifecycle.rows[0]?.admitted === true;
 }
 
 function isStartResult(value: unknown): value is CodexMachineTaskStartResult {

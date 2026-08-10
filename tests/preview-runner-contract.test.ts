@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -148,6 +148,9 @@ printf '%s\\n' '{"state":"open","base":{"ref":"main","repo":{"full_name":"DotNao
     ));
     expect(persisted).toEqual(receipt);
     expect(persisted.message).toContain('existing Previews were untouched');
+    expect((await stat(join(root, 'state/project-space-preview'))).mode & 0o777).toBe(0o755);
+    expect((await stat(join(root, 'state/project-space-preview/pr-263'))).mode & 0o777).toBe(0o755);
+    expect((await stat(join(root, 'state/project-space-preview/pr-263/blocked.json'))).mode & 0o777).toBe(0o644);
 
     const status = runRunner({
       repository: 'DotNaos/project-space',
@@ -319,6 +322,8 @@ printf '%s\n' "{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_n
       'utf8'
     ));
     expect(persisted).toEqual(tombstone);
+    expect((await stat(join(root, 'state/project-space-preview/pr-263'))).mode & 0o777).toBe(0o755);
+    expect((await stat(join(root, 'state/project-space-preview/pr-263/tombstone.json'))).mode & 0o777).toBe(0o644);
   });
 
   test('destroy accepts only the canonical central Preview fallback after local resources are absent', async () => {

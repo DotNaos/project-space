@@ -10,6 +10,7 @@ import {
   type CodexChatRuntime,
   type CodexChatStreamEmitter
 } from './local-codex-app-server-client';
+import { resolveCodexBinary } from './codex-sessions/binary-resolver';
 import type {
   CodexChatRequest,
   CodexChatResult,
@@ -24,28 +25,17 @@ function resolveCodexHome() {
   return process.env.CODEX_HOME?.trim() || join(homedir(), '.codex');
 }
 
-async function resolveCodexCliPath() {
-  const candidates = [
-    process.env.PROJECT_SPACE_CODEX_CLI,
-    '/Applications/Codex.app/Contents/Resources/codex',
-    '/Applications/ChatGPT.app/Contents/Resources/codex',
-    join(homedir(), 'Applications', 'Codex.app', 'Contents', 'Resources', 'codex'),
-    join(homedir(), 'Applications', 'ChatGPT.app', 'Contents', 'Resources', 'codex')
-  ].filter((path): path is string => Boolean(path));
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  try {
-    const output = await runCommand('zsh', ['-lc', 'command -v codex']);
-
-    return output.stdout.trim() || undefined;
-  } catch {
-    return undefined;
-  }
+export async function resolveCodexCliPath(
+  options: Parameters<typeof resolveCodexBinary>[0] = {}
+) {
+  const environment = options.environment ?? process.env;
+  const legacyOverride = environment.PROJECT_SPACE_CODEX_CLI?.trim();
+  return resolveCodexBinary({
+    ...options,
+    environment: legacyOverride && !environment.PROJECT_CODEX_CLI_PATH
+      ? { ...environment, PROJECT_CODEX_CLI_PATH: legacyOverride }
+      : environment
+  }).path;
 }
 
 async function isAppServerReachable(origin?: string) {

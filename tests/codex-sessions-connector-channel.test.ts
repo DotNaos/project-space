@@ -115,6 +115,17 @@ describe('Codex sessions connector channel', () => {
         operation: 'read' as const,
         result: {
           openedReadOnly: true as const,
+          pendingRequests: [{
+            eventId: 'attention-one',
+            questions: [{
+              choices: [{ label: 'Continue', value: 'Continue' }],
+              id: 'choice',
+              prompt: 'Proceed?'
+            }],
+            requestId: 's:request-input',
+            turnId: 'turn-one',
+            type: 'user-input-requested' as const
+          }],
           permissionProfileId: ':default',
           permissionProfiles: [
             { allowed: true, description: 'Default permissions', id: ':default' }
@@ -157,6 +168,9 @@ describe('Codex sessions connector channel', () => {
     const invalid = structuredClone(result);
     invalid.result.result.tokenUsage.total.totalTokens = -1;
     expect(isBoundCodexSessionsResult(invalid)).toBe(false);
+    const invalidAttention = structuredClone(result);
+    invalidAttention.result.result.pendingRequests[0]!.questions[0]!.id = '../unsafe';
+    expect(isBoundCodexSessionsResult(invalidAttention)).toBe(false);
   });
 
   test('round-trips a near-limit browser frame inside the 2 MiB connector envelope', () => {

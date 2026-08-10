@@ -10,7 +10,40 @@ import {
 
 export const projectSpaceMcpReadScope = 'project-space:read';
 export const projectSpaceMcpWriteScope = 'project-space:write';
-export const projectSpaceMcpScopes = [projectSpaceMcpReadScope, projectSpaceMcpWriteScope] as const;
+export const projectSpaceMcpEnvironmentManageScope =
+  'project-space:environment.manage';
+export const projectSpaceMcpEnvironmentDeleteScope =
+  'project-space:environment.delete';
+export const projectSpaceMcpAgentAuthorizeScope =
+  'project-space:agent.authorize';
+export const projectSpaceMcpExecutionWriteScope =
+  'project-space:execution.write';
+export const projectSpaceMcpExecutionApproveScope =
+  'project-space:execution.approve';
+export const projectSpaceMcpTaskWriteScope =
+  'project-space:task.write';
+export const projectSpaceMcpShellWorkspaceScope =
+  'project-space:shell.workspace';
+export const projectSpaceMcpShellRecoveryScope =
+  'project-space:shell.recovery';
+export const projectSpaceMcpDefaultScopes = [
+  projectSpaceMcpReadScope,
+  projectSpaceMcpWriteScope
+] as const;
+export const projectSpaceMcpSupportedScopes = [
+  ...projectSpaceMcpDefaultScopes,
+  projectSpaceMcpAgentAuthorizeScope,
+  projectSpaceMcpExecutionApproveScope,
+  projectSpaceMcpExecutionWriteScope,
+  projectSpaceMcpTaskWriteScope,
+  projectSpaceMcpShellWorkspaceScope,
+  projectSpaceMcpShellRecoveryScope,
+  projectSpaceMcpEnvironmentManageScope,
+  projectSpaceMcpEnvironmentDeleteScope
+] as const;
+
+/** @deprecated Prefer the explicit default or supported scope collection. */
+export const projectSpaceMcpScopes = projectSpaceMcpSupportedScopes;
 
 const authorizationLifetimeMs = 10 * 60_000;
 const accessTokenLifetimeMs = 60 * 60_000;

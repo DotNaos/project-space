@@ -1,12 +1,14 @@
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
 import {
   registerLocalConnectorDevServerExecutor,
-  registerLocalConnectorWorktreeActionExecutor
+  registerLocalConnectorWorktreeActionExecutor,
+  registerLocalWorkspaceCommandExecutor
 } from './connector-command-hub';
 import type { ConnectorDevServerAdapter } from './connector-dev-server-contract';
 import { createLocalDevServerAdapter } from './local-dev-server-adapter';
 import type { ConnectorWorktreeActionAdapter } from './connector-worktree-action-contract';
 import { createLocalWorktreeActionAdapter } from './local-worktree-action-adapter';
+import { createLocalWorkspaceCommandAdapter } from './workspace-command/local-adapter';
 import { runTerminalCommand } from './local-command-runner';
 import { loadConnectorProjectDiscovery } from './connector-discovery';
 import { getRegisteredConnectorDiscovery } from './connector-hub';
@@ -184,6 +186,7 @@ const baseConnectorCommandCapabilities = [
   'worktree.materialize',
   'worktree.setup.inspect',
   'worktree.setup.run',
+  'workspace.commands.v1',
   'terminal.run',
   'runtime.restart',
   'runtime.stop',
@@ -236,6 +239,7 @@ export function createLocalProjectSpaceBackend(
 ): LocalProjectSpaceBackend {
   const devServerAdapter = createLocalDevServerAdapter();
   const worktreeActionAdapter = createLocalWorktreeActionAdapter();
+  const workspaceCommandAdapter = createLocalWorkspaceCommandAdapter();
   const loadConnectorOverview = () => loadConnectorOverviewForMachine(options.connectorMachineId);
   const connectorRuntime = createConfiguredConnectorRuntime({ loadOverview: loadConnectorOverview });
   const registeredLocalMachines = new Set<string>();
@@ -244,6 +248,7 @@ export function createLocalProjectSpaceBackend(
     if (!registeredLocalMachines.has(machineId)) {
       registerLocalConnectorDevServerExecutor(machineId, devServerAdapter);
       registerLocalConnectorWorktreeActionExecutor(machineId, worktreeActionAdapter);
+      registerLocalWorkspaceCommandExecutor(machineId, workspaceCommandAdapter);
       registeredLocalMachines.add(machineId);
     }
   }

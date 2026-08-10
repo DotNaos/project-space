@@ -40,10 +40,15 @@ import {
   createConfiguredMachinePowerHandler
 } from './machine-power/configured-runtime';
 import {
-  createConfiguredCodexAuthorizationHandler
+  createConfiguredCodexAuthorizationHandler,
+  createConfiguredCodexAuthorizationRuntime
 } from './codex-authorization/configured-runtime';
+import { createConfiguredAgentRuntime } from './agent-authorization/configured-runtime';
 import { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
 import { createConfiguredGitHubCodespaceRunnerRuntime } from './github-codespace-runner/configured-runtime';
+import {
+  createConfiguredExecutionEnvironmentLifecycle
+} from './execution-environment-lifecycle/configured-runtime';
 import { createConfiguredRoadmapCliHandler } from './roadmap/roadmap-cli-runtime';
 import {
   createConfiguredProjectCatalogCliHandler
@@ -53,6 +58,8 @@ import {
   type PreviewDocsProxyDependencies
 } from './preview-docs-proxy';
 import { createProjectSpaceMcpHandler } from './project-space-mcp';
+import { createConfiguredTaskExecutionService } from './task-execution/configured-runtime';
+import { createConfiguredWorkspaceCommandService } from './workspace-command/configured-runtime';
 import { observeHttpRequest } from './http-observability';
 import {
   projectSpaceLogger,
@@ -116,21 +123,88 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
-  const projectSpaceMcp = createProjectSpaceMcpHandler({
-    backend,
-    createRuntime: () => createConfiguredCodexMachineTasksRuntime({
+  let mcpCodexRuntime: ReturnType<typeof createConfiguredCodexMachineTasksRuntime> | undefined;
+  const getMcpCodexRuntime = () => (
+    mcpCodexRuntime ??= createConfiguredCodexMachineTasksRuntime({
       attachLeases: codexAttachLeases,
       backend: rawBackend,
       machineConnection: options.machineConnectionRuntime
-    }),
+    }).catch((error) => {
+      mcpCodexRuntime = undefined;
+      throw error;
+    })
+  );
+  const githubCodespaceRunnerRuntime = createConfiguredGitHubCodespaceRunnerRuntime({
+    backend: rawBackend
+  });
+  const codexAuthorizationRuntime = createConfiguredCodexAuthorizationRuntime({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
+  let mcpAgentRuntime: ReturnType<typeof createConfiguredAgentRuntime> | undefined;
+  const getMcpAgentRuntime = () => (
+    mcpAgentRuntime ??= createConfiguredAgentRuntime({
+      authorization: codexAuthorizationRuntime,
+      backend
+    }).catch((error) => {
+      mcpAgentRuntime = undefined;
+      throw error;
+    })
+  );
+  let mcpEnvironmentLifecycle: ReturnType<
+    typeof createConfiguredExecutionEnvironmentLifecycle
+  > | undefined;
+  const getMcpEnvironmentLifecycle = () => (
+    mcpEnvironmentLifecycle ??= createConfiguredExecutionEnvironmentLifecycle({
+      backend,
+      createCodexRuntime: getMcpCodexRuntime,
+      githubCodespaceRunnerRuntime
+    }).catch((error) => {
+      mcpEnvironmentLifecycle = undefined;
+      throw error;
+    })
+  );
+  let mcpTaskExecutions: ReturnType<typeof createConfiguredTaskExecutionService> | undefined;
+  const getMcpTaskExecutions = () => (
+    mcpTaskExecutions ??= Promise.all([
+      getMcpAgentRuntime(),
+      getMcpCodexRuntime(),
+      getMcpEnvironmentLifecycle()
+    ]).then(([agentRuntime, codex, environmentLifecycle]) => (
+      createConfiguredTaskExecutionService({
+        agentRuntime,
+        backend,
+        codex,
+        environmentLifecycle
+      })
+    )).catch((error) => {
+      mcpTaskExecutions = undefined;
+      throw error;
+    })
+  );
+  let mcpWorkspaceCommands: ReturnType<typeof createConfiguredWorkspaceCommandService> | undefined;
+  const getMcpWorkspaceCommands = () => (
+    mcpWorkspaceCommands ??= createConfiguredWorkspaceCommandService({
+      backend,
+      githubCodespaceRunnerRuntime
+    }).catch((error) => {
+      mcpWorkspaceCommands = undefined;
+      throw error;
+    })
+  );
+  const projectSpaceMcp = createProjectSpaceMcpHandler({
+    backend,
+    createAgentRuntime: getMcpAgentRuntime,
+    createEnvironmentLifecycle: getMcpEnvironmentLifecycle,
+    createTaskExecutions: getMcpTaskExecutions,
+    createWorkspaceCommands: getMcpWorkspaceCommands,
+    createRuntime: getMcpCodexRuntime,
     logger
   });
   const codexAuthorization = createConfiguredCodexAuthorizationHandler({
     backend: rawBackend,
-    machineConnection: options.machineConnectionRuntime
-  });
-  const githubCodespaceRunnerRuntime = createConfiguredGitHubCodespaceRunnerRuntime({
-    backend: rawBackend
+    machineConnection: options.machineConnectionRuntime,
+    runtime: codexAuthorizationRuntime
   });
   const githubCodespaceRunner = createGitHubCodespaceRunnerHttpHandler({
     runtime: githubCodespaceRunnerRuntime

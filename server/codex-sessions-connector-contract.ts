@@ -310,7 +310,7 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
   if ('message' in payload && (typeof payload.message !== 'string' || payload.message.length > 16_000)) {
     return false;
   }
-  if (JSON.stringify(payload).length > 24_000) return false;
+  if (JSON.stringify(payload).length > 1_100_000) return false;
   switch (operation) {
     case 'daemon':
       return hasOnlyKeys(payload, ['machineId', 'operation', 'operationId']) &&
@@ -415,10 +415,10 @@ function boundedPayload(operation: CodexSessionsConnectorOperation, payload: Rec
         'answers', 'machineId', 'operationId', 'requestId', 'threadId', 'turnId'
       ]) && boundedIdentifier(payload.threadId, 128) && boundedIdentifier(payload.turnId, 128) &&
         boundedIdentifier(payload.requestId, 256) && boundedIdentifier(payload.operationId, 128) &&
-        Array.isArray(payload.answers) && payload.answers.length > 0 && payload.answers.length <= 32 &&
+        Array.isArray(payload.answers) && payload.answers.length > 0 && payload.answers.length <= 50 &&
         payload.answers.every((answer) => isRecord(answer) &&
-          hasOnlyKeys(answer, ['questionId', 'value']) && boundedIdentifier(answer.questionId, 128) &&
-          typeof answer.value === 'string' && answer.value.length > 0 && answer.value.length <= 4_000);
+          hasOnlyKeys(answer, ['questionId', 'value']) && boundedIdentifier(answer.questionId, 256) &&
+          typeof answer.value === 'string' && answer.value.length > 0 && answer.value.length <= 20_000);
   }
 }
 

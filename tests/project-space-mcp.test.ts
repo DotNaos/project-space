@@ -4,8 +4,14 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
+import type { AgentRuntimeService } from '../server/agent-authorization/service';
 import type { ConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
+import { computeInventoryFromConnectors } from '../server/compute-inventory';
+import type {
+  ExecutionEnvironmentLifecycleService
+} from '../server/execution-environment-lifecycle/service';
 import { observeHttpRequest } from '../server/http-observability';
 import {
   createProjectSpaceLogger,
@@ -13,7 +19,10 @@ import {
   type ProjectSpaceLogRecord
 } from '../server/observability';
 import { createProjectSpaceMcpHandler } from '../server/project-space-mcp';
+import type { LoadMcpComputeInventory } from '../server/project-space-mcp/compute-environments';
 import { MemoryProjectSpaceMcpOAuthStore } from '../server/project-space-mcp-oauth-store';
+import type { TaskExecutionService } from '../server/task-execution/service';
+import type { WorkspaceCommandService } from '../server/workspace-command/service';
 
 const originalAuthDisabled = process.env.PROJECT_SPACE_AUTH_DISABLED;
 const originalPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
@@ -40,6 +49,19 @@ function backend() {
         machines: [{
           connector: {
             capabilities: ['codex.machine-tasks.v1'],
+            daemon: {
+              authenticated: true,
+              checkedAt: '2026-08-07T00:00:00.000Z',
+              cliVersion: '0.1.0',
+              compatible: true,
+              installed: true,
+              paired: false,
+              reachable: true,
+              remoteControlEnabled: false,
+              remoteControlState: 'disabled' as const,
+              running: true,
+              state: 'ready' as const
+            },
             installCommand: '',
             status: 'online' as const
           },
@@ -269,21 +291,229 @@ function runtime(calls: Array<{ kind: string; request: unknown; userId: string }
   } as unknown as ConfiguredCodexMachineTasksRuntime;
 }
 
+function environmentLifecycle(
+  calls: Array<{ kind: string; request: unknown; userId: string }>
+): ExecutionEnvironmentLifecycleService {
+  const result = (action: 'delete' | 'provision' | 'start' | 'status' | 'stop', operationId: string) => ({
+    action,
+    apiVersion: 1 as const,
+    lifecycle: {
+      normalized: action === 'delete' ? 'deleted' as const : 'running' as const,
+      observedAt: '2026-08-07T00:00:00.000Z'
+    },
+    message: 'Lifecycle test result.',
+    operationId,
+    provider: { kind: 'github_codespaces' as const },
+    reconciliation: { checkedAt: '2026-08-07T00:00:00.000Z', state: 'confirmed' as const }
+  });
+  return {
+    async delete(actor, request) {
+      calls.push({ kind: 'environment-delete', request, userId: actor.userId });
+      return result('delete', request.operationId);
+    },
+    async list() { return []; },
+    async provision(actor, request) {
+      calls.push({ kind: 'environment-provision', request, userId: actor.userId });
+      return result('provision', request.operationId);
+    },
+    async start(actor, request) {
+      calls.push({ kind: 'environment-start', request, userId: actor.userId });
+      return result('start', request.operationId);
+    },
+    async status(_actor, _environmentId) { return result('status', 'status:test'); },
+    async stop(actor, request) {
+      calls.push({ kind: 'environment-stop', request, userId: actor.userId });
+      return result('stop', request.operationId);
+    }
+  };
+}
+
+function agentRuntime(
+  calls: Array<{ kind: string; request: unknown; userId: string }>
+): AgentRuntimeService {
+  return {
+    async authorize(action, actor, request) {
+      calls.push({ kind: `agent-${action}`, request, userId: actor.userId });
+      return {
+        action,
+        agent: request.agent,
+        apiVersion: 1,
+        checkedAt: '2026-08-07T00:00:00.000Z',
+        environmentId: request.environmentId,
+        message: 'Agent authorization test result.',
+        operationId: request.operationId,
+        state: action === 'start' ? 'pending' : action === 'cancel' ? 'cancelled' : 'ready'
+      };
+    },
+    async status(actor, request) {
+      calls.push({ kind: 'agent-status', request, userId: actor.userId });
+      return {
+        agent: request.agent,
+        apiVersion: 1,
+        environmentId: request.environmentId,
+        message: 'Agent status test result.',
+        runtime: {
+          authorization: { state: 'ready' },
+          capabilities: ['codex.runtime.v1'],
+          checkedAt: '2026-08-07T00:00:00.000Z',
+          state: 'ready'
+        }
+      };
+    }
+  };
+}
+
+function taskExecutionRuntime(
+  calls: Array<{ kind: string; request: unknown; userId: string }>
+): TaskExecutionService {
+  const handoff = {
+    acceptanceCriteria: ['The implementation matches the approved design.'],
+    artifacts: [],
+    constraints: ['Do not depend on a local filesystem path.'],
+    context: 'The design was produced by another orchestrator.',
+    createdAt: '2026-08-09T00:00:00.000Z',
+    createdBy: { id: 'mcp:test-client', kind: 'orchestrator' as const },
+    decisions: ['Transfer the complete design through Project Space.'],
+    handoffId: '33333333-3333-4333-8333-333333333333',
+    objective: 'Implement the verified cross-machine design.',
+    requestedMode: 'implement' as const,
+    requestedPermissions: {
+      delivery: 'pull_request' as const,
+      network: 'restricted' as const,
+      repository: 'write' as const,
+      task: 'write' as const,
+      workspace: 'write' as const
+    },
+    revision: 1,
+    taskId: 'github:DotNaos/project-space:548'
+  };
+  const execution = {
+    agent: 'codex' as const,
+    createdAt: '2026-08-09T00:00:00.000Z',
+    environmentId: '11111111-1111-4111-8111-111111111111',
+    executor: { externalId: '22222222-2222-4222-8222-222222222222' },
+    handoff: { id: '33333333-3333-4333-8333-333333333333', revision: 1 },
+    id: '44444444-4444-4444-8444-444444444444',
+    source: {
+      branch: 'issue-548-task-execution', commit: 'a'.repeat(40), provider: 'github' as const,
+      providerTaskId: '548', repositoryId: '480',
+      taskId: 'github:DotNaos/project-space:548'
+    },
+    state: 'running' as const,
+    updatedAt: '2026-08-09T00:00:00.000Z',
+    version: 4
+  };
+  const result = (operationId?: string) => ({
+    apiVersion: 1 as const,
+    events: [],
+    execution,
+    message: 'Task Execution is running.',
+    ...(operationId ? { operationId } : {})
+  });
+  const record = (kind: string, actor: { userId: string }, request: unknown) => {
+    calls.push({ kind, request, userId: actor.userId });
+    return result((request as { operationId?: string }).operationId);
+  };
+  return {
+    archive: async (actor, request) => record('execution-archive', actor, request),
+    cancel: async (actor, request) => record('execution-cancel', actor, request),
+    createHandoff: async (actor, request) => {
+      calls.push({ kind: 'handoff-create', request, userId: actor.userId });
+      return {
+        apiVersion: 1,
+        handoff,
+        message: 'Task Handoff revision created.',
+        operationId: request.operationId
+      };
+    },
+    get: async (actor, request) => record('execution-get', actor, request),
+    getHandoff: async (actor, request) => {
+      calls.push({ kind: 'handoff-get', request, userId: actor.userId });
+      return { apiVersion: 1, handoff, message: 'Task Handoff revision loaded.' };
+    },
+    list: async (actor, request) => {
+      calls.push({ kind: 'execution-list', request, userId: actor.userId });
+      return { apiVersion: 1, executions: [execution] };
+    },
+    readByExecutor: async (actor, _agent, externalId, afterCursor, limit) => {
+      calls.push({
+        kind: 'execution-read-by-executor',
+        request: { afterCursor, externalId, limit },
+        userId: actor.userId
+      });
+      return externalId === execution.executor.externalId ? result() : undefined;
+    },
+    respondApproval: async (actor, request) => record('execution-approval', actor, request),
+    respondInput: async (actor, request) => record('execution-input', actor, request),
+    send: async (actor, request) => record('execution-send', actor, request),
+    start: async (actor, request) => record('execution-start', actor, request),
+    updateHandoff: async (actor, request) => {
+      calls.push({ kind: 'handoff-update', request, userId: actor.userId });
+      return {
+        apiVersion: 1,
+        execution,
+        message: 'Task Execution Handoff updated.',
+        operationId: request.operationId,
+        state: 'updated'
+      };
+    },
+    wait: async (actor, request) => {
+      calls.push({ kind: 'execution-wait', request, userId: actor.userId });
+      return { apiVersion: 1, executions: [result()], timedOut: false };
+    }
+  };
+}
+
 async function startMcp(
   calls: Array<{ kind: string; request: unknown; userId: string }>,
   options: Parameters<typeof createProjectSpaceMcpHandler>[0]['oauth'] = {},
   dependencies: {
     backend?: ReturnType<typeof backend>;
+    agentRuntime?: AgentRuntimeService;
+    environmentLifecycle?: ExecutionEnvironmentLifecycleService;
+    loadComputeInventory?: LoadMcpComputeInventory;
     logger?: ProjectSpaceLogger;
+    taskExecutions?: TaskExecutionService;
+    workspaceCommands?: WorkspaceCommandService;
   } = {}
 ) {
   const logger = dependencies.logger ?? createProjectSpaceLogger({
     environment: { NODE_ENV: 'test' },
     sink: { write() {} }
   });
+  const selectedBackend = dependencies.backend ?? backend();
   const handler = createProjectSpaceMcpHandler({
-    backend: dependencies.backend ?? backend(),
+    backend: selectedBackend,
+    createAgentRuntime: async () => dependencies.agentRuntime ?? agentRuntime(calls),
+    createEnvironmentLifecycle: async () => (
+      dependencies.environmentLifecycle ?? environmentLifecycle(calls)
+    ),
+    ...(dependencies.taskExecutions ? {
+      createTaskExecutions: async () => dependencies.taskExecutions!
+    } : {}),
+    createWorkspaceCommands: async () => dependencies.workspaceCommands ?? {
+      cancelRecovery: async (actor, request) => workspaceResult(calls, 'workspace-cancel-recovery', actor, request),
+      cancelWorkspace: async (actor, request) => workspaceResult(calls, 'workspace-cancel', actor, request),
+      get: async (actor, request) => workspaceResult(calls, 'workspace-get', actor, request),
+      startRecovery: async (actor, request, approve) => {
+        if (!await approve()) throw new Error('Recovery command was not approved.');
+        return workspaceResult(calls, 'workspace-start-recovery', actor, request);
+      },
+      startWorkspace: async (actor, request) => workspaceResult(calls, 'workspace-start', actor, request)
+    },
     createRuntime: async () => runtime(calls),
+    loadComputeInventory: dependencies.loadComputeInventory ?? (async () => {
+      const overview = await selectedBackend.getConnectorOverview();
+      return {
+        checkedAt: '2026-08-07T00:00:00.000Z',
+        connectors: overview.machines,
+        generations: new Map([['connector-wsl', 1]]),
+        snapshot: computeInventoryFromConnectors({
+          connectors: overview.machines,
+          physicalMachines: overview.physicalMachines
+        })
+      };
+    }),
     logger,
     oauth: options
   });
@@ -300,6 +530,30 @@ async function startMcp(
   return `http://127.0.0.1:${address.port}`;
 }
 
+function workspaceResult(
+  calls: Array<{ kind: string; request: unknown; userId: string }>,
+  kind: string,
+  actor: { userId: string },
+  request: unknown
+) {
+  calls.push({ kind, request, userId: actor.userId });
+  const input = request as { commandId?: string; environmentId?: string; executionId?: string };
+  return {
+    apiVersion: 1 as const,
+    auditId: '55555555-5555-4555-8555-555555555555',
+    checkedAt: '2026-08-09T00:00:00.000Z',
+    commandId: input.commandId ?? '66666666-6666-4666-8666-666666666666',
+    environmentId: input.environmentId ?? '11111111-1111-4111-8111-111111111111',
+    ...(input.executionId ? { executionId: input.executionId } : {}),
+    message: 'The workspace command is running.', nextCursor: 0, output: [],
+    scope: kind.includes('recovery') ? 'environment_recovery' as const : 'workspace' as const,
+    state: 'running' as const,
+    target: { kind: kind.includes('recovery')
+      ? 'github_codespace_recovery' as const : 'connector_workspace' as const },
+    truncated: false
+  };
+}
+
 describe('Project Space remote MCP server', () => {
   test('publishes Project Space OAuth metadata and a Bearer challenge', async () => {
     delete process.env.PROJECT_SPACE_AUTH_DISABLED;
@@ -310,7 +564,18 @@ describe('Project Space remote MCP server', () => {
     expect(await metadataResponse.json()).toMatchObject({
       authorization_servers: [`${origin}/`],
       resource: `${origin}/mcp`,
-      scopes_supported: ['project-space:read', 'project-space:write']
+      scopes_supported: [
+        'project-space:read',
+        'project-space:write',
+        'project-space:agent.authorize',
+        'project-space:execution.approve',
+        'project-space:execution.write',
+        'project-space:task.write',
+        'project-space:shell.workspace',
+        'project-space:shell.recovery',
+        'project-space:environment.manage',
+        'project-space:environment.delete'
+      ]
     });
 
     const authorizationMetadata = await fetch(`${origin}/.well-known/oauth-authorization-server`);
@@ -385,6 +650,33 @@ describe('Project Space remote MCP server', () => {
       'update_task',
       'list_task_comments',
       'add_task_comment',
+      'list_execution_environments',
+      'get_execution_environment',
+      'get_agent_status',
+      'start_agent_authorization',
+      'get_agent_authorization',
+      'cancel_agent_authorization',
+      'provision_execution_environment',
+      'start_execution_environment',
+      'stop_execution_environment',
+      'delete_execution_environment',
+      'create_task_handoff',
+      'get_task_handoff',
+      'update_task_execution_handoff',
+      'start_task_execution',
+      'list_task_executions',
+      'get_task_execution',
+      'wait_task_execution',
+      'send_task_execution_message',
+      'respond_task_execution_approval',
+      'respond_task_execution_input',
+      'cancel_task_execution',
+      'archive_task_execution',
+      'start_workspace_command',
+      'get_workspace_command',
+      'cancel_workspace_command',
+      'start_environment_recovery_command',
+      'cancel_environment_recovery_command',
       'list_machines',
       'list_codex_tasks',
       'read_codex_task',
@@ -398,11 +690,104 @@ describe('Project Space remote MCP server', () => {
       annotations: { readOnlyHint: true },
     });
 
+    const workspaceCommand = await client.callTool({
+      name: 'start_workspace_command',
+      arguments: {
+        command: 'git status --short',
+        executionId: '44444444-4444-4444-8444-444444444444',
+        operationId: 'workspace:start:integration'
+      }
+    });
+    expect(workspaceCommand.structuredContent).toMatchObject({
+      result: { scope: 'workspace', state: 'running' }
+    });
+    expect(calls).toContainEqual({
+      kind: 'workspace-start',
+      request: {
+        command: 'git status --short',
+        executionId: '44444444-4444-4444-8444-444444444444',
+        operationId: 'workspace:start:integration'
+      },
+      userId: 'local-development-user'
+    });
+
     const projects = await client.callTool({ name: 'list_projects', arguments: {} });
     expect(projects.structuredContent).toMatchObject({
       result: { projects: [{ id: 'project-space', machineId: 'connector-wsl' }] }
     });
     expect(JSON.stringify(projects)).not.toContain('/not-exposed');
+
+    const environmentInventory = await client.callTool({
+      name: 'list_execution_environments',
+      arguments: { capability: 'codex.machine-tasks.v1', kind: 'native_linux', platform: 'local' }
+    });
+    expect(environmentInventory.structuredContent).toMatchObject({
+      result: {
+        environments: [{
+          agentRuntimes: [{
+            authorization: { state: 'ready' },
+            kind: 'codex',
+            state: 'ready'
+          }],
+          capacity: { state: 'unknown' },
+          hostAssociation: { host: { name: 'Remote PC' }, resolution: 'manual' },
+          kind: 'native_linux',
+          name: 'WSL',
+          platform: { kind: 'local' },
+          providerLifecycle: { state: 'unmanaged' },
+          readiness: {
+            pendingEvidence: ['workspace', 'capacity'],
+            selectedConnectorId: 'connector-wsl',
+            state: 'checking'
+          }
+        }],
+        inventoryState: 'ready'
+      }
+    });
+    expect(JSON.stringify(environmentInventory)).not.toContain('/not-exposed');
+    const environmentId = (
+      environmentInventory.structuredContent as { result: { environments: Array<{ id: string }> } }
+    ).result.environments[0]!.id;
+    const exactEnvironment = await client.callTool({
+      name: 'get_execution_environment',
+      arguments: { environmentId }
+    });
+    expect(exactEnvironment.structuredContent).toMatchObject({
+      result: { environment: { id: environmentId, kind: 'native_linux' } }
+    });
+    const agentStatus = await client.callTool({
+      name: 'get_agent_status',
+      arguments: { agent: 'codex', environmentId }
+    });
+    expect(agentStatus.structuredContent).toMatchObject({
+      result: { agent: 'codex', environmentId, runtime: { authorization: { state: 'ready' } } }
+    });
+    const authorization = await client.callTool({
+      name: 'start_agent_authorization',
+      arguments: { agent: 'codex', environmentId, operationId: 'agent:authorization:test' }
+    });
+    expect(authorization.structuredContent).toMatchObject({
+      result: { action: 'start', environmentId, operationId: 'agent:authorization:test', state: 'pending' }
+    });
+    const missingEnvironment = await client.callTool({
+      name: 'get_execution_environment',
+      arguments: { environmentId: 'missing-environment' }
+    });
+    expect(missingEnvironment.isError).toBe(true);
+
+    const provisionedEnvironment = await client.callTool({
+      name: 'provision_execution_environment',
+      arguments: {
+        branch: 'task/480',
+        operationId: 'mcp:environment:provision:480',
+        provider: 'github_codespaces',
+        repositoryId: '480',
+        task: 480
+      }
+    });
+    expect(provisionedEnvironment.structuredContent).toMatchObject({
+      result: { action: 'provision', lifecycle: { normalized: 'running' } }
+    });
 
     const tasks = await client.callTool({
       name: 'list_tasks',
@@ -525,18 +910,19 @@ describe('Project Space remote MCP server', () => {
     await client.callTool({ name: 'list_codex_tasks', arguments: {} });
     const started = await client.callTool({
       name: 'start_codex_task',
-      arguments: { dryRun: true, task: 480, repositoryId: '480' }
+      arguments: { dryRun: true, environmentId, task: 480, repositoryId: '480' }
     });
     expect(started.isError).not.toBe(true);
-    expect(calls).toMatchObject([
+    const codexCalls = calls.filter(({ kind }) => ['list', 'start'].includes(kind));
+    expect(codexCalls).toMatchObject([
       { kind: 'list', userId: 'local-development-user' },
       {
         kind: 'start',
-        request: { dryRun: true, issue: 480, repositoryId: '480' },
+        request: { dryRun: true, environmentId, issue: 480, repositoryId: '480' },
         userId: 'local-development-user'
       }
     ]);
-    expect((calls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
+    expect((codexCalls[1]?.request as { operationId?: string }).operationId).toMatch(/^mcp:start:/);
 
     const confirmed = await client.callTool({
       name: 'start_codex_task',
@@ -559,6 +945,205 @@ describe('Project Space remote MCP server', () => {
       arguments: { repositoryId: '480', task: 480 }
     });
     expect(invalidUpdate.isError).toBe(true);
+  });
+
+  test('requires MCP client confirmation before a recovery command starts', async () => {
+    process.env.PROJECT_SPACE_AUTH_DISABLED = '1';
+    const calls: Array<{ kind: string; request: unknown; userId: string }> = [];
+    const origin = await startMcp(calls);
+    const client = new Client(
+      { name: 'project-space-elicitation-test', version: '1.0.0' },
+      { capabilities: { elicitation: {} } }
+    );
+    let prompt: unknown;
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      prompt = request.params;
+      return { action: 'accept', content: { approved: true } };
+    });
+    clients.push(client);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+
+    const result = await client.callTool({
+      name: 'start_environment_recovery_command',
+      arguments: {
+        command: 'project doctor --repair',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'recovery:start:integration'
+      }
+    });
+
+    expect(prompt).toMatchObject({
+      mode: 'form', requestedSchema: { required: ['approved'] }
+    });
+    expect(result.structuredContent).toMatchObject({
+      result: { scope: 'environment_recovery', state: 'running' }
+    });
+    expect(calls).toContainEqual({
+      kind: 'workspace-start-recovery',
+      request: {
+        command: 'project doctor --repair',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'recovery:start:integration'
+      },
+      userId: 'local-development-user'
+    });
+
+    const declining = new Client(
+      { name: 'project-space-decline-test', version: '1.0.0' },
+      { capabilities: { elicitation: {} } }
+    );
+    declining.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'decline' }));
+    clients.push(declining);
+    await declining.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+    const declined = await declining.callTool({
+      name: 'start_environment_recovery_command',
+      arguments: {
+        command: 'project doctor --repair',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'recovery:start:declined'
+      }
+    });
+    expect(declined.isError).toBe(true);
+    expect(calls.filter(({ kind }) => kind === 'workspace-start-recovery')).toHaveLength(1);
+  });
+
+  test('runs provider-neutral executions and maps known Codex aliases to them', async () => {
+    process.env.PROJECT_SPACE_AUTH_DISABLED = '1';
+    const calls: Array<{ kind: string; request: unknown; userId: string }> = [];
+    const taskExecutions = taskExecutionRuntime(calls);
+    const origin = await startMcp(calls, {}, { taskExecutions });
+    const client = new Client({ name: 'task-execution-test', version: '1.0.0' });
+    clients.push(client);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+
+    const listedTools = await client.listTools();
+    const startDefinition = listedTools.tools.find(({ name }) => name === 'start_task_execution');
+    expect(startDefinition).toMatchObject({
+      _meta: { securitySchemes: [{
+        scopes: ['project-space:read', 'project-space:write', 'project-space:execution.write'],
+        type: 'oauth2'
+      }] },
+      annotations: { idempotentHint: true, openWorldHint: true, readOnlyHint: false },
+      outputSchema: { properties: { result: expect.any(Object) }, required: ['result'] }
+    });
+
+    const createdHandoff = await client.callTool({
+      arguments: {
+        objective: 'Implement the verified cross-machine design.',
+        operationId: 'task-handoff:create:001',
+        requestedMode: 'implement',
+        requestedPermissions: {
+          delivery: 'pull_request', network: 'restricted', repository: 'write',
+          task: 'write', workspace: 'write'
+        },
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'create_task_handoff'
+    });
+    expect(createdHandoff.structuredContent).toMatchObject({
+      result: {
+        handoff: { handoffId: '33333333-3333-4333-8333-333333333333', revision: 1 },
+        operationId: 'task-handoff:create:001'
+      }
+    });
+    const loadedHandoff = await client.callTool({
+      arguments: { handoffId: '33333333-3333-4333-8333-333333333333', revision: 1 },
+      name: 'get_task_handoff'
+    });
+    expect(loadedHandoff.structuredContent).toMatchObject({
+      result: { handoff: { objective: 'Implement the verified cross-machine design.' } }
+    });
+    const updatedHandoff = await client.callTool({
+      arguments: {
+        executionId: '44444444-4444-4444-8444-444444444444',
+        handoffId: '33333333-3333-4333-8333-333333333333',
+        operationId: 'task-handoff:update:001',
+        revision: 1
+      },
+      name: 'update_task_execution_handoff'
+    });
+    expect(updatedHandoff.structuredContent).toMatchObject({
+      result: { operationId: 'task-handoff:update:001', state: 'updated' }
+    });
+
+    const started = await client.callTool({
+      arguments: {
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:start:001',
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'start_task_execution'
+    });
+    expect(started.structuredContent).toMatchObject({
+      result: {
+        apiVersion: 1,
+        execution: { id: '44444444-4444-4444-8444-444444444444', state: 'running' },
+        operationId: 'task-execution:start:001'
+      }
+    });
+
+    const aliasStart = await client.callTool({
+      arguments: {
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:alias:start',
+        repositoryId: '480',
+        task: 548
+      },
+      name: 'start_codex_task'
+    });
+    expect(aliasStart.structuredContent).toMatchObject({
+      result: { execution: { id: '44444444-4444-4444-8444-444444444444' } }
+    });
+
+    const aliasList = await client.callTool({ name: 'list_codex_tasks', arguments: {} });
+    expect(aliasList.structuredContent).toMatchObject({
+      result: {
+        executions: [{ id: '44444444-4444-4444-8444-444444444444' }],
+        results: [{ sessions: [{ id: '019f6d33-6aad-7302-a45e-bb7a33fc399c' }] }]
+      }
+    });
+    const searchedAliasList = await client.callTool({
+      name: 'list_codex_tasks', arguments: { search: 'issue-548' }
+    });
+    expect(searchedAliasList.structuredContent).toMatchObject({
+      result: { executions: [{ id: '44444444-4444-4444-8444-444444444444' }] }
+    });
+    const unmatchedAliasList = await client.callTool({
+      name: 'list_codex_tasks', arguments: { search: 'not-present' }
+    });
+    expect(unmatchedAliasList.structuredContent).toMatchObject({
+      result: { executions: [] }
+    });
+    const aliasRead = await client.callTool({
+      arguments: { threadId: '22222222-2222-4222-8222-222222222222' },
+      name: 'read_codex_task'
+    });
+    expect(aliasRead.structuredContent).toMatchObject({
+      result: { execution: { id: '44444444-4444-4444-8444-444444444444' } }
+    });
+    await client.callTool({
+      arguments: {
+        message: 'Continue.', operationId: 'task-execution:alias:send',
+        threadId: '22222222-2222-4222-8222-222222222222'
+      },
+      name: 'send_codex_message'
+    });
+
+    expect(calls.filter(({ kind }) => kind.startsWith('execution-'))).toMatchObject([
+      { kind: 'execution-start', userId: 'local-development-user' },
+      { kind: 'execution-start', userId: 'local-development-user' },
+      { kind: 'execution-list', userId: 'local-development-user' },
+      { kind: 'execution-list', userId: 'local-development-user' },
+      { kind: 'execution-list', userId: 'local-development-user' },
+      { kind: 'execution-read-by-executor', userId: 'local-development-user' },
+      { kind: 'execution-read-by-executor', userId: 'local-development-user' },
+      { kind: 'execution-send', userId: 'local-development-user' }
+    ]);
+    expect(calls.filter(({ kind }) => kind.startsWith('handoff-'))).toMatchObject([
+      { kind: 'handoff-create', userId: 'local-development-user' },
+      { kind: 'handoff-get', userId: 'local-development-user' },
+      { kind: 'handoff-update', userId: 'local-development-user' }
+    ]);
   });
 
   test('logs MCP tool failures with a client-visible request ID', async () => {
@@ -648,6 +1233,83 @@ describe('Project Space remote MCP server', () => {
     });
     expect(rejectedTaskWrite.isError).toBe(true);
     expect(rejectedTaskWrite._meta).toMatchObject({ 'mcp/www_authenticate': [expect.stringContaining('project-space:write')] });
+    const rejectedLifecycleWrite = await readOnlyClient.callTool({
+      arguments: {
+        branch: 'task/480',
+        operationId: 'mcp:environment:provision:480',
+        provider: 'github_codespaces',
+        repositoryId: '480',
+        task: 480
+      },
+      name: 'provision_execution_environment'
+    });
+    expect(rejectedLifecycleWrite._meta).toMatchObject({
+      'mcp/www_authenticate': [expect.stringContaining('project-space:environment.manage')]
+    });
+    expect(JSON.stringify(rejectedLifecycleWrite._meta)).not.toContain('project-space:environment.delete');
+    const rejectedAgentAuthorization = await readOnlyClient.callTool({
+      arguments: {
+        agent: 'codex',
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'agent:authorization:test'
+      },
+      name: 'start_agent_authorization'
+    });
+    expect(rejectedAgentAuthorization._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:agent.authorize"'
+      ]
+    });
+    const rejectedExecutionWrite = await readOnlyClient.callTool({
+      arguments: {
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:start:001',
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'start_task_execution'
+    });
+    expect(rejectedExecutionWrite._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:execution.write"'
+      ]
+    });
+    const rejectedHandoffWrite = await readOnlyClient.callTool({
+      arguments: {
+        objective: 'Create a verified design Handoff.',
+        operationId: 'task-handoff:create:oauth',
+        requestedMode: 'implement',
+        requestedPermissions: {
+          delivery: 'pull_request', network: 'restricted', repository: 'write',
+          task: 'write', workspace: 'write'
+        },
+        task: { number: 548, provider: 'github', repositoryId: '480' }
+      },
+      name: 'create_task_handoff'
+    });
+    expect(rejectedHandoffWrite._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:task.write"'
+      ]
+    });
+    const rejectedExecutionApproval = await readOnlyClient.callTool({
+      arguments: {
+        decision: 'allow-once',
+        executionId: '11111111-1111-4111-8111-111111111111',
+        operationId: 'task-execution:approval:001',
+        requestId: 'request-1',
+        turnId: 'turn-1'
+      },
+      name: 'respond_task_execution_approval'
+    });
+    expect(rejectedExecutionApproval._meta).toEqual({
+      'mcp/www_authenticate': [
+        `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", ` +
+        'scope="project-space:read project-space:write project-space:execution.approve"'
+      ]
+    });
 
     const unsafeRegistration = await fetch(`${origin}/register`, {
       body: JSON.stringify({
@@ -735,6 +1397,18 @@ describe('Project Space remote MCP server', () => {
     }));
     const projects = await mcpClient.callTool({ name: 'list_projects', arguments: {} });
     expect(projects.isError).not.toBe(true);
+
+    const widenedRefresh = await fetch(`${origin}/token`, {
+      body: new URLSearchParams({
+        client_id: client.client_id,
+        grant_type: 'refresh_token',
+        refresh_token: refreshed.refresh_token,
+        resource: `${origin}/mcp`,
+        scope: 'project-space:read project-space:execution.write'
+      }),
+      method: 'POST'
+    });
+    expect(widenedRefresh.status).toBe(400);
   });
 });
 

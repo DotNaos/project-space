@@ -66,6 +66,14 @@ const completedActivityIcon = {
 type ActivityItem = Extract<CodexConversationItem, { kind: 'activity' }>;
 type MessageConversationItem = Extract<CodexConversationItem, { kind: 'message' }>;
 
+export function shouldSubmitCodexComposer(input: {
+  isComposing: boolean;
+  key: string;
+  shiftKey: boolean;
+}) {
+  return input.key === 'Enter' && !input.shiftKey && !input.isComposing;
+}
+
 type ConversationSegment =
   | { item: MessageConversationItem; kind: 'message' }
   | { items: ActivityItem[]; kind: 'activity-run' };
@@ -474,6 +482,15 @@ export function CodexConversationPane({
             className="min-h-14 w-full flex-none px-1 py-0"
             disabled={Boolean(blockReason) || !canSubmit || sending}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (!shouldSubmitCodexComposer({
+                isComposing: event.nativeEvent.isComposing,
+                key: event.key,
+                shiftKey: event.shiftKey
+              })) return;
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }}
             placeholder={blockReason ?? 'Continue this session…'}
             value={draft}
           />
@@ -498,7 +515,7 @@ export function CodexConversationPane({
                 </span>
               )}
               <CodexSessionModelSelect
-                disabled={Boolean(blockReason) || sending || (modelSelection?.disabled ?? true)}
+                disabled={sending || (modelSelection?.disabled ?? true)}
                 effort={modelSelection?.effort}
                 error={modelSelection?.error}
                 models={modelSelection?.models ?? []}

@@ -169,6 +169,33 @@ describe('Codex sessions connector grants', () => {
     })).toThrow(expect.objectContaining({ code: 'binding-mismatch' }));
   });
 
+  test('carries all fifty bounded user-input answers in one signed command', () => {
+    const request = createCodexSessionsWireRequest({
+      generation: 7,
+      operation: 'input',
+      operationId: 'operation-input-fifty',
+      payload: {
+        answers: Array.from({ length: 50 }, (_, index) => ({
+          questionId: `question-${index + 1}`,
+          value: `answer-${index + 1}`
+        })),
+        machineId: 'machine-one',
+        operationId: 'operation-input-fifty',
+        requestId: 'request-fifty',
+        threadId,
+        turnId: 'turn-one'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-input-fifty', now: 1_000_000 });
+
+    expect(isCodexSessionsWireRequest(request)).toBe(true);
+    expect(verifyCodexSessionsWireRequest(request, 'input', keys.publicKey, {
+      expectedGeneration: 7,
+      expectedMachineId: 'machine-one',
+      now: 1_001_000
+    })).toEqual({ userId: 'user-owner' });
+  });
+
   test('accepts only one exact advertised permission profile setting', () => {
     const request = createCodexSessionsWireRequest({
       generation: 7,

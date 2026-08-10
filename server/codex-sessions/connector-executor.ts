@@ -1,5 +1,3 @@
-import type { KeyLike } from 'node:crypto';
-
 import type {
   CodexSessionApprovalRequest,
   CodexSessionBrowserRequest,
@@ -14,10 +12,7 @@ import type {
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
-import type {
-  CodexMachineTaskConnectorStartRequest,
-  CodexMachineTaskConnectorStartResult
-} from '../../src/shared/codex-machine-tasks-api';
+import type { CodexMachineTaskConnectorStartRequest } from '../../src/shared/codex-machine-tasks-api';
 import {
   CodexSessionsGrantReplayProtection,
   isCodexSessionsWireRequest,
@@ -27,7 +22,6 @@ import {
   type CodexSessionsWireResult
 } from '../codex-sessions-connector-contract';
 import type {
-  CodexStartTurnInput,
   CodexSteerTurnInput,
   CodexRpcId,
   CodexSessionEvent,
@@ -59,8 +53,7 @@ import {
 import { startTurnWithReadReconciliation } from './reconciled-turn-start';
 import {
   codexSessionRevision,
-  resolveCodexTaskLocation,
-  type CodexTaskLocationResolver
+  resolveCodexTaskLocation
 } from './task-access-evidence';
 import { readCodexBrowserSnapshot } from './browser-snapshot-reader';
 import type { LocalCodexTranscriptSource } from './transcript-reader';
@@ -70,43 +63,17 @@ import {
   operationResult,
   stringValue
 } from './connector-executor-helpers';
-
+import {
+  approvalMatchesPending,
+  type CodexPendingRequest,
+  pendingAttentionSnapshot
+} from './connector-attention';
+import type { CodexSessionsConnectorExecutorOptions } from './connector-executor-options';
+export type { CodexSessionsConnectorExecutorOptions } from './connector-executor-options';
 type ExecutableOperation = Exclude<
   CodexSessionsConnectorOperation,
   'attach' | 'authorization' | 'daemon' | 'stream'
 >;
-type PendingRequest = {
-  canAllow?: boolean;
-  method: string;
-  requestId: CodexRpcId;
-  threadId: string;
-  turnId?: string;
-};
-
-export interface CodexSessionsConnectorExecutorOptions {
-  expectedGeneration: number | (() => number);
-  expectedMachineId: string;
-  machineName: string;
-  manager: CodexSessionManager;
-  now?: () => number;
-  readBrowserSnapshot?: (
-    machineId: string,
-    threadId: string,
-    options?: { afterImageRevision?: string }
-  ) => Promise<CodexSessionBrowserResult>;
-  replayProtection?: CodexSessionsGrantReplayProtection;
-  resolveImageAttachments?: (attachmentIds: readonly string[]) => Promise<string[]>;
-  resolveTaskLocation?: CodexTaskLocationResolver;
-  startTask?(
-    request: CodexMachineTaskConnectorStartRequest,
-    context: { generation: number; userId: string }
-  ): Promise<CodexMachineTaskConnectorStartResult>;
-  startTurn?(input: CodexStartTurnInput): Promise<{ turn: { id: string } }>;
-  steerTurn?(input: CodexSteerTurnInput): Promise<{ turnId: string }>;
-  transcript?: LocalCodexTranscriptSource;
-  verificationKey: KeyLike;
-}
-
 export class CodexSessionsExecutorError extends Error {
   readonly code = 'codex_sessions_executor_rejected';
 
@@ -117,7 +84,7 @@ export class CodexSessionsExecutorError extends Error {
 }
 
 export class CodexSessionsConnectorExecutor {
-  private readonly pending = new Map<string, PendingRequest>();
+  private readonly pending = new Map<string, CodexPendingRequest>();
   private readonly presenter = new CodexPublicEventPresenter();
   private readonly replay: CodexSessionsGrantReplayProtection;
   private readonly subscribers = new Map<string, Set<(event: CodexSessionStreamEvent) => void>>();
@@ -386,13 +353,17 @@ export class CodexSessionsConnectorExecutor {
       .catch(() => undefined);
     const settings = manager.threadSettings?.(request.threadId);
     const tokenUsage = manager.threadTokenUsage?.(request.threadId);
+    const { attention, pendingRequests } = pendingAttentionSnapshot(
+      this.pending.values(), request.threadId
+    );
     return {
       openedReadOnly: true as const,
       ...(settings?.permissionProfileId
         ? { permissionProfileId: settings.permissionProfileId }
         : {}),
       ...(profiles ? { permissionProfiles: profiles.data } : {}),
-      session,
+      ...(pendingRequests.length > 0 ? { pendingRequests } : {}),
+      session: { ...session, ...(attention ? { attention } : {}) },
       ...(tokenUsage ? { tokenUsage } : {}),
       turns: history?.turns ?? presentCodexTurns(result.thread)
     };
@@ -570,6 +541,9 @@ export class CodexSessionsConnectorExecutor {
 
   private async approve(request: CodexSessionApprovalRequest) {
     const pending = this.requirePending(request.requestId, request.threadId, request.turnId);
+    if (!approvalMatchesPending(request, pending)) {
+      return operationResult(request, 'rejected', request.turnId);
+    }
     try {
       if (pending.method === 'item/permissions/requestApproval') {
         if (request.decision === 'allow-once' && pending.canAllow === false) {
@@ -628,6 +602,7 @@ export class CodexSessionsConnectorExecutor {
   }
 
   private handleEvent(event: CodexSessionEvent) {
+    const presented = this.presenter.present(event);
     if (event.kind === 'request' && event.requestId !== undefined) {
       const params = asRecord(event.params);
       const threadId = stringValue(params?.threadId);
@@ -639,6 +614,10 @@ export class CodexSessionsConnectorExecutor {
         this.pending.set(publicCodexRequestId(event.requestId), {
           ...(permission ? { canAllow: permission.complete } : {}),
           method: event.method,
+          ...(presented?.type === 'approval-requested' ||
+              presented?.type === 'user-input-requested'
+            ? { publicRequest: presented }
+            : {}),
           requestId: event.requestId,
           threadId,
           ...(turnId ? { turnId } : {})
@@ -652,7 +631,6 @@ export class CodexSessionsConnectorExecutor {
         this.pending.delete(publicCodexRequestId(requestId));
       }
     }
-    const presented = this.presenter.present(event);
     const threadId = eventThreadId(event);
     if (!presented || !threadId) return;
     for (const listener of this.subscribers.get(threadId) ?? []) listener(presented);

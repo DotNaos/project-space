@@ -55,6 +55,26 @@ import {
   computeEnvironmentIdentityResolutionMigrationId,
   computeEnvironmentIdentityResolutionMigrationSql
 } from './compute-environment-identity-resolution-migration';
+import {
+  environmentLifecycleMigrationId,
+  environmentLifecycleMigrationSql
+} from './environment-lifecycle-migration';
+import {
+  agentAuthorizationMigrationId,
+  agentAuthorizationMigrationSql
+} from './agent-authorization-migration';
+import {
+  taskExecutionMigrationId,
+  taskExecutionMigrationSql
+} from './task-execution-migration';
+import {
+  taskHandoffArtifactMigrationId,
+  taskHandoffArtifactMigrationSql
+} from './task-handoff-artifact-migration';
+import {
+  workspaceCommandMigrationId,
+  workspaceCommandMigrationSql
+} from './workspace-command-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -691,6 +711,26 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: computeEnvironmentIdentityResolutionMigrationId,
     sql: computeEnvironmentIdentityResolutionMigrationSql
+  },
+  {
+    id: environmentLifecycleMigrationId,
+    sql: environmentLifecycleMigrationSql
+  },
+  {
+    id: agentAuthorizationMigrationId,
+    sql: agentAuthorizationMigrationSql
+  },
+  {
+    id: taskExecutionMigrationId,
+    sql: taskExecutionMigrationSql
+  },
+  {
+    id: taskHandoffArtifactMigrationId,
+    sql: taskHandoffArtifactMigrationSql
+  },
+  {
+    id: workspaceCommandMigrationId,
+    sql: workspaceCommandMigrationSql
   }
 ];
 

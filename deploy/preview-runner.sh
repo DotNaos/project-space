@@ -76,7 +76,10 @@ prepare_identity() {
 
 prepare_directories() {
   install -d -m 700 "$RUNTIME_ROOT" "$LOCK_ROOT" "$runtime_dir"
-  install -d -m 2750 "$STATE_ROOT" "$state_dir"
+  # The production web container consumes this bounded, secret-free registry through a
+  # read-only bind mount. It does not share the runner's host group, so registry paths
+  # must be world-traversable while locks and runtime configuration remain private.
+  install -d -m 2755 "$STATE_ROOT" "$state_dir"
   : > "$lock_file"
   chmod 600 "$lock_file"
 }
@@ -145,7 +148,7 @@ atomic_json_write() {
   body=$2
   tmp=$(mktemp "${target}.tmp.XXXXXX")
   printf '%s\n' "$body" > "$tmp"
-  chmod 640 "$tmp"
+  chmod 644 "$tmp"
   mv -f -- "$tmp" "$target"
 }
 
@@ -523,7 +526,7 @@ destroy_preview() {
   rm -f -- "$runtime_file" "$state_dir/blocked.json"
   assert_local_resources_removed
   assert_route_removed
-  install -d -m 700 "$state_dir"
+  install -d -m 2755 "$state_dir"
   write_tombstone "$reason" "$last_requested" "$last_running"
   cat "$tombstone_file"
 }

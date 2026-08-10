@@ -1,25 +1,5 @@
 import type {
-  CodexChatRequest,
-  CodexChatStreamEvent,
-  CodexModelCatalogueRequest,
-  CodexModelCatalogueResult,
-  ConnectorProjectRegistryResult,
-  MachineFileSystemDirectoryRequest,
-  MachineFileSystemDirectoryResult,
-  MachineFileSystemFileRequest,
-  MachineFileSystemFileResult,
-  MachineFileSystemRequest,
-  MachineFileSystemRootResult,
-  MachineDirectoryCreateRequest,
-  MachineDirectoryDeleteRequest,
-  MachineDirectoryMutationResult,
-  MachineDirectoryRenameRequest,
-  MachineProjectWorktreesRequest,
-  MachineTerminalCommandRequest,
-  ProjectCliCommandRequest,
-  ProjectCliCommandResult,
-  ProjectWorktreeRecord,
-  TerminalCommandResult
+  ConnectorProjectRegistryResult
 } from '../src/shared/project-space-api';
 import {
   codexDaemonEvidenceIsConsistent,
@@ -30,212 +10,38 @@ import {
   isConnectorDevServerResult,
   isConnectorDevServerListResult,
   isConnectorDevServerListWireRequest,
-  isConnectorDevServerWireRequest,
-  type ConnectorDevServerResult,
-  type ConnectorDevServerListResult,
-  type ConnectorDevServerListWireRequest,
-  type ConnectorDevServerWireRequest
+  isConnectorDevServerWireRequest
 } from './connector-dev-server-contract';
 import {
   isConnectorWorktreeActionResult,
-  isConnectorWorktreeActionWireRequest,
-  type ConnectorWorktreeActionResult,
-  type ConnectorWorktreeActionWireRequest
+  isConnectorWorktreeActionWireRequest
 } from './connector-worktree-action-contract';
 import {
+  isWorkspaceCommandHubMessage,
+  isWorkspaceCommandMachineMessage
+} from './workspace-command/connector-protocol';
+import {
   isConnectorCodexHubMessage,
-  isConnectorCodexMachineMessage,
-  type ConnectorCodexHubMessage,
-  type ConnectorCodexMachineMessage
+  isConnectorCodexMachineMessage
 } from './connector-command-codex-protocol';
 import {
   isConnectorRuntimeHubCommandMessage,
   isConnectorRuntimeMachineCommandMessage,
-  isConnectorRuntimeMetadata,
-  type ConnectorRuntimeHubCommandMessage,
-  type ConnectorRuntimeMachineCommandMessage
+  isConnectorRuntimeMetadata
 } from './connector-runtime-command-routing';
 import {
   isConnectorRuntimeStopHubMessage,
-  isConnectorRuntimeStopMachineMessage,
-  type ConnectorRuntimeStopHubMessage,
-  type ConnectorRuntimeStopMachineMessage
+  isConnectorRuntimeStopMachineMessage
 } from './connector-runtime-stop-routing';
 import {
-  isConnectorRuntimeMaintenanceDecision,
-  type ConnectorRuntimeMaintenanceDecision
+  isConnectorRuntimeMaintenanceDecision
 } from './connector-runtime-registration-decision';
 import {
   isConnectorEnvironmentRecord,
   isConnectorExecutionScopeId
 } from './connector-topology-metadata';
-
-export type ConnectorHubMessage =
-  | ConnectorRuntimeHubCommandMessage
-  | ConnectorRuntimeStopHubMessage
-  | ConnectorCodexHubMessage
-  | {
-      payload: ConnectorProjectRegistryResult;
-      token: string;
-      type: 'connector.register';
-    }
-  | {
-      payload: ConnectorProjectRegistryResult;
-      type: 'connector.registry';
-    }
-  | {
-      id: string;
-      payload: CodexModelCatalogueResult;
-      type: 'codex.models.result';
-    }
-  | {
-      id: string;
-      payload: CodexChatStreamEvent;
-      type: 'codex.chat.event';
-    }
-  | {
-      id: string;
-      type: 'codex.chat.complete';
-    }
-  | {
-      id: string;
-      payload: ProjectCliCommandResult;
-      type: 'project-cli.result';
-    }
-  | {
-      id: string;
-      payload: ConnectorDevServerResult;
-      type: 'dev-server.inspect.result';
-    }
-  | {
-      id: string;
-      payload: ConnectorDevServerListResult;
-      type: 'dev-server.list.result';
-    }
-  | {
-      id: string;
-      payload: ConnectorDevServerResult;
-      type: 'dev-server.start.result';
-    }
-  | {
-      id: string;
-      payload: ConnectorDevServerResult;
-      type: 'dev-server.stop.result';
-    }
-  | {
-      id: string;
-      payload: ConnectorWorktreeActionResult;
-      type: 'worktree.action.result';
-    }
-  | {
-      id: string;
-      payload: TerminalCommandResult;
-      type: 'terminal.result';
-    }
-  | {
-      id: string;
-      payload: ProjectWorktreeRecord[];
-      type: 'worktrees.result';
-    }
-  | {
-      id: string;
-      payload: { message: string };
-      type: 'worktrees.error';
-    }
-  | {
-      id: string;
-      payload: MachineFileSystemRootResult;
-      type: 'filesystem.root.result';
-    }
-  | {
-      id: string;
-      payload: MachineFileSystemDirectoryResult;
-      type: 'filesystem.directory.result';
-    }
-  | {
-      id: string;
-      payload: MachineFileSystemFileResult;
-      type: 'filesystem.file.result';
-    }
-  | {
-      id: string;
-      payload: MachineDirectoryMutationResult;
-      type:
-        | 'filesystem.folder.create.result'
-        | 'filesystem.folder.rename.result'
-        | 'filesystem.folder.delete.result';
-    };
-
-export type ConnectorMachineMessage =
-  | {
-      generation: number;
-      maintenance?: ConnectorRuntimeMaintenanceDecision;
-      type: 'connector.registered';
-    }
-  | ConnectorRuntimeMachineCommandMessage
-  | ConnectorRuntimeStopMachineMessage
-  | ConnectorCodexMachineMessage
-  | { id: string; type: 'connector.command.cancel' }
-  | { id: string; payload: CodexModelCatalogueRequest; type: 'codex.models' }
-  | { id: string; payload: CodexChatRequest; type: 'codex.chat' }
-  | { id: string; payload: ProjectCliCommandRequest; type: 'project-cli.run' }
-  | {
-      id: string;
-      payload: ConnectorDevServerWireRequest;
-      type: 'dev-server.inspect';
-    }
-  | {
-      id: string;
-      payload: ConnectorDevServerListWireRequest;
-      type: 'dev-server.list';
-    }
-  | {
-      id: string;
-      payload: ConnectorDevServerWireRequest;
-      type: 'dev-server.start';
-    }
-  | {
-      id: string;
-      payload: ConnectorDevServerWireRequest;
-      type: 'dev-server.stop';
-    }
-  | {
-      id: string;
-      payload: ConnectorWorktreeActionWireRequest;
-      type: 'worktree.action';
-    }
-  | { id: string; payload: MachineTerminalCommandRequest; type: 'terminal.run' }
-  | {
-      id: string;
-      payload: MachineProjectWorktreesRequest;
-      type: 'worktrees.list';
-    }
-  | { id: string; payload: MachineFileSystemRequest; type: 'filesystem.root' }
-  | {
-      id: string;
-      payload: MachineFileSystemDirectoryRequest;
-      type: 'filesystem.directory';
-    }
-  | {
-      id: string;
-      payload: MachineFileSystemFileRequest;
-      type: 'filesystem.file';
-    }
-  | {
-      id: string;
-      payload: MachineDirectoryCreateRequest;
-      type: 'filesystem.folder.create';
-    }
-  | {
-      id: string;
-      payload: MachineDirectoryRenameRequest;
-      type: 'filesystem.folder.rename';
-    }
-  | {
-      id: string;
-      payload: MachineDirectoryDeleteRequest;
-      type: 'filesystem.folder.delete';
-    };
+export type { ConnectorHubMessage, ConnectorMachineMessage } from './connector-command-message-types';
+import type { ConnectorHubMessage, ConnectorMachineMessage } from './connector-command-message-types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -580,6 +386,7 @@ export function isConnectorHubMessage(value: unknown): value is ConnectorHubMess
   if (value.type === 'worktree.action.result') {
     return hasCommandId(value) && isConnectorWorktreeActionResult(value.payload);
   }
+  if (isWorkspaceCommandHubMessage(value)) return true;
   if (value.type === 'terminal.result') {
     return hasCommandId(value) && hasTerminalResult(value.payload);
   }
@@ -658,6 +465,7 @@ export function isConnectorMachineMessage(value: unknown): value is ConnectorMac
   if (value.type === 'worktree.action') {
     return isConnectorWorktreeActionWireRequest(value.payload);
   }
+  if (isWorkspaceCommandMachineMessage(value)) return true;
   if (
     value.type === 'dev-server.inspect' ||
     value.type === 'dev-server.start' ||

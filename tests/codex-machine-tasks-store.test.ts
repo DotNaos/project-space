@@ -7,9 +7,26 @@ import type { DatabaseQueryClient, DatabaseQueryResult } from '../server/databas
 class FakeDatabase implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   readonly responses: Array<DatabaseQueryResult<unknown>> = [];
+  environmentBindingId?: string;
+  environmentLifecycleState = 'running';
+  lifecycleBlocked = false;
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
+    if (sql.includes('as admitted')) {
+      return { rows: [{
+        admitted: this.environmentLifecycleState === 'running' && !this.lifecycleBlocked
+      }] } as DatabaseQueryResult<Row>;
+    }
+    if (sql.includes('from environment_provider_bindings') ||
+        sql.includes('join environment_provider_bindings')) {
+      return { rows: this.environmentBindingId
+        ? [{ environment_id: this.environmentBindingId }]
+        : [] } as DatabaseQueryResult<Row>;
+    }
+    if (sql.includes('pg_advisory_xact_lock')) {
+      return { rows: [] } as DatabaseQueryResult<Row>;
+    }
     return (this.responses.shift() ?? { rows: [] }) as DatabaseQueryResult<Row>;
   }
 
@@ -66,6 +83,28 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Codex machine-task durable start store', () => {
+  test('fences a start while its Environment is stopping or being deleted', async () => {
+    const database = new FakeDatabase();
+    database.environmentBindingId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
+    database.lifecycleBlocked = true;
+
+    expect(await new PostgresCodexMachineTasksStore(database).reserveStart(operation))
+      .toEqual({ kind: 'fenced' });
+    expect(database.calls.some(({ sql }) => sql.includes('insert into codex_machine_task_starts')))
+      .toBe(false);
+  });
+
+  test('fences a start unless its provider Environment is running', async () => {
+    const database = new FakeDatabase();
+    database.environmentBindingId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
+    database.environmentLifecycleState = 'stopped';
+
+    expect(await new PostgresCodexMachineTasksStore(database).reserveStart(operation))
+      .toEqual({ kind: 'fenced' });
+    expect(database.calls.some(({ sql }) => sql.includes('insert into codex_machine_task_starts')))
+      .toBe(false);
+  });
+
   test('releases an exact uncertain start and all of its operation aliases', async () => {
     const database = new FakeDatabase();
     database.responses.push(
@@ -314,5 +353,17 @@ describe('Codex machine-task durable send store', () => {
     expect(await new PostgresCodexMachineTasksStore(database).reserveSend(send)).toEqual({
       kind: 'fenced'
     });
+  });
+
+  test('fences a send unless its provider Environment is running', async () => {
+    const database = new FakeDatabase();
+    database.environmentBindingId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
+    database.environmentLifecycleState = 'stopping';
+
+    expect(await new PostgresCodexMachineTasksStore(database).reserveSend(send)).toEqual({
+      kind: 'fenced'
+    });
+    expect(database.calls.some(({ sql }) => sql.includes('insert into codex_machine_task_sends')))
+      .toBe(false);
   });
 });

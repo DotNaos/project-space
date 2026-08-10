@@ -132,6 +132,21 @@ describe('compute inventory repository', () => {
     expect(environmentInsert?.values[12]).toBeNull();
   });
 
+  test('retains provider-bound environments while removing abandoned connector records', async () => {
+    const client = new InventoryClient();
+    const repository = new ProjectSpaceDatabaseRepository(client, () => 'new-id');
+    await repository.reconcileConnectorComputeInventory('user-one', [{
+      compute: reported,
+      id: 'connector-one',
+      name: 'connector-one'
+    }]);
+
+    const cleanup = client.calls.find(({ sql }) => sql.includes('delete from compute_environments'));
+    expect(cleanup?.sql).toContain('from environment_provider_bindings binding');
+    expect(cleanup?.sql).toContain('binding.environment_id = environment.id');
+    expect(cleanup?.values).toEqual(['user-one', 'environment-reported']);
+  });
+
   test('marks a post-reconciliation environment move as an explicit conflict', async () => {
     const client = new InventoryClient();
     client.rejectAssociationMove = true;

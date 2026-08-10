@@ -496,6 +496,11 @@ export class ProjectSpaceDatabaseRepository {
                 select 1 from connector_compute_environments association
                  where association.owner_user_id = environment.owner_user_id
                    and association.environment_id = environment.id
+              )
+              and not exists (
+                select 1 from environment_provider_bindings binding
+                 where binding.owner_user_id = environment.owner_user_id
+                   and binding.environment_id = environment.id
               )`,
           [ownerUserId, environmentId]
         );

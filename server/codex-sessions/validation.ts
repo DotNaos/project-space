@@ -80,12 +80,12 @@ export function validateAnswers(value: Record<string, string[]>) {
     validationError('answers are invalid.');
   }
   const entries = Object.entries(value);
-  if (entries.length > 3) validationError('answers are invalid.');
+  if (entries.length > 50) validationError('answers are invalid.');
   return Object.fromEntries(
     entries.map(([questionId, answers]) => {
       validateIdentifier(questionId, 'questionId');
       if (!Array.isArray(answers) || answers.length > 3) validationError('answers are invalid.');
-      return [questionId, answers.map((answer) => validateOpaque(answer, 'answer', 2_000))];
+      return [questionId, answers.map((answer) => validateOpaque(answer, 'answer', 20_000))];
     })
   );
 }

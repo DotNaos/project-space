@@ -23,6 +23,17 @@ function discovery(...projects: ProjectSpaceRecord[]) {
   return async () => ({ projects });
 }
 
+function githubProject(id: string, repositoryId: number, fullName = 'DotNaos/project-space') {
+  return {
+    ...project(id),
+    github: {
+      fullName, id: repositoryId, isPrivate: true, name: 'project-space', owner: 'DotNaos',
+      projectConfig: { projectYaml: true, status: 'complete' as const, templateLock: true },
+      url: `https://github.com/${fullName}`
+    }
+  };
+}
+
 describe('connector-local project identity', () => {
   test('canonically decodes a machine-scoped project and returns its freshly discovered path', async () => {
     const firstPath = '/projects/old-location';
@@ -48,6 +59,20 @@ describe('connector-local project identity', () => {
         discoverProjects: discovery(project(localProjectId))
       })
     ).rejects.toThrow('could not be resolved');
+  });
+
+  test('resolves a stable GitHub repository identity through one fresh local project', async () => {
+    const candidate = githubProject(localProjectId, 480);
+    expect(await resolveLocalProjectPath(machineId, 'github:480', {
+      discoverProjects: discovery(candidate)
+    })).toBe(candidate.rootPath);
+    expect(await resolveLocalProjectPath(machineId, 'github:DotNaos/project-space', {
+      discoverProjects: discovery(candidate)
+    })).toBe(candidate.rootPath);
+
+    await expect(resolveLocalProjectPath(machineId, 'github:480', {
+      discoverProjects: discovery(candidate, githubProject('other', 480))
+    })).rejects.toThrow('could not be resolved');
   });
 
   test('preserves canonical Unicode project IDs from local discovery', async () => {

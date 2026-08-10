@@ -27,7 +27,8 @@ import {
 import { readJson, writeJson } from './project-space-http-response';
 import {
   getProjectSpaceMcpOAuthStore,
-  projectSpaceMcpScopes,
+  projectSpaceMcpDefaultScopes,
+  projectSpaceMcpSupportedScopes,
   type ProjectSpaceMcpOAuthStore,
   type StoredMcpCredential
 } from './project-space-mcp-oauth-store';
@@ -52,8 +53,12 @@ export interface ProjectSpaceMcpOAuthOptions {
 
 function requestedScopes(scopes?: string[]) {
   const normalized = scopes?.filter(Boolean) ?? [];
-  const selected = normalized.length > 0 ? [...new Set(normalized)] : [...projectSpaceMcpScopes];
-  if (selected.some((scope) => !projectSpaceMcpScopes.includes(scope as typeof projectSpaceMcpScopes[number]))) {
+  const selected = normalized.length > 0
+    ? [...new Set(normalized)]
+    : [...projectSpaceMcpDefaultScopes];
+  if (selected.some((scope) => !projectSpaceMcpSupportedScopes.includes(
+    scope as typeof projectSpaceMcpSupportedScopes[number]
+  ))) {
     throw new InvalidScopeError('The requested Project Space scope is not supported.');
   }
   return selected;
@@ -100,7 +105,7 @@ function normalizeClient(client: OAuthClientInformationFull): OAuthClientInforma
     client_secret_expires_at: undefined,
     grant_types: grants,
     response_types: ['code'],
-    scope: client.scope || projectSpaceMcpScopes.join(' '),
+    scope: client.scope || projectSpaceMcpDefaultScopes.join(' '),
     token_endpoint_auth_method: 'none'
   };
 }
@@ -277,7 +282,7 @@ export function createProjectSpaceMcpOAuth(options: ProjectSpaceMcpOAuthOptions 
         provider: providerFor(origin),
         resourceName: 'Project Space MCP',
         resourceServerUrl: new URL('/mcp', origin),
-        scopesSupported: [...projectSpaceMcpScopes],
+        scopesSupported: [...projectSpaceMcpSupportedScopes],
         serviceDocumentationUrl: new URL('/docs/project-mcp', origin)
       }));
       router = app;
