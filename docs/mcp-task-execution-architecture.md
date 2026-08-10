@@ -1199,13 +1199,21 @@ open until the real production UI-to-Codespace-to-ChatGPT-to-PR proof completes.
 
 ### WP8 — pull-request delivery and completion
 
-- [ ] Compose branch, PR, checks, review, merge, deploy, and health evidence.
-- [ ] Add PR create/update and review-request tools.
-- [ ] Bind approval to the exact PR revision.
-- [ ] Add guarded merge and uncertain-merge reconciliation.
-- [ ] Add policy-driven `complete_task`.
-- [ ] Verify exact deployed commit, running version, health, and reachable origin
+- [x] Compose branch, PR, checks, review, merge, deploy, and health evidence.
+- [x] Add PR create/update and review-request tools.
+- [x] Bind approval to the exact PR revision.
+- [x] Add guarded merge and uncertain-merge reconciliation.
+- [x] Add policy-driven `complete_task`.
+- [x] Verify exact deployed commit, running version, health, and reachable origin
       where the project requires deployment.
+
+Implemented in `server/task-delivery/` with owner-scoped durable delivery,
+evidence, review, and operation records. The MCP surface is provider-neutral;
+GitHub is the first provider. Project Space uses a server-configured production
+policy, so temporary provider or deployment-status gaps cannot weaken its
+completion gate. Merge requires the exact head, current approval, verified
+required checks, and zero unresolved review threads. Uncertain provider writes
+are reconciled without blind redispatch.
 
 ### WP9 — production E2E and provider extension
 

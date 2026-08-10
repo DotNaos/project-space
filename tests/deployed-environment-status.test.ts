@@ -9,16 +9,24 @@ const sha = 'a'.repeat(40);
 describe('deployed environment status', () => {
   test('allows only verified running build data into the browser contract', () => {
     const result = sanitizeDeployedEnvironment({
-      branch: 'main', buildCommit: sha, environment: 'prod', status: 'healthy',
+      branch: 'main', buildCommit: sha, buildVersion: '2.7.1-rc.2+build.9', environment: 'prod', status: 'healthy',
       webUrl: 'https://projects.example.com',
       evidence: { composeHealthy: true, httpHealthy: true, liveOriginHealthy: true, remoteCheckoutCommit: sha, runningBuildCommit: sha }
     });
     expect(result).toEqual({
       deployedSha: sha, displayName: 'Production', id: 'prod',
+      deployedVersion: '2.7.1-rc.2+build.9',
       liveUrl: 'https://projects.example.com/', liveUrlState: 'available',
       sourceRef: 'main', verification: 'healthy'
     });
     expect(JSON.stringify(result)).not.toMatch(/remotePath|containerImage|host|stderr|op:\/\//);
+  });
+
+  test('withholds malformed or oversized deployment versions', () => {
+    expect(sanitizeDeployedEnvironment({ environment: 'prod', buildVersion: '2.7.1 secret\nvalue' }))
+      .toHaveProperty('deployedVersion', undefined);
+    expect(sanitizeDeployedEnvironment({ environment: 'prod', buildVersion: `v${'1'.repeat(128)}` }))
+      .toHaveProperty('deployedVersion', undefined);
   });
 
   test('marks disagreeing evidence inconsistent and never accepts a short SHA', () => {
@@ -153,7 +161,7 @@ describe('deployed environment status', () => {
     }
   });
 
-  test('recovers current hosted verification when server-owned verified SHA matches', async () => {
+  test('supplements current hosted revision without inventing health from a verified SHA', async () => {
     const root = await mkdtemp(join(tmpdir(), 'project-space-current-'));
     const state = join(root, 'project-space-prod');
     await mkdir(state, { recursive: true });
@@ -161,10 +169,12 @@ describe('deployed environment status', () => {
     const previous = {
       environment: process.env.PROJECT_DEPLOY_ENVIRONMENT,
       commit: process.env.PROJECT_SPACE_BUILD_COMMIT,
-      root: process.env.PROJECT_DEPLOY_STATE_ROOT
+      root: process.env.PROJECT_DEPLOY_STATE_ROOT,
+      version: process.env.PROJECT_SPACE_BUILD_VERSION
     };
     process.env.PROJECT_DEPLOY_ENVIRONMENT = 'prod';
     process.env.PROJECT_SPACE_BUILD_COMMIT = sha;
+    process.env.PROJECT_SPACE_BUILD_VERSION = '4.2.0';
     process.env.PROJECT_DEPLOY_STATE_ROOT = root;
     try {
       const result = await getDeployedEnvironmentStatus('DotNaos/project-space', {
@@ -173,11 +183,14 @@ describe('deployed environment status', () => {
           branch: 'main', environment: 'prod', remoteRef: 'DotNaos/project-space', status: 'unknown'
         }] }) })
       });
-      expect(result.environments[0]).toMatchObject({ deployedSha: sha, verification: 'healthy' });
+      expect(result.environments[0]).toMatchObject({
+        deployedSha: sha, deployedVersion: '4.2.0', verification: 'unavailable'
+      });
     } finally {
       if (previous.environment === undefined) delete process.env.PROJECT_DEPLOY_ENVIRONMENT; else process.env.PROJECT_DEPLOY_ENVIRONMENT = previous.environment;
       if (previous.commit === undefined) delete process.env.PROJECT_SPACE_BUILD_COMMIT; else process.env.PROJECT_SPACE_BUILD_COMMIT = previous.commit;
       if (previous.root === undefined) delete process.env.PROJECT_DEPLOY_STATE_ROOT; else process.env.PROJECT_DEPLOY_STATE_ROOT = previous.root;
+      if (previous.version === undefined) delete process.env.PROJECT_SPACE_BUILD_VERSION; else process.env.PROJECT_SPACE_BUILD_VERSION = previous.version;
       await rm(root, { recursive: true, force: true });
     }
   });

@@ -108,10 +108,13 @@ function executionRow(overrides: Record<string, unknown> = {}) {
 
 class FakeDatabase implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+  readonly errors: unknown[] = [];
   readonly responses: Array<DatabaseQueryResult<unknown>> = [];
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
+    const error = this.errors.shift();
+    if (error) throw error;
     return (this.responses.shift() ?? { rows: [] }) as DatabaseQueryResult<Row>;
   }
 
@@ -564,7 +567,46 @@ describe('task execution operation ledger', () => {
     expect(await store.claimDispatch(operation)).toBe('claimed');
     expect(database.calls[0]?.sql).toContain("state in ('reserved', 'confirmed')");
     expect(database.calls[0]?.values).toEqual([
-      owner, operation.operationId, operation.action, operation.fingerprint, executionId
+      owner, operation.operationId, operation.action, operation.fingerprint, executionId, null
     ]);
+  });
+
+  test('fences different delivery operation ids under one unresolved scope', async () => {
+    const store = new MemoryTaskExecutionOperationStore();
+    const first = {
+      action: 'merge_task_pull_request', executionId, fingerprint: '6'.repeat(64),
+      operationId: 'task-delivery:merge:first', ownerUserId: owner,
+      scopeKey: `delivery:merge:${executionId}`
+    };
+    const second = {
+      ...first, fingerprint: '7'.repeat(64), operationId: 'task-delivery:merge:second'
+    };
+    await store.reserve(first);
+    await store.reserve(second);
+    expect(await store.claimDispatch(first)).toBe('claimed');
+    expect(await store.claimDispatch(second)).toBe('in_progress');
+    await store.transition({ ...first, state: 'confirmed' });
+    expect(await store.claimDispatch(second)).toBe('in_progress');
+    await store.transition({ ...first, state: 'uncertain' });
+    expect(await store.claimDispatch(second)).toBe('in_progress');
+    await store.transition({ ...first, result: { state: 'merged' }, state: 'completed' });
+    expect(await store.claimDispatch(second)).toBe('claimed');
+    expect(await store.reserve({ ...first, scopeKey: 'delivery:merge:changed' }))
+      .toEqual({ kind: 'conflict' });
+  });
+
+  test('maps a Postgres unresolved-scope conflict to in-progress through confirmed', async () => {
+    const database = new FakeDatabase();
+    database.errors.push(Object.assign(new Error('scope conflict'), {
+      code: '23505', constraint: 'execution_operations_one_unresolved_scope'
+    }));
+    const store = new PostgresTaskExecutionOperationStore(database);
+    const operation = {
+      action: 'merge_task_pull_request', executionId, fingerprint: '8'.repeat(64),
+      operationId: 'task-delivery:merge:postgres-confirmed', ownerUserId: owner,
+      scopeKey: `delivery:merge:${executionId}`
+    };
+    expect(await store.claimDispatch(operation)).toBe('in_progress');
+    expect(database.calls[0]?.sql).toContain("state in ('reserved', 'confirmed')");
   });
 });

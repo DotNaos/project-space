@@ -16,6 +16,10 @@ import {
   taskExecutionTools
 } from './task-execution-tool-catalog';
 import {
+  taskDeliveryToolSchemas,
+  taskDeliveryTools
+} from './task-delivery-tool-catalog';
+import {
   workspaceCommandToolSchemas,
   workspaceCommandTools
 } from './workspace-command-tool-catalog';
@@ -141,6 +145,7 @@ export const toolSchemas = {
   }).strict(),
   ...taskHandoffToolSchemas,
   ...taskExecutionToolSchemas,
+  ...taskDeliveryToolSchemas,
   ...workspaceCommandToolSchemas,
   list_machines: z.object({}),
   list_codex_tasks: z.object({
@@ -323,6 +328,7 @@ export const tools: OAuthTool[] = [
   ]),
   ...taskHandoffTools,
   ...taskExecutionTools,
+  ...taskDeliveryTools,
   ...workspaceCommandTools,
   tool('list_machines', 'List machines', 'List the legacy connector-machine projection. Prefer list_execution_environments for new workflows.', {
     type: 'object', properties: {}, additionalProperties: false

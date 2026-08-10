@@ -59,6 +59,7 @@ import {
 } from './preview-docs-proxy';
 import { createProjectSpaceMcpHandler } from './project-space-mcp';
 import { createConfiguredTaskExecutionService } from './task-execution/configured-runtime';
+import { createConfiguredTaskDeliveryService } from './task-delivery/configured-runtime';
 import { createConfiguredWorkspaceCommandService } from './workspace-command/configured-runtime';
 import { observeHttpRequest } from './http-observability';
 import {
@@ -182,6 +183,15 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       throw error;
     })
   );
+  let mcpTaskDelivery: ReturnType<typeof createConfiguredTaskDeliveryService> | undefined;
+  const getMcpTaskDelivery = () => (
+    mcpTaskDelivery ??= getMcpTaskExecutions().then((taskExecutions) => (
+      createConfiguredTaskDeliveryService({ backend, taskExecutions })
+    )).catch((error) => {
+      mcpTaskDelivery = undefined;
+      throw error;
+    })
+  );
   let mcpWorkspaceCommands: ReturnType<typeof createConfiguredWorkspaceCommandService> | undefined;
   const getMcpWorkspaceCommands = () => (
     mcpWorkspaceCommands ??= createConfiguredWorkspaceCommandService({
@@ -196,6 +206,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend,
     createAgentRuntime: getMcpAgentRuntime,
     createEnvironmentLifecycle: getMcpEnvironmentLifecycle,
+    createTaskDelivery: getMcpTaskDelivery,
     createTaskExecutions: getMcpTaskExecutions,
     createWorkspaceCommands: getMcpWorkspaceCommands,
     createRuntime: getMcpCodexRuntime,
