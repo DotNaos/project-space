@@ -102,4 +102,30 @@ describe('canonical Codex task activity', () => {
       worktree: '/home/oli/projects/.worktrees/project-space/issue-572-redesign-chat-page'
     });
   });
+
+  test('uses the full GitHub issue URL as owner-scoped task identity', () => {
+    expect(inferCodexTaskIdentity(
+      '/home/oli/projects/.worktrees/project-space/issue-596-machine-aware/src',
+      'Implement https://github.com/DotNaos/project-space/issues/596 with focused tests',
+      'OS-PC'
+    )).toEqual({
+      branch: 'issue-596-machine-aware',
+      issueNumber: 596,
+      repository: 'DotNaos/project-space',
+      worktree: '/home/oli/projects/.worktrees/project-space/issue-596-machine-aware'
+    });
+  });
+
+  test('ignores repository enrichment from a conflicting issue URL', () => {
+    expect(inferCodexTaskIdentity(
+      '/home/oli/projects/.worktrees/project-space/issue-596-machine-aware/src',
+      'Review https://github.com/Other/project-space/issues/597',
+      'OS-PC'
+    )).toEqual({
+      branch: 'issue-596-machine-aware',
+      issueNumber: 596,
+      repository: 'project-space',
+      worktree: '/home/oli/projects/.worktrees/project-space/issue-596-machine-aware'
+    });
+  });
 });

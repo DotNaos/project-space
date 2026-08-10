@@ -1,19 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Bot,
-  Circle,
   CircleDot,
   ExternalLink,
   GitBranch,
-  GitPullRequestDraft,
-  LoaderCircle,
-  Monitor
+  GitPullRequestDraft
 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
-import { Button } from '@/app/dotnaos-ui';
-import type {
-  CodexMachineTaskExistingResult
-} from '@/shared/codex-machine-tasks-api';
 import type {
   ConnectorOverviewResult,
   GitHubBranchRecord,
@@ -32,10 +24,10 @@ import {
 } from './issue-development-machine-actions';
 import {
   canChooseIssueCodingDestination,
+  issueDevelopmentTaskProbeBranch,
   resolveIssueDevelopmentHead
 } from './issue-development-head';
 import { IssuePullRequestChip } from './issue-branch-menu';
-import { connectorLocationPresentation } from './machine-connector-topology-model';
 import {
   issueDevelopmentPullRequest,
   shouldShowPullRequestPreview
@@ -48,6 +40,11 @@ import {
   type CodexTaskStartAttempt
 } from './codex-task-start-attempt';
 import { CodexTaskStartRecoveryDialog } from './codex-task-start-recovery-dialog';
+import {
+  IssueCodexWorkList,
+  type IssueCodexExternalTask,
+  type IssueCodexLookupTarget
+} from './issue-codex-work-list';
 import { IssueDevelopmentServers } from './issue-development-servers';
 import { IssueDevelopmentStart } from './issue-development-start';
 import { GitHubCodespaceDestination } from './github-codespace-destination';
@@ -79,26 +76,34 @@ export function IssueDevelopmentSession({
   repoFullName,
   onOpenHistory
 }: IssueDevelopmentSessionProps) {
+  const codespaceScopeKey = `${repoFullName ?? ''}\u0000${issue.number}`;
   const [busyMachineId, setBusyMachineId] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
   const [machineError, setMachineError] = useState('');
   const [prototypeMachineId, setPrototypeMachineId] = useState('');
-  const [existingTasks, setExistingTasks] = useState<
-    Record<string, CodexMachineTaskExistingResult | undefined>
-  >({});
-  const [checkingExistingTasks, setCheckingExistingTasks] = useState(false);
+  const [codespaceTaskState, setCodespaceTaskState] = useState<{
+    scopeKey: string;
+    task?: IssueCodexExternalTask;
+  }>({ scopeKey: codespaceScopeKey });
   const [uncertainStart, setUncertainStart] = useState<{
     attempt: CodexTaskStartAttempt;
     machineName: string;
     row: IssueMachineProjectRow;
   }>();
   const [isRecoveringStart, setIsRecoveringStart] = useState(false);
+  const codespaceTask = codespaceTaskState.scopeKey === codespaceScopeKey
+    ? codespaceTaskState.task
+    : undefined;
+  const handleCodespaceTaskChange = useCallback(
+    (task?: IssueCodexExternalTask) => setCodespaceTaskState({ scopeKey: codespaceScopeKey, task }),
+    [codespaceScopeKey]
+  );
 
   useEffect(() => {
     setMachineError('');
     setMachineMessage('');
     setUncertainStart(undefined);
-  }, [issue.number]);
+  }, [issue.number, repoFullName]);
 
   const developmentHead = useMemo(
     () => resolveIssueDevelopmentHead({
@@ -126,32 +131,24 @@ export function IssueDevelopmentSession({
     () => getIssueMachineRows({ connectorOverview, project, projects, repoFullName }),
     [connectorOverview, project, projects, repoFullName]
   );
-  useEffect(() => {
-    let cancelled = false;
-    if (!repoFullName || machineRows.length === 0) {
-      setExistingTasks({});
-      setCheckingExistingTasks(false);
-      return;
-    }
-    setCheckingExistingTasks(true);
-    void Promise.all(machineRows.map(async (row) => {
-      try {
-        const result = await projectSpaceClient.getExistingCodexMachineTask({
-          connectorId: row.machineId,
-          issue: issue.number,
-          repositoryId: repoFullName
-        });
-        return [row.machineId, result] as const;
-      } catch {
-        return [row.machineId, undefined] as const;
-      }
-    })).then((entries) => {
-      if (cancelled) return;
-      setExistingTasks(Object.fromEntries(entries));
-      setCheckingExistingTasks(false);
-    });
-    return () => { cancelled = true; };
-  }, [issue.number, machineRows, repoFullName]);
+  const codespaceLookupTargets = useMemo<IssueCodexLookupTarget[]>(() =>
+    connectorOverview.machines.flatMap((machine) => {
+      const kind = machine.compute?.environmentKind ?? machine.environment?.kind;
+      const isCodespace = kind === 'github_codespace'
+        || machine.kind.toLocaleLowerCase().includes('codespace')
+        || machine.name.toLocaleLowerCase().includes('codespace');
+      if (!isCodespace) return [];
+      return [{
+        connectorId: machine.id,
+        connectorInstanceId: machine.connector.runtime?.instanceId,
+        environmentLabel: machine.compute?.environmentName
+          || machine.environment?.label
+          || machine.name,
+        isOnline: canRunMachineCommand(machine),
+        key: machine.id,
+        physicalMachineName: 'GitHub Codespace'
+      }];
+    }), [connectorOverview.machines]);
   const localMachineId =
     connectorOverview.machines.find((machine) => machine.connector.status === 'local')?.id ??
     connectorOverview.machines[0]?.id ??
@@ -271,18 +268,6 @@ export function IssueDevelopmentSession({
     }
   }
 
-  function openExistingTask(result: CodexMachineTaskExistingResult) {
-    if (result.state === 'attention') {
-      setMachineError(result.message);
-      return;
-    }
-    if (result.state !== 'confirmed') return;
-    window.location.assign(codexSessionRoute({
-      machineId: result.task.connector.id,
-      threadId: result.task.threadId
-    }));
-  }
-
   const isMerged = selectedPullRequest?.state === 'merged';
   const isReadyPullRequest = selectedPullRequest?.state === 'open' && !selectedPullRequest.isDraft;
   const showsPullRequestPreview = shouldShowPullRequestPreview(selectedPullRequest);
@@ -291,6 +276,37 @@ export function IssueDevelopmentSession({
     && branchComparison.result.freshness === 'current'
     && (branchComparison.result.aheadBy ?? 0) > 0;
   const hasBranchOnlyDevelopment = Boolean(selectedBranch && !selectedPullRequest);
+  const canStartCodex = Boolean(
+    canChooseDestination && selectedBranch && !isMerged && issue.state === 'open'
+  );
+  const codespaceBranchName = issueDevelopmentTaskProbeBranch(
+    selectedBranch,
+    selectedPullRequest
+  );
+  const codespaceDestination = codespaceBranchName && repoFullName ? (
+    <GitHubCodespaceDestination
+      availableConnectorIds={connectorOverview.machines
+        .filter((machine) => canRunMachineCommand(machine))
+        .map((machine) => machine.id)}
+      branch={codespaceBranchName}
+      issue={issue.number}
+      key={`${codespaceScopeKey}\u0000${codespaceBranchName}`}
+      onExistingTaskChange={handleCodespaceTaskChange}
+      onStart={({ connectorId, environmentId, name }) => {
+        const machine = connectorOverview.machines.find(
+          (candidate) => candidate.id === connectorId
+        );
+        void startDevelopment({
+          environmentId,
+          machine,
+          machineId: connectorId,
+          physicalMachineName: name
+        });
+      }}
+      probeOnly={!canStartCodex || Boolean(codespaceTask)}
+      repositoryFullName={repoFullName}
+    />
+  ) : undefined;
 
   return (
     <>
@@ -351,6 +367,24 @@ export function IssueDevelopmentSession({
         </section>
       ) : null}
 
+      {repoFullName ? (
+        <IssueCodexWorkList
+          busyConnectorId={busyMachineId}
+          canStart={canStartCodex}
+          cloudDestination={canStartCodex && !codespaceTask ? codespaceDestination : undefined}
+          expectedBranch={selectedBranch?.name}
+          expectedCommit={selectedBranch?.commitSha}
+          externalTasks={codespaceTask ? [codespaceTask] : []}
+          issueNumber={issue.number}
+          lookupTargets={codespaceLookupTargets}
+          machineRows={machineRows}
+          onError={setMachineError}
+          onStart={(row) => void startDevelopment(row)}
+          repositoryId={repoFullName}
+        />
+      ) : null}
+      {!canStartCodex || codespaceTask ? codespaceDestination : null}
+
       {isMerged ? (
         <section className="grid gap-2">
           <div className="flex items-center justify-between gap-3">
@@ -370,84 +404,14 @@ export function IssueDevelopmentSession({
         </section>
       ) : null}
 
-      {canChooseDestination && selectedBranch && !isMerged ? (
-        <section className="grid gap-5">
-          <div>
-            <h3 className="text-sm font-semibold text-current/70">Choose coding destination</h3>
-            <p className="mt-1 text-xs leading-5 text-current/35">
-              The linked branch is ready. Choose where to continue; a Draft PR can follow after the first real commit.
-            </p>
-          </div>
-          <IssueDevelopmentServers
-            branchName={selectedBranch.name}
-            localMachineId={localMachineId}
-            machineRows={machineRows}
-            projects={projects}
-          />
-          <div>
-          <div className="mb-2 flex h-8 items-center justify-between">
-            <h3 className="text-xs font-semibold text-current/55">Codex</h3>
-            <span className="text-[10px] tabular-nums text-current/30">
-              {machineRows.length + (repoFullName ? 1 : 0)} destinations
-            </span>
-          </div>
-          <div className="grid gap-1.5">
-            {repoFullName ? (
-              <GitHubCodespaceDestination
-                branch={selectedBranch.name}
-                issue={issue.number}
-                onStart={({ connectorId, environmentId, name }) => {
-                  const machine = connectorOverview.machines.find((candidate) => candidate.id === connectorId);
-                  void startDevelopment({ environmentId, machine, machineId: connectorId, physicalMachineName: name });
-                }}
-                repositoryFullName={repoFullName}
-              />
-            ) : null}
-            {machineRows.map((row) => {
-              const hasCheckout = Boolean(row.project);
-              const location = row.machine ? connectorLocationPresentation({ connector: row.machine, physicalMachines: connectorOverview.physicalMachines ?? [] }) : undefined;
-              const canStart = canRunMachineCommand(row.machine) && Boolean(repoFullName && selectedBranch.commitSha);
-              const online = canRunMachineCommand(row.machine);
-              const existingTask = existingTasks[row.machineId];
-              const hasExistingTask = existingTask?.state === 'confirmed'
-                || existingTask?.state === 'attention';
-              const existingAction = existingTask?.state === 'confirmed'
-                ? existingTask.action === 'open-running'
-                  ? 'Open running task'
-                  : existingTask.action === 'resolve'
-                    ? 'Resolve task problem'
-                    : 'Continue task'
-                : existingTask?.state === 'attention'
-                  ? 'Resolve task problem'
-                  : undefined;
-              return (
-                <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl bg-current/[.04] px-3" key={row.machineId}>
-                  {hasCheckout ? <Monitor className="size-3.5 shrink-0 text-current/30" /> : <Bot className="size-3.5 shrink-0 text-current/30" />}
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">{row.physicalMachineName ?? location?.machineName ?? row.machine?.name ?? row.machineId}</span>
-                  <Circle aria-label={online ? 'Online' : 'Offline'} className={`size-2.5 shrink-0 fill-current ${online ? 'text-emerald-400' : 'text-current/20'}`} />
-                  <Button
-                    isDisabled={(!hasExistingTask && !canStart)
-                      || busyMachineId === row.machineId
-                      || checkingExistingTasks}
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => hasExistingTask
-                      ? openExistingTask(existingTask)
-                      : void startDevelopment(row)}
-                  >
-                    {busyMachineId === row.machineId ? <LoaderCircle className="size-3.5 animate-spin" /> : <Bot className="size-3.5" />}
-                    {busyMachineId === row.machineId
-                      ? 'Starting…'
-                      : checkingExistingTasks
-                        ? 'Checking task…'
-                        : existingAction ?? 'Start Codex'}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-          </div>
-        </section>
+      {codespaceBranchName ? (
+        <IssueDevelopmentServers
+          branchName={codespaceBranchName}
+          canManage={canStartCodex}
+          localMachineId={localMachineId}
+          machineRows={machineRows}
+          projects={projects}
+        />
       ) : null}
 
       {selectedBranch ? (

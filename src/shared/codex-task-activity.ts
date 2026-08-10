@@ -74,7 +74,15 @@ export function inferCodexTaskIdentity(
   const normalized = cwd?.trim().replaceAll('\\', '/').replace(/\/{2,}/g, '/');
   const match = normalized?.match(/^(.*?\/\.worktrees\/([^/]+)\/([^/]+))(?:\/.*)?$/);
   const branch = match?.[3];
-  const issueMatch = branch?.match(/^issue-(\d+)(?:-|$)/i)
+  const issueUrlMatch = title.match(
+    /https?:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/issues\/(\d+)(?:\b|\/)/i
+  );
+  const branchIssueMatch = branch?.match(/^issue-(\d+)(?:-|$)/i);
+  const conflictingIssueUrl = Boolean(
+    branchIssueMatch && issueUrlMatch && branchIssueMatch[1] !== issueUrlMatch[2]
+  );
+  const issueMatch = branchIssueMatch
+    ?? (issueUrlMatch ? [issueUrlMatch[0], issueUrlMatch[2]] : undefined)
     ?? title.match(/(?:^|\s|·)#?(\d+)(?:\s|·|$)/);
   const issueNumber = issueMatch ? Number(issueMatch[1]) : undefined;
   const isCodespace = machineName?.toLocaleLowerCase().includes('codespace')
@@ -83,7 +91,11 @@ export function inferCodexTaskIdentity(
     ...(branch ? { branch } : {}),
     ...(isCodespace && machineName ? { codespaceName: machineName } : {}),
     ...(issueNumber && Number.isSafeInteger(issueNumber) ? { issueNumber } : {}),
-    ...(match?.[2] ? { repository: match[2] } : {}),
+    ...(issueUrlMatch?.[1] && !conflictingIssueUrl
+      ? { repository: issueUrlMatch[1] }
+      : match?.[2]
+        ? { repository: match[2] }
+        : {}),
     ...(match?.[1] ? { worktree: match[1] } : {})
   };
   return Object.keys(result).length > 0 ? result : undefined;

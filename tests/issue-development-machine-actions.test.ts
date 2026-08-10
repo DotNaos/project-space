@@ -128,6 +128,31 @@ describe('issue development machine actions', () => {
     expect(physicalMachineSummary(rows)).toEqual({ configured: 2, online: 1 });
   });
 
+  test('orders online physical machines before alphabetically earlier offline machines', () => {
+    const connectorOverview = overview({
+      machines: [
+        machine('connector-offline', 'offline'),
+        machine('connector-online', 'online')
+      ],
+      physicalMachines: [
+        { connectorIds: ['connector-offline'], id: 'physical-offline', name: 'a-build' },
+        { connectorIds: ['connector-online'], id: 'physical-online', name: 'z-workstation' }
+      ]
+    });
+
+    const rows = getIssueMachineRows({
+      connectorOverview,
+      project: project(),
+      projects: [],
+      repoFullName: 'DotNaos/project-space'
+    });
+
+    expect(rows.map((row) => row.physicalMachineName)).toEqual([
+      'z-workstation',
+      'a-build'
+    ]);
+  });
+
   test('exposes every connector option with environment and capability metadata', () => {
     const connectorOverview = overview({
       computeEnvironments: [
@@ -252,6 +277,34 @@ describe('issue development machine actions', () => {
     expect(row).toMatchObject({
       machineId: runnableCheckout.id,
       suggestedConnectorId: runnableCheckout.id
+    });
+  });
+
+  test('does not attach a same-named checkout from another repository owner', () => {
+    const connector = machine('connector-pc', 'online');
+    const wrongRepository = project({
+      github: { fullName: 'Other/project-space' } as ProjectSpaceRecord['github'],
+      machineId: connector.id
+    });
+    const connectorOverview = overview({
+      machines: [connector],
+      physicalMachines: [{
+        connectorIds: [connector.id],
+        id: 'physical-pc',
+        name: 'os-pc'
+      }]
+    });
+
+    const [row] = getIssueMachineRows({
+      connectorOverview,
+      project: project(),
+      projects: [wrongRepository],
+      repoFullName: 'DotNaos/project-space'
+    });
+
+    expect(row?.connectorOptions?.[0]).toMatchObject({
+      hasProjectCheckout: false,
+      project: undefined
     });
   });
 

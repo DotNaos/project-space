@@ -6,6 +6,7 @@ import type {
 } from '../src/shared/project-space-api';
 import {
   canChooseIssueCodingDestination,
+  issueDevelopmentTaskProbeBranch,
   resolveIssueDevelopmentHead
 } from '../src/features/project-desktop/components/issue-development-head';
 
@@ -206,5 +207,16 @@ describe('issue development head resolution', () => {
     expect(canChooseIssueCodingDestination(branchOnly)).toBe(true);
     expect(canChooseIssueCodingDestination(unknownDraft)).toBe(false);
     expect(canChooseIssueCodingDestination({ state: 'none' })).toBe(false);
+  });
+
+  test('keeps the historical PR head available for read-only task discovery', () => {
+    const merged = pullRequest(500, {
+      headRefPresent: false,
+      state: 'merged'
+    });
+
+    expect(issueDevelopmentTaskProbeBranch(undefined, merged)).toBe('issue-408-graph');
+    expect(issueDevelopmentTaskProbeBranch(branch('refs/heads/current-work'), merged))
+      .toBe('current-work');
   });
 });

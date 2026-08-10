@@ -67,6 +67,7 @@ export function useWorktreeDevServers({
     if (!machineId || !projectId || worktreeIds?.length === 0) {
       setStateTargetKey(targetKey);
       setOverview(undefined);
+      setIsChecking(false);
       return undefined;
     }
 
@@ -113,6 +114,7 @@ export function useWorktreeDevServers({
 
     setOverview(undefined);
     setStateTargetKey(targetKey);
+    setIsChecking(false);
     if (startingAllKeyRef.current !== targetKey) startingAllKeyRef.current = '';
     setError('');
     setPendingServerKey('');

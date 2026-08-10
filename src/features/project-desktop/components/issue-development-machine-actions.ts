@@ -31,6 +31,13 @@ function matchesSelectedProject(
   selectedProject: ProjectSpaceRecord,
   repoFullName?: string
 ) {
+  const repoKey = repoFullName ? normalizeKey(repoFullName) : '';
+  const candidateRepoKey = candidate.github?.fullName
+    ? normalizeKey(candidate.github.fullName)
+    : '';
+  if (repoKey && candidateRepoKey && candidateRepoKey !== repoKey) {
+    return false;
+  }
   if (candidate.id === selectedProject.id) {
     return true;
   }
@@ -40,7 +47,6 @@ function matchesSelectedProject(
   const selectedName = normalizeKey(selectedProject.name);
   const selectedFolder = normalizeKey(basename(selectedProject.rootPath));
   const repoName = repoFullName ? normalizeKey(repoFullName.split('/').pop() ?? repoFullName) : '';
-  const repoKey = repoFullName ? normalizeKey(repoFullName) : '';
 
   return (
     candidateName === selectedName ||
@@ -284,7 +290,6 @@ export function getIssueMachineRows({
   );
 
   return [...(connectorOverview.physicalMachines ?? [])]
-    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
     .map((physicalMachine) => {
       const connectorOptions = [...new Set(physicalMachine.connectorIds)]
         .map((connectorId): IssueMachineConnectorOption => {
@@ -323,6 +328,13 @@ export function getIssueMachineRows({
         project: suggestedConnector?.project,
         suggestedConnectorId: suggestedConnector?.connectorId
       };
+    })
+    .sort((left, right) => {
+      const leftOnline = left.connectorOptions?.some((option) => option.isOnline) ?? false;
+      const rightOnline = right.connectorOptions?.some((option) => option.isOnline) ?? false;
+      return Number(rightOnline) - Number(leftOnline)
+        || (left.physicalMachineName ?? '').localeCompare(right.physicalMachineName ?? '')
+        || (left.physicalMachineId ?? '').localeCompare(right.physicalMachineId ?? '');
     });
 }
 
