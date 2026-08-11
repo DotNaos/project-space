@@ -48,11 +48,12 @@ type SetupStep struct {
 }
 
 type Script struct {
-	Label            string            `yaml:"label,omitempty"`
-	Command          []string          `yaml:"command"`
-	Environment      map[string]string `yaml:"environment,omitempty"`
-	HealthCheck      *HealthCheck      `yaml:"healthCheck,omitempty"`
-	PrototypeSurface string            `yaml:"prototypeSurface,omitempty"`
+	Label             string            `yaml:"label,omitempty"`
+	Command           []string          `yaml:"command"`
+	Environment       map[string]string `yaml:"environment,omitempty"`
+	SecretEnvironment map[string]string `yaml:"secretEnvironment,omitempty"`
+	HealthCheck       *HealthCheck      `yaml:"healthCheck,omitempty"`
+	PrototypeSurface  string            `yaml:"prototypeSurface,omitempty"`
 }
 
 type HealthCheck struct {
@@ -242,6 +243,12 @@ func validateScriptsConfig(config ScriptsConfig) error {
 		if err := validateScriptEnvironment(name, script.Environment); err != nil {
 			return err
 		}
+		if err := validateScriptEnvironment(name, script.SecretEnvironment); err != nil {
+			return err
+		}
+		if err := validateScriptSecretEnvironment(name, script.Environment, script.SecretEnvironment); err != nil {
+			return err
+		}
 		if script.HealthCheck != nil {
 			if err := validateHealthCheck(*script.HealthCheck); err != nil {
 				return fmt.Errorf("server %q healthCheck: %w", name, err)
@@ -257,6 +264,22 @@ func validateScriptsConfig(config ScriptsConfig) error {
 				"server %q prototypeSurface must be mobile-prototype or desktop-prototype",
 				name,
 			)
+		}
+	}
+	return nil
+}
+
+func validateScriptSecretEnvironment(name string, environment, secrets map[string]string) error {
+	for key, reference := range secrets {
+		if !environmentPattern.MatchString(key) {
+			return fmt.Errorf("declaration %q secretEnvironment key %q is invalid", name, key)
+		}
+		if _, exists := environment[key]; exists {
+			return fmt.Errorf("declaration %q environment and secretEnvironment both define %q", name, key)
+		}
+		if !strings.HasPrefix(reference, "op://") || strings.TrimSpace(reference) != reference ||
+			strings.ContainsAny(reference, "\x00\r\n\t") {
+			return fmt.Errorf("declaration %q secretEnvironment value %q must be a single 1Password op:// reference", name, key)
 		}
 	}
 	return nil

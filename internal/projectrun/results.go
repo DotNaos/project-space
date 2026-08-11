@@ -18,6 +18,7 @@ func (manager *Manager) resultFromState(
 		Directory:     state.Directory,
 		Repository:    state.RepositoryPath,
 		TmuxSession:   state.TmuxSession,
+		PortlessName:  state.PortlessName,
 		Capability:    capability,
 		State:         state.State,
 		AllowedHosts:  append([]string{}, state.AllowedHosts...),
@@ -37,7 +38,9 @@ func (manager *Manager) resultFromState(
 	}
 	if state.LocalPort > 0 {
 		result.LocalPort = pointer(state.LocalPort)
-		result.LocalURL = pointer(localURL(state.LocalPort))
+	}
+	if state.PortlessURL != "" {
+		result.LocalURL = pointer(state.PortlessURL)
 	}
 	if state.Mode == ServeModeManaged && state.PublicPort > 0 {
 		result.PublicPort = pointer(state.PublicPort)

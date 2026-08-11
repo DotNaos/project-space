@@ -22,8 +22,17 @@ func (manager *Manager) startLocalRuntime(
 		if err != nil {
 			return runtimeState{}, manager.runtimeErrorResult("start", root, identity.ServerKey, err), err
 		}
+		state.PortlessURL, err = manager.startPortlessRoute(ctx, state)
+		if err != nil {
+			failure, failErr := manager.failStart(state, err)
+			return runtimeState{}, failure, failErr
+		}
+		if err := manager.store.save(state); err != nil {
+			failure, failErr := manager.failStart(state, err)
+			return runtimeState{}, failure, failErr
+		}
 		command := serverCommandFor(
-			script, root, "127.0.0.1", state.LocalPort, allowedHosts, mode,
+			script, root, "127.0.0.1", state.LocalPort, allowedHosts, mode, state.PortlessURL,
 		)
 		observation, err := manager.tmux.Create(
 			ctx,
@@ -89,6 +98,15 @@ func (manager *Manager) startLocalRuntime(
 			if attempt < maximumPortRaceAttempts && failure.PID == nil && failure.LocalPort == nil {
 				continue
 			}
+			return runtimeState{}, failure, failErr
+		}
+		portlessTarget, err := probeTargetForURL(state.PortlessURL, script.HealthPath())
+		if err != nil {
+			failure, failErr := manager.failStart(state, err)
+			return runtimeState{}, failure, failErr
+		}
+		if err := manager.prober.Wait(ctx, portlessTarget, script.Timeout()); err != nil {
+			failure, failErr := manager.failStart(state, fmt.Errorf("Portless URL did not become ready: %w", err))
 			return runtimeState{}, failure, failErr
 		}
 		return state, ServeResult{}, nil

@@ -212,7 +212,7 @@ func newSetupTestManager(t *testing.T) (*Manager, *fakeProcesses, *fakeRepositor
 	processes := newFakeProcesses()
 	repository := &fakeRepositoryInspector{head: strings.Repeat("a", 40)}
 	manager, err := NewManager(Dependencies{
-		Processes: processes, Tailnet: newFakeTailnet(), Prober: newFakeProber(),
+		Processes: processes, Portless: newFakeLocalRouter(), Tailnet: newFakeTailnet(), Prober: newFakeProber(),
 		Ports:     fixedPorts{local: 43117, public: 44419},
 		StateRoot: filepath.Join(t.TempDir(), "runtime"), Repository: repository,
 		Now: func() time.Time { return time.Date(2026, 7, 12, 1, 2, 3, 0, time.UTC) },

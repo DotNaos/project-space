@@ -30,6 +30,8 @@ type runtimeState struct {
 	PID                int       `json:"pid,omitempty"`
 	ProcessID          string    `json:"processIdentity,omitempty"`
 	LocalPort          int       `json:"localPort,omitempty"`
+	PortlessName       string    `json:"portlessName,omitempty"`
+	PortlessURL        string    `json:"portlessUrl,omitempty"`
 	PublicPort         int       `json:"publicPort,omitempty"`
 	TailscaleIPv4      string    `json:"tailscaleIPv4,omitempty"`
 	AllowedHosts       []string  `json:"allowedHosts"`
@@ -246,6 +248,20 @@ func validateRuntimeState(state runtimeState) error {
 		(state.PublicPort == 0 || net.ParseIP(state.TailscaleIPv4).To4() == nil) {
 		return fmt.Errorf("managed runtime has no valid Tailscale port and IPv4 address")
 	}
+	if state.PortlessName != "" {
+		if err := validatePortlessName(state.PortlessName); err != nil {
+			return err
+		}
+	}
+	if state.PortlessURL != "" {
+		if err := validatePortlessRoute(state.PortlessName, state.PortlessURL); err != nil {
+			return err
+		}
+	}
+	if (state.State == StateRunning || state.State == StateLocalOnly || state.PID > 0) &&
+		(state.PortlessName == "" || state.PortlessURL == "") {
+		return fmt.Errorf("active runtime has no verified Portless route")
+	}
 	if state.PID < 0 || (state.PID == 0) != (state.ProcessID == "") {
 		return fmt.Errorf("process identity is inconsistent")
 	}
@@ -289,6 +305,10 @@ func (store *stateStore) portLockPath() string {
 
 func (store *stateStore) tailnetLockPath() string {
 	return filepath.Join(store.root, "locks", "tailnet.lock")
+}
+
+func (store *stateStore) portlessLockPath() string {
+	return filepath.Join(store.root, "locks", "portless.lock")
 }
 
 func (store *stateStore) logPath(serverID string) string {

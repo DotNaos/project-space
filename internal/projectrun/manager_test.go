@@ -14,6 +14,7 @@ import (
 func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 	project := writeTestScripts(t)
 	manager, processes, tailnet, _ := newTestManager(t)
+	portless := manager.portless.(*fakeLocalRouter)
 
 	started, err := manager.Start(context.Background(), project, "dev", []string{
 		"Preview.Example.com", "app.example.com", "preview.example.com",
@@ -22,6 +23,10 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRunningResult(t, started)
+	if started.LocalURL == nil || !strings.HasSuffix(*started.LocalURL, ".localhost:1355") ||
+		started.PortlessName == "" || portless.routes[started.PortlessName] != 43117 {
+		t.Fatalf("Portless route = %#v routes=%#v", started, portless.routes)
+	}
 	if !reflect.DeepEqual(started.AllowedHosts, []string{"app.example.com", "preview.example.com"}) {
 		t.Fatalf("allowed hosts = %#v", started.AllowedHosts)
 	}
@@ -35,7 +40,8 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 	if !containsEnvironment(command.Env, "PROJECT_ALLOWED_HOSTS=app.example.com,preview.example.com") ||
 		!containsEnvironment(command.Env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=") ||
 		!containsEnvironment(command.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
-		!containsEnvironment(command.Env, "PROJECT_SPACE_SERVE_MODE=managed") {
+		!containsEnvironment(command.Env, "PROJECT_SPACE_SERVE_MODE=managed") ||
+		!containsEnvironment(command.Env, "PORTLESS_URL="+*started.LocalURL) {
 		t.Fatalf("managed environment = %#v", command.Env)
 	}
 
@@ -46,7 +52,7 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRunningResult(t, again)
-	if len(processes.started) != 1 || len(tailnet.started) != 1 {
+	if len(processes.started) != 1 || len(tailnet.started) != 1 || len(portless.started) != 1 {
 		t.Fatalf("idempotent start launched again: processes=%d routes=%d", len(processes.started), len(tailnet.started))
 	}
 
@@ -74,11 +80,14 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 	if len(processes.stopped) != 1 {
 		t.Fatalf("stopped process groups = %d", len(processes.stopped))
 	}
+	if len(portless.routes) != 0 || len(portless.stopped) != 1 {
+		t.Fatalf("Portless route was not removed exactly once: routes=%#v stopped=%#v", portless.routes, portless.stopped)
+	}
 
 	if _, err := manager.Stop(context.Background(), project, "dev"); err != nil {
 		t.Fatal(err)
 	}
-	if len(tailnet.stopped) != 1 || len(processes.stopped) != 1 {
+	if len(tailnet.stopped) != 1 || len(processes.stopped) != 1 || len(portless.stopped) != 1 {
 		t.Fatal("idempotent stop touched the runtime again")
 	}
 }
@@ -376,8 +385,46 @@ func TestDifferentWorktreesReceiveDistinctSessionsAndPorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first.ServerID == second.ServerID || first.TmuxSession == second.TmuxSession ||
-		*first.LocalPort == *second.LocalPort || *first.PublicPort == *second.PublicPort {
+		*first.LocalPort == *second.LocalPort || *first.PublicPort == *second.PublicPort ||
+		first.LocalURL == nil || second.LocalURL == nil || *first.LocalURL == *second.LocalURL {
 		t.Fatalf("worktree instances collided: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestPortlessStartFailureCompensatesBeforeTmuxStarts(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	portless := manager.portless.(*fakeLocalRouter)
+	portless.startErr = errors.New("Portless unavailable")
+
+	result, err := manager.Start(context.Background(), project, "dev", nil)
+	if err == nil || !strings.Contains(err.Error(), "Portless unavailable") {
+		t.Fatalf("start error = %v", err)
+	}
+	if result.State != StateFailed || result.LocalURL != nil || len(processes.started) != 0 ||
+		len(tailnet.started) != 0 || len(portless.routes) != 0 {
+		t.Fatalf("Portless compensation = result %#v processes %#v tailnet %#v routes %#v",
+			result, processes.started, tailnet.started, portless.routes)
+	}
+}
+
+func TestStopRefusesRepurposedPortlessRoute(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	started, err := manager.Start(context.Background(), project, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	portless := manager.portless.(*fakeLocalRouter)
+	portless.routes[started.PortlessName] = 49999
+
+	result, err := manager.Stop(context.Background(), project, "dev")
+	if err == nil || !strings.Contains(err.Error(), "changed route") {
+		t.Fatalf("stop error = %v", err)
+	}
+	if result.State != StateFailed || portless.routes[started.PortlessName] != 49999 ||
+		len(processes.stopped) != 1 || len(tailnet.stopped) != 1 {
+		t.Fatalf("repurposed Portless route changed: result=%#v routes=%#v", result, portless.routes)
 	}
 }
 

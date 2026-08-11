@@ -20,6 +20,8 @@ func TestRuntimeStateValidationRejectsUnsafeOwnershipCombinations(t *testing.T) 
 		PID:                1234,
 		ProcessID:          "process-one",
 		LocalPort:          43117,
+		PortlessName:       "repository",
+		PortlessURL:        "http://repository.localhost:1355",
 		PublicPort:         44419,
 		TailscaleIPv4:      "100.80.135.9",
 		AllowedHosts:       []string{},
@@ -41,6 +43,10 @@ func TestRuntimeStateValidationRejectsUnsafeOwnershipCombinations(t *testing.T) 
 		{"missing process identity", func(state *runtimeState) { state.ProcessID = "" }, "process identity"},
 		{"invalid public port", func(state *runtimeState) { state.PublicPort = 70000 }, "public port"},
 		{"managed route missing", func(state *runtimeState) { state.TailscaleIPv4 = "" }, "Tailscale"},
+		{"Portless route missing", func(state *runtimeState) { state.PortlessURL = "" }, "Portless"},
+		{"Portless route changed", func(state *runtimeState) {
+			state.PortlessURL = "http://foreign.localhost:1355"
+		}, "Portless"},
 		{"unnormalized host", func(state *runtimeState) { state.AllowedHosts = []string{"B.example"} }, "allowed hosts"},
 		{"local-only route", func(state *runtimeState) {
 			state.Mode, state.State = ServeModeLocalOnly, StateLocalOnly

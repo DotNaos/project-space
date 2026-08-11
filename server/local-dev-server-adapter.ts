@@ -35,6 +35,7 @@ const serveResultKeys = [
   'mode',
   'operation',
   'pid',
+  'portlessName',
   'publicPort',
   'publicUrl',
   'repository',
@@ -98,6 +99,7 @@ function isProjectServeJson(value: unknown): value is ProjectServeJson {
     value.serverKey === value.script &&
     typeof value.repository === 'string' &&
     typeof value.tmuxSession === 'string' &&
+    typeof value.portlessName === 'string' &&
     (value.disposition === undefined || value.disposition === 'created' || value.disposition === 'reused') &&
     (value.capability === 'configured' || value.capability === 'unavailable') &&
     (value.state === 'starting' ||

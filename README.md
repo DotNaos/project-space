@@ -27,7 +27,7 @@ The repository currently targets a web-first fullstack MVP:
 
 - `project prepare`
 - `project serve dev`
-  Run the web app in fullstack development mode.
+  Run the web app in fullstack development mode at a stable Portless `.localhost` URL and publish its verified listener through Tailscale.
 - `project serve dev --local-only`
   Explicitly run without publishing a Tailscale route when managed publication cannot be used for a debugging session.
 - `project run build`
@@ -36,6 +36,9 @@ The repository currently targets a web-first fullstack MVP:
   Type-check the app.
 - `project run test`
   Run the test suite.
+
+The installed `project`, `portless`, `tmux`, `tailscale`, and `lsof` commands
+are required for the normal managed development-server path.
 
 ## Structure
 

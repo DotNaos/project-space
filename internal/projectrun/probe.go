@@ -51,9 +51,12 @@ func (prober NetworkProber) Check(ctx context.Context, target ProbeTarget) error
 		return connection.Close()
 	}
 	requestURL := url.URL{
-		Scheme: "http",
+		Scheme: target.Scheme,
 		Host:   net.JoinHostPort(target.Host, strconv.Itoa(target.Port)),
 		Path:   target.Path,
+	}
+	if requestURL.Scheme == "" {
+		requestURL.Scheme = "http"
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
 	if err != nil {

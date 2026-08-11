@@ -95,6 +95,11 @@ servers:
     command: [bun, x, vite, --port, "{port}"]
     environment:
       VITE_PROJECT_SPACE_API_BASE_URL: http://127.0.0.1:45873
+      VITE_PROJECT_SPACE_AUTH_DISABLED: "1"
+      PROJECT_SPACE_AUTH_DISABLED: "1"
+      PROJECT_SPACE_PUBLIC_ORIGIN: ""
+    secretEnvironment:
+      GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
 `)
 	root, command, err := LoadCommand(project, "test")
 	if err != nil || root == "" || strings.Join(command.Command, " ") != "bun test" {
@@ -104,9 +109,44 @@ servers:
 	if err != nil || server.Environment["VITE_PROJECT_SPACE_API_BASE_URL"] != "http://127.0.0.1:45873" {
 		t.Fatalf("server = %#v err=%v", server, err)
 	}
+	if server.Environment["PROJECT_SPACE_AUTH_DISABLED"] != "1" ||
+		server.Environment["VITE_PROJECT_SPACE_AUTH_DISABLED"] != "1" ||
+		server.Environment["PROJECT_SPACE_PUBLIC_ORIGIN"] != "" ||
+		server.SecretEnvironment["GITHUB_OAUTH_CLIENT_ID"] != "op://projects/GitHub OAuth App/client_id" {
+		t.Fatalf("managed local preview environment = %#v", server)
+	}
 	if _, _, err := LoadCommand(project, "dev"); err == nil ||
 		!strings.Contains(err.Error(), "long-running servers require project serve") {
 		t.Fatalf("server escaped through project run: %v", err)
+	}
+}
+
+func TestSecretEnvironmentRequiresOnePasswordReferencesAndDistinctKeys(t *testing.T) {
+	project := t.TempDir()
+	for _, body := range []string{
+		"version: 1\nscripts:\n  dev:\n    command: [true]\n    secretEnvironment: {TOKEN: plaintext}\n",
+		"version: 1\nscripts:\n  dev:\n    command: [true]\n    environment: {TOKEN: value}\n    secretEnvironment: {TOKEN: op://vault/item/field}\n",
+	} {
+		writeScriptsBody(t, project, body)
+		if _, _, err := LoadScript(project, "dev"); err == nil {
+			t.Fatalf("unsafe secret environment was accepted: %s", body)
+		}
+	}
+}
+
+func TestSecretEnvironmentUsesOnePasswordWithoutPersistingResolvedSecrets(t *testing.T) {
+	script := Script{
+		Command: []string{"bun", "x", "vite"},
+		SecretEnvironment: map[string]string{
+			"GITHUB_OAUTH_CLIENT_ID": "op://projects/GitHub OAuth App/client_id",
+		},
+	}
+	command := commandFor(script, "/tmp/project", "127.0.0.1", 43117, nil)
+	if got := strings.Join(command.Argv, " "); got != "op run -- bun x vite" {
+		t.Fatalf("command = %q", got)
+	}
+	if !containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=op://projects/GitHub OAuth App/client_id") {
+		t.Fatalf("command environment = %#v", command.Env)
 	}
 }
 
@@ -119,10 +159,14 @@ func TestManagedServeMarkerCannotEscapeIntoFiniteCommands(t *testing.T) {
 	}
 	server := serverCommandFor(
 		script, "/tmp/project", "127.0.0.1", 43117, nil, ServeModeManaged,
+		"http://project.localhost:1355",
 	)
 	if !containsEnvironment(server.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
 		!containsEnvironment(server.Env, "PROJECT_SPACE_SERVE_MODE=managed") {
 		t.Fatalf("server command is missing serve authority: %#v", server.Env)
+	}
+	if !containsEnvironment(server.Env, "PORTLESS_URL=http://project.localhost:1355") {
+		t.Fatalf("server command is missing Portless URL: %#v", server.Env)
 	}
 }
 

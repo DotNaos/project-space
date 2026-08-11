@@ -162,9 +162,25 @@ function canonicalLocalUrl(result: DevServerConnectorResult) {
   ) {
     return undefined;
   }
-  const canonical = `http://127.0.0.1:${result.localPort}/`;
   try {
-    return new URL(result.localUrl).toString() === canonical ? canonical : undefined;
+    const supplied = new URL(result.localUrl);
+    const direct = `http://127.0.0.1:${result.localPort}/`;
+    if (supplied.toString() === direct) {
+      return direct;
+    }
+    if (
+      (supplied.protocol !== 'http:' && supplied.protocol !== 'https:') ||
+      !supplied.hostname.endsWith('.localhost') ||
+      !supplied.port ||
+      supplied.pathname !== '/' ||
+      supplied.username ||
+      supplied.password ||
+      supplied.search ||
+      supplied.hash
+    ) {
+      return undefined;
+    }
+    return supplied.toString();
   } catch {
     return undefined;
   }

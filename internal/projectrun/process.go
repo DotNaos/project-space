@@ -291,6 +291,8 @@ func safeEnvironment(environment []string) []string {
 		"GOPATH": true, "GOROOT": true, "HOME": true, "JAVA_HOME": true,
 		"LANG": true, "LC_ALL": true, "LOGNAME": true, "MISE_DATA_DIR": true,
 		"NVM_DIR": true, "PATH": true, "PNPM_HOME": true, "PYENV_ROOT": true,
+		"PORTLESS_HTTPS": true, "PORTLESS_PORT": true, "PORTLESS_STATE_DIR": true,
+		"PORTLESS_SYNC_HOSTS": true, "PORTLESS_TLD": true,
 		"RUSTUP_HOME": true, "SDKROOT": true, "SHELL": true, "SSL_CERT_DIR": true,
 		"SSL_CERT_FILE": true, "TEMP": true, "TMP": true, "TMPDIR": true,
 		"TZ": true, "USER": true, "UV_CACHE_DIR": true, "VIRTUAL_ENV": true,

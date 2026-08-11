@@ -359,12 +359,13 @@ func (manager *Manager) deleteSessionArtifacts(state runtimeState) error {
 func clearRuntimeResources(state *runtimeState) {
 	state.PID, state.ProcessID = 0, ""
 	state.LocalPort, state.PublicPort = 0, 0
+	state.PortlessName, state.PortlessURL = "", ""
 	state.TailscaleIPv4 = ""
 	state.StartedAt = ""
 }
 
 func hasRuntimeResources(state runtimeState) bool {
-	return state.PID > 0 || state.LocalPort > 0 || state.PublicPort > 0
+	return state.PID > 0 || state.LocalPort > 0 || state.PublicPort > 0 || state.PortlessURL != ""
 }
 
 func identityFromState(state runtimeState) ServerIdentity {

@@ -214,6 +214,60 @@ func (processes *fakeProcesses) StopGroup(process ProcessRef, _ time.Duration) e
 	return nil
 }
 
+type fakeLocalRouter struct {
+	routes    map[string]int
+	started   []string
+	stopped   []string
+	startErr  error
+	matchErr  error
+	removeErr error
+}
+
+func newFakeLocalRouter() *fakeLocalRouter {
+	return &fakeLocalRouter{routes: map[string]int{}}
+}
+
+func (router *fakeLocalRouter) Register(_ context.Context, name string, port int) (string, error) {
+	if router.startErr != nil {
+		return "", router.startErr
+	}
+	if _, exists := router.routes[name]; exists {
+		return "", fmt.Errorf("route collision")
+	}
+	router.routes[name] = port
+	router.started = append(router.started, name)
+	return "http://" + name + ".localhost:1355", nil
+}
+
+func (router *fakeLocalRouter) Matches(
+	_ context.Context,
+	name string,
+	_ string,
+	port int,
+) (bool, error) {
+	if router.matchErr != nil {
+		return false, router.matchErr
+	}
+	return router.routes[name] == port && port > 0, nil
+}
+
+func (router *fakeLocalRouter) Remove(
+	_ context.Context,
+	name string,
+	_ string,
+	port int,
+) error {
+	if router.removeErr != nil {
+		return router.removeErr
+	}
+	if current, exists := router.routes[name]; exists && current != port {
+		return fmt.Errorf("refusing to remove changed route")
+	}
+	delete(router.routes, name)
+	router.stopped = append(router.stopped, name)
+	return nil
+}
+
 type fakeTailnet struct {
 	ip       string
 	routes   map[int]int
@@ -356,11 +410,13 @@ func newTestManagerWithPorts(
 	processes := newFakeProcesses()
 	tmux := newFakeTmux(processes)
 	tailnet := newFakeTailnet()
+	portless := newFakeLocalRouter()
 	prober := newFakeProber()
 	tokenCounter := 0
 	manager, err := NewManager(Dependencies{
 		Processes: processes,
 		Tmux:      tmux,
+		Portless:  portless,
 		Tailnet:   tailnet,
 		Prober:    prober,
 		Ports:     ports,

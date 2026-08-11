@@ -129,6 +129,7 @@ export interface DevServerRuntimeResult {
   mode: 'managed' | 'local-only';
   operation: 'start' | 'status' | 'stop';
   pid: number | null;
+  portlessName: string;
   publicPort: number | null;
   publicUrl: string | null;
   repository: string;

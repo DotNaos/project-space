@@ -13,6 +13,7 @@ import (
 type Dependencies struct {
 	Processes  ProcessRunner
 	Tmux       TmuxManager
+	Portless   LocalRouter
 	Tailnet    Tailnet
 	Prober     Prober
 	Ports      PortAllocator
@@ -26,6 +27,7 @@ type Dependencies struct {
 type Manager struct {
 	processes  ProcessRunner
 	tmux       TmuxManager
+	portless   LocalRouter
 	tailnet    Tailnet
 	prober     Prober
 	ports      PortAllocator
@@ -45,6 +47,7 @@ func NewDefaultManager() (*Manager, error) {
 	return NewManager(Dependencies{
 		Processes: processes,
 		Tmux:      TmuxCLI{},
+		Portless:  PortlessCLI{},
 		Tailnet:   TailscaleCLI{},
 		Prober:    NetworkProber{},
 		Ports:     NetworkPortAllocator{},
@@ -54,7 +57,7 @@ func NewDefaultManager() (*Manager, error) {
 }
 
 func NewManager(dependencies Dependencies) (*Manager, error) {
-	if dependencies.Processes == nil || dependencies.Tailnet == nil ||
+	if dependencies.Processes == nil || dependencies.Portless == nil || dependencies.Tailnet == nil ||
 		dependencies.Prober == nil || dependencies.Ports == nil {
 		return nil, fmt.Errorf("project run dependencies must not be nil")
 	}
@@ -80,6 +83,7 @@ func NewManager(dependencies Dependencies) (*Manager, error) {
 	return &Manager{
 		processes:  dependencies.Processes,
 		tmux:       dependencies.Tmux,
+		portless:   dependencies.Portless,
 		tailnet:    dependencies.Tailnet,
 		prober:     dependencies.Prober,
 		ports:      dependencies.Ports,
@@ -286,6 +290,7 @@ func (manager *Manager) reserveSession(
 		TmuxSession:        identity.TmuxSession,
 		TmuxOwnershipToken: ownershipToken,
 		LocalPort:          localPort,
+		PortlessName:       portlessName(identity),
 		PublicPort:         publicPort,
 		TailscaleIPv4:      address,
 		AllowedHosts:       allowedHosts,
@@ -319,6 +324,15 @@ func (manager *Manager) checkRuntime(ctx context.Context, state runtimeState, sc
 	if !owner {
 		return fmt.Errorf("dev server process does not own local port %d", state.LocalPort)
 	}
+	portlessMatches, err := manager.portless.Matches(
+		ctx, state.PortlessName, state.PortlessURL, state.LocalPort,
+	)
+	if err != nil {
+		return transientRuntime(fmt.Errorf("inspect Portless route: %w", err))
+	}
+	if !portlessMatches {
+		return fmt.Errorf("Portless route %s no longer targets local port %d", state.PortlessURL, state.LocalPort)
+	}
 	if state.Mode == ServeModeManaged {
 		routeMatches, err := manager.tailnet.MatchesTCP(ctx, state.PublicPort, state.LocalPort)
 		if err != nil {
@@ -332,6 +346,13 @@ func (manager *Manager) checkRuntime(ctx context.Context, state runtimeState, sc
 		Host: "127.0.0.1", Port: state.LocalPort, Path: script.HealthPath(),
 	}); err != nil {
 		return transientRuntime(fmt.Errorf("local dev server health check failed: %w", err))
+	}
+	portlessTarget, err := probeTargetForURL(state.PortlessURL, script.HealthPath())
+	if err != nil {
+		return fmt.Errorf("Portless route is invalid: %w", err)
+	}
+	if err := manager.prober.Check(ctx, portlessTarget); err != nil {
+		return transientRuntime(fmt.Errorf("Portless URL health check failed: %w", err))
 	}
 	if state.Mode == ServeModeManaged {
 		if err := manager.prober.Check(ctx, ProbeTarget{
@@ -357,6 +378,11 @@ func (manager *Manager) cleanupRuntime(state runtimeState) error {
 		return fmt.Errorf("refusing cleanup because recorded process %d is alive without its owned tmux session", state.PID)
 	}
 	var failures []error
+	if state.PortlessURL != "" {
+		if err := manager.stopPortlessRoute(ctx, state); err != nil {
+			failures = append(failures, err)
+		}
+	}
 	if state.Mode == ServeModeManaged && state.PublicPort > 0 {
 		if err := manager.stopTailnetTCP(ctx, state.PublicPort, state.LocalPort); err != nil {
 			failures = append(failures, err)
@@ -397,6 +423,7 @@ func (manager *Manager) failStart(state runtimeState, cause error) (ServeResult,
 	if cleanupErr == nil {
 		state.PID, state.ProcessID = 0, ""
 		state.LocalPort, state.PublicPort = 0, 0
+		state.PortlessName, state.PortlessURL = "", ""
 		state.TailscaleIPv4 = ""
 	}
 	state.StartedAt = ""

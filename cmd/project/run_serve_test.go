@@ -154,7 +154,7 @@ func assertServeJSONKeys(t *testing.T, output string) {
 	}
 	for _, key := range []string{
 		"schemaVersion", "operation", "mode", "serverId", "serverKey", "script", "directory", "repository", "tmuxSession", "capability", "state",
-		"pid", "localPort", "localUrl", "publicPort", "publicUrl", "tailscaleIPv4",
+		"pid", "localPort", "localUrl", "portlessName", "publicPort", "publicUrl", "tailscaleIPv4",
 		"allowedHosts", "startedAt", "checkedAt", "lastError",
 	} {
 		if _, exists := payload[key]; !exists {
@@ -298,7 +298,7 @@ func (manager *fakeProjectCommandManager) SetupStatus(
 
 func runningServeFixture() projectrun.ServeResult {
 	pid, localPort, publicPort := 7001, 43117, 44419
-	localURL, publicURL := "http://127.0.0.1:43117", "http://100.80.135.9:44419"
+	localURL, publicURL := "http://worktree.project-space.localhost:1355", "http://100.80.135.9:44419"
 	ip, startedAt := "100.80.135.9", "2026-07-11T12:00:00Z"
 	return projectrun.ServeResult{
 		SchemaVersion: projectrun.SchemaVersion,
@@ -314,6 +314,7 @@ func runningServeFixture() projectrun.ServeResult {
 		PID:           &pid,
 		LocalPort:     &localPort,
 		LocalURL:      &localURL,
+		PortlessName:  "worktree.project-space",
 		PublicPort:    &publicPort,
 		PublicURL:     &publicURL,
 		TailscaleIPv4: &ip,

@@ -58,6 +58,7 @@ type ServeResult struct {
 	PID           *int             `json:"pid"`
 	LocalPort     *int             `json:"localPort"`
 	LocalURL      *string          `json:"localUrl"`
+	PortlessName  string           `json:"portlessName"`
 	PublicPort    *int             `json:"publicPort"`
 	PublicURL     *string          `json:"publicUrl"`
 	TailscaleIPv4 *string          `json:"tailscaleIPv4"`
@@ -125,9 +126,10 @@ type Tailnet interface {
 }
 
 type ProbeTarget struct {
-	Host string
-	Port int
-	Path string
+	Scheme string
+	Host   string
+	Port   int
+	Path   string
 }
 
 type Prober interface {

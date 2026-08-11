@@ -74,6 +74,13 @@ describe('machine connection runtime', () => {
     await expect(createConfiguredMachineConnectionRuntime({})).resolves.toBeNull();
     await expect(
       createConfiguredMachineConnectionRuntime({
+        PORTLESS_URL: 'http://project-space.localhost:1355',
+        PROJECT_SPACE_AUTH_DISABLED: '1',
+        PROJECT_SPACE_PUBLIC_ORIGIN: ''
+      })
+    ).resolves.toBeNull();
+    await expect(
+      createConfiguredMachineConnectionRuntime({
         PROJECT_SPACE_PREVIEW_MODE: '1',
         PROJECT_SPACE_PUBLIC_ORIGIN: 'https://pr-263.projects.os-home.net'
       })

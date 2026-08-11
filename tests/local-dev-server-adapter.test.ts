@@ -32,6 +32,7 @@ function runtimeJson(directory: string) {
     mode: 'managed',
     operation: 'status',
     pid: null,
+    portlessName: '',
     publicPort: null,
     publicUrl: null,
     repository: '/tmp/project/.git',

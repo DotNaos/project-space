@@ -38,6 +38,11 @@ servers:
       - --strictPort
     environment:
       VITE_PROJECT_SPACE_API_BASE_URL: http://127.0.0.1:45873
+      VITE_PROJECT_SPACE_AUTH_DISABLED: "1"
+      PROJECT_SPACE_AUTH_DISABLED: "1"
+      PROJECT_SPACE_PUBLIC_ORIGIN: ""
+    secretEnvironment:
+      GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
     healthCheck:
       path: /
       timeoutSeconds: 45
