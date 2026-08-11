@@ -9,16 +9,14 @@ The repository currently targets a web-first fullstack MVP:
 - local terminal command execution for the selected workspace or worktree
 - git status, diff, stage, unstage, and commit actions for the selected target
 - Codex CLI/app status and open-target support
-- Electron shell that hosts the same frontend and talks to the backend over HTTP
+- browser-hosted frontend that talks to the backend over HTTP
 - TailwindCSS setup
-- no renderer IPC contract or Electron preload bridge
 - typed domain model for projects, worktrees, issue docs, runtime sessions, integration requests, and edit transfer concepts
-- a single-project desktop shell with a workflow explorer and placeholder launch actions
+- a single-project workspace UI with a workflow explorer and placeholder launch actions
 - product docs for vision, brain dump, and current MVP scope
 
 ## Stack
 
-- Electron
 - React
 - TypeScript
 - Vite
@@ -34,17 +32,11 @@ The repository currently targets a web-first fullstack MVP:
   Build the deployable web frontend.
 - `bun run start`
   Serve the built frontend plus backend from one local HTTP server.
-- `bun run dev:electron`
-  Run the Electron shell against the HTTP backend.
-- `bun run build:electron`
-  Build the web frontend and Electron main process.
 - `bun run check`
   Type-check the app.
 
 ## Structure
 
-- `electron/main`
-  Electron main process entry. It starts the local backend and loads the web frontend.
 - `server`
   HTTP routing and local backend services.
 - `src/api`
@@ -58,7 +50,7 @@ The repository currently targets a web-first fullstack MVP:
 - `src/infrastructure/stubs`
   Thin placeholder implementations used by iteration 1.
 - `src/features/project-desktop`
-  Mock data, view state, and the initial desktop shell UI.
+  Mock data, view state, and the initial project workspace UI.
 - `.dev`
   Product vision, brain dump, and scoped planning notes.
 
@@ -78,8 +70,8 @@ The repository currently targets a web-first fullstack MVP:
 
 Included now:
 
-- desktop app foundation
-- single-project desktop shell
+- browser-hosted app foundation
+- single-project workspace UI
 - workflow explorer tree
 - issue doc placeholders
 - project discovery under `~/projects`

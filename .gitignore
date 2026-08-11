@@ -1,6 +1,5 @@
 node_modules
 dist
-dist-electron
 apps/mobile/dist-prototype
 .env
 .env.*

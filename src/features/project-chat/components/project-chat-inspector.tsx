@@ -316,7 +316,7 @@ export function ProjectChatInspector({
   activeTab: ProjectChatInspectorTab;
   canSwitchRooms?: boolean;
   channels: ProjectChatChannelRecord[];
-  /** Codex thread directory across every machine, supplied by the desktop shell. */
+  /** Codex thread directory across every machine, supplied by the project workspace. */
   threadDirectory?: ReactNode;
   members: ProjectChatMemberRecord[];
   mentionError?: string;

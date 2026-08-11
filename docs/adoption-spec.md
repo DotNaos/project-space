@@ -162,9 +162,8 @@ project. `adopt --unwaive` + module adopt is that conversion.
 
 Project Space itself is the reference case (control-plane Phase B task 4):
 init + adopt ops-layer files (deploy/**, scripts/, .env.secrets), `--move`
-the root Vite app under `clients/web/`, waive `server/` (TS backend) and
-`electron/` with reasons, delete legacy root metadata and the projectctl
-bridge. Acceptance:
+the root Vite app under `clients/web/`, waive `server/` (TS backend) with
+reasons, then delete legacy root metadata and the projectctl bridge. Acceptance:
 
 1. `adopt --dry-run --format json` on a fixture repo classifies every file
    into exactly one state, with correct directory rollups and suggestions.

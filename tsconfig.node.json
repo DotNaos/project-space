@@ -24,7 +24,6 @@
     "apps/docs/lib/releases/mdx.ts",
     "apps/docs/lib/releases/semver.ts",
     "apps/docs/lib/releases/types.ts",
-    "electron",
     "scripts/dev-prototype.ts",
     "server",
     "src/shared"

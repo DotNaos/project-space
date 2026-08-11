@@ -127,7 +127,7 @@ Engine + CLI work; the enabler for "initialize from the website".
 4. Migrate Project Space itself as the reference case: run init + adopt against
    `/Users/oli/projects/project-template`, adopt the ops-layer files that
    already match (deploy/**, scripts/with-secrets.sh, .env.secrets), waive the
-   divergent layout (root Vite app, TS server, electron/) with reasons, then
+   divergent layout (root Vite app and TS server) with reasons, then
    delete the legacy root `project.yaml`, `template.lock.yaml`, and
    `server/local-projectctl-client.ts` (+ its API types and UI usages).
 

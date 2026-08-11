@@ -1,14 +1,3 @@
-import { connectReactDevTools } from '@/devtools/connect-react-devtools';
+import { startApp } from '@/app-entry';
 
-const enableReactDevTools = false;
-
-async function bootstrap() {
-  if (enableReactDevTools) {
-    await connectReactDevTools();
-  }
-
-  const { startApp } = await import('@/app-entry');
-  startApp();
-}
-
-void bootstrap();
+startApp();
