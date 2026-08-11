@@ -387,7 +387,7 @@ project serve reconcile --json
 argument is an existing directory, it runs `dev` there.
 
 Managed servers listen on a free `127.0.0.1` port. The CLI registers one exact
-Portless alias such as `http://issue-612-managed-dev.project-space.localhost:1355`
+Portless alias such as `http://612-managed-dev.project-space.localhost:1355`
 for normal local use, then creates one exact raw Tailscale TCP route and reports a DNS-free URL such as
 `http://100.80.135.9:44000`. MagicDNS and Tailscale certificate domains are not
 required. Stop removes only the recorded Portless alias and Tailscale port when

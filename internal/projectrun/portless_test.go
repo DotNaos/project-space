@@ -27,20 +27,33 @@ func TestPortlessNameMatchesReadableWorktreeConvention(t *testing.T) {
 				WorktreePath:   "/Users/oli/projects/.worktrees/project-space/issue-612-managed-dev",
 				ServerKey:      "dev",
 			},
-			want: "issue-612-managed-dev.project-space",
+			want: "612-managed-dev.project-space",
 		},
 		{
 			identity: ServerIdentity{
 				RepositoryPath: "/Users/oli/projects/project-space/.git",
-				WorktreePath:   "/Users/oli/projects/.worktrees/project-space/issue-612-managed-dev",
+				WorktreePath:   "/Users/oli/projects/.worktrees/project-space/task-issue-612-managed-dev",
 				ServerKey:      "docs",
 			},
-			want: "docs.issue-612-managed-dev.project-space",
+			want: "docs.612-managed-dev.project-space",
 		},
 	}
 	for _, test := range tests {
 		if got := portlessName(test.identity); got != test.want {
 			t.Fatalf("Portless name = %q, want %q", got, test.want)
+		}
+	}
+}
+
+func TestPortlessWorktreeLabelOnlyStripsNumericIssuePrefixes(t *testing.T) {
+	for value, want := range map[string]string{
+		"issue-604-refactor-task-page": "604-refactor-task-page",
+		"task-issue-612-managed-tmux":  "612-managed-tmux",
+		"issue-tracker":                "issue-tracker",
+		"task-issue-not-a-number":      "task-issue-not-a-number",
+	} {
+		if got := portlessWorktreeLabel(value); got != want {
+			t.Fatalf("Portless worktree label for %q = %q, want %q", value, got, want)
 		}
 	}
 }

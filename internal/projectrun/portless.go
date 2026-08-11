@@ -35,6 +35,8 @@ var portlessRouteLine = regexp.MustCompile(
 	`^\s+(https?://\S+)\s+->\s+localhost:([0-9]+)\s+\((alias|pid [0-9]+)\)\s*$`,
 )
 
+var issueWorktreeLabel = regexp.MustCompile(`^(?:task-)?issue-([0-9]+(?:-|$).*)$`)
+
 func (portless PortlessCLI) Register(ctx context.Context, name string, port int) (string, error) {
 	if err := validatePortlessName(name); err != nil {
 		return "", err
@@ -172,7 +174,7 @@ func portlessName(identity ServerIdentity) string {
 		repository = filepath.Base(identity.RepositoryPath)
 	}
 	repository = portlessLabel(repository)
-	worktree := portlessLabel(filepath.Base(identity.WorktreePath))
+	worktree := portlessWorktreeLabel(filepath.Base(identity.WorktreePath))
 	base := repository
 	if worktree != repository {
 		base = worktree + "." + repository
@@ -181,6 +183,14 @@ func portlessName(identity ServerIdentity) string {
 		base = portlessLabel(identity.ServerKey) + "." + base
 	}
 	return base
+}
+
+func portlessWorktreeLabel(value string) string {
+	label := strings.Trim(identitySegmentPattern.ReplaceAllString(strings.ToLower(value), "-"), "-")
+	if match := issueWorktreeLabel.FindStringSubmatch(label); match != nil {
+		label = match[1]
+	}
+	return portlessLabel(label)
 }
 
 func portlessLabel(value string) string {
