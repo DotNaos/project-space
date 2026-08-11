@@ -18,13 +18,20 @@ Discovery endpoints:
 
 Connect ChatGPT Work to `https://projects.os-home.net/mcp`, sign in to Project Space, and approve the requested permissions. Environment management, Environment deletion, and agent authorization are separate opt-in permissions and are not granted to new clients by default. The remote server uses the same Project Space machine-membership and backend authorization boundaries as the web application. It omits local filesystem paths, embedded image data, account details, and credentials from MCP results.
 
-Connect Codex with:
+The recommended Codex setup installs the repository-owned plugin, which adds
+both this production MCP server and guidance for the local `project` CLI:
 
 ```sh
-codex mcp add project-space --url https://projects.os-home.net/mcp
+codex plugin marketplace add .
+codex plugin add project-space@project-space
 ```
 
-Codex opens the same Project Space authorization flow and returns to the local app through a loopback callback after approval.
+Run those commands from a Project Space checkout, then start a new Codex task.
+See the [plugin guide](codex-plugin.md) for details. To configure only the
+remote MCP server, use
+`codex mcp add project-space --url https://projects.os-home.net/mcp` instead.
+Codex opens the same Project Space authorization flow and returns to the local
+app through a loopback callback after approval.
 
 The GitHub-first task flow is:
 
