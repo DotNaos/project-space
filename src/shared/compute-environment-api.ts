@@ -19,6 +19,90 @@ export type ComputeEnvironmentKind =
   | 'virtual_machine'
   | 'other';
 
+export type EnvironmentOperatingSystemFamily =
+  | 'macos'
+  | 'windows'
+  | 'linux'
+  | 'other';
+
+export type EnvironmentBootstrapStrategy =
+  | 'ssh'
+  | 'provider_native'
+  | 'workspace_runtime'
+  | 'custom';
+
+export type EnvironmentDefinitionOwnership = 'built_in' | 'user_defined';
+
+export interface EnvironmentDefinitionRecord {
+  bootstrapStrategy: EnvironmentBootstrapStrategy;
+  id: string;
+  kind: ComputeEnvironmentKind;
+  name: string;
+  operatingSystemFamily: EnvironmentOperatingSystemFamily;
+  ownership: EnvironmentDefinitionOwnership;
+  slug: string;
+  supportedArchitectures: readonly string[];
+}
+
+export type EnvironmentDefinitionBlueprint = Omit<EnvironmentDefinitionRecord, 'id'>;
+
+const builtInDefinitionBlueprints: Record<
+  ComputeEnvironmentKind,
+  EnvironmentDefinitionBlueprint
+> = {
+  native_macos: definition('native_macos', 'macos', 'macOS', 'macos', 'ssh'),
+  native_windows: definition('native_windows', 'windows', 'Windows', 'windows', 'ssh'),
+  native_linux: definition('native_linux', 'linux', 'Linux', 'linux', 'ssh'),
+  wsl: definition('wsl', 'wsl', 'WSL', 'linux', 'ssh'),
+  docker: definition('docker', 'docker', 'Docker', 'other', 'workspace_runtime'),
+  devbox: definition('devbox', 'devbox', 'Devbox', 'other', 'workspace_runtime'),
+  github_codespace: definition(
+    'github_codespace',
+    'github-codespace',
+    'GitHub Codespace',
+    'linux',
+    'provider_native'
+  ),
+  cloud_sandbox: definition(
+    'cloud_sandbox', 'cloud-sandbox', 'Cloud sandbox', 'other', 'provider_native'
+  ),
+  kubernetes_workload: definition(
+    'kubernetes_workload',
+    'kubernetes-workload',
+    'Kubernetes workload',
+    'other',
+    'provider_native'
+  ),
+  virtual_machine: definition(
+    'virtual_machine', 'virtual-machine', 'Virtual machine', 'other', 'ssh'
+  ),
+  other: definition('other', 'other', 'Other', 'other', 'custom')
+};
+
+function definition(
+  kind: ComputeEnvironmentKind,
+  slug: string,
+  name: string,
+  operatingSystemFamily: EnvironmentOperatingSystemFamily,
+  bootstrapStrategy: EnvironmentBootstrapStrategy
+): EnvironmentDefinitionBlueprint {
+  return {
+    bootstrapStrategy,
+    kind,
+    name,
+    operatingSystemFamily,
+    ownership: 'built_in',
+    slug,
+    supportedArchitectures: []
+  };
+}
+
+export function builtInEnvironmentDefinition(
+  kind: ComputeEnvironmentKind
+): EnvironmentDefinitionBlueprint {
+  return builtInDefinitionBlueprints[kind];
+}
+
 export type HostResolution =
   | 'verified'
   | 'manual'
@@ -98,6 +182,7 @@ export type EnvironmentHostAssociation =
     };
 
 export interface ComputeEnvironmentRecord {
+  environmentDefinitionId: string;
   hostAssociation: EnvironmentHostAssociation;
   id: string;
   identity: DerivedIdentityKey;
@@ -243,6 +328,7 @@ export type IdentityResolution =
 
 export interface ComputeInventoryInput {
   connectors: readonly ConnectorEnvironmentAssociation[];
+  environmentDefinitions: readonly EnvironmentDefinitionRecord[];
   environments: readonly ComputeEnvironmentRecord[];
   hosts: readonly ComputeHostRecord[];
   platforms: readonly ComputePlatformRecord[];
@@ -271,12 +357,16 @@ export interface ComputeInventory {
 
 export type ComputeInventoryViolationCode =
   | 'duplicate_connector'
+  | 'duplicate_environment_definition'
+  | 'duplicate_environment_definition_slug'
   | 'duplicate_environment'
   | 'duplicate_environment_identity'
   | 'duplicate_host'
   | 'duplicate_host_identity'
   | 'duplicate_platform'
   | 'host_platform_missing'
+  | 'environment_definition_missing'
+  | 'environment_definition_kind_mismatch'
   | 'environment_platform_missing'
   | 'environment_host_missing'
   | 'environment_host_platform_mismatch'
@@ -350,11 +440,20 @@ export function validateComputeInventory(
 ): ComputeInventoryViolation[] {
   const violations: ComputeInventoryViolation[] = [];
   const platformIds = new Set(input.platforms.map(({ id }) => id));
+  const environmentDefinitionsById = new Map(
+    input.environmentDefinitions.map((definition) => [definition.id, definition])
+  );
   const hostsById = new Map(input.hosts.map((host) => [host.id, host]));
   const environmentsById = new Map(input.environments.map((environment) => [environment.id, environment]));
 
   for (const id of duplicates(input.platforms.map(({ id }) => id))) {
     violations.push({ code: 'duplicate_platform', id });
+  }
+  for (const id of duplicates(input.environmentDefinitions.map(({ id }) => id))) {
+    violations.push({ code: 'duplicate_environment_definition', id });
+  }
+  for (const slug of duplicates(input.environmentDefinitions.map(({ slug }) => slug))) {
+    violations.push({ code: 'duplicate_environment_definition_slug', id: slug });
   }
   for (const id of duplicates(input.hosts.map(({ id }) => id))) {
     violations.push({ code: 'duplicate_host', id });
@@ -381,6 +480,12 @@ export function validateComputeInventory(
   }
 
   for (const environment of input.environments) {
+    const definition = environmentDefinitionsById.get(environment.environmentDefinitionId);
+    if (!definition) {
+      violations.push({ code: 'environment_definition_missing', id: environment.id });
+    } else if (definition.kind !== environment.kind) {
+      violations.push({ code: 'environment_definition_kind_mismatch', id: environment.id });
+    }
     if (!platformIds.has(environment.platformId)) {
       violations.push({ code: 'environment_platform_missing', id: environment.id });
     }

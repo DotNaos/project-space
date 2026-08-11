@@ -15,6 +15,10 @@ import {
   computeEnvironmentIdentityResolutionMigrationId,
   computeEnvironmentIdentityResolutionMigrationSql
 } from '../server/database/compute-environment-identity-resolution-migration';
+import {
+  environmentCatalogMigrationId,
+  environmentCatalogMigrationSql
+} from '../server/database/environment-catalog-migration';
 
 interface QueryCall {
   sql: string;
@@ -46,6 +50,25 @@ class MigrationTestClient implements DatabaseQueryClient {
 }
 
 describe('database migrations', () => {
+  test('adds Environment definitions and backfills every concrete instance', () => {
+    expect(environmentCatalogMigrationId).toBe('0039_environment_catalog');
+    expect(environmentCatalogMigrationSql).toContain(
+      'create table compute_environment_definitions'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'add column environment_definition_id uuid'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'alter column environment_definition_id set not null'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'foreign key (environment_definition_id, owner_user_id)'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'create or replace function project_space_ensure_connector_environment()'
+    );
+  });
+
   test('repairs compute-environment identity resolution after the original migration', () => {
     expect(computeEnvironmentIdentityResolutionMigrationId).toBe(
       '0031_compute_environment_identity_resolution'
@@ -122,7 +145,8 @@ describe('database migrations', () => {
       '0035_task_handoff_artifacts',
       '0036_workspace_commands',
       '0037_task_delivery',
-      '0038_dev_server_managed_states'
+      '0038_dev_server_managed_states',
+      '0039_environment_catalog'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

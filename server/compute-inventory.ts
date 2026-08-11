@@ -6,9 +6,13 @@ import type {
   ComputeInventorySnapshot,
   ComputePlatformRecord,
   ConnectorComputeMetadata,
-  ConnectorEnvironmentAssociation
+  ConnectorEnvironmentAssociation,
+  EnvironmentDefinitionRecord
 } from '../src/shared/compute-environment-api';
-import { validateComputeInventory } from '../src/shared/compute-environment-api';
+import {
+  builtInEnvironmentDefinition,
+  validateComputeInventory
+} from '../src/shared/compute-environment-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../src/shared/project-space-api';
 
 function stableId(namespace: string, value: string) {
@@ -50,6 +54,7 @@ export function computeInventoryFromConnectors(input: {
 }): ComputeInventorySnapshot {
   const platformsByKey = new Map<string, ComputePlatformRecord>();
   const hostsById = new Map<string, ComputeHostRecord>();
+  const environmentDefinitionsByKind = new Map<string, EnvironmentDefinitionRecord>();
   const environmentsByKey = new Map<string, ComputeEnvironmentRecord>();
   const connectors: ConnectorEnvironmentAssociation[] = [];
   const physicalByConnector = new Map<string, PhysicalMachineRecord[]>();
@@ -64,6 +69,10 @@ export function computeInventoryFromConnectors(input: {
 
   for (const connector of input.connectors) {
     const metadata = connector.compute ?? legacyMetadata(connector);
+    const environmentDefinition = definitionForKind(
+      metadata.environmentKind,
+      environmentDefinitionsByKind
+    );
     const platformKey = `${metadata.platformKind}:${metadata.platformName}`;
     let platform = platformsByKey.get(platformKey);
     if (!platform) {
@@ -120,6 +129,10 @@ export function computeInventoryFromConnectors(input: {
       let parent = environmentsByKey.get(parentKey);
       if (!parent) {
         parent = {
+          environmentDefinitionId: definitionForKind(
+            'other',
+            environmentDefinitionsByKind
+          ).id,
           hostAssociation,
           id: stableId('environment', parentKey),
           identity: metadata.parentEnvironmentIdentity,
@@ -135,6 +148,7 @@ export function computeInventoryFromConnectors(input: {
     let environment = environmentsByKey.get(environmentKey);
     if (!environment) {
       environment = {
+        environmentDefinitionId: environmentDefinition.id,
         hostAssociation,
         id: stableId('environment', environmentKey),
         identity: metadata.environmentIdentity,
@@ -158,9 +172,24 @@ export function computeInventoryFromConnectors(input: {
 
   const snapshot = {
     connectors,
+    environmentDefinitions: [...environmentDefinitionsByKind.values()],
     environments: [...environmentsByKey.values()],
     hosts: [...hostsById.values()],
     platforms: [...platformsByKey.values()]
   };
   return { ...snapshot, violations: validateComputeInventory(snapshot) };
+}
+
+function definitionForKind(
+  kind: ComputeEnvironmentRecord['kind'],
+  definitions: Map<string, EnvironmentDefinitionRecord>
+) {
+  const current = definitions.get(kind);
+  if (current) return current;
+  const definition = {
+    ...builtInEnvironmentDefinition(kind),
+    id: stableId('environment-definition', kind)
+  };
+  definitions.set(kind, definition);
+  return definition;
 }

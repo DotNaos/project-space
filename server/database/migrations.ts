@@ -83,6 +83,10 @@ import {
   devServerManagedStateMigrationId,
   devServerManagedStateMigrationSql
 } from './dev-server-managed-state-migration';
+import {
+  environmentCatalogMigrationId,
+  environmentCatalogMigrationSql
+} from './environment-catalog-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -747,6 +751,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: devServerManagedStateMigrationId,
     sql: devServerManagedStateMigrationSql
+  },
+  {
+    id: environmentCatalogMigrationId,
+    sql: environmentCatalogMigrationSql
   }
 ];
 

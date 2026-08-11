@@ -106,7 +106,18 @@ describe('machines page compute hierarchy', () => {
           connectorId: 'codespace-one',
           environmentId: 'environment-one'
         }],
+        environmentDefinitions: [{
+          bootstrapStrategy: 'provider_native',
+          id: 'definition-codespace',
+          kind: 'github_codespace',
+          name: 'GitHub Codespace',
+          operatingSystemFamily: 'linux',
+          ownership: 'built_in',
+          slug: 'github-codespace',
+          supportedArchitectures: []
+        }],
         environments: [{
+          environmentDefinitionId: 'definition-codespace',
           hostAssociation: { evidence: 'provider', resolution: 'not_applicable' },
           id: 'environment-one',
           identity: { key: 'environment:codespace01234567', version: 1 },
