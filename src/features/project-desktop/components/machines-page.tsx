@@ -521,6 +521,7 @@ export interface MachinesPageProps {
   installScriptHref: string;
   installerError: string;
   isGeneratingInstaller: boolean;
+  localSimulation: boolean;
   loadError: string;
   onCopyInstallCommand(): void;
   onGenerateInstallCommand(): void;
@@ -544,6 +545,7 @@ export function MachinesPage({
   installScriptHref,
   installerError,
   isGeneratingInstaller,
+  localSimulation,
   loadError,
   onCopyInstallCommand,
   onGenerateInstallCommand,
@@ -647,14 +649,16 @@ export function MachinesPage({
               Every machine that runs a connector and makes its projects reachable here.
             </Text>
           </div>
-          <Button
-            size="sm"
-            variant={isInstallerOpen ? 'secondary' : 'primary'}
-            onPress={() => (isInstallerOpen ? setIsInstallerOpen(false) : openInstaller())}
-          >
-            <Plus className="size-4" />
-            Add machine
-          </Button>
+          {!localSimulation ? (
+            <Button
+              size="sm"
+              variant={isInstallerOpen ? 'secondary' : 'primary'}
+              onPress={() => (isInstallerOpen ? setIsInstallerOpen(false) : openInstaller())}
+            >
+              <Plus className="size-4" />
+              Add machine
+            </Button>
+          ) : null}
         </div>
       </header>
 
@@ -825,7 +829,7 @@ export function MachinesPage({
             ? `${countComputePlatformRows(visibleSections)} of ${countComputePlatformRows(platformSections)} machines · ${onlineConnectorCount} of ${totalConnectorCount} connectors online`
             : `${visibleRows.length} of ${rows.length} ${rows.length === 1 ? 'machine' : 'machines'}`}
         </span>
-        <span className="flex min-w-0 items-center gap-1.5">
+        {!localSimulation ? <span className="flex min-w-0 items-center gap-1.5">
           <Network
             className={cn('size-3.5 shrink-0', tailscale.connected ? 'text-emerald-500/80' : '')}
           />
@@ -833,7 +837,7 @@ export function MachinesPage({
             {tailscaleLabel} · {tailscale.peersOnline} peers
             {tailnetAddress ? ` · ${tailnetAddress}` : ''}
           </span>
-        </span>
+        </span> : null}
       </footer>
 
       {editingConnector ? (

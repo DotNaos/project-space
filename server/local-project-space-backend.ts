@@ -259,7 +259,16 @@ export function createLocalProjectSpaceBackend(
   return {
     ...createLocalProjectMachineBackend(loadConnectorOverview),
     async getAppMeta() {
-      return options.getAppMeta?.() ?? readAppMeta();
+      const meta = await (options.getAppMeta?.() ?? readAppMeta());
+      return {
+        ...meta,
+        runtime: meta.runtime ?? {
+          apis: 'external',
+          data: process.env.PROJECT_SPACE_DATA === 'local' ? 'local' : 'remote',
+          network: 'external',
+          secrets: 'required'
+        }
+      };
     },
     async getCodexStatus() {
       return getCodexStatus();

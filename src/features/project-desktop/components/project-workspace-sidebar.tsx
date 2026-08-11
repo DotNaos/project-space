@@ -19,7 +19,7 @@ import {
   Workflow
 } from 'lucide-react';
 
-import type { ProjectSpaceRecord } from '@/shared/project-space-api';
+import type { AppMeta, ProjectSpaceRecord } from '@/shared/project-space-api';
 import type { ReleaseChangelogEntry } from '@/shared/release-changelog-api';
 import { ReleaseChangelogCard } from '@/features/release-changelog/release-changelog-card';
 import type {
@@ -29,6 +29,7 @@ import type {
 } from '../hooks/project-desktop-routing';
 import { AccountMenu, type RailAccount } from './account-menu';
 import { InformationMenu } from './information-menu';
+import { LocalSimulationIndicator } from './local-simulation-indicator';
 
 interface WorkspaceNavItem {
   icon: typeof CircleDot;
@@ -145,12 +146,14 @@ function ProjectSelector({
   collapsed,
   currentProject,
   onSelect,
-  projects
+  projects,
+  runtime
 }: {
   collapsed: boolean;
   currentProject?: ProjectSpaceRecord;
   onSelect(projectId: string): void;
   projects: ProjectSpaceRecord[];
+  runtime?: AppMeta['runtime'];
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -168,31 +171,38 @@ function ProjectSelector({
 
   return (
     <>
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        aria-label={currentProject
-          ? `Switch project, current project ${currentProject.name}`
-          : 'Select project'}
-        onClick={() => setIsOpen(true)}
-        title={collapsed ? (currentProject?.name ?? 'Projects') : undefined}
-        className={`flex h-10 w-full items-center rounded-xl transition-colors hover:bg-white/[.04] ${
-          collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
-        }`}
-      >
-        {collapsed ? (
-          <span className="text-[11px] font-semibold tracking-tight text-neutral-300">
-            {currentProject ? projectInitials(currentProject) : 'PS'}
-          </span>
-        ) : (
-          <>
-            <ChevronDown className="size-3.5 text-neutral-600" />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-200">
-              {currentProject?.github?.name ?? currentProject?.name ?? 'Select project'}
+      <div>
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-label={currentProject
+            ? `Switch project, current project ${currentProject.name}`
+            : 'Select project'}
+          onClick={() => setIsOpen(true)}
+          title={collapsed ? (currentProject?.name ?? 'Projects') : undefined}
+          className={`flex h-10 w-full items-center rounded-xl transition-colors hover:bg-white/[.04] ${
+            collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
+          }`}
+        >
+          {collapsed ? (
+            <span className="text-[11px] font-semibold tracking-tight text-neutral-300">
+              {currentProject ? projectInitials(currentProject) : 'PS'}
             </span>
-          </>
-        )}
-      </button>
+          ) : (
+            <>
+              <ChevronDown className="size-3.5 text-neutral-600" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-200">
+                {currentProject?.github?.name ?? currentProject?.name ?? 'Select project'}
+              </span>
+            </>
+          )}
+        </button>
+        {runtime?.apis === 'simulated' ? (
+          <div className={collapsed ? '-mt-0.5 flex justify-center pb-1' : '-mt-0.5 px-7 pb-1'}>
+            <LocalSimulationIndicator compact={collapsed} runtime={runtime} />
+          </div>
+        ) : null}
+      </div>
 
       <Modal
         isOpen={isOpen}
@@ -279,6 +289,7 @@ export function ProjectWorkspaceSidebar({
   release,
   releaseCardVisible,
   releaseVersion,
+  runtime,
   settingsSection
 }: {
   account?: RailAccount;
@@ -303,6 +314,7 @@ export function ProjectWorkspaceSidebar({
   release?: ReleaseChangelogEntry;
   releaseCardVisible: boolean;
   releaseVersion?: string;
+  runtime?: AppMeta['runtime'];
   settingsSection: SettingsSection;
 }) {
   const selectedItem = workspaceSidebarActiveItem(mainView, projectTab, settingsSection);
@@ -346,7 +358,7 @@ export function ProjectWorkspaceSidebar({
       </div>
 
       <nav className={`min-h-0 flex-1 overflow-y-auto pb-4 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${collapsed ? 'px-2' : 'px-4'}`}>
-        <ProjectSelector collapsed={collapsed} currentProject={currentProject} onSelect={onSelectProject} projects={projects} />
+        <ProjectSelector collapsed={collapsed} currentProject={currentProject} onSelect={onSelectProject} projects={projects} runtime={runtime} />
         {currentProject ? (
           <button
             type="button"

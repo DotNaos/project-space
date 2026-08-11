@@ -49,7 +49,7 @@ project
 | [`roadmap`](#project-roadmap) | - | Read and update the issue dependency roadmap |
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
 | [`self-update`](#project-self-update) | - | Check for and install a signed Project CLI release |
-| [`serve`](#project-serve) | - | Run a project script and expose it on this Tailnet |
+| [`serve`](#project-serve) | - | Run a project script with an explicit backend binding |
 | [`status`](#project-status) | - | Show this machine's Project Space connection |
 | [`template`](#project-template) | - | Manage the local project template snapshot |
 | [`token`](#project-token) | - | Manage the Project 1Password token |
@@ -1080,7 +1080,7 @@ project self-update
 
 <h3 id="project-serve" className="scroll-m-28"><code>project serve</code></h3>
 
-Run a project script and expose it on this Tailnet
+Run a project script with an explicit backend binding
 
 ```sh
 project serve [script] [directory]
@@ -1089,10 +1089,13 @@ project serve [script] [directory]
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `--allowed-host` | `stringArray` | local | explicit Vite host allowed to reach this session (repeatable) |
+| `--apis` | `string` | local | backend API binding: simulated or external |
+| `--data` | `string` | local | backend data binding: local or remote |
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for serve |
 | `--json` | `bool` | local | print machine-readable JSON output |
-| `--local-only` | `bool` | local | start explicitly without a Tailscale route |
+| `--local-only` | `bool` | local | start without a Tailscale route (the default; retained for compatibility) |
+| `--tailnet` | `bool` | local | publish the verified listener through Tailscale |
 
 <h3 id="project-serve-attach" className="scroll-m-28"><code>project serve attach</code></h3>
 

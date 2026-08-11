@@ -23,14 +23,17 @@ func newRunCommand() *cobra.Command {
 func newServeCommand() *cobra.Command {
 	cmd := newWindowsRuntimeCommand(
 		"serve [script] [directory]",
-		"Run a project script and expose it on this Tailnet",
+		"Run a project script with an explicit backend binding",
 		cobra.MaximumNArgs(2),
 		"serve",
 		"wsl.exe --distribution <distribution> -- project serve",
 	)
 	addWindowsRuntimeOutputFlags(cmd)
 	cmd.Flags().StringArray("allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
-	cmd.Flags().Bool("local-only", false, "start explicitly without a Tailscale route")
+	cmd.Flags().Bool("local-only", false, "start without a Tailscale route (the default; retained for compatibility)")
+	cmd.Flags().Bool("tailnet", false, "publish the verified listener through Tailscale")
+	cmd.Flags().String("apis", "simulated", "backend API binding: simulated or external")
+	cmd.Flags().String("data", "local", "backend data binding: local or remote")
 	cmd.AddCommand(newWindowsServeReconcileCommand())
 	cmd.AddCommand(newWindowsServeListCommand())
 	cmd.AddCommand(newWindowsServeLogsCommand())

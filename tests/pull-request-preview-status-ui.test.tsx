@@ -16,6 +16,23 @@ import type { GitHubPullRequestRecord } from '../src/shared/project-space-api';
 const { PullRequestPreviewStatusView } = await import(
   '../src/features/project-desktop/components/pull-request-preview-status'
 );
+const { RuntimeBindingProvider } = await import(
+  '../src/features/project-desktop/components/runtime-binding-context'
+);
+
+const externalRuntime = {
+  apis: 'external' as const,
+  data: 'remote' as const,
+  outboundNetwork: 'enabled' as const,
+  profile: 'external-remote' as const,
+  secrets: 'external' as const
+};
+
+function renderWithRuntime(element: ReactNode) {
+  return renderToStaticMarkup(
+    <RuntimeBindingProvider runtime={externalRuntime}>{element}</RuntimeBindingProvider>
+  );
+}
 
 const repositoryFullName = 'DotNaos/project-space';
 const headSha = 'a'.repeat(40);
@@ -29,7 +46,7 @@ const pullRequest: GitHubPullRequestRecord = {
 
 describe('pull request Preview status UI', () => {
   test('renders the current verified link', () => {
-    const html = renderToStaticMarkup(<PullRequestPreviewStatusView
+    const html = renderWithRuntime(<PullRequestPreviewStatusView
       inventory={{
         result: {
           checkedAt: '2026-07-22T10:00:00.000Z',
@@ -59,7 +76,7 @@ describe('pull request Preview status UI', () => {
   });
 
   test('renders blocked evidence without a link', () => {
-    const html = renderToStaticMarkup(<PullRequestPreviewStatusView
+    const html = renderWithRuntime(<PullRequestPreviewStatusView
       inventory={{ reason: 'Preview registry unavailable.', state: 'blocked', status: 'unavailable' }}
       pullRequest={pullRequest}
       repositoryFullName={repositoryFullName}
@@ -69,7 +86,7 @@ describe('pull request Preview status UI', () => {
   });
 
   test('renders the automatic deployment wait state without a link', () => {
-    const html = renderToStaticMarkup(<PullRequestPreviewStatusView
+    const html = renderWithRuntime(<PullRequestPreviewStatusView
       inventory={{
         result: {
           checkedAt: '2026-07-22T10:00:00.000Z',
@@ -88,7 +105,7 @@ describe('pull request Preview status UI', () => {
   });
 
   test('renders a capacity block as pending rather than failed', () => {
-    const html = renderToStaticMarkup(<PullRequestPreviewStatusView
+    const html = renderWithRuntime(<PullRequestPreviewStatusView
       inventory={{
         result: {
           checkedAt: '2026-07-22T10:00:00.000Z',

@@ -159,7 +159,7 @@ func TestManagedServeMarkerCannotEscapeIntoFiniteCommands(t *testing.T) {
 	}
 	server := serverCommandFor(
 		script, "/tmp/project", "127.0.0.1", 43117, nil, ServeModeManaged,
-		"http://project.localhost:1355",
+		"http://project.localhost:1355", APIsModeExternal, DataModeRemote,
 	)
 	if !containsEnvironment(server.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
 		!containsEnvironment(server.Env, "PROJECT_SPACE_SERVE_MODE=managed") {
@@ -167,6 +167,33 @@ func TestManagedServeMarkerCannotEscapeIntoFiniteCommands(t *testing.T) {
 	}
 	if !containsEnvironment(server.Env, "PORTLESS_URL=http://project.localhost:1355") {
 		t.Fatalf("server command is missing Portless URL: %#v", server.Env)
+	}
+}
+
+func TestSimulatedServeDoesNotLoadDeclaredSecrets(t *testing.T) {
+	script := Script{
+		Command: []string{"bun", "x", "vite"},
+		SecretEnvironment: map[string]string{
+			"GITHUB_OAUTH_CLIENT_ID": "op://projects/GitHub OAuth App/client_id",
+		},
+	}
+	command := serverCommandFor(
+		script, "/tmp/project", "127.0.0.1", 43117, nil, ServeModeManaged,
+		"http://project.localhost:1355", APIsModeSimulated, DataModeLocal,
+	)
+	if got := strings.Join(command.Argv, " "); got != "bun x vite" {
+		t.Fatalf("command = %q", got)
+	}
+	if containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=op://projects/GitHub OAuth App/client_id") {
+		t.Fatalf("simulated command loaded an external secret: %#v", command.Env)
+	}
+	for _, expected := range []string{
+		"PROJECT_SPACE_APIS=simulated",
+		"PROJECT_SPACE_DATA=local",
+	} {
+		if !containsEnvironment(command.Env, expected) {
+			t.Fatalf("command environment is missing %q: %#v", expected, command.Env)
+		}
 	}
 }
 

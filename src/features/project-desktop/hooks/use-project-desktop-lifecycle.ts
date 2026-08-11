@@ -174,9 +174,14 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
       replaceLegacyMachinesRoute(window.location.pathname);
       void Promise.all([
         projectSpaceClient.loadProjectsState(),
-        projectSpaceClient.loadProjectDiscovery()
+        projectSpaceClient.loadProjectDiscovery(),
+        projectSpaceClient.getAppMeta()
       ])
-        .then(([state, nextDiscovery]) => {
+        .then(([state, nextDiscovery, nextMeta]) => {
+          if (!nextMeta?.runtime) {
+            throw new Error('Runtime binding evidence is unavailable.');
+          }
+          setAppMeta(nextMeta);
           const sanitizedDiscovery = sanitizeDiscovery(nextDiscovery);
           const isDefaultEntry = initialRoute.view === 'root' || initialRoute.view === 'projects';
           const routeProject =
@@ -245,6 +250,7 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
           }
         })
         .catch(() => {
+          setAppMeta(appMetaFallback);
           setDiscovery(emptyDiscovery);
           setSelectedProjectId('');
           setMainView('projects');
@@ -276,27 +282,6 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
         window.clearInterval(interval);
       };
     }, [refreshConnectorOverview]);
-  
-    useEffect(() => {
-      let canceled = false;
-  
-      void projectSpaceClient
-        .getAppMeta()
-        .then((nextMeta) => {
-          if (!canceled) {
-            setAppMeta(nextMeta ?? appMetaFallback);
-          }
-        })
-        .catch(() => {
-          if (!canceled) {
-            setAppMeta(appMetaFallback);
-          }
-        });
-  
-      return () => {
-        canceled = true;
-      };
-    }, []);
   
     useEffect(() => {
       function handlePopState() {

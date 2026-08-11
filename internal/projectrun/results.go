@@ -12,6 +12,8 @@ func (manager *Manager) resultFromState(
 		SchemaVersion: SchemaVersion,
 		Operation:     operation,
 		Mode:          state.Mode,
+		APIs:          state.APIs,
+		Data:          state.Data,
 		ServerID:      state.ServerID,
 		ServerKey:     state.Script,
 		Script:        state.Script,
@@ -23,6 +25,17 @@ func (manager *Manager) resultFromState(
 		State:         state.State,
 		AllowedHosts:  append([]string{}, state.AllowedHosts...),
 		CheckedAt:     state.CheckedAt,
+	}
+	if result.APIs == "" {
+		result.APIs = APIsModeSimulated
+	}
+	if result.Data == "" {
+		result.Data = DataModeLocal
+	}
+	if result.APIs == APIsModeSimulated {
+		result.Secrets = "none"
+	} else {
+		result.Secrets = "required"
 	}
 	if result.Mode == "" {
 		result.Mode = ServeModeManaged

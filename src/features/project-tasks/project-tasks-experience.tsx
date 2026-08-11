@@ -98,12 +98,10 @@ export function ProjectTasksExperience({
 
   useEffect(() => {
     if (!selectedIssueNumber || selectedTask?.comments.length) return;
-    let canceled = false;
     setCommentsLoadingFor(selectedIssueNumber);
     void loadComments(selectedIssueNumber).finally(() => {
-      if (!canceled) setCommentsLoadingFor(undefined);
+      setCommentsLoadingFor((current) => current === selectedIssueNumber ? undefined : current);
     });
-    return () => { canceled = true; };
   }, [loadComments, selectedIssueNumber, selectedTask?.comments.length]);
 
   return (

@@ -16,9 +16,13 @@ func (manager *Manager) startLocalRuntime(
 	allowedHosts []string,
 	script Script,
 	root string,
+	apis APIsMode,
+	data DataMode,
 ) (runtimeState, ServeResult, error) {
 	for attempt := 1; attempt <= maximumPortRaceAttempts; attempt++ {
-		state, err := manager.reserveSession(ctx, identity, requestedDirectory, mode, allowedHosts)
+		state, err := manager.reserveSession(
+			ctx, identity, requestedDirectory, mode, allowedHosts, apis, data,
+		)
 		if err != nil {
 			return runtimeState{}, manager.runtimeErrorResult("start", root, identity.ServerKey, err), err
 		}
@@ -33,7 +37,14 @@ func (manager *Manager) startLocalRuntime(
 		}
 		command := serverCommandFor(
 			script, root, "127.0.0.1", state.LocalPort, allowedHosts, mode, state.PortlessURL,
+			state.APIs,
+			state.Data,
 		)
+		if state.APIs == APIsModeSimulated && state.Data == DataModeLocal {
+			command.Env = mergeEnvironment(command.Env, map[string]string{
+				"PROJECT_SPACE_SIMULATION_STATE": manager.store.simulationStatePath(state.ServerID),
+			})
+		}
 		observation, err := manager.tmux.Create(
 			ctx,
 			tmuxSpecFromState(state),

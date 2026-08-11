@@ -12,6 +12,7 @@ import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type { GitStatusEntry, MachineRecord, ProjectWorktreeRecord } from '@/shared/project-space-api';
+import { useRuntimeBinding } from './runtime-binding-context';
 
 interface WorktreeGitStatus {
   branchName: string;
@@ -189,6 +190,7 @@ export function WorktreeGitClientPanel({
   onStatusChange?(status?: WorktreeGitStatusSnapshot): void;
   worktree?: ProjectWorktreeRecord;
 }) {
+  const runtime = useRuntimeBinding();
   const [status, setStatus] = useState<WorktreeGitStatus>();
   const [message, setMessage] = useState('');
   const [commitMessage, setCommitMessage] = useState('');
@@ -482,9 +484,18 @@ export function WorktreeGitClientPanel({
               Commit
             </Button>
             <Button
-              isDisabled={isBusy || !status?.isRepository || !status.branchName || status.branchName === 'detached'}
+              isDisabled={
+                runtime.apis === 'simulated' ||
+                isBusy ||
+                !status?.isRepository ||
+                !status.branchName ||
+                status.branchName === 'detached'
+              }
               size="sm"
               variant="primary"
+              title={runtime.apis === 'simulated'
+                ? 'Remote pushes are unavailable in Local simulation.'
+                : undefined}
               onPress={() => {
                 if (
                   window.confirm(

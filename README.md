@@ -26,10 +26,16 @@ The repository currently targets a web-first fullstack MVP:
 ## Project commands
 
 - `project prepare`
-- `project serve dev`
-  Run the web app in fullstack development mode at a stable Portless `.localhost` URL and publish its verified listener through Tailscale.
+- `project serve`
+  Run the complete app with simulated provider APIs and isolated local data. This is the default development profile and needs no hosted database, provider account, API key, or 1Password secret.
+- `project serve --apis external --data local`
+  Reserved for real integrations with isolated local data. Startup currently fails closed until secure detached service-account delivery is available.
+- `project serve --apis external --data remote`
+  Reserved for real integrations with the configured shared database. Startup currently fails closed, and this profile must never migrate, seed, or reset remote data automatically.
 - `project serve dev --local-only`
-  Explicitly run without publishing a Tailscale route when managed publication cannot be used for a debugging session.
+  Compatibility spelling for the default local-only transport.
+- `project serve --tailnet`
+  Reserved explicit Tailscale publication control. Simulated APIs remain loopback-only until local owner authentication is available, and external APIs remain blocked until secure credential delivery is implemented.
 - `project run build`
   Build the deployable web frontend.
 - `project run check`
@@ -37,8 +43,9 @@ The repository currently targets a web-first fullstack MVP:
 - `project run test`
   Run the test suite.
 
-The installed `project`, `portless`, `tmux`, `tailscale`, and `lsof` commands
-are required for the normal managed development-server path.
+The installed `project`, `portless`, `tmux`, and `lsof` commands are required
+for the normal local development-server path. The `tailscale` command is only
+needed when the separate `--tailnet` transport is enabled.
 
 ## Structure
 

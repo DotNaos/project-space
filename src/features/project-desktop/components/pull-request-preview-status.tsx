@@ -7,6 +7,7 @@ import {
   type PullRequestPreviewInventoryState
 } from './pull-request-preview-model';
 import { PublicDeploymentLink, visibleDeploymentUrl } from './public-deployment-link';
+import { useRuntimeBinding } from './runtime-binding-context';
 import { StatusChip, StatusIcon } from './deployment-status-ui';
 
 export function PullRequestPreviewStatusView({
@@ -20,13 +21,16 @@ export function PullRequestPreviewStatusView({
   repositoryFullName?: string;
   returnPath?: string;
 }) {
+  const runtime = useRuntimeBinding();
   const presentation = pullRequestPreviewPresentation({
     inventory,
     pullRequest,
     repositoryFullName
   });
   const active = presentation.state === 'checking' || presentation.state === 'progress';
-  const publicHref = presentation.href && pullRequest && typeof returnPath === 'string'
+  const publicHref = runtime.apis === 'simulated'
+    ? presentation.href
+    : presentation.href && pullRequest && typeof returnPath === 'string'
     ? pullRequestPreviewAppHref(pullRequest.number, returnPath) ?? presentation.href
     : presentation.href;
 

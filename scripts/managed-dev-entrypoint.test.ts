@@ -26,10 +26,13 @@ describe('managed development server entrypoint', () => {
     expect(docsPackage.scripts?.dev).toBeUndefined();
   });
 
-  test('project configuration owns the connector environment', async () => {
+  test('project configuration leaves runtime binding to project serve', async () => {
     const declaration = await readFile(resolve(root, '.project/scripts.yaml'), 'utf8');
     expect(declaration).toContain('version: 3');
-    expect(declaration).toContain('VITE_PROJECT_SPACE_API_BASE_URL: http://127.0.0.1:45873');
+    expect(declaration).not.toContain('VITE_PROJECT_SPACE_API_BASE_URL');
+    expect(declaration).not.toContain('PROJECT_SPACE_APIS');
+    expect(declaration).not.toContain('PROJECT_SPACE_DATA');
+    expect(declaration).not.toContain('PROJECT_SPACE_SIMULATION_STATE');
     expect(declaration).not.toContain('dev:direct');
   });
 
@@ -37,6 +40,9 @@ describe('managed development server entrypoint', () => {
     const environment = { ...process.env };
     delete environment.PROJECT_SPACE_MANAGED_SERVE;
     delete environment.PROJECT_SPACE_SERVE_MODE;
+    delete environment.PROJECT_SPACE_APIS;
+    delete environment.PROJECT_SPACE_DATA;
+    delete environment.PROJECT_SPACE_SIMULATION_STATE;
     const child = Bun.spawn(
       ['bun', 'x', 'vite', '--host', '127.0.0.1', '--port', '45991', '--strictPort'],
       { cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe' }

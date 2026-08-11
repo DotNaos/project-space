@@ -27,6 +27,12 @@ import { createPrototypeReviewLocalRuntime } from './server/prototype-review-loc
 import { createConfiguredMachineConnectionRuntime } from './server/machine-connection-runtime';
 import { readReleaseCatalog } from './apps/docs/lib/releases/catalog';
 import { generatedReleaseChangelogSource } from './apps/docs/lib/releases/changelog-source';
+import { createLocalSimulationRequestHandler } from './server/local-simulation/http';
+import { installOutboundNetworkGuard } from './server/outbound-network-guard';
+import {
+  resolveManagedRuntimeBinding,
+  type RuntimeBindingEvidence
+} from './server/runtime-binding';
 
 const configuredAllowedHosts = (process.env.PROJECT_ALLOWED_HOSTS ?? '')
   .split(',')
@@ -47,10 +53,38 @@ function releaseChangelogSourceForBuild() {
   return generatedReleaseChangelogSource(catalog.catalog.entries);
 }
 
-function projectSpaceApiPlugin(): Plugin {
+function projectSpaceApiPlugin(binding: RuntimeBindingEvidence): Plugin {
   return {
     name: 'project-space-api',
+    transformIndexHtml(html) {
+      if (binding.apis !== 'simulated') return html;
+      return html.replace(
+        /<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]*"\s*\/>/,
+        `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; worker-src 'self' blob:;" />`
+      );
+    },
     configureServer(server: ViteDevServer) {
+      if (binding.apis === 'simulated') {
+        const removeNetworkGuard = installOutboundNetworkGuard();
+        const handleSimulationRequest = createLocalSimulationRequestHandler({
+          binding,
+          repositoryRoot: __dirname
+        });
+        server.httpServer?.once('close', removeNetworkGuard);
+        server.middlewares.use((request, response, next) => {
+          if (!request.url?.startsWith('/api/')) {
+            next();
+            return;
+          }
+          void handleSimulationRequest(request, response).catch((error) => {
+            writeJson(response, 500, {
+              error: error instanceof Error ? error.message : 'Local simulation failed.'
+            });
+          });
+        });
+        return;
+      }
+
       if (connectorBridgeEnabled && resolveProjectConnectorTargets().length > 0) {
         void reconcileProjectServeSessions();
       }
@@ -204,6 +238,8 @@ export default defineConfig(({ command }) => {
     );
   }
 
+  const binding = command === 'serve' ? resolveManagedRuntimeBinding() : undefined;
+
   return ({
   define: {
     __PROJECT_RELEASE_CHANGELOG_SOURCE__: JSON.stringify(
@@ -213,7 +249,7 @@ export default defineConfig(({ command }) => {
   plugins: [
     react(),
     tailwindcss(),
-    projectSpaceApiPlugin()
+    ...(binding ? [projectSpaceApiPlugin(binding)] : [])
   ],
   resolve: {
     alias: {

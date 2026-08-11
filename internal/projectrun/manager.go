@@ -111,6 +111,8 @@ func (manager *Manager) Start(
 ) (ServeResult, error) {
 	return manager.StartWithOptions(ctx, directory, scriptName, StartOptions{
 		AllowedHosts: allowedHostValues,
+		APIs:         APIsModeSimulated,
+		Data:         DataModeLocal,
 	})
 }
 
@@ -130,6 +132,30 @@ func (manager *Manager) StartWithOptions(
 	}
 	identity, err := manager.identity.Resolve(ctx, root, scriptName)
 	if err != nil {
+		return manager.runtimeErrorResult("start", root, scriptName, err), err
+	}
+	apis := options.APIs
+	if apis == "" {
+		apis = APIsModeSimulated
+	}
+	data := options.Data
+	if data == "" {
+		data = DataModeLocal
+	}
+	if apis != APIsModeSimulated && apis != APIsModeExternal {
+		err := fmt.Errorf("APIs mode %q is invalid", apis)
+		return manager.runtimeErrorResult("start", root, scriptName, err), err
+	}
+	if data != DataModeLocal && data != DataModeRemote {
+		err := fmt.Errorf("data mode %q is invalid", data)
+		return manager.runtimeErrorResult("start", root, scriptName, err), err
+	}
+	if apis == APIsModeSimulated && data == DataModeRemote {
+		err := fmt.Errorf("simulated APIs cannot use remote data")
+		return manager.runtimeErrorResult("start", root, scriptName, err), err
+	}
+	if apis == APIsModeExternal {
+		err := fmt.Errorf("external APIs are blocked until secure detached service-account delivery is configured")
 		return manager.runtimeErrorResult("start", root, scriptName, err), err
 	}
 	mode := ServeModeManaged
@@ -154,6 +180,13 @@ func (manager *Manager) StartWithOptions(
 	} else if ok {
 		if existing.State == StateRunning || existing.State == StateLocalOnly {
 			if healthErr := manager.checkRuntime(ctx, existing, script); healthErr == nil {
+				if existing.APIs != apis || existing.Data != data {
+					err := fmt.Errorf(
+						"serve session is already running with APIs=%s and data=%s; stop it before requesting APIs=%s and data=%s",
+						existing.APIs, existing.Data, apis, data,
+					)
+					return manager.resultFromState("start", CapabilityConfigured, existing, err), err
+				}
 				if existing.Mode != mode {
 					err := fmt.Errorf(
 						"serve session is already running in %s mode; stop it before requesting %s mode",
@@ -192,6 +225,7 @@ func (manager *Manager) StartWithOptions(
 	defer cancelStart()
 	state, failure, err := manager.startLocalRuntime(
 		startCtx, identity, requestedDirectory, mode, allowedHosts, script, root,
+		apis, data,
 	)
 	if err != nil {
 		return failure, err
@@ -228,6 +262,8 @@ func (manager *Manager) reserveSession(
 	requestedDirectory string,
 	mode ServeMode,
 	allowedHosts []string,
+	apis APIsMode,
+	data DataMode,
 ) (runtimeState, error) {
 	unlock, err := acquireFileLock(manager.store.portLockPath())
 	if err != nil {
@@ -285,6 +321,8 @@ func (manager *Manager) reserveSession(
 		RequestedDirectory: requestedDirectory,
 		Script:             identity.ServerKey,
 		Mode:               mode,
+		APIs:               apis,
+		Data:               data,
 		State:              StateStarting,
 		Generation:         generation,
 		TmuxSession:        identity.TmuxSession,
@@ -443,7 +481,7 @@ func tmuxSpecFromState(state runtimeState) TmuxSessionSpec {
 	return TmuxSessionSpec{
 		Name: state.TmuxSession, ServerID: state.ServerID, RepositoryPath: state.RepositoryPath,
 		WorktreePath: state.Directory, ServerKey: state.Script, Generation: state.Generation,
-		OwnershipToken: state.TmuxOwnershipToken, Mode: state.Mode,
+		OwnershipToken: state.TmuxOwnershipToken, Mode: state.Mode, APIs: state.APIs, Data: state.Data,
 		LocalPort: state.LocalPort, PublicPort: state.PublicPort,
 	}
 }

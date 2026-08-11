@@ -23,6 +23,7 @@ import type {
 } from '@/shared/project-space-api';
 import { IssueDevelopmentSession } from '@/features/project-desktop/components/issue-development-session';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
+import { useRuntimeBinding } from '@/features/project-desktop/components/runtime-binding-context';
 import type { ProjectTaskViewModel } from './task-view-model';
 
 function TaskStateIcon({ task }: { task: ProjectTaskViewModel }) {
@@ -93,6 +94,7 @@ export function ProjectTaskDetail({
   targetPath: string;
   task: ProjectTaskViewModel;
 }) {
+  const runtime = useRuntimeBinding();
   const [commentBody, setCommentBody] = useState('');
   const [commentError, setCommentError] = useState('');
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
@@ -122,9 +124,11 @@ export function ProjectTaskDetail({
           <button className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-current/70 hover:bg-current/[.06] hover:text-current" onClick={onBack} type="button">
             <ArrowLeft className="size-4" /> Tasks
           </button>
-          <a aria-label="Open issue on GitHub" className="rounded-full p-2 text-current/35 hover:bg-current/[.06] hover:text-current" href={task.issue.url} rel="noreferrer" target="_blank">
-            <ExternalLink className="size-4" />
-          </a>
+          {runtime.apis === 'external' && task.issue.url ? (
+            <a aria-label="Open issue on GitHub" className="rounded-full p-2 text-current/35 hover:bg-current/[.06] hover:text-current" href={task.issue.url} rel="noreferrer" target="_blank">
+              <ExternalLink className="size-4" />
+            </a>
+          ) : <span aria-hidden="true" className="size-8" />}
         </div>
         <div className="mt-4 flex min-w-0 items-start gap-3">
           <TaskStateIcon task={task} />
@@ -156,7 +160,7 @@ export function ProjectTaskDetail({
 
       <div>
         <section className="grid gap-px border-b border-current/[.08] py-4 @lg:grid-cols-2">
-          {pullRequest ? (
+          {pullRequest && runtime.apis === 'external' && pullRequest.url ? (
             <a className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm hover:bg-current/[.045]" href={pullRequest.url} rel="noreferrer" target="_blank">
               {pullRequest.state === 'merged' ? <GitMerge className="size-4 text-violet-400" /> : <GitPullRequest className="size-4 text-current/35" />}
               <span className="text-current/45">Pull request</span>
@@ -165,6 +169,14 @@ export function ProjectTaskDetail({
               </span>
               <ExternalLink className="size-3 text-current/25" />
             </a>
+          ) : pullRequest ? (
+            <div className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm">
+              {pullRequest.state === 'merged' ? <GitMerge className="size-4 text-violet-400" /> : <GitPullRequest className="size-4 text-current/35" />}
+              <span className="text-current/45">Pull request</span>
+              <span className={`ml-auto font-medium ${pullRequest.state === 'merged' ? 'text-violet-300' : 'text-current/80'}`}>
+                {`${pullRequest.isDraft ? 'Draft ' : pullRequest.state === 'merged' ? 'Merged ' : ''}#${pullRequest.number}`}
+              </span>
+            </div>
           ) : (
             <div className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm">
               <GitPullRequest className="size-4 text-current/25" />
@@ -172,7 +184,7 @@ export function ProjectTaskDetail({
               <span className="ml-auto font-medium text-current/35">{task.branch ? 'Not opened' : 'Not started'}</span>
             </div>
           )}
-          <a className={`flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm ${pipeline?.url ? 'hover:bg-current/[.045]' : 'pointer-events-none'}`} href={pipeline?.url} rel="noreferrer" target="_blank">
+          {runtime.apis === 'external' && pipeline?.url ? <a className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm hover:bg-current/[.045]" href={pipeline.url} rel="noreferrer" target="_blank">
             <CircleDot className={`size-4 ${task.health === 'attention' ? 'text-red-400' : task.health === 'healthy' ? 'text-emerald-400' : 'text-current/25'}`} />
             <span className="text-current/45">Pipeline</span>
             <span className={`ml-auto font-medium ${task.health === 'attention' ? 'text-red-300' : task.health === 'healthy' ? 'text-emerald-300' : 'text-current/35'}`}>
@@ -182,7 +194,13 @@ export function ProjectTaskDetail({
                   ? 'Checks passed'
                   : pipeline?.status ?? (pullRequest ? 'No status' : 'Not started')}
             </span>
-          </a>
+          </a> : <div className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm">
+            <CircleDot className={`size-4 ${task.health === 'attention' ? 'text-red-400' : task.health === 'healthy' ? 'text-emerald-400' : 'text-current/25'}`} />
+            <span className="text-current/45">Pipeline</span>
+            <span className={`ml-auto font-medium ${task.health === 'attention' ? 'text-red-300' : task.health === 'healthy' ? 'text-emerald-300' : 'text-current/35'}`}>
+              {task.health === 'attention' ? 'Checks failed' : task.health === 'healthy' ? 'Checks passed' : pipeline?.status ?? (pullRequest ? 'No status' : 'Not started')}
+            </span>
+          </div>}
         </section>
 
         <section className="border-b border-current/[.08] py-5">
