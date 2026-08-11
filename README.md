@@ -1,110 +1,124 @@
-# project-space
+# Project Space
 
-`project-space` is a desktop-first project workspace, not a file explorer IDE. One project fills one screen. The left side of the app is a workflow explorer for project structure, and the app later launches external tools like IDE, terminal, git, and dev server from task or worktree context.
+Project Space is a project-centered workspace for people and coding agents. It
+brings repositories, GitHub issues, isolated worktrees, development servers,
+pull request previews, connected machines, and Codex tasks into one place.
 
-The repository currently targets a web-first fullstack MVP:
+The web app runs at [projects.os-home.net](https://projects.os-home.net). The
+[documentation](https://projects.os-home.net/docs) covers installation,
+configuration, and the complete Project CLI reference.
 
-- React + TypeScript + Vite frontend
-- HTTP backend for local project discovery, filesystem reads, launcher apps, and persisted UI state
-- local terminal command execution for the selected workspace or worktree
-- git status, diff, stage, unstage, and commit actions for the selected target
-- Codex CLI/app status and open-target support
-- Electron shell that hosts the same frontend and talks to the backend over HTTP
-- TailwindCSS setup
-- no renderer IPC contract or Electron preload bridge
-- typed domain model for projects, worktrees, issue docs, runtime sessions, integration requests, and edit transfer concepts
-- a single-project desktop shell with a workflow explorer and placeholder launch actions
-- product docs for vision, brain dump, and current MVP scope
+## What is in this repository?
 
-## Stack
+This monorepo contains the Project Space product and the tools that support it:
 
-- Electron
-- React
-- TypeScript
-- Vite
-- TailwindCSS
-- Bun for the local production-style web server
+- the React web and Electron desktop experience;
+- the Bun HTTP server, APIs, authentication, and persistence layer;
+- the `project` CLI and the connector used by managed machines;
+- desktop and mobile prototype surfaces for pull request review;
+- the documentation site; and
+- release, preview, packaging, and VPS deployment automation.
 
-## Scripts
+Project Space models work around projects and tasks instead of treating a
+repository as a file explorer. Each coding task gets an isolated Git worktree,
+while connectors make local devices, WSL environments, devcontainers, and
+GitHub Codespaces available as execution targets.
 
-- `bun install`
-- `bun run dev`
-  Run the web app in fullstack development mode.
-- `bun run build`
-  Build the deployable web frontend.
-- `bun run start`
-  Serve the built frontend plus backend from one local HTTP server.
-- `bun run dev:electron`
-  Run the Electron shell against the HTTP backend.
-- `bun run build:electron`
-  Build the web frontend and Electron main process.
-- `bun run check`
-  Type-check the app.
+## Get started
 
-## Structure
+To use Project Space, start with the [setup guide](https://projects.os-home.net/docs/setup).
+It explains the supported installation paths for macOS, Linux/WSL, and Windows.
+Once installed, create or adopt a project with the CLI:
 
-- `electron/main`
-  Electron main process entry. It starts the local backend and loads the web frontend.
-- `server`
-  HTTP routing and local backend services.
-- `src/api`
-  Browser-side HTTP client for the backend.
-- `src/shared`
-  Shared frontend/backend API types.
-- `src/domain`
-  Core domain types.
-- `src/application/ports`
-  Future-facing interfaces for launchers, runtimes, issue docs, transfer flow, and conflict validation.
-- `src/infrastructure/stubs`
-  Thin placeholder implementations used by iteration 1.
-- `src/features/project-desktop`
-  Mock data, view state, and the initial desktop shell UI.
-- `.dev`
-  Product vision, brain dump, and scoped planning notes.
+```sh
+project create my-project
+cd my-project
 
-## Documentation
+# Or initialize an existing repository.
+project init
+```
 
-- [Hosted Project documentation](https://projects.os-home.net/docs)
-- [Generated CLI command reference](apps/docs/content/docs/cli/index.mdx)
-- [CLI self-update guide](apps/docs/content/docs/cli/self-update.mdx)
-- [Connector install and usage guide](docs/connector.md)
-- [Linux and WSL installation guide](docs/linux-installation.md)
-- [Windows installation guide](docs/windows-installation.md)
-- `.dev/product.md`
-- `.dev/vision.md`
-- `.dev/scope/iteration-1.md`
+Useful next stops are the [CLI reference](https://projects.os-home.net/docs/cli),
+[template guide](https://projects.os-home.net/docs/templates), and
+[deployment guide](https://projects.os-home.net/docs/deploy).
 
-## Current MVP Boundaries
+## Develop Project Space
 
-Included now:
+The repository uses [Bun](https://bun.sh) for JavaScript dependencies and
+scripts, plus Go for the Project CLI and native machine tooling.
 
-- desktop app foundation
-- single-project desktop shell
-- workflow explorer tree
-- issue doc placeholders
-- project discovery under `~/projects`
-- git worktree discovery
-- local filesystem reads for the file sidebar
-- launcher app discovery and open-path actions
-- terminal panel for local commands
-- git changes panel with status, diff, stage, unstage, and commit
-- Codex panel for local Codex app/CLI detection and opening the active target
-- UI state persisted in `~/.project-space/projects.json`
+```sh
+git clone https://github.com/DotNaos/project-space.git
+cd project-space
+bun install --frozen-lockfile
+bun run dev
+```
 
-Explicitly deferred:
+The main development commands are:
 
-- markdown persistence
-- hunk diff parsing or patch application
-- runtime orchestration
-- hosted database, auth, or AI features
-- hosted backend adapters for non-local deployments
-- full interactive PTY streaming terminal
+| Command | Purpose |
+| --- | --- |
+| `bun run dev` | Start the web app through the managed local dev-server flow. |
+| `bun run docs:dev` | Start the documentation site. |
+| `bun run dev:prototype` | Start the pull request prototype surfaces. |
+| `bun run dev:electron` | Run the Electron shell against the local backend. |
+| `bun run check` | Check package-manager policy and TypeScript types. |
+| `bun run check:cli` | Run the Go test suite. |
+| `bun test --isolate` | Run the Bun test suite. |
+| `bun run build` | Build all Project Space deliverables. |
 
-## Product Direction
+Project-managed repositories also describe their supported dev servers in
+`.project/scripts.yaml`; the Project CLI and Project Space UI use that contract
+to prepare dependencies and launch the right surface.
 
-- One project per screen
-- Workflow explorer instead of filesystem browsing
-- Hierarchy: Project -> Sprint -> Feature -> Task -> Worktree -> Issue docs
-- External tools launch from task and worktree context
-- Local integration into iteration branches comes later
-- Edit transfer and conflict preflight validation come later
+## Repository map
+
+| Path | Contents |
+| --- | --- |
+| `src/` | React application, product features, browser API clients, and shared contracts. |
+| `server/` | HTTP server, integrations, connector coordination, persistence, and runtime services. |
+| `cmd/project/` | Go entry point for the `project` CLI. |
+| `internal/` | Go packages shared by the CLI and native machine tools. |
+| `electron/` | Electron desktop shell. |
+| `apps/docs/` | Documentation website and its MDX content. |
+| `apps/prototype/` | Desktop and mobile web prototype surfaces used in pull request previews. |
+| `apps/mobile/` | Native mobile prototype app. |
+| `docs/` | Detailed architecture, operations, and contributor references. |
+| `deploy/` | VPS, preview, database, and connector deployment assets. |
+| `packaging/` | Cross-platform release packaging and verification. |
+| `tests/` | Integration and contract tests. |
+
+## Learn the systems
+
+- [Project model](docs/project.md) — templates, validation, modules, and the
+  interfaces behind the CLI.
+- [Compute environments](docs/compute-environments.md) — platforms, hosts,
+  environments, connectors, and runner workspaces.
+- [Codex worktrees](docs/codex-worktrees.md) — isolated task ownership and the
+  managed worktree workflow.
+- [Connector guide](docs/connector.md) — connecting machines and running the
+  connector lifecycle.
+- [Pull request previews](docs/pr-preview-deployments.md) — preview surfaces,
+  access, promotion, and cleanup.
+- [Project Chat](docs/project-chat.md) — low-priority coordination between
+  people and agents.
+- [Production deployment](docs/production-deployment.md) — VPS architecture and
+  operational verification.
+- [Observability](docs/observability.md) — logs, traces, health signals, and
+  troubleshooting boundaries.
+
+The generated [local CLI reference](apps/docs/content/docs/cli/index.mdx) and
+the hosted docs are the source of truth for commands. Before contributing,
+read the repository's `AGENTS.md`; it defines the required worktree, CI,
+release-intent, and deployment rules for both people and agents.
+
+## Contributing
+
+Open an issue before substantial work, make changes on a dedicated branch in a
+Project-managed worktree, and submit a pull request. Keep changes focused and
+run the checks relevant to the paths you touched. A push that creates or updates
+a pull request must pass the repository's canonical CI preflight described in
+`AGENTS.md`.
+
+Bug reports and feature requests are welcome in
+[GitHub Issues](https://github.com/DotNaos/project-space/issues).
