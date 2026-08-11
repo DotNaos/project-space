@@ -62,6 +62,7 @@ are required for the normal managed development-server path.
 ## Documentation
 
 - [Hosted Project documentation](https://projects.os-home.net/docs)
+- [Remote development and compute control architecture](docs/remote-development-architecture.md)
 - [Project Space Codex plugin](docs/codex-plugin.md)
 - [Generated CLI command reference](apps/docs/content/docs/cli/index.mdx)
 - [CLI self-update guide](apps/docs/content/docs/cli/self-update.mdx)
