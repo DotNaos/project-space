@@ -52,6 +52,7 @@ import {
   sourceLabelForRow
 } from './project-home-overview-widgets';
 import { GitHubConnectPanel } from './github-connect-panel';
+import { useRuntimeBinding } from './runtime-binding-context';
 import {
   branchesFromWorktrees,
   configChipClass,
@@ -106,6 +107,7 @@ export function ProjectHomeOverview({
   onSelectProject,
   recentProjectIds
 }: ProjectHomeOverviewProps) {
+  const runtime = useRuntimeBinding();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [branchRecordsByProjectId, setBranchRecordsByProjectId] = useState<
     Record<string, BranchChipRecord[]>
@@ -1066,7 +1068,7 @@ export function ProjectHomeOverview({
         </div>
       ) : null}
 
-      {mode === 'projects' && hasRequestedGitHubCatalog && !isPendingGitHubCatalog ? (
+      {runtime.apis === 'external' && mode === 'projects' && hasRequestedGitHubCatalog && !isPendingGitHubCatalog ? (
         <div className="mb-4 rounded-lg bg-neutral-950/60 px-4 py-4">
           <GitHubConnectPanel
             flow={githubFlow}

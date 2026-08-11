@@ -119,9 +119,11 @@ export interface DevServerListConnectorResult {
 /** Stable JSON contract returned directly by `project serve`. */
 export interface DevServerRuntimeResult {
   allowedHosts: string[];
+  apis: 'simulated' | 'external';
   capability: DevServerCapability;
   checkedAt: string;
   directory: string;
+  data: 'local' | 'remote';
   disposition?: 'created' | 'reused';
   lastError: string | null;
   localPort: number | null;
@@ -134,6 +136,7 @@ export interface DevServerRuntimeResult {
   publicUrl: string | null;
   repository: string;
   schemaVersion: 2;
+  secrets: 'none' | 'required';
   serverId: string;
   serverKey: string;
   script: string;

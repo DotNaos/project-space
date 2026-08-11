@@ -50,6 +50,17 @@ func validateAllowedHost(host string) error {
 }
 
 func commandFor(script Script, directory, host string, port int, allowedHosts []string) Command {
+	return commandForWithSecrets(script, directory, host, port, allowedHosts, true)
+}
+
+func commandForWithSecrets(
+	script Script,
+	directory string,
+	host string,
+	port int,
+	allowedHosts []string,
+	loadSecrets bool,
+) Command {
 	portValue := fmt.Sprintf("%d", port)
 	argv := make([]string, len(script.Command))
 	for index, argument := range script.Command {
@@ -64,8 +75,10 @@ func commandFor(script Script, directory, host string, port int, allowedHosts []
 	for key, value := range script.Environment {
 		replacements[key] = value
 	}
-	for key, reference := range script.SecretEnvironment {
-		replacements[key] = reference
+	if loadSecrets {
+		for key, reference := range script.SecretEnvironment {
+			replacements[key] = reference
+		}
 	}
 	if allowedHosts != nil {
 		replacements["PROJECT_ALLOWED_HOSTS"] = strings.Join(allowedHosts, ",")
@@ -78,7 +91,7 @@ func commandFor(script Script, directory, host string, port int, allowedHosts []
 		}
 	}
 	env := mergeEnvironment(nil, replacements)
-	if len(script.SecretEnvironment) > 0 {
+	if loadSecrets && len(script.SecretEnvironment) > 0 {
 		argv = append([]string{"op", "run", "--"}, argv...)
 	}
 	return Command{Argv: argv, Dir: directory, Env: env}
@@ -92,11 +105,22 @@ func serverCommandFor(
 	allowedHosts []string,
 	mode ServeMode,
 	portlessURL string,
+	apis APIsMode,
+	data DataMode,
 ) Command {
-	command := commandFor(script, directory, host, port, allowedHosts)
+	command := commandForWithSecrets(
+		script,
+		directory,
+		host,
+		port,
+		allowedHosts,
+		apis == APIsModeExternal,
+	)
 	command.Env = mergeEnvironment(command.Env, map[string]string{
 		"PROJECT_SPACE_MANAGED_SERVE": "1",
 		"PROJECT_SPACE_SERVE_MODE":    string(mode),
+		"PROJECT_SPACE_APIS":          string(apis),
+		"PROJECT_SPACE_DATA":          string(data),
 		"PORTLESS_URL":                portlessURL,
 	})
 	return command

@@ -1,6 +1,8 @@
 package projectrun
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -13,6 +15,8 @@ func TestRuntimeStateValidationRejectsUnsafeOwnershipCombinations(t *testing.T) 
 		Directory:          "/tmp/repository",
 		Script:             "dev",
 		Mode:               ServeModeManaged,
+		APIs:               APIsModeExternal,
+		Data:               DataModeRemote,
 		State:              StateRunning,
 		Generation:         "generation-one",
 		TmuxSession:        "project-serve-repository-dev-123456789abc",
@@ -39,6 +43,11 @@ func TestRuntimeStateValidationRejectsUnsafeOwnershipCombinations(t *testing.T) 
 		{"future schema", func(state *runtimeState) { state.Version++ }, "schema version"},
 		{"unknown phase", func(state *runtimeState) { state.State = "foreign" }, "state"},
 		{"unknown mode", func(state *runtimeState) { state.Mode = "foreign" }, "mode"},
+		{"missing APIs binding", func(state *runtimeState) { state.APIs = "" }, "APIs mode"},
+		{"missing data binding", func(state *runtimeState) { state.Data = "" }, "data mode"},
+		{"simulated remote data", func(state *runtimeState) {
+			state.APIs, state.Data = APIsModeSimulated, DataModeRemote
+		}, "simulated APIs"},
 		{"missing token", func(state *runtimeState) { state.TmuxOwnershipToken = "" }, "ownership token"},
 		{"missing process identity", func(state *runtimeState) { state.ProcessID = "" }, "process identity"},
 		{"invalid public port", func(state *runtimeState) { state.PublicPort = 70000 }, "public port"},
@@ -62,5 +71,47 @@ func TestRuntimeStateValidationRejectsUnsafeOwnershipCombinations(t *testing.T) 
 				t.Fatalf("validation error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestLegacyRuntimeBindingsNormalizeInLoadAndList(t *testing.T) {
+	store, err := newStateStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := ServerIdentity{
+		ServerID:       "project-serve-repository-dev-123456789abc",
+		RepositoryPath: "/tmp/repository/.git",
+		WorktreePath:   "/tmp/repository",
+		ServerKey:      "dev",
+		TmuxSession:    "project-serve-repository-dev-123456789abc",
+	}
+	legacy := runtimeState{
+		Version: SchemaVersion, ServerID: identity.ServerID, RepositoryPath: identity.RepositoryPath,
+		Directory: identity.WorktreePath, Script: identity.ServerKey, Mode: ServeModeManaged,
+		State: StateStale, Generation: "generation-one", TmuxSession: identity.TmuxSession,
+		TmuxOwnershipToken: "ownership-one", AllowedHosts: []string{}, CheckedAt: "2026-08-11T12:00:00Z",
+	}
+	body, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.statePath(identity.ServerID), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, found, err := store.load(identity)
+	if err != nil || !found {
+		t.Fatalf("load legacy state: found=%t err=%v", found, err)
+	}
+	if loaded.APIs != APIsModeExternal || loaded.Data != DataModeRemote {
+		t.Fatalf("loaded bindings = %s/%s", loaded.APIs, loaded.Data)
+	}
+	listing, err := store.list()
+	if err != nil || len(listing.States) != 1 || len(listing.Failures) != 0 {
+		t.Fatalf("list legacy state: %#v err=%v", listing, err)
+	}
+	if listing.States[0].APIs != APIsModeExternal || listing.States[0].Data != DataModeRemote {
+		t.Fatalf("listed bindings = %s/%s", listing.States[0].APIs, listing.States[0].Data)
 	}
 }

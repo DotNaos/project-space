@@ -347,9 +347,8 @@ preview profile: `PROJECT_SPACE_AUTH_DISABLED=1`,
 `PROJECT_SPACE_PUBLIC_ORIGIN`. The two auth flags keep the server and browser
 on the same local-auth mode. `PORTLESS_URL` remains the browser-facing local
 address, but it cannot implicitly enable the database-backed machine runtime.
-This profile is for trusted development only. Its GitHub OAuth client ID is
-loaded from `op://projects/GitHub OAuth App/client_id` without storing the
-resolved value in the repository or managed server state.
+The default profile is a self-contained local simulation. It does not load the
+GitHub OAuth client ID or any other provider secret.
 
 These workflows require the installed `project` executable on `PATH`. A missing
 or older CLI is an explicit setup error; package-manager scripts are not a
@@ -367,10 +366,14 @@ output goes to stderr and the final result is printed as one JSON object on
 stdout. A server name is not accepted by `project run`; it must enter the
 managed lifecycle through `project serve`.
 
-Run a managed dev server and publish it through Tailscale:
+Run a managed dev server with an explicit backend binding:
 
 ```sh
 project serve
+project serve --apis simulated --data local
+project serve --apis external --data local
+project serve --apis external --data remote
+project serve --tailnet
 project serve dev <directory>
 project serve dev <directory> --allowed-host preview.example.com
 project serve status <directory> --script dev --json
@@ -383,14 +386,55 @@ project serve stop <directory> --script dev --json
 project serve reconcile --json
 ```
 
-`project serve` defaults to the `dev` script and current directory. If its only
-argument is an existing directory, it runs `dev` there.
+`project serve` defaults to the `dev` script, current directory,
+`--apis=simulated`, and `--data=local`. The default starts a stateful local
+simulation of provider APIs, stores its scenario state outside the repository,
+and blocks outbound network connections. It does not require internet access,
+a hosted database, an external account, an API key, or a 1Password secret. If
+its only positional argument is an existing directory, it runs `dev` there.
+
+The supported backend combinations are:
+
+| APIs | Data | Startup behavior |
+| --- | --- | --- |
+| `simulated` | `local` | Default self-contained local simulation. |
+| `external` | `local` | Reserved for real integrations with isolated local data. |
+| `external` | `remote` | Reserved for real integrations with the configured shared database. |
+| `simulated` | `remote` | Rejected before startup. |
+
+External modes currently fail closed because secure service-account token
+delivery to the detached server has not been finalized. A raw token is never a
+CLI option. Remote data must never be migrated, seeded, reset, or otherwise
+mutated automatically during startup.
+
+API and data options select only the backend composition. They do not imply
+public exposure, Tailscale, ngrok, or another tunnel. Plain `project serve`
+uses local-only transport and never contacts Tailscale. `--tailnet` is the
+separate explicit publication control. Simulated APIs remain loopback-only
+until local owner authentication is available; external API publication
+remains blocked with the rest of the external profile. The older
+`--local-only` spelling remains a compatible explicit statement of the default
+and cannot be combined with `--tailnet`.
+
+Simulation state is stored per managed worktree at
+`<Project Space serve state>/simulations/<server-id>.json`. On macOS the serve
+state root is `~/Library/Application Support/Project Space/serve`; on Linux it
+is `$XDG_STATE_HOME/project-space/serve` or
+`~/.local/state/project-space/serve`. The directory and file are owner-only.
+Use **Reset scenario** from the single **Local simulation** indicator in the app
+to restore the deterministic starting state for that worktree.
+
+Existing `project serve dev` users now receive simulated APIs and local data by
+default. Workflows that need real GitHub, Codex, machine, or shared-database
+integration must choose an external binding explicitly; those modes remain
+blocked until secure detached credential delivery is implemented.
 
 Managed servers listen on a free `127.0.0.1` port. The CLI registers one exact
 Portless alias such as `http://612-managed-dev.project-space.localhost:1355`
-for normal local use, then creates one exact raw Tailscale TCP route and reports a DNS-free URL such as
-`http://100.80.135.9:44000`. MagicDNS and Tailscale certificate domains are not
-required. Stop removes only the recorded Portless alias and Tailscale port when
+for normal local use. When the separate Tailnet transport is enabled, it also
+creates one exact raw Tailscale TCP route and reports a DNS-free URL such as
+`http://100.80.135.9:44000`; MagicDNS and Tailscale certificate domains are not
+required. Stop removes only the recorded Portless alias and any owned Tailscale port when
 their current targets still match the recorded local server. It never resets
 unrelated Portless or Tailscale routes, and it never stops the shared Portless
 proxy.
@@ -403,13 +447,13 @@ ports and Portless names. The session survives the terminal or Codex task that l
 they refuse to mutate a tmux session, Portless alias, or Tailscale route whose ownership evidence
 no longer matches the persisted generation.
 
-Normal mode is fail-closed. A start is not `running` until the tmux process,
+Tailnet mode is fail-closed. A start is not `running` until the tmux process,
 local listener, exact Portless alias, exact Tailscale route, and direct,
 Portless, and Tailnet health checks all
 agree. If publication fails, the CLI compensates the resources created by that
 start and reports `failed`. It never silently leaves a local server running.
-For an exceptional debugging session, `--local-only` is the only supported
-fallback; it reports `local-only` and never returns a public URL.
+The default local-only mode reports `local-only` and never returns a public URL
+or attempts a Tailnet fallback.
 
 `--allowed-host` is repeatable and accepts explicit hostnames or IP addresses
 only. Every validated value is available to project tooling in the
@@ -423,7 +467,8 @@ If `healthCheck` is configured, the direct listener, Portless URL, and Tailscale
 2xx or 3xx response before the session becomes `running`. Without it, the CLI
 checks each TCP listener. In both cases, it also verifies that the selected port
 belongs to the managed process group. The globally installed `portless`, plus
-`tmux`, `tailscale`, and `lsof`, must be available on the connector machine.
+`tmux` and `lsof`, must be available on the connector machine. `tailscale` is
+required only for Tailnet transport.
 
 The managed process receives a small allowlist of runtime and toolchain
 environment variables. Connector registration tokens, Clerk keys, database
@@ -450,6 +495,9 @@ Machine-readable serve output always contains the same fields:
   "operation": "start",
   "disposition": "created",
   "mode": "managed",
+  "apis": "simulated",
+  "data": "local",
+  "secrets": "none",
   "serverId": "project-serve-project-space-dev-a81f2c3d4e5f",
   "serverKey": "dev",
   "script": "dev",

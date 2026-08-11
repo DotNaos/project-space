@@ -288,7 +288,9 @@ func validateScriptSecretEnvironment(name string, environment, secrets map[strin
 func validateScriptEnvironment(name string, environment map[string]string) error {
 	reserved := map[string]bool{
 		"PROJECT_HOST": true, "PROJECT_PORT": true, "PROJECT_SPACE_MANAGED_SERVE": true,
-		"PROJECT_SPACE_SERVE_MODE": true, "PROJECT_ALLOWED_HOSTS": true,
+		"PROJECT_SPACE_SERVE_MODE": true, "PROJECT_SPACE_APIS": true,
+		"PROJECT_SPACE_DATA": true, "PROJECT_SPACE_SIMULATION_STATE": true,
+		"PROJECT_ALLOWED_HOSTS":                  true,
 		"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": true, "PWD": true,
 	}
 	for key, value := range environment {

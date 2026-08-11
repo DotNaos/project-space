@@ -2585,7 +2585,7 @@
         "path": "project serve",
         "name": "serve",
         "usage": "serve [script] [directory]",
-        "short": "Run a project script and expose it on this Tailnet",
+        "short": "Run a project script with an explicit backend binding",
         "aliases": [],
         "runnable": true,
         "flags": [
@@ -2593,6 +2593,18 @@
             "name": "allowed-host",
             "type": "stringArray",
             "description": "explicit Vite host allowed to reach this session (repeatable)",
+            "inherited": false
+          },
+          {
+            "name": "apis",
+            "type": "string",
+            "description": "backend API binding: simulated or external",
+            "inherited": false
+          },
+          {
+            "name": "data",
+            "type": "string",
+            "description": "backend data binding: local or remote",
             "inherited": false
           },
           {
@@ -2617,7 +2629,13 @@
           {
             "name": "local-only",
             "type": "bool",
-            "description": "start explicitly without a Tailscale route",
+            "description": "start without a Tailscale route (the default; retained for compatibility)",
+            "inherited": false
+          },
+          {
+            "name": "tailnet",
+            "type": "bool",
+            "description": "publish the verified listener through Tailscale",
             "inherited": false
           }
         ],

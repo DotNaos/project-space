@@ -48,6 +48,7 @@ import {
 import { IssueDevelopmentServers } from './issue-development-servers';
 import { IssueDevelopmentStart } from './issue-development-start';
 import { GitHubCodespaceDestination } from './github-codespace-destination';
+import { useRuntimeBinding } from './runtime-binding-context';
 
 interface IssueDevelopmentSessionProps {
   branches: GitHubBranchRecord[];
@@ -76,6 +77,7 @@ export function IssueDevelopmentSession({
   repoFullName,
   onOpenHistory
 }: IssueDevelopmentSessionProps) {
+  const runtime = useRuntimeBinding();
   const codespaceScopeKey = `${repoFullName ?? ''}\u0000${issue.number}`;
   const [busyMachineId, setBusyMachineId] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
@@ -283,7 +285,7 @@ export function IssueDevelopmentSession({
     selectedBranch,
     selectedPullRequest
   );
-  const codespaceDestination = codespaceBranchName && repoFullName ? (
+  const codespaceDestination = runtime.apis === 'external' && codespaceBranchName && repoFullName ? (
     <GitHubCodespaceDestination
       availableConnectorIds={connectorOverview.machines
         .filter((machine) => canRunMachineCommand(machine))
@@ -335,10 +337,16 @@ export function IssueDevelopmentSession({
 
       {selectedPullRequest?.isDraft ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <a className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/55 hover:bg-current/[.075] hover:text-current" href={selectedPullRequest.url} rel="noreferrer" target="_blank">
-            <GitPullRequestDraft className="size-3.5" /> Draft #{selectedPullRequest.number}
-            <ExternalLink className="size-3" />
-          </a>
+          {runtime.apis === 'external' && selectedPullRequest.url ? (
+            <a className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/55 hover:bg-current/[.075] hover:text-current" href={selectedPullRequest.url} rel="noreferrer" target="_blank">
+              <GitPullRequestDraft className="size-3.5" /> Draft #{selectedPullRequest.number}
+              <ExternalLink className="size-3" />
+            </a>
+          ) : (
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/55">
+              <GitPullRequestDraft className="size-3.5" /> Draft #{selectedPullRequest.number}
+            </span>
+          )}
           <span className="text-xs text-current/35">Active · Draft PR</span>
         </div>
       ) : null}
@@ -351,7 +359,7 @@ export function IssueDevelopmentSession({
             repositoryFullName={repoFullName}
             returnPath={`/projects/${encodeURIComponent(project.id)}/issues/${issue.number}`}
           />
-          {isReadyPullRequest && repoFullName ? (
+          {runtime.apis === 'external' && isReadyPullRequest && repoFullName ? (
             <div className="grid gap-2">
               <a
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-current/[.08] px-3 text-sm font-medium text-current/75 hover:bg-current/[.12] hover:text-current"

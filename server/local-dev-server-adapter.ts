@@ -26,8 +26,10 @@ type ProjectServeListJson = DevServerRuntimeListResult;
 
 const serveResultKeys = [
   'allowedHosts',
+  'apis',
   'capability',
   'checkedAt',
+  'data',
   'directory',
   'lastError',
   'localPort',
@@ -41,6 +43,7 @@ const serveResultKeys = [
   'repository',
   'schemaVersion',
   'script',
+  'secrets',
   'serverId',
   'serverKey',
   'startedAt',
@@ -90,6 +93,9 @@ function isProjectServeJson(value: unknown): value is ProjectServeJson {
   }
   return (
     value.schemaVersion === 2 &&
+    (value.apis === 'simulated' || value.apis === 'external') &&
+    (value.data === 'local' || value.data === 'remote') &&
+    (value.secrets === 'none' || value.secrets === 'required') &&
     (value.operation === 'start' || value.operation === 'status' || value.operation === 'stop') &&
     typeof value.script === 'string' &&
     typeof value.directory === 'string' &&
@@ -121,6 +127,17 @@ function isProjectServeJson(value: unknown): value is ProjectServeJson {
     typeof value.checkedAt === 'string' &&
     isNullableString(value.lastError)
   );
+}
+
+function normalizeProjectServeJson(value: unknown): ProjectServeJson | undefined {
+  if (!isRecord(value)) return undefined;
+  const hasAPIs = Object.hasOwn(value, 'apis');
+  const hasData = Object.hasOwn(value, 'data');
+  const hasSecrets = Object.hasOwn(value, 'secrets');
+  const normalized = !hasAPIs && !hasData && !hasSecrets
+    ? { ...value, apis: 'external', data: 'remote', secrets: 'required' }
+    : value;
+  return isProjectServeJson(normalized) ? normalized : undefined;
 }
 
 function isProjectServeListJson(value: unknown): value is ProjectServeListJson {
@@ -164,6 +181,11 @@ function commandArgs(request: ConnectorDevServerExecutionRequest, worktreePath: 
     'serve',
     request.runTarget,
     worktreePath,
+    '--apis',
+    'external',
+    '--data',
+    'remote',
+    '--tailnet',
     '--json',
     ...request.allowedHosts.flatMap((host) => ['--allowed-host', host])
   ];
@@ -271,7 +293,8 @@ export function createLocalDevServerAdapter(
         );
       }
 
-      if (!isProjectServeJson(parsed)) {
+      const serveResult = normalizeProjectServeJson(parsed);
+      if (!serveResult) {
         return connectorDevServerErrorResult(
           request,
           request.actor.generation,
@@ -279,9 +302,9 @@ export function createLocalDevServerAdapter(
         );
       }
       if (
-        parsed.operation !== expectedCliOperation(request.operation) ||
-        parsed.script !== request.runTarget ||
-        resolve(parsed.directory) !== resolve(worktreePath)
+        serveResult.operation !== expectedCliOperation(request.operation) ||
+        serveResult.script !== request.runTarget ||
+        resolve(serveResult.directory) !== resolve(worktreePath)
       ) {
         return connectorDevServerErrorResult(
           request,
@@ -291,8 +314,8 @@ export function createLocalDevServerAdapter(
       }
       if (
         request.operation === 'start' &&
-        (parsed.allowedHosts.length !== request.allowedHosts.length ||
-          parsed.allowedHosts.some((host, index) => host !== request.allowedHosts[index]))
+        (serveResult.allowedHosts.length !== request.allowedHosts.length ||
+          serveResult.allowedHosts.some((host, index) => host !== request.allowedHosts[index]))
       ) {
         return connectorDevServerErrorResult(
           request,
@@ -302,7 +325,7 @@ export function createLocalDevServerAdapter(
       }
 
       try {
-        return mapServeResult(parsed, request);
+        return mapServeResult(serveResult, request);
       } catch (error) {
         return connectorDevServerErrorResult(
           request,

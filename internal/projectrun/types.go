@@ -8,6 +8,20 @@ import (
 
 const SchemaVersion = 2
 
+type APIsMode string
+
+const (
+	APIsModeSimulated APIsMode = "simulated"
+	APIsModeExternal  APIsMode = "external"
+)
+
+type DataMode string
+
+const (
+	DataModeLocal  DataMode = "local"
+	DataModeRemote DataMode = "remote"
+)
+
 type ServeMode string
 
 const (
@@ -47,6 +61,9 @@ type ServeResult struct {
 	Operation     string           `json:"operation"`
 	Disposition   ServeDisposition `json:"disposition,omitempty"`
 	Mode          ServeMode        `json:"mode"`
+	APIs          APIsMode         `json:"apis"`
+	Data          DataMode         `json:"data"`
+	Secrets       string           `json:"secrets"`
 	ServerID      string           `json:"serverId"`
 	ServerKey     string           `json:"serverKey"`
 	Script        string           `json:"script"`
@@ -71,6 +88,8 @@ type ServeResult struct {
 type StartOptions struct {
 	AllowedHosts []string
 	LocalOnly    bool
+	APIs         APIsMode
+	Data         DataMode
 }
 
 type RunResult struct {

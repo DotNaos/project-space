@@ -18,6 +18,9 @@ type projectServeOptions struct {
 	Format       string
 	JSON         bool
 	LocalOnly    bool
+	Tailnet      bool
+	APIs         string
+	Data         string
 	Script       string
 	Configured   bool
 	Follow       bool
@@ -35,9 +38,12 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	options := projectServeOptions{}
 	cmd := &cobra.Command{
 		Use:   "serve [script] [directory]",
-		Short: "Run a project script and expose it on this Tailnet",
+		Short: "Run a project script with an explicit backend binding",
 		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if options.LocalOnly && options.Tailnet {
+				return fmt.Errorf("--local-only cannot be combined with --tailnet")
+			}
 			script, directory, err := resolveServeStartArguments(args)
 			if err != nil {
 				return err
@@ -46,13 +52,27 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 			if err != nil {
 				return err
 			}
+			apis, data, err := resolveServeBindings(options.APIs, options.Data)
+			if err != nil {
+				return err
+			}
+			if options.Tailnet && apis == projectrun.APIsModeSimulated {
+				return fmt.Errorf("simulated APIs are loopback-only until local owner authentication is available")
+			}
+			if apis == projectrun.APIsModeExternal {
+				return fmt.Errorf(
+					"external APIs are reserved but secure 1Password service-account delivery is not configured yet",
+				)
+			}
 			manager, err := managerFactory()
 			if err != nil {
 				return err
 			}
 			result, startErr := manager.StartWithOptions(cmd.Context(), directory, script, projectrun.StartOptions{
 				AllowedHosts: options.AllowedHosts,
-				LocalOnly:    options.LocalOnly,
+				LocalOnly:    !options.Tailnet,
+				APIs:         apis,
+				Data:         data,
 			})
 			if err := printServeResult(cmd, result, format); err != nil {
 				return err
@@ -62,7 +82,12 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	}
 	bindServeOutputFlags(cmd, &options)
 	cmd.Flags().StringArrayVar(&options.AllowedHosts, "allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
-	cmd.Flags().BoolVar(&options.LocalOnly, "local-only", false, "start explicitly without a Tailscale route")
+	cmd.Flags().BoolVar(&options.LocalOnly, "local-only", false, "start without a Tailscale route (the default; retained for compatibility)")
+	cmd.Flags().BoolVar(&options.Tailnet, "tailnet", false, "publish the verified listener through Tailscale")
+	cmd.Flags().StringVar(&options.APIs, "apis", "simulated", "backend API binding: simulated or external")
+	cmd.Flags().StringVar(&options.Data, "data", "local", "backend data binding: local or remote")
+	must(cmd.RegisterFlagCompletionFunc("apis", fixedValuesCompletion("simulated", "external")))
+	must(cmd.RegisterFlagCompletionFunc("data", fixedValuesCompletion("local", "remote")))
 	cmd.AddCommand(newServeReconcileCommand(managerFactory))
 	cmd.AddCommand(newServeListCommand(managerFactory))
 	cmd.AddCommand(newServeLogsCommand(managerFactory))
@@ -71,6 +96,21 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	cmd.AddCommand(newServeStatusCommand(managerFactory))
 	cmd.AddCommand(newServeStopCommand(managerFactory))
 	return cmd
+}
+
+func resolveServeBindings(apisValue, dataValue string) (projectrun.APIsMode, projectrun.DataMode, error) {
+	apis := projectrun.APIsMode(apisValue)
+	data := projectrun.DataMode(dataValue)
+	if apis != projectrun.APIsModeSimulated && apis != projectrun.APIsModeExternal {
+		return "", "", fmt.Errorf("unknown APIs binding %q; use simulated or external", apisValue)
+	}
+	if data != projectrun.DataModeLocal && data != projectrun.DataModeRemote {
+		return "", "", fmt.Errorf("unknown data binding %q; use local or remote", dataValue)
+	}
+	if apis == projectrun.APIsModeSimulated && data == projectrun.DataModeRemote {
+		return "", "", fmt.Errorf("--apis=simulated cannot be combined with --data=remote")
+	}
+	return apis, data, nil
 }
 
 func newServeListCommand(managerFactory projectManagerFactory) *cobra.Command {
@@ -323,6 +363,15 @@ func printServeResult(cmd *cobra.Command, result projectrun.ServeResult, format 
 	}
 	if result.Mode != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "Mode: %s\n", result.Mode)
+	}
+	if result.APIs != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "APIs: %s\n", result.APIs)
+	}
+	if result.Data != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Data: %s\n", result.Data)
+	}
+	if result.Secrets != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Secrets: %s\n", result.Secrets)
 	}
 	if result.ServerID != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "Server ID: %s\n", result.ServerID)

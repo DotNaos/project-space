@@ -20,23 +20,26 @@ function binaryResult(stdout: string): ProjectBinaryRunResult {
   return { durationMs: 1, exitCode: 0, stderr: '', stdout };
 }
 
-function runtimeJson(directory: string) {
-  return JSON.stringify({
+function runtimeJson(directory: string, options: { legacy?: boolean; operation?: string } = {}) {
+  const result: Record<string, unknown> = {
     allowedHosts: [],
+    apis: 'external',
     capability: 'configured',
     checkedAt: new Date().toISOString(),
+    data: 'remote',
     directory,
     lastError: null,
     localPort: null,
     localUrl: null,
     mode: 'managed',
-    operation: 'status',
+    operation: options.operation ?? 'status',
     pid: null,
     portlessName: '',
     publicPort: null,
     publicUrl: null,
     repository: '/tmp/project/.git',
     schemaVersion: 2,
+    secrets: 'required',
     serverId: 'project-serve-project-space-dev-test',
     serverKey: 'dev',
     script: 'dev',
@@ -44,7 +47,13 @@ function runtimeJson(directory: string) {
     state: 'stopped',
     tailscaleIPv4: null,
     tmuxSession: 'project-serve-project-space-dev-test'
-  });
+  };
+  if (options.legacy) {
+    delete result.apis;
+    delete result.data;
+    delete result.secrets;
+  }
+  return JSON.stringify(result);
 }
 
 describe('local dev-server adapter identity resolution', () => {
@@ -106,5 +115,42 @@ describe('local dev-server adapter identity resolution', () => {
 
     await expect(adapter.runDevServerCommand(request)).rejects.toThrow('HEAD changed');
     expect(ranBinary).toBe(false);
+  });
+
+  test('keeps an older CLI response compatible as the historical external/remote binding', async () => {
+    const movedPath = '/tmp/moved-worktree';
+    const adapter = createLocalDevServerAdapter({
+      resolveProjectPath: async () => '/tmp/project',
+      resolveWorktree: async () => ({
+        detached: false, headSha, id: request.worktreeId, isBase: false, kind: 'external',
+        locked: false, name: 'Moved worktree', path: movedPath, prunable: false, status: 'ready'
+      }),
+      runBinary: async () => binaryResult(runtimeJson(movedPath, { legacy: true }))
+    });
+
+    expect((await adapter.runDevServerCommand(request)).state).toBe('stopped');
+  });
+
+  test('opts established connector starts into the explicit external/remote binding', async () => {
+    const calls: string[][] = [];
+    const movedPath = '/tmp/moved-worktree';
+    const adapter = createLocalDevServerAdapter({
+      resolveProjectPath: async () => '/tmp/project',
+      resolveWorktree: async () => ({
+        detached: false, headSha, id: request.worktreeId, isBase: false, kind: 'external',
+        locked: false, name: 'Moved worktree', path: movedPath, prunable: false, status: 'ready'
+      }),
+      runBinary: async (args) => {
+        calls.push(args);
+        return binaryResult(runtimeJson(movedPath, { operation: 'start' }));
+      }
+    });
+
+    await adapter.runDevServerCommand({ ...request, operation: 'start' });
+
+    expect(calls).toEqual([[
+      'serve', 'dev', movedPath,
+      '--apis', 'external', '--data', 'remote', '--tailnet', '--json'
+    ]]);
   });
 });

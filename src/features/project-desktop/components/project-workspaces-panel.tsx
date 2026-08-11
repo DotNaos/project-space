@@ -34,6 +34,7 @@ import {
 } from './worktree-git-client-panel';
 import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
 import { connectorLocationPresentation } from './machine-connector-topology-model';
+import { useRuntimeBinding } from './runtime-binding-context';
 
 function normalizeKey(value: string) {
   return value
@@ -89,6 +90,7 @@ export function ProjectWorkspacesPanel({
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }) {
+  const runtime = useRuntimeBinding();
   const [actionMessage, setActionMessage] = useState('');
   const [busyBranchName, setBusyBranchName] = useState('');
   const [fileGitStatus, setFileGitStatus] = useState<WorktreeGitStatusSnapshot>();
@@ -329,8 +331,8 @@ export function ProjectWorkspacesPanel({
             </Button>
             <Button
               size="sm"
-              variant="primary"
-              className="shrink-0 bg-sky-500 text-white hover:bg-sky-400"
+              variant="secondary"
+              className="shrink-0"
               isDisabled={!canCreate || unmaterializedBranches.length === 0}
               onPress={() => setShowCreate((value) => !value)}
             >
@@ -359,10 +361,9 @@ export function ProjectWorkspacesPanel({
             </label>
             <Button
               size="sm"
-              variant="primary"
+              variant="secondary"
               isDisabled={!canCreate || !selectedCreateBranch || Boolean(busyBranchName)}
               onPress={() => void createWorktree(selectedCreateBranch)}
-              className="bg-sky-500 text-white hover:bg-sky-400"
             >
               {busyBranchName ? (
                 <LoaderCircle className="size-3.5 animate-spin" />
@@ -375,13 +376,13 @@ export function ProjectWorkspacesPanel({
         ) : null}
 
         <DevServerAccessNotice access={devServers.access} machineName={selectedConnectorLabel} />
-        <DevServerSettings
+        {runtime.apis === 'external' ? <DevServerSettings
           access={devServers.access}
           hasActiveServers={devServers.hasActiveServers}
           isSaving={devServers.isSavingSettings}
           onSave={devServers.updateSettings}
           settings={devServers.settings}
-        />
+        /> : null}
 
         {worktreeDiscovery.state === 'checking' ? (
           <div className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-3">

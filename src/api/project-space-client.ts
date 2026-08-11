@@ -122,6 +122,19 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     return this.request('/api/app/meta');
   }
 
+  getLocalSimulationState(): Promise<{
+    createdAt: string;
+    revision: number;
+    scenario: string;
+    updatedAt: string;
+  }> {
+    return this.request('/api/local-simulation');
+  }
+
+  resetLocalSimulation(): Promise<{ revision: number; scenario: string }> {
+    return this.request('/api/local-simulation/reset', { method: 'POST' });
+  }
+
   getReleaseChangelog() {
     return this.request<import('@/shared/release-changelog-api').ReleaseChangelogResult>(
       '/api/app/releases'

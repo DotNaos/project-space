@@ -23,6 +23,8 @@ type runtimeState struct {
 	RequestedDirectory string    `json:"requestedDirectory,omitempty"`
 	Script             string    `json:"script"`
 	Mode               ServeMode `json:"mode"`
+	APIs               APIsMode  `json:"apis"`
+	Data               DataMode  `json:"data"`
 	State              State     `json:"state"`
 	Generation         string    `json:"generation"`
 	TmuxSession        string    `json:"tmuxSession"`
@@ -77,6 +79,7 @@ func newStateStore(root string) (*stateStore, error) {
 		filepath.Join(resolved, "locks"),
 		filepath.Join(resolved, "logs"),
 		filepath.Join(resolved, "requests"),
+		filepath.Join(resolved, "simulations"),
 		filepath.Join(resolved, "setup-states"),
 		filepath.Join(resolved, "setup-logs"),
 	} {
@@ -85,6 +88,10 @@ func newStateStore(root string) (*stateStore, error) {
 		}
 	}
 	return &stateStore{root: resolved}, nil
+}
+
+func (store *stateStore) simulationStatePath(serverID string) string {
+	return filepath.Join(store.root, "simulations", serverID+".json")
 }
 
 func sessionKey(directory, script string) string {
@@ -104,6 +111,7 @@ func (store *stateStore) load(identity ServerIdentity) (runtimeState, bool, erro
 	if err := json.Unmarshal(body, &state); err != nil {
 		return runtimeState{}, false, fmt.Errorf("parse serve state: %w", err)
 	}
+	normalizeRuntimeStateBindings(&state)
 	if err := validateRuntimeState(state); err != nil {
 		return runtimeState{}, false, fmt.Errorf("serve state is invalid: %w", err)
 	}
@@ -193,6 +201,7 @@ func (store *stateStore) list() (stateListing, error) {
 			listing.Failures = append(listing.Failures, fmt.Errorf("parse serve state %q: %w", entry.Name(), err))
 			continue
 		}
+		normalizeRuntimeStateBindings(&state)
 		expectedName := state.ServerID + ".json"
 		if validationErr := validateRuntimeState(state); validationErr != nil || entry.Name() != expectedName {
 			listing.Failures = append(listing.Failures, fmt.Errorf(
@@ -207,6 +216,15 @@ func (store *stateStore) list() (stateListing, error) {
 			listing.States[j].Directory+listing.States[j].Script
 	})
 	return listing, nil
+}
+
+func normalizeRuntimeStateBindings(state *runtimeState) {
+	if state.APIs == "" && state.Data == "" {
+		// Sessions created before binding evidence existed always used the real
+		// integrations and the connector's configured shared data services.
+		state.APIs = APIsModeExternal
+		state.Data = DataModeRemote
+	}
 }
 
 func validateRuntimeState(state runtimeState) error {
@@ -225,6 +243,15 @@ func validateRuntimeState(state runtimeState) error {
 	}
 	if state.Mode != ServeModeManaged && state.Mode != ServeModeLocalOnly {
 		return fmt.Errorf("mode %q is invalid", state.Mode)
+	}
+	if state.APIs != APIsModeSimulated && state.APIs != APIsModeExternal {
+		return fmt.Errorf("APIs mode %q is invalid", state.APIs)
+	}
+	if state.Data != DataModeLocal && state.Data != DataModeRemote {
+		return fmt.Errorf("data mode %q is invalid", state.Data)
+	}
+	if state.APIs == APIsModeSimulated && state.Data == DataModeRemote {
+		return fmt.Errorf("simulated APIs cannot use remote data")
 	}
 	if !validRuntimeStatePhase(state.State) {
 		return fmt.Errorf("state %q is invalid", state.State)

@@ -50,6 +50,12 @@ export interface AppMeta {
   nodeVersion?: string;
   preview?: PullRequestPreviewBuildMetadata;
   ref?: string;
+  runtime?: {
+    apis: 'simulated' | 'external';
+    data: 'local' | 'remote';
+    network: 'loopback-only' | 'external';
+    secrets: 'none' | 'required';
+  };
 }
 
 export interface ProjectDirectorySelection {

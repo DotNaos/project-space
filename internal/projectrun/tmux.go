@@ -21,6 +21,8 @@ type TmuxSessionSpec struct {
 	Generation     string
 	OwnershipToken string
 	Mode           ServeMode
+	APIs           APIsMode
+	Data           DataMode
 	LocalPort      int
 	PublicPort     int
 }
@@ -128,7 +130,8 @@ func (tmux TmuxCLI) Inspect(ctx context.Context, name string) (TmuxObservation, 
 		"#{@project-serve-server-id}", "#{@project-serve-repository}",
 		"#{@project-serve-worktree}", "#{@project-serve-server-key}",
 		"#{@project-serve-generation}", "#{@project-serve-token}",
-		"#{@project-serve-mode}", "#{@project-serve-local-port}",
+		"#{@project-serve-mode}", "#{@project-serve-apis}",
+		"#{@project-serve-data}", "#{@project-serve-local-port}",
 		"#{@project-serve-public-port}",
 	}, "\t")
 	body, err := tmux.output(ctx, "display-message", "-p", "-t", name, format)
@@ -139,18 +142,20 @@ func (tmux TmuxCLI) Inspect(ctx context.Context, name string) (TmuxObservation, 
 	// have no public port. Trimming all whitespace would remove the trailing
 	// tab and make a valid observation look malformed.
 	fields := strings.Split(strings.TrimSuffix(body, "\n"), "\t")
-	if len(fields) != 12 {
-		return TmuxObservation{}, fmt.Errorf("inspect tmux session %q: expected 12 ownership fields, got %d", name, len(fields))
+	if len(fields) != 14 {
+		return TmuxObservation{}, fmt.Errorf("inspect tmux session %q: expected 14 ownership fields, got %d", name, len(fields))
 	}
+	apis, data := normalizeTmuxBindings(APIsMode(fields[10]), DataMode(fields[11]))
 	pid, _ := strconv.Atoi(fields[1])
-	localPort, _ := strconv.Atoi(fields[10])
-	publicPort, _ := strconv.Atoi(fields[11])
+	localPort, _ := strconv.Atoi(fields[12])
+	publicPort, _ := strconv.Atoi(fields[13])
 	observation := TmuxObservation{
 		Exists: true,
 		Dead:   fields[2] == "1",
 		Spec: TmuxSessionSpec{
 			Name: fields[0], ServerID: fields[3], RepositoryPath: fields[4], WorktreePath: fields[5],
 			ServerKey: fields[6], Generation: fields[7], OwnershipToken: fields[8], Mode: ServeMode(fields[9]),
+			APIs: APIsMode(apis), Data: DataMode(data),
 			LocalPort: localPort, PublicPort: publicPort,
 		},
 	}
@@ -228,9 +233,20 @@ func tmuxOptions(spec TmuxSessionSpec) map[string]string {
 		"@project-serve-generation":  spec.Generation,
 		"@project-serve-token":       spec.OwnershipToken,
 		"@project-serve-mode":        string(spec.Mode),
+		"@project-serve-apis":        string(spec.APIs),
+		"@project-serve-data":        string(spec.Data),
 		"@project-serve-local-port":  strconv.Itoa(spec.LocalPort),
 		"@project-serve-public-port": strconv.Itoa(spec.PublicPort),
 	}
+}
+
+func normalizeTmuxBindings(apis APIsMode, data DataMode) (APIsMode, DataMode) {
+	// Sessions created before API/data binding evidence was introduced were
+	// always connected to the external APIs and remote data composition.
+	if apis == "" && data == "" {
+		return APIsModeExternal, DataModeRemote
+	}
+	return apis, data
 }
 
 func sameTmuxOwnership(observed, expected TmuxSessionSpec) bool {

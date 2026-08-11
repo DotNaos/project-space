@@ -305,6 +305,25 @@ func TestLocalOnlyRequiresExplicitModeAndNeverPublishesTailnet(t *testing.T) {
 	}
 }
 
+func TestExternalBindingsFailBeforeStartingProcessesOrTailnet(t *testing.T) {
+	project := writeTestScripts(t)
+	for _, data := range []DataMode{DataModeLocal, DataModeRemote} {
+		t.Run(string(data), func(t *testing.T) {
+			manager, processes, tailnet, _ := newTestManager(t)
+			result, err := manager.StartWithOptions(context.Background(), project, "dev", StartOptions{
+				APIs: APIsModeExternal,
+				Data: data,
+			})
+			if err == nil || !strings.Contains(err.Error(), "service-account delivery") {
+				t.Fatalf("external start error = %v", err)
+			}
+			if result.State != StateFailed || len(processes.started) != 0 || len(tailnet.started) != 0 {
+				t.Fatalf("external start touched runtime: result=%#v processes=%d tailnet=%d", result, len(processes.started), len(tailnet.started))
+			}
+		})
+	}
+}
+
 func TestTailscaleStartFailureCompensatesOwnedTmuxWithoutLocalOnlyFallback(t *testing.T) {
 	project := writeTestScripts(t)
 	manager, processes, tailnet, _ := newTestManager(t)

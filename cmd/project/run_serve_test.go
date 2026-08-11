@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/DotNaos/project-space/internal/projectrun"
@@ -33,6 +34,9 @@ func TestServeCommandsExposeStableJSONContract(t *testing.T) {
 	assertServeJSONKeys(t, localOutput)
 	if !manager.localOnly {
 		t.Fatal("--local-only was not passed to the managed start transaction")
+	}
+	if manager.apis != projectrun.APIsModeSimulated || manager.data != projectrun.DataModeLocal {
+		t.Fatalf("bindings = APIs=%q data=%q", manager.apis, manager.data)
 	}
 
 	statusOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
@@ -68,6 +72,78 @@ func TestServeFailureStillPrintsJSONBeforeReturningNonzero(t *testing.T) {
 		t.Fatal("expected command failure")
 	}
 	assertServeJSONKeys(t, stdout.String())
+}
+
+func TestServeBindingsFailClosedBeforeStartup(t *testing.T) {
+	tests := []struct {
+		args    []string
+		message string
+	}{
+		{[]string{"--apis=simulated", "--data=remote"}, "cannot be combined"},
+		{[]string{"--apis=external", "--data=local"}, "secure 1Password service-account delivery"},
+		{[]string{"--apis=external", "--data=remote"}, "secure 1Password service-account delivery"},
+		{[]string{"--apis=unknown"}, "unknown APIs binding"},
+		{[]string{"--data=unknown"}, "unknown data binding"},
+		{[]string{"--local-only", "--tailnet"}, "cannot be combined"},
+		{[]string{"--tailnet"}, "loopback-only"},
+		{[]string{"--token", "visible-secret"}, "unknown flag"},
+	}
+	for _, test := range tests {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			managerCalls := 0
+			cmd := newServeCommandWithManager(func() (projectCommandManager, error) {
+				managerCalls++
+				return &fakeProjectCommandManager{}, nil
+			})
+			cmd.SilenceUsage = true
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs(test.args)
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("error = %v, want %q", err, test.message)
+			}
+			if managerCalls != 0 {
+				t.Fatalf("manager calls = %d", managerCalls)
+			}
+		})
+	}
+}
+
+func TestServeTransportDefaultsLocalAndRequiresExplicitTailnet(t *testing.T) {
+	for _, test := range []struct {
+		args      []string
+		localOnly bool
+	}{
+		{args: nil, localOnly: true},
+		{args: []string{"--local-only"}, localOnly: true},
+	} {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			manager := &fakeProjectCommandManager{serveResult: runningServeFixture()}
+			executeProjectCommand(t, newServeCommandWithManager(
+				func() (projectCommandManager, error) { return manager, nil },
+			), test.args)
+			if manager.localOnly != test.localOnly {
+				t.Fatalf("LocalOnly = %t, want %t", manager.localOnly, test.localOnly)
+			}
+		})
+	}
+}
+
+func TestServePrettyOutputSeparatesBindingsFromExposure(t *testing.T) {
+	result := runningServeFixture()
+	result.APIs = projectrun.APIsModeSimulated
+	result.Data = projectrun.DataModeLocal
+	result.Secrets = "none"
+	manager := &fakeProjectCommandManager{serveResult: result}
+	output := executeProjectCommand(t, newServeCommandWithManager(
+		func() (projectCommandManager, error) { return manager, nil },
+	), nil)
+	for _, line := range []string{"Mode: managed", "APIs: simulated", "Data: local", "Secrets: none"} {
+		if !strings.Contains(output, line+"\n") {
+			t.Fatalf("output is missing %q:\n%s", line, output)
+		}
+	}
 }
 
 func TestServeReconcileExposesStableJSONContract(t *testing.T) {
@@ -154,6 +230,7 @@ func assertServeJSONKeys(t *testing.T, output string) {
 	}
 	for _, key := range []string{
 		"schemaVersion", "operation", "mode", "serverId", "serverKey", "script", "directory", "repository", "tmuxSession", "capability", "state",
+		"apis", "data", "secrets",
 		"pid", "localPort", "localUrl", "portlessName", "publicPort", "publicUrl", "tailscaleIPv4",
 		"allowedHosts", "startedAt", "checkedAt", "lastError",
 	} {
@@ -172,6 +249,8 @@ type fakeProjectCommandManager struct {
 	startScript      string
 	allowedHosts     []string
 	localOnly        bool
+	apis             projectrun.APIsMode
+	data             projectrun.DataMode
 	reconcileCalls   int
 	statusDirectory  string
 	statusScript     string
@@ -217,6 +296,8 @@ func (manager *fakeProjectCommandManager) StartWithOptions(
 	options projectrun.StartOptions,
 ) (projectrun.ServeResult, error) {
 	manager.localOnly = options.LocalOnly
+	manager.apis = options.APIs
+	manager.data = options.Data
 	return manager.Start(ctx, directory, script, options.AllowedHosts)
 }
 

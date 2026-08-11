@@ -20,6 +20,7 @@ import {
 } from './issue-branch-model';
 import { GitBranchCreatePreview } from './git-branch-create-preview';
 import { resolveIssueDevelopmentHead } from './issue-development-head';
+import { useRuntimeBinding } from './runtime-binding-context';
 
 export function IssueBranchChip({
   branch,
@@ -49,20 +50,39 @@ export function IssuePullRequestChip({
   className?: string;
   pullRequest: GitHubPullRequestRecord;
 }) {
+  const runtime = useRuntimeBinding();
+  const classNames = cn(
+    'inline-flex min-w-0 max-w-36 items-center gap-1 rounded-full border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-200',
+    runtime.apis === 'external' && pullRequest.url
+      ? 'transition hover:border-violet-400/40 hover:text-violet-100'
+      : '',
+    className
+  );
+  const content = (
+    <>
+      <GitPullRequest className="size-3 shrink-0 text-violet-300/80" />
+      <span className="shrink-0 font-mono">#{pullRequest.number}</span>
+      <span className="min-w-0 truncate">{pullRequest.state}</span>
+    </>
+  );
+
+  if (runtime.apis !== 'external' || !pullRequest.url) {
+    return (
+      <span title={pullRequest.title} className={classNames}>
+        {content}
+      </span>
+    );
+  }
+
   return (
     <a
       href={pullRequest.url}
       target="_blank"
       rel="noreferrer"
       title={pullRequest.title}
-      className={cn(
-        'inline-flex min-w-0 max-w-36 items-center gap-1 rounded-full border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-200 transition hover:border-violet-400/40 hover:text-violet-100',
-        className
-      )}
+      className={classNames}
     >
-      <GitPullRequest className="size-3 shrink-0 text-violet-300/80" />
-      <span className="shrink-0 font-mono">#{pullRequest.number}</span>
-      <span className="min-w-0 truncate">{pullRequest.state}</span>
+      {content}
     </a>
   );
 }

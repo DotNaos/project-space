@@ -18,6 +18,7 @@ import type { SettingsSection } from '../hooks/project-desktop-routing';
 import type { RailAccount } from './account-menu';
 import { MachinesPage } from './machines-page';
 import { releasedChangelogHref } from '@/features/pr-preview-changelog/changelog-links';
+import { useRuntimeBinding } from './runtime-binding-context';
 
 function SettingsSectionBlock({
   children,
@@ -76,6 +77,7 @@ export function SettingsView({
   onRefreshGitHubCatalog,
   section = 'machines'
 }: SettingsViewProps) {
+  const runtime = useRuntimeBinding();
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
   const [installCommand, setInstallCommand] = useState('');
@@ -228,6 +230,7 @@ export function SettingsView({
         installScriptHref={installScriptHref}
         installerError={installerError}
         isGeneratingInstaller={isGeneratingInstaller}
+        localSimulation={runtime.apis === 'simulated'}
         loadError={physicalMachinesError}
         onCopyInstallCommand={() => void copyInstallCommand()}
         onGenerateInstallCommand={() => void generateInstallCommand()}
@@ -263,7 +266,7 @@ export function SettingsView({
             : undefined
         }
       >
-        {githubCatalog.status === 'connected' ? (
+        {githubCatalog.status === 'connected' || runtime.apis === 'simulated' ? (
           <Button
             size="sm"
             variant="secondary"

@@ -22,8 +22,10 @@ import { routeForView } from '../hooks/use-project-desktop';
 import type { RailAccount } from './account-menu';
 import { ProjectMainPanel } from './project-main-panel';
 import { ProjectWorkspaceSidebar } from './project-workspace-sidebar';
+import { LocalSimulationIndicator } from './local-simulation-indicator';
 import { shouldShowProjectSpaceSessionGate } from './project-desktop-session-gate';
 import { projectShellLayout } from './project-shell-layout';
+import { RuntimeBindingProvider } from './runtime-binding-context';
 
 const COMPACT_VIEWPORT_WIDTH = 760;
 
@@ -174,7 +176,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
     !desktop.project &&
     (!desktop.githubCatalog.checkedAt || desktop.isGitHubRefreshing);
 
-  if (!desktop.hasLoaded || isResolvingProject) {
+  if (!desktop.hasLoaded) {
     return (
       <div className="flex h-full items-center justify-center bg-app-panel text-neutral-100">
         <div className="flex items-center gap-3 text-sm text-neutral-400">
@@ -188,7 +190,33 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
     );
   }
 
+  if (!desktop.appMeta.runtime) {
+    return (
+      <div className="flex h-full items-center justify-center bg-app-panel px-6 text-neutral-100">
+        <div className="max-w-sm text-center">
+          <TriangleAlert className="mx-auto size-5 text-amber-300" />
+          <p className="mt-3 text-sm font-medium">Runtime evidence unavailable</p>
+          <p className="mt-1 text-xs leading-5 text-neutral-500">
+            Project Space stopped before choosing a backend so local and external data cannot mix.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isResolvingProject) {
+    return (
+      <div className="flex h-full items-center justify-center bg-app-panel text-neutral-100">
+        <div className="flex items-center gap-3 text-sm text-neutral-400">
+          <span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-neutral-700 border-t-neutral-200" />
+          Opening Project Space…
+        </div>
+      </div>
+    );
+  }
+
   return (
+    <RuntimeBindingProvider runtime={desktop.appMeta.runtime}>
     <div className="relative h-full overflow-hidden bg-app-canvas text-neutral-100">
       <div
         className="grid h-full"
@@ -238,6 +266,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             release={releaseChangelog.currentRelease}
             releaseCardVisible={releaseChangelog.isCardVisible}
             releaseVersion={releaseChangelog.currentVersion}
+            runtime={!isCompact ? desktop.appMeta.runtime : undefined}
             settingsSection={desktop.settingsSection}
           />
         </aside>
@@ -261,13 +290,16 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             >
               <PanelLeft className="size-4" />
             </Button>
-            <button
-              type="button"
-              onClick={() => setIsProjectSidebarOpen(true)}
-              className="max-w-[60%] truncate text-sm font-medium text-neutral-200"
-            >
-              {compactTitle}
-            </button>
+            <div className="flex max-w-[60%] min-w-0 flex-col items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setIsProjectSidebarOpen(true)}
+                className="max-w-full truncate text-sm font-medium text-neutral-200"
+              >
+                {compactTitle}
+              </button>
+              <LocalSimulationIndicator runtime={desktop.appMeta.runtime} />
+            </div>
             {desktop.project ? (
               <Button
                 aria-label="New task"
@@ -362,6 +394,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
         selectedVersion={releaseChangelog.selectedVersion}
       />
     </div>
+    </RuntimeBindingProvider>
   );
 }
 
