@@ -52,7 +52,7 @@ describe('managed development server entrypoint', () => {
 
   test('docs development config enforces the same managed marker', async () => {
     const nextConfig = await readFile(resolve(root, 'apps/docs/next.config.mjs'), 'utf8');
-    expect(nextConfig).toContain("process.env.NODE_ENV === 'development'");
+    expect(nextConfig).toContain('phase === PHASE_DEVELOPMENT_SERVER');
     expect(nextConfig).toContain("process.env.PROJECT_SPACE_MANAGED_SERVE !== '1'");
     expect(nextConfig).toContain('managed by the Project CLI');
   });
