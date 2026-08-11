@@ -6,6 +6,7 @@ import {
   readAuthSessionFromRequest,
   runWithAuthSession
 } from '../local-auth-store';
+import { getPrivateNetworkStore } from '../local-database-store';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { createComputeInventoryCliHttpApi } from './http';
 import { buildProjectCliComputeInventory } from './service';
@@ -25,13 +26,21 @@ export function createConfiguredComputeInventoryCliHandler(options: {
     }
   });
   return createComputeInventoryCliHttpApi({
-    async list(actor) {
+    async list(actor, schemaVersion) {
       return runWithAuthSession(machineSession(actor.userId), async () => {
         const loaded = await loadConfiguredComputeInventory({
           backend: options.backend,
           userId: actor.userId
         });
-        return buildProjectCliComputeInventory(loaded);
+        const privateNetworkStore = await getPrivateNetworkStore();
+        const privateNetworkInventory = privateNetworkStore
+          ? await privateNetworkStore.list(actor.userId)
+          : { networks: [], routes: [] };
+        return buildProjectCliComputeInventory({
+          ...loaded,
+          privateNetworkInventory,
+          schemaVersion
+        });
       });
     }
   }, resolveActor);

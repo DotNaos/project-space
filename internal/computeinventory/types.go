@@ -2,7 +2,9 @@ package computeinventory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 )
 
@@ -62,6 +64,7 @@ type HostCapabilities struct {
 }
 
 type Host struct {
+	AccessRoutes []AccessRoute    `json:"accessRoutes,omitempty"`
 	Alias        string           `json:"alias"`
 	Capabilities HostCapabilities `json:"capabilities"`
 	ID           string           `json:"id"`
@@ -71,11 +74,54 @@ type Host struct {
 }
 
 type AccessRoute struct {
-	Available       bool     `json:"available"`
+	Available       *bool    `json:"available,omitempty"`
 	Capabilities    []string `json:"capabilities"`
 	ConnectorStatus string   `json:"connectorStatus"`
+	ID              string   `json:"id,omitempty"`
 	LastSeen        string   `json:"lastSeen,omitempty"`
+	LastVerifiedAt  string   `json:"lastVerifiedAt,omitempty"`
+	Priority        int      `json:"priority,omitempty"`
+	ProviderKind    string   `json:"providerKind,omitempty"`
+	State           string   `json:"state,omitempty"`
 	Type            string   `json:"type"`
+}
+
+func (route AccessRoute) MarshalJSON() ([]byte, error) {
+	if route.Type == "connector" {
+		available := false
+		if route.Available != nil {
+			available = *route.Available
+		}
+		return json.Marshal(struct {
+			Available       bool     `json:"available"`
+			Capabilities    []string `json:"capabilities"`
+			ConnectorStatus string   `json:"connectorStatus"`
+			LastSeen        string   `json:"lastSeen,omitempty"`
+			Type            string   `json:"type"`
+		}{available, route.Capabilities, route.ConnectorStatus, route.LastSeen, route.Type})
+	}
+	if !oneOf(route.Type, "ssh_private_network", "provider_native", "host_console", "hostd") {
+		return nil, fmt.Errorf("cannot encode unknown access route type %q", route.Type)
+	}
+	return json.Marshal(struct {
+		Capabilities   []string `json:"capabilities"`
+		ID             string   `json:"id"`
+		LastVerifiedAt string   `json:"lastVerifiedAt,omitempty"`
+		Priority       int      `json:"priority"`
+		ProviderKind   string   `json:"providerKind,omitempty"`
+		State          string   `json:"state"`
+		Type           string   `json:"type"`
+	}{route.Capabilities, route.ID, route.LastVerifiedAt, route.Priority,
+		route.ProviderKind, route.State, route.Type})
+}
+
+type PrivateNetwork struct {
+	ApprovalState  string `json:"approvalState"`
+	ID             string `json:"id"`
+	LastVerifiedAt string `json:"lastVerifiedAt,omitempty"`
+	Name           string `json:"name"`
+	ProviderKind   string `json:"providerKind"`
+	State          string `json:"state"`
 }
 
 type WorkspaceSummary struct {
@@ -125,8 +171,29 @@ type Inventory struct {
 	Hosts                []Host                  `json:"hosts"`
 	InventoryState       string                  `json:"inventoryState"`
 	Platforms            []Platform              `json:"platforms"`
+	PrivateNetworks      []PrivateNetwork        `json:"privateNetworks,omitempty"`
 	SchemaVersion        int                     `json:"schemaVersion"`
 	Violations           []Violation             `json:"violations"`
+}
+
+func (inventory Inventory) MarshalJSON() ([]byte, error) {
+	type wireInventory Inventory
+	encoded, err := json.Marshal(wireInventory(inventory))
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	if inventory.SchemaVersion == 1 {
+		delete(fields, "privateNetworks")
+	} else if inventory.SchemaVersion == 2 {
+		if _, exists := fields["privateNetworks"]; !exists {
+			fields["privateNetworks"] = json.RawMessage(`[]`)
+		}
+	}
+	return json.Marshal(fields)
 }
 
 type API interface {

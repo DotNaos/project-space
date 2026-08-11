@@ -27,6 +27,7 @@ import type {
   UpsertProjectRunSettingsInput
 } from './database/models';
 import { ProjectSpaceDatabaseRepository } from './database/repository';
+import { PostgresPrivateNetworkStore, type PrivateNetworkStore } from './private-network/store';
 
 export type {
   AuthenticateConnectorCredentialInput,
@@ -78,6 +79,7 @@ let projectChatRepository: PostgresProjectChatRepository | null = null;
 let connectorMachineSnapshotStore: ConnectorMachineSnapshotStore | null = null;
 let connectorRuntimeOperationStore: PostgresConnectorRuntimeOperationStore | null = null;
 let roadmapPlanStore: RoadmapPlanStore | null = null;
+let privateNetworkStore: PrivateNetworkStore | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -257,6 +259,14 @@ export async function getRoadmapPlanStore() {
   await ensureDatabaseSchema();
   roadmapPlanStore ??= new PostgresRoadmapPlanStore(createPoolQueryClient(databasePool));
   return roadmapPlanStore;
+}
+
+export async function getPrivateNetworkStore() {
+  const databasePool = getPool();
+  if (!databasePool) return null;
+  await ensureDatabaseSchema();
+  privateNetworkStore ??= new PostgresPrivateNetworkStore(createPoolQueryClient(databasePool));
+  return privateNetworkStore;
 }
 
 export async function getConnectorMachineSnapshotStore() {

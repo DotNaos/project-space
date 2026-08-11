@@ -19,6 +19,10 @@ import {
   environmentCatalogMigrationId,
   environmentCatalogMigrationSql
 } from '../server/database/environment-catalog-migration';
+import {
+  privateNetworkAccessRoutesMigrationId,
+  privateNetworkAccessRoutesMigrationSql
+} from '../server/database/private-network-access-routes-migration';
 
 interface QueryCall {
   sql: string;
@@ -94,6 +98,26 @@ describe('database migrations', () => {
     ).toHaveLength(2);
   });
 
+  test('keeps private-network routes owner-scoped, typed, and private-only', () => {
+    expect(privateNetworkAccessRoutesMigrationId).toBe('0040_private_network_access_routes');
+    expect(privateNetworkAccessRoutesMigrationSql).toContain('create table private_networks');
+    expect(privateNetworkAccessRoutesMigrationSql).toContain('create table access_routes');
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      'foreign key (private_network_id, owner_user_id, provider_kind)'
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      'foreign key (environment_id, owner_user_id)'
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      'check ((environment_id is null) <> (host_id is null))'
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      "route_kind <> 'ssh_private_network'"
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain("private_address ~ '^100\\.(");
+    expect(privateNetworkAccessRoutesMigrationSql).toContain("credential_reference ~ '^op://");
+  });
+
   test('preserves the original machine-task migration and backfills durability conservatively', () => {
     expect(migrationChecksum({
       id: codexMachineTasksMigrationId,
@@ -146,7 +170,8 @@ describe('database migrations', () => {
       '0036_workspace_commands',
       '0037_task_delivery',
       '0038_dev_server_managed_states',
-      '0039_environment_catalog'
+      '0039_environment_catalog',
+      '0040_private_network_access_routes'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

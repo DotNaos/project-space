@@ -80,7 +80,7 @@ func writeInstances(output io.Writer, instances []computeinventory.EnvironmentIn
 
 func accessLabel(routes []computeinventory.AccessRoute) string {
 	for _, route := range routes {
-		if route.Available {
+		if (route.Available != nil && *route.Available) || route.State == "ready" {
 			return "available"
 		}
 	}

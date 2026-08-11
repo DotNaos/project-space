@@ -16,7 +16,8 @@ func TestClientLoadsAuthenticatedInventoryAndSortsIt(t *testing.T) {
 			t.Fatalf("request = %s %s", request.Method, request.URL.String())
 		}
 		if request.Header.Get("Authorization") != "Bearer machine-token" ||
-			request.Header.Get("X-Project-Machine-ID") != "machine-one" {
+			request.Header.Get("X-Project-Machine-ID") != "machine-one" ||
+			request.Header.Get("Accept") != inventoryV2MediaType {
 			t.Fatalf("headers = %#v", request.Header)
 		}
 		_ = json.NewEncoder(response).Encode(testInventory())
@@ -34,12 +35,56 @@ func TestClientLoadsAuthenticatedInventoryAndSortsIt(t *testing.T) {
 	}
 }
 
+func TestClientAcceptsSafeVersionTwoRoutes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(response).Encode(testInventoryV2())
+	}))
+	defer server.Close()
+	inventory, err := testClient(t, server.URL).List(context.Background())
+	if err != nil {
+		t.Fatalf("list v2: %v", err)
+	}
+	readyRoutes := 0
+	for _, instance := range inventory.EnvironmentInstances {
+		for _, route := range instance.AccessRoutes {
+			if route.State == "ready" {
+				readyRoutes++
+			}
+		}
+	}
+	if inventory.SchemaVersion != 2 || len(inventory.PrivateNetworks) != 1 || readyRoutes != 1 {
+		t.Fatalf("inventory = %#v", inventory)
+	}
+}
+
+func TestInventoryJSONPreservesVersionedRouteShape(t *testing.T) {
+	v1, err := json.Marshal(testInventory())
+	if err != nil {
+		t.Fatalf("marshal v1: %v", err)
+	}
+	if strings.Contains(string(v1), "privateNetworks") {
+		t.Fatalf("v1 contains v2 field: %s", v1)
+	}
+	v2 := testInventoryV2()
+	v2.PrivateNetworks = []PrivateNetwork{}
+	v2.EnvironmentInstances[0].AccessRoutes[0].Priority = 0
+	encoded, err := json.Marshal(v2)
+	if err != nil {
+		t.Fatalf("marshal v2: %v", err)
+	}
+	text := string(encoded)
+	if !strings.Contains(text, `"privateNetworks":[]`) || !strings.Contains(text, `"priority":0`) ||
+		strings.Contains(text, `"connectorStatus":""`) {
+		t.Fatalf("invalid v2 shape: %s", text)
+	}
+}
+
 func TestClientRejectsMalformedUnknownOversizedAndWrongVersionResponses(t *testing.T) {
 	handlers := []http.HandlerFunc{
 		func(response http.ResponseWriter, _ *http.Request) { _, _ = response.Write([]byte("{")) },
 		func(response http.ResponseWriter, _ *http.Request) {
 			inventory := testInventory()
-			inventory.SchemaVersion = 2
+			inventory.SchemaVersion = 3
 			_ = json.NewEncoder(response).Encode(inventory)
 		},
 		func(response http.ResponseWriter, _ *http.Request) {
@@ -49,6 +94,9 @@ func TestClientRejectsMalformedUnknownOversizedAndWrongVersionResponses(t *testi
 		},
 		func(response http.ResponseWriter, _ *http.Request) {
 			_, _ = response.Write([]byte(`{"schemaVersion":1,"unknown":true}`))
+		},
+		func(response http.ResponseWriter, _ *http.Request) {
+			_, _ = response.Write([]byte(`{"schemaVersion":2,"privateNetworks":[],"environmentInstances":[{"accessRoutes":[{"type":"ssh_private_network","privateAddress":"100.64.0.10"}]}]}`))
 		},
 		func(response http.ResponseWriter, _ *http.Request) {
 			_, _ = response.Write([]byte(`{"padding":"` + strings.Repeat("x", int(maximumResponseBytes)) + `"}`))
@@ -173,4 +221,19 @@ func testInventory() Inventory {
 		SchemaVersion: 1,
 		Violations:    []Violation{},
 	}
+}
+
+func testInventoryV2() Inventory {
+	inventory := testInventory()
+	inventory.SchemaVersion = 2
+	inventory.PrivateNetworks = []PrivateNetwork{{
+		ApprovalState: "approved", ID: "network-one", LastVerifiedAt: "2026-08-11T10:00:00Z",
+		Name: "Private tailnet", ProviderKind: "tailscale", State: "available",
+	}}
+	inventory.EnvironmentInstances[0].AccessRoutes = []AccessRoute{{
+		Capabilities: []string{"project_cli"}, ID: "route-one",
+		LastVerifiedAt: "2026-08-11T10:00:00Z", Priority: 100,
+		ProviderKind: "tailscale", State: "ready", Type: "ssh_private_network",
+	}}
+	return inventory
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { computeInventoryFromConnectors } from '../server/compute-inventory';
 import { createConfiguredComputeInventoryCliHandler } from '../server/compute-inventory-cli/configured-runtime';
 import {
+  computeInventoryV2MediaType,
   createComputeInventoryCliHttpApi,
   type ComputeInventoryCliHttpService
 } from '../server/compute-inventory-cli/http';
@@ -137,11 +138,7 @@ describe('agent-safe compute inventory', () => {
     expect(codespace?.reference.split('/')[1]).toBe('provider');
     const wsl = first.environmentInstances.find(({ kind }) => kind === 'wsl');
     expect(wsl?.parentEnvironmentInstanceId).toBeTruthy();
-    expect(first.hosts[0]?.capabilities).toEqual({
-      console: ['jetkvm'],
-      power: ['wake-on-lan'],
-      state: 'available'
-    });
+    expect(first.hosts[0]?.capabilities).toEqual({ console: [], power: [], state: 'unknown' });
   });
 
   test('never emits connector paths, network coordinates, models, or raw identity evidence', () => {
@@ -163,7 +160,7 @@ describe('agent-safe compute inventory', () => {
     }]);
   });
 
-  test('marks offline-only advertised capabilities unavailable', () => {
+  test('does not infer Host or hostd evidence from connector advertisements', () => {
     const offline = connector('offline-connector', 'Offline', metadata({
       environmentIdentity: { key: 'offline-environment', version: 1 },
       environmentKind: 'native_linux',
@@ -176,9 +173,97 @@ describe('agent-safe compute inventory', () => {
       connectors: [offline],
       snapshot: computeInventoryFromConnectors({ connectors: [offline] })
     });
-    expect(inventory.hosts[0]?.capabilities.state).toBe('unavailable');
-    expect(inventory.environmentInstances[0]?.hostd.state).toBe('unavailable');
+    expect(inventory.hosts[0]?.capabilities).toEqual({ console: [], power: [], state: 'unknown' });
+    expect(inventory.environmentInstances[0]?.hostd.state).toBe('unknown');
     expect(inventory.environmentInstances[0]?.accessRoutes[0]?.available).toBe(false);
+  });
+
+  test('projects safe v2 private-network routes without secret or provider coordinates', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const environment = snapshot.environments.find(({ kind }) => kind === 'native_windows')!;
+    const networkId = '10000000-0000-4000-8000-000000000001';
+    const inventory = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z',
+      connectors,
+      privateNetworkInventory: {
+        networks: [{
+          approvalState: 'approved', availability: 'available',
+          credentialReference: 'op://Personal/Tailscale/token', enabled: true,
+          id: networkId, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
+          name: 'Private tailnet', ownerUserId: 'owner-one', providerKind: 'tailscale',
+          providerReference: 'raw-provider-node-id', verifiedUntil: '2026-08-11T10:05:00.000Z'
+        }],
+        routes: [{
+          allowedGatewayIds: ['private-gateway-id'], availability: 'available',
+          capabilities: ['project_cli'], credentialReference: 'op://Personal/SSH/private key',
+          enabled: true, freshnessSeconds: 60, hostKeySha256: `SHA256:${'A'.repeat(43)}`,
+          id: '20000000-0000-4000-8000-000000000001',
+          lastVerifiedAt: '2026-08-11T10:00:30.000Z', ownerUserId: 'owner-one',
+          policyState: 'approved', priority: 100, privateAddress: '100.64.0.10',
+          privateNetworkId: networkId, providerKind: 'tailscale',
+          requiresInteractiveApproval: false, routeKind: 'ssh_private_network',
+          sshPort: 22, sshUser: 'private-user', target: { id: environment.id, kind: 'environment' },
+          targetIdentityRevision: `${environment.identity.version}:${environment.identity.key}`,
+          verifiedUntil: '2026-08-11T10:05:00.000Z'
+        }]
+      },
+      schemaVersion: 2,
+      snapshot
+    });
+    expect(inventory.schemaVersion).toBe(2);
+    if (inventory.schemaVersion !== 2) throw new Error('Expected v2 inventory.');
+    expect(inventory.privateNetworks).toEqual([{
+      approvalState: 'approved', id: networkId,
+      lastVerifiedAt: '2026-08-11T10:00:30.000Z', name: 'Private tailnet',
+      providerKind: 'tailscale', state: 'available'
+    }]);
+    expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.accessRoutes)
+      .toContainEqual({
+        capabilities: ['project_cli'], id: '20000000-0000-4000-8000-000000000001',
+        lastVerifiedAt: '2026-08-11T10:00:30.000Z', priority: 100,
+        providerKind: 'tailscale', state: 'ready', type: 'ssh_private_network'
+      });
+    const serialized = JSON.stringify(inventory);
+    for (const forbidden of [
+      '100.64.0.10', 'private-user', 'SHA256:', 'op://', 'private-gateway-id',
+      'raw-provider-node-id', environment.identity.key
+    ]) expect(serialized).not.toContain(forbidden);
+  });
+
+  test('derives v2 Host and hostd summaries only from typed verified routes', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const host = snapshot.hosts[0]!;
+    const environment = snapshot.environments.find(({ hostAssociation }) =>
+      'hostId' in hostAssociation && hostAssociation.hostId === host.id
+    )!;
+    const common = {
+      allowedGatewayIds: ['gateway-one'], availability: 'available' as const,
+      enabled: true, freshnessSeconds: 60, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
+      ownerUserId: 'owner-one', policyState: 'approved' as const, priority: 100,
+      verifiedUntil: '2026-08-11T10:05:00.000Z'
+    };
+    const inventory = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors,
+      privateNetworkInventory: { networks: [], routes: [{
+        ...common, capabilities: ['host_console', 'host_power'],
+        id: '20000000-0000-4000-8000-000000000010', requiresInteractiveApproval: true,
+        routeKind: 'host_console', target: { id: host.id, kind: 'host' },
+        targetIdentityRevision: `${host.identity.version}:${host.identity.key}`
+      }, {
+        ...common, capabilities: ['hostd_telemetry'],
+        id: '20000000-0000-4000-8000-000000000011', requiresInteractiveApproval: false,
+        routeKind: 'hostd', target: { id: environment.id, kind: 'environment' },
+        targetIdentityRevision: `${environment.identity.version}:${environment.identity.key}`
+      }] },
+      schemaVersion: 2, snapshot
+    });
+    expect(inventory.hosts.find(({ id }) => id === host.id)?.capabilities).toEqual({
+      console: ['access-route'], power: ['access-route'], state: 'available'
+    });
+    expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.hostd)
+      .toEqual({ state: 'available' });
   });
 
   test('promotes a child-created parent with the actual parent Host and stays order-independent', () => {
@@ -245,12 +330,15 @@ async function start(handler: ReturnType<typeof createComputeInventoryCliHttpApi
 describe('compute inventory CLI HTTP boundary', () => {
   test('is private, read-only, and rejects unsupported requests before dispatch', async () => {
     let calls = 0;
+    const versions: number[] = [];
     const service: ComputeInventoryCliHttpService = {
-      async list() {
+      async list(_actor, schemaVersion) {
         calls += 1;
+        versions.push(schemaVersion);
         const connectors = representativeConnectors();
         return buildProjectCliComputeInventory({
           checkedAt: '2026-08-11T10:01:00.000Z', connectors,
+          schemaVersion,
           snapshot: computeInventoryFromConnectors({ connectors })
         });
       }
@@ -264,6 +352,19 @@ describe('compute inventory CLI HTTP boundary', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(calls).toBe(1);
 
+    const v2 = await fetch(`${origin}/api/compute/inventory`, {
+      headers: { Accept: computeInventoryV2MediaType }
+    });
+    expect(v2.status).toBe(200);
+    expect((await v2.json()).schemaVersion).toBe(2);
+    expect(versions).toEqual([1, 2]);
+    expect(calls).toBe(2);
+
+    const unsupported = await fetch(`${origin}/api/compute/inventory`, {
+      headers: { Accept: 'application/vnd.project-space.compute-inventory+json; version=99' }
+    });
+    expect(unsupported.status).toBe(406);
+
     for (const [path, method] of [
       ['/api/compute/inventory?fresh=true', 'GET'],
       ['/api/compute/inventory', 'POST']
@@ -272,7 +373,7 @@ describe('compute inventory CLI HTTP boundary', () => {
       expect(rejected.status).toBe(400);
       expect(await rejected.json()).toMatchObject({ error: { code: 'invalid_request' } });
     }
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
   });
 
   test('binds machine credentials to their owner and rejects a different credential', async () => {

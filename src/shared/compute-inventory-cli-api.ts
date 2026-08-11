@@ -9,7 +9,11 @@ import type {
   ResourceSource
 } from './compute-environment-api';
 
-export const projectCliInventorySchemaVersion = 1;
+export const projectCliInventoryLegacySchemaVersion = 1;
+export const projectCliInventorySchemaVersion = 2;
+export type ProjectCliInventorySchemaVersion =
+  | typeof projectCliInventoryLegacySchemaVersion
+  | typeof projectCliInventorySchemaVersion;
 
 export interface ProjectCliInventoryResourceSummary {
   architecture: string;
@@ -50,6 +54,7 @@ export interface ProjectCliHostCapabilities {
 }
 
 export interface ProjectCliHost {
+  accessRoutes?: ProjectCliAccessRoute[];
   alias: string;
   capabilities: ProjectCliHostCapabilities;
   id: string;
@@ -58,12 +63,35 @@ export interface ProjectCliHost {
   resources?: ProjectCliInventoryResourceSummary;
 }
 
-export interface ProjectCliAccessRoute {
+export interface ProjectCliConnectorAccessRoute {
   available: boolean;
   capabilities: string[];
   connectorStatus: 'local' | 'online' | 'offline' | 'not-installed';
   lastSeen?: string;
   type: 'connector';
+}
+
+export interface ProjectCliControlledAccessRoute {
+  capabilities: string[];
+  id: string;
+  lastVerifiedAt?: string;
+  priority: number;
+  providerKind?: 'tailscale' | 'wireguard' | 'other';
+  state: 'ready' | 'unavailable' | 'unverified' | 'stale' | 'policy_blocked';
+  type: 'ssh_private_network' | 'provider_native' | 'host_console' | 'hostd';
+}
+
+export type ProjectCliAccessRoute =
+  | ProjectCliConnectorAccessRoute
+  | ProjectCliControlledAccessRoute;
+
+export interface ProjectCliPrivateNetwork {
+  approvalState: 'approved' | 'pending' | 'revoked';
+  id: string;
+  lastVerifiedAt?: string;
+  name: string;
+  providerKind: 'tailscale' | 'wireguard' | 'other';
+  state: 'available' | 'unavailable' | 'unknown';
 }
 
 export interface ProjectCliWorkspaceSummary {
@@ -102,13 +130,25 @@ export interface ProjectCliInventoryViolation {
   message: string;
 }
 
-export interface ProjectCliComputeInventory {
+interface ProjectCliComputeInventoryBase {
   checkedAt: string;
   environmentCatalog: ProjectCliEnvironmentDefinition[];
   environmentInstances: ProjectCliEnvironmentInstance[];
   hosts: ProjectCliHost[];
   inventoryState: 'conflict' | 'ready';
   platforms: ProjectCliPlatform[];
-  schemaVersion: typeof projectCliInventorySchemaVersion;
   violations: ProjectCliInventoryViolation[];
 }
+
+export interface ProjectCliComputeInventoryV1 extends ProjectCliComputeInventoryBase {
+  schemaVersion: typeof projectCliInventoryLegacySchemaVersion;
+}
+
+export interface ProjectCliComputeInventoryV2 extends ProjectCliComputeInventoryBase {
+  privateNetworks: ProjectCliPrivateNetwork[];
+  schemaVersion: typeof projectCliInventorySchemaVersion;
+}
+
+export type ProjectCliComputeInventory =
+  | ProjectCliComputeInventoryV1
+  | ProjectCliComputeInventoryV2;

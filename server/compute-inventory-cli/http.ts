@@ -1,10 +1,19 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { ProjectCliComputeInventory } from '../../src/shared/compute-inventory-cli-api';
+import type {
+  ProjectCliComputeInventory,
+  ProjectCliInventorySchemaVersion
+} from '../../src/shared/compute-inventory-cli-api';
+import {
+  projectCliInventoryLegacySchemaVersion,
+  projectCliInventorySchemaVersion
+} from '../../src/shared/compute-inventory-cli-api';
 import { CodexMachineTasksAuthError } from '../codex-machine-tasks/auth-context';
 import { writeJson } from '../project-space-http-response';
 
 const inventoryRoute = '/api/compute/inventory';
+export const computeInventoryV2MediaType =
+  'application/vnd.project-space.compute-inventory+json; version=2';
 
 export interface ComputeInventoryCliActor {
   callerMachineId?: string;
@@ -12,7 +21,10 @@ export interface ComputeInventoryCliActor {
 }
 
 export interface ComputeInventoryCliHttpService {
-  list(actor: ComputeInventoryCliActor): Promise<ProjectCliComputeInventory>;
+  list(
+    actor: ComputeInventoryCliActor,
+    schemaVersion: ProjectCliInventorySchemaVersion
+  ): Promise<ProjectCliComputeInventory>;
 }
 
 export function createComputeInventoryCliHttpApi(
@@ -36,7 +48,17 @@ export function createComputeInventoryCliHttpApi(
         });
         return true;
       }
-      writeJson(response, 200, await service.list(await resolveActor(request)));
+      const schemaVersion = requestedSchemaVersion(request.headers.accept);
+      if (!schemaVersion) {
+        writeJson(response, 406, {
+          error: {
+            code: 'unsupported_inventory_version',
+            message: 'The requested compute inventory representation is not supported.'
+          }
+        });
+        return true;
+      }
+      writeJson(response, 200, await service.list(await resolveActor(request), schemaVersion));
     } catch (error) {
       if (error instanceof CodexMachineTasksAuthError) {
         writeJson(response, error.statusCode, {
@@ -56,4 +78,15 @@ export function createComputeInventoryCliHttpApi(
     }
     return true;
   };
+}
+
+function requestedSchemaVersion(accept: string | undefined): ProjectCliInventorySchemaVersion | null {
+  if (!accept || accept.split(',').some((value) => {
+    const mediaType = value.split(';', 1)[0]?.trim().toLowerCase();
+    return mediaType === '*/*' || mediaType === 'application/json';
+  })) return projectCliInventoryLegacySchemaVersion;
+  if (accept.split(',').some((value) => value.trim().toLowerCase() === computeInventoryV2MediaType)) {
+    return projectCliInventorySchemaVersion;
+  }
+  return null;
 }

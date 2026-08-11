@@ -7,21 +7,36 @@ import type {
   ProjectCliAccessRoute,
   ProjectCliComputeInventory,
   ProjectCliEnvironmentInstance,
-  ProjectCliHostCapabilities,
   ProjectCliInventoryResourceSummary
 } from '../../src/shared/compute-inventory-cli-api';
-import { projectCliInventorySchemaVersion } from '../../src/shared/compute-inventory-cli-api';
+import {
+  projectCliInventoryLegacySchemaVersion,
+  projectCliInventorySchemaVersion,
+  type ProjectCliInventorySchemaVersion
+} from '../../src/shared/compute-inventory-cli-api';
 import type { MachineRecord } from '../../src/shared/project-space-api';
+import type {
+  AccessRouteRecord,
+  PrivateNetworkInventory,
+  PrivateNetworkRecord
+} from '../private-network/contracts';
+import { targetIdentityRevision } from '../private-network/contracts';
+import { routeEvidenceState } from '../private-network/route-resolver';
 
 interface BuildProjectCliInventoryInput {
   checkedAt: string;
   connectors: readonly MachineRecord[];
+  privateNetworkInventory?: PrivateNetworkInventory;
+  schemaVersion?: ProjectCliInventorySchemaVersion;
   snapshot: ComputeInventorySnapshot;
 }
 
 export function buildProjectCliComputeInventory(
   input: BuildProjectCliInventoryInput
 ): ProjectCliComputeInventory {
+  const schemaVersion = input.schemaVersion ?? projectCliInventoryLegacySchemaVersion;
+  const privateNetworkInventory = input.privateNetworkInventory ?? { networks: [], routes: [] };
+  const networksById = new Map(privateNetworkInventory.networks.map((network) => [network.id, network]));
   const connectorsById = new Map(input.connectors.map((connector) => [connector.id, connector]));
   const routesByEnvironment = new Map<string, ProjectCliAccessRoute[]>();
   for (const association of input.snapshot.connectors) {
@@ -32,6 +47,9 @@ export function buildProjectCliComputeInventory(
     routesByEnvironment.set(association.environmentId, routes);
   }
 
+  const controlledRoutesByEnvironment = routesByTarget(privateNetworkInventory.routes, 'environment');
+  const controlledRoutesByHost = routesByTarget(privateNetworkInventory.routes, 'host');
+
   const platforms = input.snapshot.platforms.map((platform) => ({
     alias: selectorAlias(platform.name),
     id: platform.id,
@@ -39,17 +57,43 @@ export function buildProjectCliComputeInventory(
     name: platform.name
   })).sort(byNameThenId);
 
-  const hosts = input.snapshot.hosts.map((host) => ({
-    alias: selectorAlias(host.name),
-    capabilities: hostCapabilities(host.id, input.snapshot.environments, routesByEnvironment),
-    id: host.id,
-    name: host.name,
-    platformId: host.platformId,
-    ...(host.resources ? { resources: resourceSummary(host.resources) } : {})
-  })).sort(byNameThenId);
+  const hosts = input.snapshot.hosts.map((host) => {
+    const controlledRoutes = schemaVersion === projectCliInventorySchemaVersion
+      ? projectControlledRoutes(
+          controlledRoutesByHost.get(host.id) ?? [],
+          networksById,
+          targetIdentityRevision(host.identity),
+          new Date(input.checkedAt)
+        )
+      : [];
+    return {
+      ...(schemaVersion === projectCliInventorySchemaVersion
+        ? { accessRoutes: controlledRoutes }
+        : {}),
+      alias: selectorAlias(host.name),
+      capabilities: schemaVersion === projectCliInventorySchemaVersion
+        ? hostCapabilities(controlledRoutes)
+        : { console: [], power: [], state: 'unknown' as const },
+      id: host.id,
+      name: host.name,
+      platformId: host.platformId,
+      ...(host.resources ? { resources: resourceSummary(host.resources) } : {})
+    };
+  }).sort(byNameThenId);
 
   const environmentInstances = input.snapshot.environments.map((environment) => {
-    const routes = [...(routesByEnvironment.get(environment.id) ?? [])].sort(routeOrder);
+    const controlledRoutes = schemaVersion === projectCliInventorySchemaVersion
+      ? projectControlledRoutes(
+          controlledRoutesByEnvironment.get(environment.id) ?? [],
+          networksById,
+          targetIdentityRevision(environment.identity),
+          new Date(input.checkedAt)
+        )
+      : [];
+    const routes = [
+      ...(routesByEnvironment.get(environment.id) ?? []),
+      ...controlledRoutes
+    ].sort(routeOrder);
     const hostId = associatedHostId(environment);
     const alias = selectorAlias(environment.name);
     const reference = [
@@ -63,13 +107,9 @@ export function buildProjectCliComputeInventory(
       environmentDefinitionId: environment.environmentDefinitionId,
       ...(hostId ? { hostId } : {}),
       hostResolution: environment.hostAssociation.resolution,
-      hostd: {
-        state: routes.some((route) => route.available && route.capabilities.includes('hostd'))
-          ? 'available'
-          : routes.some((route) => route.capabilities.includes('hostd'))
-            ? 'unavailable'
-            : 'unknown'
-      },
+      hostd: { state: capabilityState(controlledRoutes.filter((route) =>
+        route.type === 'hostd' && route.capabilities.includes('hostd_telemetry')
+      )) },
       id: environment.id,
       kind: environment.kind,
       name: environment.name,
@@ -86,7 +126,7 @@ export function buildProjectCliComputeInventory(
     } satisfies ProjectCliEnvironmentInstance;
   }).sort((left, right) => left.reference.localeCompare(right.reference) || left.id.localeCompare(right.id));
 
-  return {
+  const base = {
     checkedAt: input.checkedAt,
     environmentCatalog: input.snapshot.environmentDefinitions.map((definition) => ({
       ...definition,
@@ -94,13 +134,29 @@ export function buildProjectCliComputeInventory(
     })).sort((left, right) => left.slug.localeCompare(right.slug) || left.id.localeCompare(right.id)),
     environmentInstances,
     hosts,
-    inventoryState: input.snapshot.violations.length > 0 ? 'conflict' : 'ready',
+    inventoryState: input.snapshot.violations.length > 0
+      ? 'conflict' as const
+      : 'ready' as const,
     platforms,
-    schemaVersion: projectCliInventorySchemaVersion,
     violations: input.snapshot.violations.map((violation) => ({
       code: violation.code,
       message: `Compute inventory reported ${violation.code}.`
     })).sort((left, right) => left.code.localeCompare(right.code) || left.message.localeCompare(right.message))
+  };
+  if (schemaVersion === projectCliInventoryLegacySchemaVersion) {
+    return { ...base, schemaVersion };
+  }
+  return {
+    ...base,
+    privateNetworks: privateNetworkInventory.networks.map((network) => ({
+      approvalState: network.approvalState,
+      id: network.id,
+      ...(network.lastVerifiedAt ? { lastVerifiedAt: network.lastVerifiedAt } : {}),
+      name: network.name,
+      providerKind: network.providerKind,
+      state: network.enabled ? network.availability : 'unavailable' as const
+    })).sort(byNameThenId),
+    schemaVersion: projectCliInventorySchemaVersion
   };
 }
 
@@ -118,35 +174,6 @@ function connectorRoute(connector: MachineRecord): ProjectCliAccessRoute {
     ...(connector.connector.lastSeen ? { lastSeen: connector.connector.lastSeen } : {}),
     type: 'connector'
   };
-}
-
-function hostCapabilities(
-  hostId: string,
-  environments: readonly ComputeEnvironmentRecord[],
-  routesByEnvironment: ReadonlyMap<string, readonly ProjectCliAccessRoute[]>
-): ProjectCliHostCapabilities {
-  const routes = environments
-    .filter((environment) => associatedHostId(environment) === hostId)
-    .flatMap((environment) => routesByEnvironment.get(environment.id) ?? []);
-  const capabilities = routes.flatMap((route) => route.capabilities);
-  const relevantRoutes = routes.filter((route) => route.capabilities.some((capability) =>
-    capability.startsWith('console:') || capability.startsWith('power:')
-  ));
-  return {
-    console: capabilityValues(capabilities, 'console:'),
-    power: capabilityValues(capabilities, 'power:'),
-    state: relevantRoutes.some((route) => route.available)
-      ? 'available'
-      : relevantRoutes.length > 0
-        ? 'unavailable'
-        : 'unknown'
-  };
-}
-
-function capabilityValues(capabilities: readonly string[], prefix: string) {
-  return [...new Set(capabilities
-    .filter((capability) => capability.startsWith(prefix) && capability.length > prefix.length)
-    .map((capability) => capability.slice(prefix.length)))].sort();
 }
 
 function resourceSummary(resource: ResourceProfile): ProjectCliInventoryResourceSummary {
@@ -183,7 +210,68 @@ function byNameThenId(left: { id: string; name: string }, right: { id: string; n
 
 function routeOrder(left: ProjectCliAccessRoute, right: ProjectCliAccessRoute) {
   return left.type.localeCompare(right.type) ||
-    left.connectorStatus.localeCompare(right.connectorStatus) ||
-    String(left.lastSeen ?? '').localeCompare(String(right.lastSeen ?? '')) ||
+    routeState(left).localeCompare(routeState(right)) ||
     JSON.stringify(left).localeCompare(JSON.stringify(right));
+}
+
+function routeState(route: ProjectCliAccessRoute) {
+  return route.type === 'connector'
+    ? `${route.connectorStatus}:${route.lastSeen ?? ''}`
+    : `${route.state}:${String(route.priority).padStart(4, '0')}:${route.id}`;
+}
+
+function routesByTarget(routes: readonly AccessRouteRecord[], kind: 'environment' | 'host') {
+  const grouped = new Map<string, AccessRouteRecord[]>();
+  for (const route of routes) {
+    if (route.target.kind !== kind) continue;
+    const current = grouped.get(route.target.id) ?? [];
+    current.push(route);
+    grouped.set(route.target.id, current);
+  }
+  return grouped;
+}
+
+function projectControlledRoutes(
+  routes: readonly AccessRouteRecord[],
+  networksById: ReadonlyMap<string, PrivateNetworkRecord>,
+  identityRevision: string,
+  now: Date
+): ProjectCliAccessRoute[] {
+  return routes.map((route) => ({
+    capabilities: [...new Set(route.capabilities)].sort(),
+    id: route.id,
+    ...(route.lastVerifiedAt ? { lastVerifiedAt: route.lastVerifiedAt } : {}),
+    priority: route.priority,
+    ...(route.providerKind ? { providerKind: route.providerKind } : {}),
+    state: routeEvidenceState({
+      network: route.privateNetworkId ? networksById.get(route.privateNetworkId) : undefined,
+      now,
+      route,
+      targetIdentityRevision: identityRevision
+    }),
+    type: route.routeKind
+  })).sort(routeOrder);
+}
+
+function hostCapabilities(routes: readonly ProjectCliAccessRoute[]) {
+  const consoleRoutes = routes.filter((route) =>
+    route.type === 'host_console' && route.capabilities.includes('host_console')
+  );
+  const powerRoutes = routes.filter((route) =>
+    route.type === 'host_console' && route.capabilities.includes('host_power')
+  );
+  return {
+    console: consoleRoutes.length > 0 ? ['access-route'] : [],
+    power: powerRoutes.length > 0 ? ['access-route'] : [],
+    state: capabilityState([...consoleRoutes, ...powerRoutes])
+  };
+}
+
+function capabilityState(routes: readonly ProjectCliAccessRoute[]) {
+  const controlled = routes.filter((route) => route.type !== 'connector');
+  if (controlled.some((route) => route.state === 'ready')) return 'available' as const;
+  if (controlled.some((route) => route.state === 'unverified' || route.state === 'stale')) {
+    return 'unknown' as const;
+  }
+  return controlled.length > 0 ? 'unavailable' as const : 'unknown' as const;
 }

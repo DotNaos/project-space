@@ -87,6 +87,10 @@ import {
   environmentCatalogMigrationId,
   environmentCatalogMigrationSql
 } from './environment-catalog-migration';
+import {
+  privateNetworkAccessRoutesMigrationId,
+  privateNetworkAccessRoutesMigrationSql
+} from './private-network-access-routes-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -755,6 +759,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: environmentCatalogMigrationId,
     sql: environmentCatalogMigrationSql
+  },
+  {
+    id: privateNetworkAccessRoutesMigrationId,
+    sql: privateNetworkAccessRoutesMigrationSql
   }
 ];
 

@@ -13,6 +13,7 @@ import (
 )
 
 const maximumResponseBytes int64 = 4 << 20
+const inventoryV2MediaType = "application/vnd.project-space.compute-inventory+json; version=2"
 
 var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
@@ -72,7 +73,7 @@ func (client *Client) List(ctx context.Context) (Inventory, error) {
 	if err != nil || len(token) > 4096 || !tokenPattern.MatchString(token) {
 		return Inventory{}, ErrUnauthorized
 	}
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", inventoryV2MediaType)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("X-Project-Machine-ID", client.callerMachineID)
 	response, err := client.httpClient.Do(request)
@@ -126,10 +127,14 @@ func decodeBoundedJSON(reader io.Reader, destination any) error {
 }
 
 func validateInventory(inventory *Inventory) error {
-	if inventory.SchemaVersion != 1 || inventory.EnvironmentCatalog == nil ||
+	if !oneOfInt(inventory.SchemaVersion, 1, 2) || inventory.EnvironmentCatalog == nil ||
 		inventory.EnvironmentInstances == nil || inventory.Hosts == nil ||
 		inventory.Platforms == nil || inventory.Violations == nil ||
 		!oneOf(inventory.InventoryState, "ready", "conflict") {
+		return ErrInvalidResponse
+	}
+	if (inventory.SchemaVersion == 1 && inventory.PrivateNetworks != nil) ||
+		(inventory.SchemaVersion == 2 && inventory.PrivateNetworks == nil) {
 		return ErrInvalidResponse
 	}
 	if _, err := time.Parse(time.RFC3339Nano, inventory.CheckedAt); err != nil {
@@ -182,6 +187,10 @@ func validateInventory(inventory *Inventory) error {
 		if host.Resources != nil && !validResource(*host.Resources) {
 			return ErrInvalidResponse
 		}
+		if (inventory.SchemaVersion == 1 && host.AccessRoutes != nil) ||
+			!validAccessRoutes(host.AccessRoutes, inventory.SchemaVersion) {
+			return ErrInvalidResponse
+		}
 	}
 	instances := map[string]struct{}{}
 	references := map[string]struct{}{}
@@ -218,16 +227,8 @@ func validateInventory(inventory *Inventory) error {
 		if instance.Resources != nil && !validResource(*instance.Resources) {
 			return ErrInvalidResponse
 		}
-		for _, route := range instance.AccessRoutes {
-			if route.Type != "connector" || route.Capabilities == nil ||
-				!oneOf(route.ConnectorStatus, "local", "online", "offline", "not-installed") {
-				return ErrInvalidResponse
-			}
-			if route.LastSeen != "" {
-				if _, err := time.Parse(time.RFC3339Nano, route.LastSeen); err != nil {
-					return ErrInvalidResponse
-				}
-			}
+		if !validAccessRoutes(instance.AccessRoutes, inventory.SchemaVersion) {
+			return ErrInvalidResponse
 		}
 	}
 	for _, instance := range inventory.EnvironmentInstances {
@@ -237,7 +238,67 @@ func validateInventory(inventory *Inventory) error {
 			}
 		}
 	}
+	for _, network := range inventory.PrivateNetworks {
+		if !validIdentity(network.ID) || !validText(network.Name) ||
+			!oneOf(network.ProviderKind, "tailscale", "wireguard", "other") ||
+			!oneOf(network.ApprovalState, "approved", "pending", "revoked") ||
+			!oneOf(network.State, "available", "unavailable", "unknown") ||
+			!validOptionalTime(network.LastVerifiedAt) {
+			return ErrInvalidResponse
+		}
+	}
 	return nil
+}
+
+func validAccessRoutes(routes []AccessRoute, schemaVersion int) bool {
+	for _, route := range routes {
+		if route.Capabilities == nil {
+			return false
+		}
+		if route.Type == "connector" {
+			if !oneOf(route.ConnectorStatus, "local", "online", "offline", "not-installed") ||
+				route.Available == nil ||
+				route.ID != "" || route.LastVerifiedAt != "" || route.Priority != 0 ||
+				route.ProviderKind != "" || route.State != "" || !validOptionalTime(route.LastSeen) {
+				return false
+			}
+			continue
+		}
+		if schemaVersion != 2 || route.Available != nil || !validIdentity(route.ID) || route.ConnectorStatus != "" ||
+			route.LastSeen != "" || route.Priority < 0 || route.Priority > 1000 ||
+			!oneOf(route.Type, "ssh_private_network", "provider_native", "host_console", "hostd") ||
+			!oneOf(route.State, "ready", "unavailable", "unverified", "stale", "policy_blocked") ||
+			!validControlledCapabilities(route.Type, route.Capabilities) ||
+			(route.ProviderKind != "" && !oneOf(route.ProviderKind, "tailscale", "wireguard", "other")) ||
+			(route.Type == "ssh_private_network" && route.ProviderKind == "") ||
+			!validOptionalTime(route.LastVerifiedAt) {
+			return false
+		}
+	}
+	return true
+}
+
+func validControlledCapabilities(routeType string, capabilities []string) bool {
+	allowed := map[string][]string{
+		"ssh_private_network": {"project_cli", "interactive_shell"},
+		"provider_native":     {"project_cli", "interactive_shell", "provider_exec"},
+		"host_console":        {"host_console", "host_power"},
+		"hostd":               {"hostd_telemetry"},
+	}[routeType]
+	for _, capability := range capabilities {
+		if !oneOf(capability, allowed...) {
+			return false
+		}
+	}
+	return len(capabilities) > 0
+}
+
+func validOptionalTime(value string) bool {
+	if value == "" {
+		return true
+	}
+	_, err := time.Parse(time.RFC3339Nano, value)
+	return err == nil
 }
 
 func validResource(resource ResourceSummary) bool {
@@ -256,6 +317,15 @@ func validText(value string) bool {
 }
 func validReference(value string) bool { return validIdentity(value) && strings.Count(value, "/") == 2 }
 func oneOf(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func oneOfInt(value int, candidates ...int) bool {
 	for _, candidate := range candidates {
 		if value == candidate {
 			return true
@@ -283,5 +353,11 @@ func sortInventory(inventory *Inventory) {
 	})
 	sort.Slice(inventory.EnvironmentInstances, func(i, j int) bool {
 		return inventory.EnvironmentInstances[i].Reference < inventory.EnvironmentInstances[j].Reference
+	})
+	sort.Slice(inventory.PrivateNetworks, func(i, j int) bool {
+		if inventory.PrivateNetworks[i].Name == inventory.PrivateNetworks[j].Name {
+			return inventory.PrivateNetworks[i].ID < inventory.PrivateNetworks[j].ID
+		}
+		return inventory.PrivateNetworks[i].Name < inventory.PrivateNetworks[j].Name
 	})
 }
