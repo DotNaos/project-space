@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type {
+  CodexMachineTaskExistingRequest,
   CodexMachineTaskReadRequest,
   CodexMachineTaskSendRequest,
   CodexMachineTaskStartRequest
@@ -26,6 +27,7 @@ export interface CodexMachineTasksHttpService {
     physicalMachineName?: string;
     threadId: string;
   }): Promise<unknown>;
+  existing(actor: { userId: string }, request: CodexMachineTaskExistingRequest): Promise<unknown>;
   read(actor: { userId: string }, request: CodexMachineTaskReadRequest): Promise<unknown>;
   send(actor: { userId: string }, request: CodexMachineTaskSendRequest): Promise<unknown>;
   recoverStart(
@@ -61,6 +63,15 @@ export function createCodexMachineTasksHttpApi(
     response.setHeader('Cache-Control', 'private, no-store');
     try {
       const actor = await resolveActor(request);
+      if (route.kind === 'existing') {
+        const issue = Number(url.searchParams.get('issue'));
+        if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
+        const connectorId = optionalSelector(url.searchParams.get('connectorId'));
+        const repositoryId = optionalSelector(url.searchParams.get('repositoryId'));
+        if (!connectorId || !repositoryId) throw invalid('Connector and repository are required.');
+        writeJson(response, 200, await service.existing(actor, { connectorId, issue, repositoryId }));
+        return true;
+      }
       if (route.kind === 'start') {
         const body = await readBody(request);
         const operationId = operation(body.operationId);
@@ -186,11 +197,13 @@ export function createCodexMachineTasksHttpApi(
 }
 
 type Route =
+  | { kind: 'existing' }
   | { kind: 'start' }
   | { kind: 'recover-start' }
   | { kind: 'attach' | 'read' | 'send' | 'stream'; threadId: string };
 
 function routeFor(method: string | undefined, path: string): Route | undefined {
+  if (method === 'GET' && path === '/api/codex/tasks/existing') return { kind: 'existing' };
   if (method === 'POST' && path === '/api/codex/tasks/start') return { kind: 'start' };
   if (method === 'POST' && path === '/api/codex/tasks/start/recover') {
     return { kind: 'recover-start' };

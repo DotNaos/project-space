@@ -7,19 +7,26 @@ import {
   CircleAlert,
   CircleDot,
   Clock3,
+  CornerDownRight,
   FilePenLine,
+  ListPlus,
   ListChecks,
   Loader2,
   PanelRight,
   ShieldCheck,
   TerminalSquare,
+  Trash2,
   Wrench,
   X
 } from 'lucide-react';
 import { Button, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type { CodexSessionTurnSettings } from '@/shared/codex-sessions-api';
-import { codexContinueBlockReason, codexThreadOrigin } from './codex-sessions-model';
+import {
+  codexContinueBlockReason,
+  codexSteerBlockReason,
+  codexThreadOrigin
+} from './codex-sessions-model';
 import { CodexComposerTextArea } from './codex-composer-textarea';
 import { CodexMarkdownMessage } from './codex-markdown-message';
 import { CodexSessionPermissionControl } from './codex-session-permission-control';
@@ -214,6 +221,7 @@ function MessageItem({ item }: { item: Extract<CodexConversationItem, { kind: 'm
 }
 
 export function CodexConversationPane({
+  activeTurnId,
   conversation,
   historyState = 'ready',
   historyStatusDetail,
@@ -222,11 +230,13 @@ export function CodexConversationPane({
   onBack,
   onContinue,
   onPermissionChange,
+  onSteer,
   onOpenDetails,
   session,
   showHeader = true,
   supplemental
 }: {
+  activeTurnId?: string;
   conversation?: CodexConversation;
   historyState?: 'blocked' | 'loading' | 'ready';
   historyStatusDetail?: string;
@@ -242,24 +252,64 @@ export function CodexConversationPane({
     origin: CodexThreadOrigin,
     permissionProfileId: string
   ): Promise<void>;
+  onSteer?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
   onOpenDetails?(): void;
   session?: CodexSession;
   showHeader?: boolean;
   supplemental?: ReactNode;
 }) {
   const [draft, setDraft] = useState('');
+  const [queuedMessages, setQueuedMessages] = useState<Array<{
+    id: string;
+    message: string;
+    settings?: CodexSessionTurnSettings;
+  }>>([]);
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const dispatchingQueue = useRef(false);
+  const lastQueuedDispatch = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     setDraft('');
+    setQueuedMessages([]);
   }, [session?.machineId, session?.threadId]);
+
+  useEffect(() => {
+    if (session?.status === 'active') lastQueuedDispatch.current = undefined;
+  }, [session?.status]);
 
   useEffect(() => {
     if (conversation?.items.some((item) => item.kind === 'message' && item.streaming)) {
       endRef.current?.scrollIntoView({ block: 'nearest' });
     }
   }, [conversation?.items]);
+
+  useEffect(() => {
+    if (
+      !session
+      || dispatchingQueue.current
+      || session.status !== 'idle'
+      || sending
+      || !onContinue
+      || queuedMessages.length === 0
+    ) return;
+    const next = queuedMessages[0];
+    if (lastQueuedDispatch.current === next.id) return;
+    dispatchingQueue.current = true;
+    lastQueuedDispatch.current = next.id;
+    setSending(true);
+    void Promise.resolve(onContinue(codexThreadOrigin(session), next.message, next.settings))
+      .then(() => {
+        setQueuedMessages((current) => current.filter((queued) => queued.id !== next.id));
+      })
+      .catch(() => {
+        // Keep the queued message available for the next verified idle refresh.
+      })
+      .finally(() => {
+        dispatchingQueue.current = false;
+        setSending(false);
+      });
+  }, [onContinue, queuedMessages, sending, session?.machineId, session?.status, session?.threadId]);
 
   if (!session) {
     return (
@@ -275,17 +325,51 @@ export function CodexConversationPane({
     );
   }
 
-  const blockReason = codexContinueBlockReason(session, machine);
+  const activeTurn = session.status === 'active' && Boolean(activeTurnId);
+  const blockReason = activeTurn
+    ? codexSteerBlockReason(session, machine)
+    : codexContinueBlockReason(session, machine);
+  const canSubmit = activeTurn ? Boolean(onSteer) : Boolean(onContinue);
   const pendingCount = (conversation?.approvals?.length ?? 0) + (conversation?.userInputRequests?.length ?? 0);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const message = draft.trim();
-    if (!message || blockReason || !onContinue || sending) return;
+    if (!message || blockReason || !canSubmit || sending) return;
     setSending(true);
     try {
-      await onContinue(codexThreadOrigin(session!), message, modelSelection?.override);
+      if (activeTurn && onSteer) {
+        await onSteer(codexThreadOrigin(session!), message);
+      } else if (onContinue) {
+        await onContinue(codexThreadOrigin(session!), message, modelSelection?.override);
+      }
       setDraft('');
+    } catch {
+      // The controller publishes the safe operation error; preserve the draft for retry.
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function queueDraft() {
+    const message = draft.trim();
+    if (!activeTurn || !onContinue || !message || blockReason || sending) return;
+    setQueuedMessages((current) => [...current, {
+      id: crypto.randomUUID(),
+      message,
+      ...(modelSelection?.override ? { settings: modelSelection.override } : {})
+    }]);
+    setDraft('');
+  }
+
+  async function steerQueued(id: string, message: string) {
+    if (!activeTurn || !onSteer || sending) return;
+    setSending(true);
+    try {
+      await onSteer(codexThreadOrigin(session!), message);
+      setQueuedMessages((current) => current.filter((queued) => queued.id !== id));
+    } catch {
+      // Keep the queued message available when steering is rejected or ambiguous.
     } finally {
       setSending(false);
     }
@@ -352,6 +436,36 @@ export function CodexConversationPane({
       </div>
 
       {supplemental}
+      {queuedMessages.length ? (
+        <div className="space-y-1 px-3 pt-2 sm:px-6" data-codex-queued-messages="true">
+          {queuedMessages.map((queued) => (
+            <div className="flex h-10 min-w-0 items-center gap-2 rounded-full bg-neutral-900 px-3 text-xs text-neutral-300" key={queued.id}>
+              <ListPlus className="size-3.5 shrink-0 text-neutral-500" />
+              <span className="min-w-0 flex-1 truncate">{queued.message}</span>
+              {activeTurn ? (
+                <button
+                  className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100"
+                  disabled={sending}
+                  onClick={() => void steerQueued(queued.id, queued.message)}
+                  title="Move this message into the active turn"
+                  type="button"
+                >
+                  <CornerDownRight className="size-3.5" /> Steer
+                </button>
+              ) : null}
+              <button
+                aria-label="Remove queued message"
+                className="grid size-7 shrink-0 place-items-center rounded-full text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100"
+                disabled={sending}
+                onClick={() => setQueuedMessages((current) => current.filter((item) => item.id !== queued.id))}
+                type="button"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <form
         className="shrink-0 bg-neutral-950 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-4"
         data-codex-composer="true"
@@ -367,7 +481,7 @@ export function CodexConversationPane({
           <CodexComposerTextArea
             aria-label="Continue this Codex session"
             className="min-h-14 w-full flex-none px-1 py-0"
-            disabled={Boolean(blockReason) || !onContinue || sending}
+            disabled={Boolean(blockReason) || !canSubmit || sending}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (!shouldSubmitCodexComposer({
@@ -405,24 +519,40 @@ export function CodexConversationPane({
                 disabled={sending || (modelSelection?.disabled ?? true)}
                 effort={modelSelection?.effort}
                 error={modelSelection?.error}
+                loading={modelSelection?.loading}
                 models={modelSelection?.models ?? []}
                 onChange={modelSelection?.onChange ?? (() => {})}
                 onEffortChange={modelSelection?.onEffortChange ?? (() => {})}
                 onServiceTierChange={modelSelection?.onServiceTierChange ?? (() => {})}
+                onRetry={modelSelection?.onRetry}
                 override={modelSelection?.override}
                 serviceTier={modelSelection?.serviceTier}
                 usesCatalogueDefault={modelSelection?.usesCatalogueDefault}
                 value={modelSelection?.value ?? session.model ?? ''}
               />
             </div>
-            <button
-              aria-label="Send to this Codex session"
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-900 shadow-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-50"
-              disabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
-              type="submit"
-            >
-              {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              {activeTurn ? (
+                <button
+                  aria-label="Queue for the next turn"
+                  className="grid size-9 shrink-0 place-items-center rounded-full text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 disabled:pointer-events-none disabled:opacity-50"
+                  disabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
+                  onClick={queueDraft}
+                  title="Queue for the next turn"
+                  type="button"
+                >
+                  <ListPlus className="size-4" />
+                </button>
+              ) : null}
+              <button
+                aria-label={activeTurn ? 'Steer active Codex turn' : 'Send to this Codex session'}
+                className="grid size-9 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-900 shadow-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-50"
+                disabled={!draft.trim() || Boolean(blockReason) || !canSubmit || sending}
+                type="submit"
+              >
+                {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}
+              </button>
+            </div>
           </div>
         </div>
       </form>

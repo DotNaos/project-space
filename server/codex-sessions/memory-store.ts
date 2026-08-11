@@ -4,6 +4,10 @@ import type {
   CodexSessionStreamEvent
 } from '../../src/shared/codex-sessions-api';
 import {
+  applyCodexActivityEvent,
+  mergeCodexSessionEvidence
+} from '../../src/shared/codex-task-activity';
+import {
   operationFingerprint,
   type CodexStoredOperationInput,
   type CodexStoredOperationReservation
@@ -34,7 +38,9 @@ export class MemoryCodexSessionsStore {
     const current = new Map(
       (this.inventories.get(key) ?? []).map((session) => [session.id, session])
     );
-    for (const session of input.sessions) current.set(session.id, session);
+    for (const session of input.sessions) {
+      current.set(session.id, mergeCodexSessionEvidence(current.get(session.id), session));
+    }
     if (input.completeInventory) {
       const received = new Set(input.sessions.map((session) => session.id));
       for (const [threadId, session] of current) {
@@ -52,6 +58,42 @@ export class MemoryCodexSessionsStore {
 
   async listInventory(userId: string, machineId: string) {
     return [...(this.inventories.get(machineKey(userId, machineId)) ?? [])];
+  }
+
+  async applyActivityEvent(input: {
+    event: CodexSessionStreamEvent;
+    machineId: string;
+    sequence: number;
+    threadId: string;
+    userId: string;
+  }) {
+    const key = machineKey(input.userId, input.machineId);
+    const sessions = this.inventories.get(key) ?? [];
+    this.inventories.set(key, sessions.map((session) => {
+      if (session.id !== input.threadId || !session.activity) return session;
+      if (
+        session.activity.eventSequence !== undefined
+        && input.sequence <= session.activity.eventSequence
+      ) return session;
+      const activity = applyCodexActivityEvent(session.activity, input.event, input.sequence);
+      return {
+        ...session,
+        activity,
+        attention: activity.currentTurnState === 'waiting-for-approval'
+          ? 'approval' as const
+          : activity.currentTurnState === 'waiting-for-user'
+            ? 'input' as const
+            : undefined,
+        lastActivityAt: activity.lastEventAt,
+        status: activity.machineState === 'offline'
+          ? 'offline' as const
+          : activity.processState === 'failed'
+            ? 'unavailable' as const
+            : activity.conversationState === 'running' || activity.conversationState.startsWith('waiting-')
+              ? 'active' as const
+              : 'idle' as const
+      };
+    }));
   }
 
   async reserveOperation(

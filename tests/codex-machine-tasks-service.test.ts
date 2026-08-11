@@ -42,6 +42,41 @@ describe('Codex machine-task service', () => {
     expect(starts).toBe(1);
   });
 
+  test('resolves an existing issue task to its stable action without creating a duplicate', async () => {
+    const store = memoryStore();
+    const tasks = service({ store });
+    const started = await tasks.start({ userId: 'user-owner' }, request);
+
+    expect(started.state).toBe('confirmed');
+    expect(await tasks.existing({ userId: 'user-owner' }, {
+      connectorId: 'connector-local',
+      issue: 262,
+      repositoryId: 'DotNaos/project-space'
+    })).toEqual(expect.objectContaining({
+      action: 'continue',
+      state: 'confirmed',
+      task: expect.objectContaining({ threadId })
+    }));
+    expect(store.operations.size).toBe(1);
+  });
+
+  test('surfaces unresolved duplicate starts as an attention action', async () => {
+    const store = memoryStore();
+    await service({
+      start: async () => ({ state: 'uncertain' }),
+      store
+    }).start({ userId: 'user-owner' }, request);
+
+    expect(await service({ store }).existing({ userId: 'user-owner' }, {
+      connectorId: 'connector-local',
+      issue: 262,
+      repositoryId: 'R_test'
+    })).toEqual(expect.objectContaining({
+      message: expect.stringContaining('recovery'),
+      state: 'attention'
+    }));
+  });
+
   test('replays a completed start before consulting live target or GitHub state', async () => {
     const store = memoryStore();
     const first = await service({ store }).start({ userId: 'user-owner' }, request);

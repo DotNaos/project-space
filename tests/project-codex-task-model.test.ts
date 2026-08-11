@@ -82,9 +82,9 @@ describe('project Codex task scoping', () => {
     ], projectRecords);
 
     expect(tasks.map((task) => [task.machineId, task.status])).toEqual([
-      ['machine-mac', 'archived'],
       ['machine-mac', 'idle'],
-      ['machine-pc', 'idle']
+      ['machine-pc', 'idle'],
+      ['machine-mac', 'archived']
     ]);
   });
 
@@ -237,13 +237,13 @@ describe('project Codex task grouping and state', () => {
     expect(task).toMatchObject({ active: true, status: 'waiting-approval' });
     expect(presentProjectCodexTaskStatus('active')).toEqual({
       indicator: 'spinner',
-      label: 'Active',
+      label: 'Running',
       loading: true,
       status: 'active'
     });
     expect(presentProjectCodexTaskStatus('waiting-input').label).toBe('Waiting for input');
     expect(presentProjectCodexTaskStatus('idle', 'offline').status).toBe('offline');
-    expect(presentProjectCodexTaskStatus('active').label).not.toBe('Running');
+    expect(presentProjectCodexTaskStatus('active').label).toBe('Running');
     expect(projectCodexTasks([session({ attention: 'input', status: 'active' })], projectRecords)[0])
       .toMatchObject({ status: 'waiting-input' });
   });
@@ -261,5 +261,25 @@ describe('project Codex task grouping and state', () => {
     const groups = groupProjectCodexTasks(tasks, machines);
 
     expect(countActiveProjectCodexTasks(tasks, groups)).toBe(1);
+  });
+
+  test('does not let retained running evidence override a missing inventory record', () => {
+    const [task] = projectCodexTasks([session({
+      activity: {
+        conversationState: 'running',
+        currentPhase: 'Running a command',
+        currentTurnState: 'running',
+        evidenceRevision: 'event:7:command',
+        eventSequence: 7,
+        freshness: 'live',
+        lastEventAt: '2026-07-15T08:00:00.000Z',
+        latestActivity: 'Running a command',
+        machineState: 'online',
+        processState: 'ready'
+      },
+      status: 'missing'
+    })], projectRecords);
+
+    expect(task).toMatchObject({ active: false, status: 'missing' });
   });
 });

@@ -1,5 +1,16 @@
 import type { WorktreeDevServerRecord } from '../../../shared/project-space-api';
 
+export const devServerFreshnessFutureToleranceMs = 5_000;
+export const devServerFreshnessMaxAgeMs = 30_000;
+
+export function isFreshDevServerTimestamp(value: string | undefined, now = Date.now()) {
+  if (!value) return false;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  const ageMs = now - timestamp;
+  return ageMs >= -devServerFreshnessFutureToleranceMs && ageMs <= devServerFreshnessMaxAgeMs;
+}
+
 export function registeredDevServerUrl(server: WorktreeDevServerRecord | undefined) {
   if (!server?.tailscaleUrl || !server.tailscaleIPv4 || !server.publicPort) return undefined;
   try {
@@ -33,7 +44,7 @@ export function visibleTailscaleUrl(
 ) {
   if (
     server?.state !== 'running' ||
-    !server.verifiedAt
+    !isFreshDevServerTimestamp(server.verifiedAt, now)
   ) {
     return undefined;
   }
@@ -41,9 +52,7 @@ export function visibleTailscaleUrl(
   try {
     const url = registeredDevServerUrl(server);
     if (!url) return undefined;
-    const verifiedAt = Date.parse(server.verifiedAt);
-    const ageMs = now - verifiedAt;
-    return ageMs >= -5_000 && ageMs <= 30_000 ? url : undefined;
+    return url;
   } catch {
     return undefined;
   }

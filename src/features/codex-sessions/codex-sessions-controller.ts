@@ -13,6 +13,7 @@ import {
   applyCodexReadResult,
   applyCodexStreamEvent,
   initialCodexSessionsControllerState,
+  mergeCodexSession,
   sameCodexOrigin,
   toCodexMachine,
   toCodexSession,
@@ -105,7 +106,7 @@ export class CodexSessionsController {
         const nextSessions = result.sessions.map((record) => {
           const session = toCodexSession(record);
           const existing = this.state.sessions.find((candidate) => sameCodexOrigin(candidate, session));
-          return existing ? { ...existing, ...session } : session;
+          return mergeCodexSession(existing, session);
         });
         if (selected && !nextSessions.some((session) => sameCodexOrigin(session, selected))) {
           nextSessions.push({ ...selected, status: 'missing' });

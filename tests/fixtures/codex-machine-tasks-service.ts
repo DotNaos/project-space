@@ -35,6 +35,20 @@ export function memoryStore(): CodexMachineTasksStore & {
   }>();
   return {
     operations,
+    async findStart(input) {
+      const current = [...operations.values()].find((candidate) => (
+        candidate.userId === input.userId
+        && candidate.connectorId === input.connectorId
+        && candidate.startPayload.issue.number === input.issue
+        && (candidate.startPayload.repository.id === input.repositoryId
+          || candidate.startPayload.repository.nameWithOwner === input.repositoryId)
+      ));
+      if (!current) return { kind: 'missing' };
+      if (current.state === 'completed' && current.result) {
+        return { kind: 'confirmed', result: current.result };
+      }
+      return current.state === 'uncertain' ? { kind: 'uncertain' } : { kind: 'pending' };
+    },
     async lookupStart(input) {
       const current = operations.get(input.operationId);
       if (!current) return { kind: 'missing' };

@@ -9,6 +9,10 @@ import type {
   CodexSessionStreamEvent,
   CodexSessionUserInputQuestion
 } from '../../src/shared/codex-sessions-api';
+import {
+  createCodexTaskActivity,
+  inferCodexTaskIdentity
+} from '../../src/shared/codex-task-activity';
 import { scanProjectChatText } from '../project-chat/secret-scan';
 import type {
   CodexRpcId,
@@ -33,11 +37,21 @@ export function presentCodexSession(
 ): CodexSessionRecord {
   const timestamp = numericTimestamp(thread.updatedAt) ?? numericTimestamp(thread.createdAt) ?? 0;
   const cwd = safeText(thread.cwd);
+  const lastActivityAt = new Date(timestamp).toISOString();
+  const title = safeText(thread.name) ?? safeText(thread.preview) ?? 'Untitled Codex thread';
+  const status = input.archived ? 'archived' : publicStatus(thread);
+  const taskIdentity = inferCodexTaskIdentity(cwd, title, input.machineName);
   return {
+    activity: createCodexTaskActivity({
+      archived: input.archived,
+      lastActivityAt,
+      status,
+      turns: presentCodexTurns(thread)
+    }),
     archived: input.archived,
     ...(cwd ? { cwd } : {}),
     id: thread.id,
-    lastActivityAt: new Date(timestamp).toISOString(),
+    lastActivityAt,
     loadedByProjectSpace: input.loadedThreadIds.has(thread.id),
     machineId: input.machineId,
     machineName: safeText(input.machineName) ?? 'Connected machine',
@@ -47,8 +61,9 @@ export function presentCodexSession(
     ...(typeof thread.source === 'string' && safeText(thread.source)
       ? { source: safeText(thread.source) }
       : {}),
-    status: input.archived ? 'archived' : publicStatus(thread),
-    title: safeText(thread.name) ?? safeText(thread.preview) ?? 'Untitled Codex thread'
+    status,
+    ...(taskIdentity ? { taskIdentity } : {}),
+    title
   };
 }
 
@@ -149,6 +164,7 @@ export class CodexPublicEventPresenter {
         delta,
         eventId: eventId(event.method, threadId, turnId, itemId, visiblePrevious.length, delta),
         itemId,
+        ...(turnId ? { turnId } : {}),
         type: 'agent-message-delta'
       };
     }
@@ -164,6 +180,7 @@ export class CodexPublicEventPresenter {
       return {
         eventId: eventId(event.method, threadId, turnId, item.id, item.status),
         item,
+        ...(turnId ? { turnId } : {}),
         type: 'item'
       };
     }
@@ -177,6 +194,7 @@ export class CodexPublicEventPresenter {
           : status?.type === 'systemError'
             ? 'unavailable'
             : 'idle',
+        ...(turnId ? { turnId } : {}),
         type: 'session-status'
       };
     }

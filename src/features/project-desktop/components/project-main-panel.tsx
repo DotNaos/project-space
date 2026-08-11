@@ -19,6 +19,7 @@ import {
 import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-workspace';
 import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-sessions-controller-page';
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
+import { CodexSessionsInventoryProvider } from '@/features/codex-sessions/codex-sessions-inventory-context';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks';
 import { CodexThreadDirectory } from '@/features/codex-sessions/codex-thread-directory';
@@ -548,6 +549,10 @@ export function ProjectMainPanel({
             section={settingsSection}
           />
         ) : project ? (
+          <CodexSessionsInventoryProvider
+            controller={codexController}
+            machineIds={codexMachineIds}
+          >
           <ProjectDetail
             chat={(
               <ProjectChatWorkspace
@@ -621,6 +626,7 @@ export function ProjectMainPanel({
             worktreeDiscovery={worktreeDiscovery}
             worktrees={worktrees}
           />
+          </CodexSessionsInventoryProvider>
         ) : (
           <EmptyProjectView onCreateProject={onCreateProject} />
         )}

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Spinner } from '@heroui/react';
 import {
   ArrowLeft,
   Monitor,
@@ -21,7 +20,6 @@ import type {
   CodexSessionBrowserRequest,
   CodexSessionTurnSettings
 } from '@/shared/codex-sessions-api';
-import { cn } from '@/lib/utils';
 import {
   browserMirrorHasActivity,
   CodexBrowserPane,
@@ -33,6 +31,10 @@ import { effectiveCodexSessionStatus } from './codex-sessions-model';
 import { useCodexSessionModels } from './use-codex-session-models';
 import { parseProjectCodexTaskTitle } from './project-codex-task-model';
 import {
+  CodexLiveActivitySummary,
+  CodexTaskStatusBar
+} from './codex-task-activity-summary';
+import {
   clampCodexChatSplitPercent,
   shouldAutoOpenCodexBrowser
 } from './codex-task-workspace-model';
@@ -43,7 +45,6 @@ import type {
   CodexSession,
   CodexThreadOrigin,
   CodexUserInputDecision,
-  ProjectCodexTaskStatus
 } from './codex-sessions-types';
 
 function browserResult(state: ReturnType<typeof useCodexBrowserMirror>) {
@@ -52,15 +53,6 @@ function browserResult(state: ReturnType<typeof useCodexBrowserMirror>) {
     : state.kind === 'reconnecting'
       ? state.previous
       : undefined;
-}
-
-function taskStatusLabel(status: ProjectCodexTaskStatus) {
-  if (status === 'waiting-approval') return 'Waiting for approval';
-  if (status === 'waiting-input') return 'Waiting for input';
-  if (status === 'offline') return 'Connector offline';
-  if (status === 'unavailable' || status === 'missing') return 'Unavailable';
-  if (status === 'archived') return 'Archived';
-  return status === 'active' ? 'Working' : 'Idle';
 }
 
 function useResizableSplit(initial = 55) {
@@ -110,6 +102,7 @@ export function CodexTaskWorkspace({
   onContinue,
   onInterrupt,
   onPermissionChange,
+  onSteer,
   onResolveApproval,
   onResolveUserInput,
   session
@@ -128,6 +121,7 @@ export function CodexTaskWorkspace({
   ): Promise<void> | void;
   onInterrupt?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onPermissionChange?(origin: CodexThreadOrigin, permissionProfileId: string): Promise<void>;
+  onSteer?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
   session: CodexSession;
@@ -148,11 +142,6 @@ export function CodexTaskWorkspace({
   const narrowLayout = useNarrowTaskLayout();
   const hasBrowserActivity = browserMirrorHasActivity(mirror);
   const baseStatus = effectiveCodexSessionStatus(session, machine);
-  const status: ProjectCodexTaskStatus = (conversation?.approvals?.length ?? 0) > 0
-    ? 'waiting-approval'
-    : (conversation?.userInputRequests?.length ?? 0) > 0
-      ? 'waiting-input'
-      : baseStatus;
   const task = parseProjectCodexTaskTitle(session.title);
   const modelSelection = useCodexSessionModels(
     session,
@@ -200,24 +189,31 @@ export function CodexTaskWorkspace({
     />
   );
   const chat = (
-    <CodexConversationPane
-      conversation={conversation}
-      historyState={historyState}
-      historyStatusDetail={historyStatusDetail}
-      machine={machine}
-      modelSelection={modelSelection}
-      onContinue={onContinue}
-      onPermissionChange={onPermissionChange}
-      session={session}
-      showHeader={false}
-      supplemental={decisions}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <CodexLiveActivitySummary machine={machine} session={session} />
+      <div className="min-h-0 flex-1">
+        <CodexConversationPane
+          activeTurnId={activeTurnId}
+          conversation={conversation}
+          historyState={historyState}
+          historyStatusDetail={historyStatusDetail}
+          machine={machine}
+          modelSelection={modelSelection}
+          onContinue={onContinue}
+          onPermissionChange={onPermissionChange}
+          onSteer={onSteer}
+          session={session}
+          showHeader={false}
+          supplemental={decisions}
+        />
+      </div>
+    </div>
   );
   const browser = <CodexBrowserPane state={mirror} taskTitle={task.title} />;
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-neutral-950 text-neutral-100">
-      <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-neutral-800/80 px-3 pr-14 md:px-4">
+      <header className="flex min-h-[56px] shrink-0 items-center gap-3 px-3 pr-14 md:px-4">
         {onBack ? (
           <Button aria-label="Back to Codex tasks" className="size-8 min-h-0" isIconOnly onPress={onBack} size="sm" variant="ghost">
             <ArrowLeft className="size-4" />
@@ -227,19 +223,6 @@ export function CodexTaskWorkspace({
           <Text as="h1" className="block truncate text-sm font-semibold text-neutral-100">
             {task.title}
           </Text>
-          <div className="mt-1 flex min-w-0 items-center gap-2 text-[9px] text-neutral-500">
-            {status === 'active' ? <Spinner className="text-emerald-300" size="sm" /> : (
-              <span className={cn(
-                'size-1.5 shrink-0 rounded-full bg-neutral-500',
-                status === 'waiting-approval' || status === 'waiting-input'
-                  ? 'bg-amber-300'
-                  : status === 'offline' || status === 'unavailable' || status === 'missing'
-                    ? 'bg-red-400'
-                    : undefined
-              )} />
-            )}
-            <Text className="truncate">{taskStatusLabel(status)} · {machine?.name ?? session.machineId}</Text>
-          </div>
         </div>
         {task.issueNumber ? <Chip className="text-neutral-400" size="sm">Issue #{task.issueNumber}</Chip> : null}
         {task.pullRequestNumber ? <Chip className="text-neutral-400" size="sm">PR #{task.pullRequestNumber}</Chip> : null}
@@ -278,6 +261,7 @@ export function CodexTaskWorkspace({
           ) : null}
         </div>
       </header>
+      <CodexTaskStatusBar machine={machine} session={session} />
 
       {!narrowLayout ? <div className="min-h-0 flex-1">
         {browserVisible && hasBrowserActivity ? (

@@ -38,6 +38,8 @@ export interface ProjectCodexTaskStatusPresentation {
   status: ProjectCodexTaskStatus;
 }
 
+export type ProjectCodexTaskBucket = 'running' | 'attention' | 'ready' | 'history';
+
 interface ProjectPathScope {
   machineId: string;
   managedWorktreesRoot: string;
@@ -58,18 +60,37 @@ export function projectCodexTasks(
   for (const session of sessions) {
     if (!session.cwd || !scopes.some((scope) => sessionMatchesScope(session, scope))) continue;
     const id = projectCodexTaskId(session.machineId, session.threadId);
+    const terminalInventoryStatus: ProjectCodexTaskStatus | undefined = [
+      'archived',
+      'missing',
+      'offline',
+      'unavailable'
+    ].includes(session.status) ? session.status : undefined;
+    const snapshotStatus: ProjectCodexTaskStatus | undefined = terminalInventoryStatus
+      ?? (session.activity?.currentTurnState === 'waiting-for-approval'
+      ? 'waiting-approval'
+      : session.activity?.currentTurnState === 'waiting-for-user'
+        ? 'waiting-input'
+        : session.activity?.conversationState === 'running'
+          ? 'active'
+          : session.activity?.machineState === 'offline'
+            ? 'offline'
+            : session.activity?.processState === 'failed'
+              ? 'unavailable'
+              : undefined);
     const status: ProjectCodexTaskStatus = attentionByTaskId[id]
       ?? (session.attention === 'approval'
         ? 'waiting-approval'
         : session.attention === 'input'
           ? 'waiting-input'
-          : session.status);
+          : snapshotStatus ?? session.status);
     const title = parseProjectCodexTaskTitle(session.title);
+    const issueNumber = session.taskIdentity?.issueNumber ?? title.issueNumber;
     const task: ProjectCodexTask = {
       ...session,
       active: status === 'active' || status === 'waiting-approval' || status === 'waiting-input',
       id,
-      ...(title.issueNumber ? { issueNumber: title.issueNumber } : {}),
+      ...(issueNumber ? { issueNumber } : {}),
       ...(title.pullRequestNumber ? { pullRequestNumber: title.pullRequestNumber } : {}),
       rawTitle: session.title,
       status,
@@ -194,7 +215,7 @@ export function presentProjectCodexTaskStatus(
       ? 'unavailable'
       : status;
   if (effectiveStatus === 'active') {
-    return { indicator: 'spinner', label: 'Active', loading: true, status: effectiveStatus };
+    return { indicator: 'spinner', label: 'Running', loading: true, status: effectiveStatus };
   }
   const label: Record<Exclude<ProjectCodexTaskStatus, 'active'>, string> = {
     archived: 'Archived',
@@ -206,6 +227,30 @@ export function presentProjectCodexTaskStatus(
     'waiting-input': 'Waiting for input'
   };
   return { indicator: 'dot', label: label[effectiveStatus], loading: false, status: effectiveStatus };
+}
+
+export function projectCodexTaskBucket(
+  task: ProjectCodexTask,
+  machineStatus: CodexMachineStatus = 'connected'
+): ProjectCodexTaskBucket {
+  if (machineStatus !== 'connected' || ['archived', 'missing', 'offline', 'unavailable'].includes(task.status) || task.activity?.freshness === 'stale') {
+    return 'history';
+  }
+  if (task.status === 'waiting-approval' || task.status === 'waiting-input' || task.activity?.conversationState === 'failed') {
+    return 'attention';
+  }
+  if (task.status === 'active' || task.activity?.conversationState === 'running') return 'running';
+  return 'ready';
+}
+
+export function projectCodexTaskPrimaryAction(
+  task: ProjectCodexTask,
+  machineStatus: CodexMachineStatus = 'connected'
+) {
+  const bucket = projectCodexTaskBucket(task, machineStatus);
+  if (bucket === 'attention' || machineStatus !== 'connected') return 'Resolve problem' as const;
+  if (bucket === 'ready') return 'Continue' as const;
+  return 'Open task' as const;
 }
 
 /**
@@ -304,7 +349,14 @@ function activityTimestamp(task: ProjectCodexTask) {
 }
 
 function compareTasks(left: ProjectCodexTask, right: ProjectCodexTask) {
-  return activityTimestamp(right) - activityTimestamp(left)
+  const bucketOrder: Record<ProjectCodexTaskBucket, number> = {
+    running: 0,
+    attention: 1,
+    ready: 2,
+    history: 3
+  };
+  return bucketOrder[projectCodexTaskBucket(left)] - bucketOrder[projectCodexTaskBucket(right)]
+    || activityTimestamp(right) - activityTimestamp(left)
     || left.title.localeCompare(right.title)
     || left.id.localeCompare(right.id);
 }

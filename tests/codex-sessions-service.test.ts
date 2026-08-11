@@ -65,6 +65,13 @@ function history(overrides: Partial<CodexSessionReadResult> = {}): CodexSessionR
 
 class MemoryStore {
   readonly access = new Set([`${actor.userId}\0${machineId}`]);
+  readonly activityEvents: Array<{
+    event: CodexSessionStreamEvent;
+    machineId: string;
+    sequence: number;
+    threadId: string;
+    userId: string;
+  }> = [];
   readonly events = new Map<string, CodexSessionStreamEvent[]>();
   readonly inventories = new Map<string, CodexSessionListResult>();
   readonly operations = new Map<string, {
@@ -137,6 +144,16 @@ class MemoryStore {
     }
     this.events.set(key, events);
     return events.findIndex((event) => event.eventId === input.event.eventId) + 1;
+  }
+
+  async applyActivityEvent(input: {
+    event: CodexSessionStreamEvent;
+    machineId: string;
+    sequence: number;
+    threadId: string;
+    userId: string;
+  }) {
+    this.activityEvents.push(structuredClone(input));
   }
 
   async listEvents(input: {
@@ -701,6 +718,11 @@ describe('Codex sessions hosted service', () => {
     expect(transport.streamUsers).toEqual([actor.userId]);
     expect((await store.listEvents({ machineId, threadId, userId: actor.userId })))
       .toHaveLength(1);
+    expect(store.activityEvents).toHaveLength(2);
+    expect(store.activityEvents[0]).toMatchObject({
+      event: { eventId: 'live-event-1', observedAt: expect.any(String) },
+      sequence: 1
+    });
   });
 
   test('pages through more than 500 persisted events during reconnect replay', async () => {

@@ -83,6 +83,25 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Codex machine-task durable start store', () => {
+  test('finds a completed issue association by repository id or full name', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [row()] });
+
+    expect(await new PostgresCodexMachineTasksStore(database).findStart({
+      connectorId: operation.connectorId,
+      issue: operation.startPayload.issue.number,
+      repositoryId: operation.startPayload.repository.nameWithOwner,
+      userId: operation.userId
+    })).toEqual({ kind: 'confirmed', result: completed });
+    expect(database.calls[0]?.sql).toContain("start_payload->'repository'->>'nameWithOwner'");
+    expect(database.calls[0]?.values).toEqual([
+      operation.userId,
+      operation.connectorId,
+      String(operation.startPayload.issue.number),
+      operation.startPayload.repository.nameWithOwner
+    ]);
+  });
+
   test('fences a start while its Environment is stopping or being deleted', async () => {
     const database = new FakeDatabase();
     database.environmentBindingId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
