@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import {
   createHash,
   createPrivateKey,
@@ -7,6 +8,7 @@ import {
 import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { promisify } from 'node:util';
 
 import {
   canonicalConnectorRuntimeReleaseManifest,
@@ -18,6 +20,7 @@ import {
   type ConnectorRuntimeReleaseManifest,
   type SignedConnectorRuntimeReleaseManifest
 } from '../../server/connector-runtime-release-manifest';
+import { codexRuntimeVersionCapability } from '../../src/shared/codex-runtime-release-contract';
 import type { ConnectorRuntimeReleaseTarget } from '../../server/connector-runtime-maintenance-contract';
 
 export const releaseManifestSchema = connectorRuntimeReleaseManifestSchema;
@@ -31,9 +34,9 @@ const runtimeCapabilities = ['runtime.restart', 'runtime.update'] as const;
 const managedCodexCapabilities = [
   'codex.account.device-login.v1',
   'codex.runtime.v1',
-  ...runtimeCapabilities
 ] as const;
 const runtimeProtocolVersion = '2';
+const execFileAsync = promisify(execFile);
 
 export type ReleaseTarget = ConnectorRuntimeReleaseTarget;
 export type ReleaseManifestArtifact = ConnectorRuntimeReleaseArtifact;
@@ -80,6 +83,7 @@ interface VerifyReleaseManifestOptions {
 interface ExpectedArtifact {
   assetName: string;
   capabilities: string[];
+  includesManagedCodex?: boolean;
   target: ReleaseTarget;
 }
 
@@ -153,7 +157,8 @@ function expectedArtifacts(version: string): ExpectedArtifact[] {
     },
     {
       assetName: `project-space-machine-tools-linux-x64-v${version}.tar.gz`,
-      capabilities: [...managedCodexCapabilities],
+      capabilities: [],
+      includesManagedCodex: true,
       target: 'linux-x64'
     },
     {
@@ -162,6 +167,30 @@ function expectedArtifacts(version: string): ExpectedArtifact[] {
       target: 'windows-x64'
     }
   ];
+}
+
+async function codexVersionFromLinuxArtifact(
+  artifactPath: string,
+  projectSpaceVersion: string
+) {
+  const bundleName = `project-space-machine-tools-linux-x64-v${projectSpaceVersion}`;
+  let stdout: string | Buffer;
+  try {
+    ({ stdout } = await execFileAsync(
+      'tar',
+      ['-xOzf', artifactPath, `${bundleName}/CODEX-VERSION`],
+      { encoding: 'utf8', maxBuffer: 4_096 }
+    ));
+  } catch {
+    throw new Error('The Linux release artifact does not expose its pinned Codex version.');
+  }
+  const body = String(stdout);
+  if (!body.endsWith('\n') || body.indexOf('\n') !== body.length - 1) {
+    throw new Error('The Linux release artifact contains an invalid Codex version.');
+  }
+  const version = body.slice(0, -1);
+  codexRuntimeVersionCapability(version);
+  return version;
 }
 
 function artifactDownloadUrl(releaseId: string, assetName: string) {
@@ -204,10 +233,19 @@ export async function prepareReleaseManifest(
     if (!details.isFile() || details.size <= 0) {
       throw new Error(`Release artifact ${expected.assetName} must be a non-empty file.`);
     }
+    const capabilities = expected.includesManagedCodex
+      ? [
+        ...managedCodexCapabilities,
+        codexRuntimeVersionCapability(
+          await codexVersionFromLinuxArtifact(path, options.version)
+        ),
+        ...runtimeCapabilities
+      ].sort()
+      : [...expected.capabilities];
     artifacts.push({
       assetName: expected.assetName,
       bundleVersions: { ...bundleVersions },
-      capabilities: [...expected.capabilities],
+      capabilities,
       downloadUrl: artifactDownloadUrl(options.releaseId, expected.assetName),
       protocolVersion: runtimeProtocolVersion,
       sha256: await sha256File(path),

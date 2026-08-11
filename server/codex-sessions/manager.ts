@@ -23,6 +23,12 @@ import type {
   CodexUserInputResponseInput
 } from './contracts';
 import {
+  codexSessionMaintenanceBlockers,
+  type CodexPendingMaintenanceRequest
+} from './maintenance-blockers';
+import { CodexSessionMaintenanceReconciler } from './maintenance-reconciliation';
+import { CodexResolutionWaiters } from './resolution-waiters';
+import {
   CodexOperationLedger,
   CodexOperationUncertainError,
   type CodexOperationSnapshotPersist
@@ -69,14 +75,6 @@ type IncomingMessage = {
   params?: unknown;
 };
 
-type PendingServerRequest = {
-  method: string;
-  params: Record<string, unknown>;
-  requestId: CodexRpcId;
-  threadId: string;
-  turnId?: string;
-};
-
 const unknownActiveTurn = '__active_turn__';
 
 export interface CodexSessionManagerOptions {
@@ -99,13 +97,11 @@ export class CodexSessionManager {
   private readonly activeTurns = new Map<string, string>();
   private readonly listeners = new Set<CodexSessionEventListener>();
   private readonly ledger: CodexOperationLedger;
-  private readonly pendingServerRequests = new Map<string, PendingServerRequest>();
+  private readonly maintenanceReconciler: CodexSessionMaintenanceReconciler;
+  private readonly pendingServerRequests = new Map<string, CodexPendingMaintenanceRequest>();
   private readonly settingsByThread = new Map<string, CodexThreadSettingsSnapshot>();
   private readonly tokenUsageByThread = new Map<string, CodexThreadTokenUsageSnapshot>();
-  private readonly resolutionWaiters = new Map<
-    string,
-    { reject: (error: Error) => void; resolve: () => void }
-  >();
+  private readonly resolutionWaiters = new CodexResolutionWaiters();
   private runtimeEpoch = 0;
   private readonly startingThreads = new Set<string>();
   private startPromise?: Promise<CodexAppServerTransport>;
@@ -119,6 +115,7 @@ export class CodexSessionManager {
       options.operationSnapshot,
       options.persistOperationSnapshot
     );
+    this.maintenanceReconciler = new CodexSessionMaintenanceReconciler(options.sharedDaemon === true);
   }
 
   subscribe(listener: CodexSessionEventListener) {
@@ -400,6 +397,35 @@ export class CodexSessionManager {
     return this.ledger.snapshot();
   }
 
+  maintenanceBlockers() {
+    if (!this.maintenanceReconciler.isAuthoritative()) {
+      void this.reconcileMaintenanceState().catch(() => undefined);
+    }
+    return [
+      ...this.maintenanceReconciler.maintenanceBlockers(),
+      ...codexSessionMaintenanceBlockers({
+        activeTurns: this.activeTurns, operationSnapshot: this.ledger.snapshot(),
+        pendingServerRequests: this.pendingServerRequests.values(),
+        startingThreads: this.startingThreads, unknownActiveTurn
+      })
+    ];
+  }
+
+  invalidateMaintenanceState() { this.maintenanceReconciler.markUncertain(); }
+
+  reconcileMaintenanceState(signal?: AbortSignal) {
+    return this.maintenanceReconciler.reconcile({
+      apply: (threads) => {
+        this.activeTurns.clear();
+        for (const thread of threads) this.captureThreadStatus(thread);
+      },
+      getTransport: () => waitForCodexRequest(this.ensureTransport(), signal),
+      isRuntimeEpochCurrent: (runtimeEpoch) => this.runtimeEpochIsCurrent(runtimeEpoch),
+      runtimeEpochFor: (transport) => this.transportEpochs.get(transport),
+      signal
+    });
+  }
+
   executeManagedOperation<Result>(
     operationId: string,
     fingerprint: string,
@@ -428,6 +454,7 @@ export class CodexSessionManager {
     this.transport = undefined;
     this.startingTransport = undefined;
     this.startPromise = undefined;
+    this.maintenanceReconciler.markUncertain();
     await Promise.all([
       transport?.close(),
       startingTransport && startingTransport !== transport
@@ -496,6 +523,7 @@ export class CodexSessionManager {
     try {
       if (!message.method) return;
       if (isServerRequestMethod(message.method) && message.id !== undefined) {
+        this.maintenanceReconciler.noteLifecycleChange();
         const requestId = validateRpcId(message.id);
         const params = requireRecord(message.params);
         const threadId = validateIdentifier(params.threadId, 'threadId');
@@ -513,6 +541,7 @@ export class CodexSessionManager {
         return;
       }
       if (!isNotificationMethod(message.method)) return;
+      this.maintenanceReconciler.noteLifecycleChange();
       const rawParams = message.params;
       const commandItem = Boolean(
         message.method === 'item/completed' &&
@@ -569,8 +598,7 @@ export class CodexSessionManager {
       if (requestId !== undefined) {
         const key = rpcIdKey(validateRpcId(requestId));
         this.pendingServerRequests.delete(key);
-        this.resolutionWaiters.get(key)?.resolve();
-        this.resolutionWaiters.delete(key);
+        this.resolutionWaiters.resolve(validateRpcId(requestId));
       }
     }
   }
@@ -593,20 +621,25 @@ export class CodexSessionManager {
     return pending;
   }
 
-  private respondWithLedger(operationId: string, pending: PendingServerRequest, result: unknown) {
+  private respondWithLedger(
+    operationId: string, pending: CodexPendingMaintenanceRequest, result: unknown
+  ) {
     return this.ledger.execute(
       operationId,
       fingerprint(pending.method, { requestId: pending.requestId, result }),
       async () => {
         const transport = await this.ensureTransport();
-        const confirmation = this.waitForResolution(pending.requestId);
+        const confirmation = this.resolutionWaiters.wait(
+          pending.requestId,
+          this.pendingServerRequests.has(rpcIdKey(pending.requestId))
+        );
         try {
           await transport.respond(pending.requestId, result);
         } catch {
           const uncertain = new CodexOperationUncertainError(
             'The Codex request response was not confirmed.'
           );
-          this.rejectResolutionWaiter(pending.requestId, uncertain);
+          this.resolutionWaiters.reject(pending.requestId, uncertain);
           await confirmation.catch(() => undefined);
           throw uncertain;
         }
@@ -616,44 +649,16 @@ export class CodexSessionManager {
     );
   }
 
-  private rejectResolutionWaiter(requestId: CodexRpcId, error: Error) {
-    const key = rpcIdKey(requestId);
-    const waiter = this.resolutionWaiters.get(key);
-    this.resolutionWaiters.delete(key);
-    waiter?.reject(error);
-  }
-
-  private waitForResolution(requestId: CodexRpcId) {
-    const key = rpcIdKey(requestId);
-    if (!this.pendingServerRequests.has(key)) return Promise.resolve();
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.resolutionWaiters.delete(key);
-        reject(new CodexOperationUncertainError('The Codex request response was not confirmed.'));
-      }, 120_000);
-      this.resolutionWaiters.set(key, {
-        reject: (error) => {
-          clearTimeout(timeout);
-          reject(error);
-        },
-        resolve: () => {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
-    });
-  }
-
   private handleTransportClose() {
+    this.maintenanceReconciler.markUncertain();
     this.activeTurns.clear();
     this.startingThreads.clear();
     this.pendingServerRequests.clear();
     this.settingsByThread.clear();
     this.tokenUsageByThread.clear();
-    for (const waiter of this.resolutionWaiters.values()) {
-      waiter.reject(new CodexOperationUncertainError('Codex app-server restarted before confirmation.'));
-    }
-    this.resolutionWaiters.clear();
+    this.resolutionWaiters.rejectAll(
+      new CodexOperationUncertainError('Codex app-server restarted before confirmation.')
+    );
   }
 
   private captureThreadStatus(thread: CodexThreadSummary) {

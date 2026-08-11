@@ -19,6 +19,7 @@ import {
 } from './connector-runtime-release-source';
 import {
   isDatabaseConfigured,
+  listPhysicalMachines,
   readMachineMembership
 } from './local-database-store';
 import {
@@ -49,6 +50,22 @@ export function createConfiguredConnectorRuntime({
         }
       };
   const directory = {
+    async canAutomaticallyUpdate(machineId: string, ownerUserId?: string) {
+      const overview = await loadOverview();
+      const physicalMachines = isDatabaseConfigured() && ownerUserId
+        ? await listPhysicalMachines(ownerUserId).catch(() => [])
+        : overview.physicalMachines ?? [];
+      const scopes = physicalMachines.filter((physicalMachine) =>
+        physicalMachine.connectorIds.includes(machineId)
+      );
+      if (scopes.length !== 1) return false;
+      const connectorIds = new Set(scopes[0]!.connectorIds);
+      const live = overview.machines.filter((machine) =>
+        connectorIds.has(machine.id) &&
+        (machine.connector.status === 'online' || machine.connector.status === 'local')
+      );
+      return live.length === 1 && live[0]!.id === machineId;
+    },
     async readMachine(machineId: string) {
       return (await loadOverview()).machines.find((machine) => machine.id === machineId) ?? null;
     },
@@ -78,11 +95,33 @@ export function createConfiguredConnectorRuntime({
   });
 
   return {
+    async continueMaintenance(machine: MachineRecord, ownerUserId?: string) {
+      await service.continueMaintenance(machine, ownerUserId);
+    },
     decideReconnect(machine: MachineRecord) {
       return service.decideReconnect(machine);
     },
+    async enrichOverview(overview: ConnectorOverviewResult): Promise<ConnectorOverviewResult> {
+      const machines = await Promise.all(overview.machines.map(async (machine) => {
+        const status = await service.statusForMachine(machine).catch(() => undefined);
+        if (!status) return machine;
+        return {
+          ...machine,
+          connector: {
+            ...machine.connector,
+            capabilities: status.capabilities,
+            ...(status.runtime ? { runtime: status.runtime } : {}),
+            update: status.update
+          }
+        };
+      }));
+      return { ...overview, machines };
+    },
     getMachineRuntime(machineId: string) {
       return service.status(machineId);
+    },
+    prepareReconnect(machine: MachineRecord, ownerUserId?: string) {
+      return service.prepareReconnect(machine, ownerUserId);
     },
     startMachineRuntimeOperation(machineId: string, request: MachineRuntimeOperationRequest) {
       return service.request({ ...request, machineId }, currentUserId());

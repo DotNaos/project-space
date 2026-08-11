@@ -116,7 +116,11 @@ export class CodexSessionsController {
           loadingMachineIds: this.state.loadingMachineIds.filter((id) => id !== machineId),
           machines: upsertCodexMachine(
             this.state.machines,
-            toCodexMachine(result, inventoryConnectorInstanceId)
+            toCodexMachine(
+              result,
+              inventoryConnectorInstanceId,
+              this.state.runtimeByMachineId[machineId]
+            )
           ),
           sessions: [
             ...this.state.sessions.filter((session) => session.machineId !== machineId),

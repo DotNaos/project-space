@@ -237,9 +237,13 @@ describe('connector release and production deployment contract', () => {
     expect(sign).toContain('Queued release commit must be reachable from current main.');
     expect(sign).toContain('workflow.get("id") == int(sys.argv[6])');
     expect(sign).toContain('Prepared release manifest is not the exact canonical signing payload.');
+    expect(sign).toContain('codex_version_prefix = "codex.runtime.version."');
     expect(sign).toContain(
-      'else ["codex.account.device-login.v1", "codex.runtime.v1", "runtime.restart", "runtime.update"]'
+      'r"codex\\.runtime\\.version\\.(0|[1-9][0-9]*)\\."'
     );
+    expect(sign).toContain('len(codex_versions) != 1');
+    expect(sign).toContain('target != "linux-x64" and len(codex_versions) != 0');
+    expect(sign).toContain('capabilities != expected_capabilities');
     expect(sign).toContain('openssl pkeyutl -sign -rawin');
     expect(sign).toContain('signature-size=64');
     expect(sign).toContain('Remove dedicated signing key material');

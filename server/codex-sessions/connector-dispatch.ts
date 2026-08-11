@@ -23,6 +23,10 @@ import {
 import type { CodexSessionManager } from './manager';
 import type { CodexDaemonManager } from '../codex-daemon/manager';
 import type { CodexDaemonConnectorRequest } from '../../src/shared/codex-daemon-api';
+import {
+  ConnectorRuntimeMaintenanceBusyError,
+  type ConnectorRuntimeMaintenanceAdmission
+} from '../connector-runtime-maintenance-safety';
 import { CodexOperationUncertainError } from './operation-ledger';
 import { createLocalCodexMachineTaskStarter } from '../codex-machine-tasks/connector-starter';
 import {
@@ -34,12 +38,14 @@ import {
   LocalCodexTranscriptReader,
   type LocalCodexTranscriptSource
 } from './transcript-reader';
+import { CodexAttachMaintenanceGate } from './attach-maintenance';
 
 type AttachRelayFactory = typeof createConnectorCodexAttachRelay;
 
 type ActiveAttach = {
   assembler: CodexAttachChunkAssembler;
   binding: ReturnType<typeof bindingForCodexSessionsRequest>;
+  maintenance?: CodexAttachMaintenanceGate;
   nextOutputMessageId: number;
   relay?: ConnectorCodexAttachRelay;
   send(message: ConnectorHubMessage): void;
@@ -78,6 +84,7 @@ export class CodexSessionsConnectorDispatcher {
     daemonManager?: Pick<CodexDaemonManager, 'execute'>;
     expectedMachineId?: string;
     manager: CodexSessionManager;
+    maintenanceAdmission?: ConnectorRuntimeMaintenanceAdmission;
     onDaemonChanged?(): Promise<void> | void;
     transcript?: LocalCodexTranscriptSource;
     verificationKey: KeyLike;
@@ -130,6 +137,7 @@ export class CodexSessionsConnectorDispatcher {
       expectedMachineId,
       machineName: expectedMachineId,
       manager: this.options.manager,
+      maintenanceAdmission: this.options.maintenanceAdmission,
       startTask: createLocalCodexMachineTaskStarter(this.options.manager),
       transcript: this.options.transcript ?? new LocalCodexTranscriptReader(),
       verificationKey: this.options.verificationKey
@@ -179,6 +187,7 @@ export class CodexSessionsConnectorDispatcher {
     const attached = this.attaches.get(id);
     if (attached) {
       this.attaches.delete(id);
+      attached.maintenance?.close();
       attached.relay?.close('cancelled');
       send?.({
         id,
@@ -206,7 +215,10 @@ export class CodexSessionsConnectorDispatcher {
   }
 
   cancelAll() {
-    for (const attached of this.attaches.values()) attached.relay?.close('cancelled');
+    for (const attached of this.attaches.values()) {
+      attached.maintenance?.close();
+      attached.relay?.close('cancelled');
+    }
     this.attaches.clear();
     const executions = [...this.executions.values()];
     this.executions.clear();
@@ -224,6 +236,15 @@ export class CodexSessionsConnectorDispatcher {
     try {
       const message = attached.assembler.push(payload.chunk);
       if (message !== undefined) {
+        const decision = attached.maintenance?.acceptInput(message) ?? { kind: 'forward' as const };
+        if (decision.kind === 'invalid') {
+          this.finishAttach(id, 'protocol_error');
+          return true;
+        }
+        if (decision.kind === 'reject') {
+          this.emitAttachOutput(id, decision.response);
+          return true;
+        }
         void attached.relay.send(message).catch(() => {
           this.finishAttach(id, 'unavailable');
         });
@@ -261,13 +282,20 @@ export class CodexSessionsConnectorDispatcher {
       this.handleFailure(id, binding, error, send, reject);
       return;
     }
-    void this.authorization.execute(
-      request.payload as CodexAuthorizationConnectorRequest
-    ).then((result) => send({
+    const payload = request.payload as CodexAuthorizationConnectorRequest;
+    const admission = payload.action === 'start'
+      ? this.options.maintenanceAdmission?.tryBeginActivity('daemon')
+      : undefined;
+    if (payload.action === 'start' && this.options.maintenanceAdmission && !admission) {
+      this.handleFailure(id, binding, new ConnectorRuntimeMaintenanceBusyError(), send, reject);
+      return;
+    }
+    void this.authorization.execute(payload).then((result) => send({
       id,
       payload: { binding, result: { operation: 'authorization', result } },
       type: 'codex.sessions.result'
-    })).catch((error) => this.handleFailure(id, binding, error, send, reject));
+    })).catch((error) => this.handleFailure(id, binding, error, send, reject))
+      .finally(() => admission?.release());
   }
 
   private executeDaemon(
@@ -292,8 +320,23 @@ export class CodexSessionsConnectorDispatcher {
       return;
     }
     const payload = request.payload as CodexDaemonConnectorRequest;
-    void this.options.daemonManager.execute(payload.operation, payload.operationId)
+    const mutates = payload.operation === 'ensure' || payload.operation === 'restart';
+    const admission = mutates
+      ? this.options.maintenanceAdmission?.tryBeginActivity('daemon')
+      : undefined;
+    if (mutates && this.options.maintenanceAdmission && !admission) {
+      this.handleFailure(
+        id, binding, new ConnectorRuntimeMaintenanceBusyError(), send, reject
+      );
+      return;
+    }
+    if (mutates) this.options.manager.invalidateMaintenanceState();
+    void Promise.resolve()
+      .then(() => this.options.daemonManager!.execute(payload.operation, payload.operationId))
       .then(async (result) => {
+        if (mutates) {
+          await this.options.manager.reconcileMaintenanceState().catch(() => undefined);
+        }
         await this.options.onDaemonChanged?.();
         send({
           id,
@@ -301,7 +344,13 @@ export class CodexSessionsConnectorDispatcher {
           type: 'codex.sessions.result'
         });
       })
-      .catch((error) => this.handleFailure(id, binding, error, send, reject));
+      .catch(async (error) => {
+        if (mutates) {
+          await this.options.manager.reconcileMaintenanceState().catch(() => undefined);
+        }
+        this.handleFailure(id, binding, error, send, reject);
+      })
+      .finally(() => admission?.release());
   }
 
   private handleFailure(
@@ -379,6 +428,12 @@ export class CodexSessionsConnectorDispatcher {
     const attached: ActiveAttach = {
       assembler: new CodexAttachChunkAssembler(),
       binding,
+      ...(this.options.maintenanceAdmission ? {
+        maintenance: new CodexAttachMaintenanceGate(
+          this.options.maintenanceAdmission,
+          this.options.manager
+        )
+      } : {}),
       nextOutputMessageId: 1,
       send
     };
@@ -406,6 +461,7 @@ export class CodexSessionsConnectorDispatcher {
     const attached = this.attaches.get(id);
     if (!attached?.relay) return;
     try {
+      attached.maintenance?.observeOutput(message);
       const messageId = attached.nextOutputMessageId;
       const chunks = codexAttachMessageChunks(message, messageId);
       attached.nextOutputMessageId += 1;
@@ -425,6 +481,7 @@ export class CodexSessionsConnectorDispatcher {
     const attached = this.attaches.get(id);
     if (!attached) return;
     this.attaches.delete(id);
+    attached.maintenance?.close();
     attached.relay?.close(code);
     attached.send({
       id,

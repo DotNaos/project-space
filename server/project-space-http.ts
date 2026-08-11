@@ -338,10 +338,19 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
         : null;
       return machineIdentity ?? resolveConnectorMachineTokenIdentity(token, machineId);
     },
+    async prepareConnectorRuntimeMaintenance({ machine, ownerUserId }) {
+      const prepareReconnect = (backend as Partial<LocalProjectSpaceBackend>).prepareReconnect;
+      await prepareReconnect?.(machine, ownerUserId);
+    },
     async decideConnectorRuntimeMaintenance({ machine }) {
       const decideReconnect = (backend as Partial<LocalProjectSpaceBackend>).decideReconnect;
       if (!decideReconnect) return undefined;
       return decideReconnect(machine);
+    },
+    async continueConnectorRuntimeMaintenance({ machine, ownerUserId }) {
+      const continueMaintenance =
+        (backend as Partial<LocalProjectSpaceBackend>).continueMaintenance;
+      await continueMaintenance?.(machine, ownerUserId);
     }
   });
   const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);

@@ -35,7 +35,37 @@ export interface CreateConnectorRuntimeOperationInput {
   target: ConnectorRuntimeReleaseTarget;
 }
 
+export interface CoalesceQueuedConnectorRuntimeUpdateInput {
+  deadlineAt: string;
+  expectedBuildId: string;
+  expectedFingerprint: ConnectorRuntimeFingerprint;
+  expectedReleaseId: string;
+  fromExpectedFingerprint: ConnectorRuntimeFingerprint;
+  fromExpectedReleaseId: string;
+  fromTarget: ConnectorRuntimeReleaseTarget;
+  id: string;
+  preserveLastFailure?: boolean;
+  previousFingerprint?: ConnectorRuntimeFingerprint;
+  previousInstanceId?: string;
+  requestedReleaseId: string;
+  target: ConnectorRuntimeReleaseTarget;
+  updatedAt: string;
+}
+
+export interface ClaimQueuedConnectorRuntimeOperationInput {
+  deadlineAt: string;
+  expectedBuildId?: string;
+  expectedFingerprint?: ConnectorRuntimeFingerprint;
+  expectedReleaseId?: string;
+  id: string;
+  requestedReleaseId?: string;
+  startedAt: string;
+  target: ConnectorRuntimeReleaseTarget;
+  updatedAt: string;
+}
+
 export interface TransitionConnectorRuntimeOperationInput {
+  deadlineAt?: string;
   expectedStates: ConnectorRuntimeOperationState[];
   finishedAt?: string;
   id: string;
@@ -46,6 +76,12 @@ export interface TransitionConnectorRuntimeOperationInput {
 }
 
 export interface ConnectorRuntimeOperationStore {
+  claimQueued(
+    input: ClaimQueuedConnectorRuntimeOperationInput
+  ): Promise<ConnectorRuntimeOperationRecord | null>;
+  coalesceQueuedUpdate(
+    input: CoalesceQueuedConnectorRuntimeUpdateInput
+  ): Promise<ConnectorRuntimeOperationRecord | null>;
   createAccepted(
     input: CreateConnectorRuntimeOperationInput,
     audit: ConnectorRuntimeAuditInput,
@@ -128,6 +164,60 @@ export class PostgresConnectorRuntimeOperationStore implements ConnectorRuntimeO
     private readonly createId: () => string = randomUUID
   ) {}
 
+  async claimQueued(input: ClaimQueuedConnectorRuntimeOperationInput) {
+    const result = await this.client.query<OperationRow>(
+      `update connector_runtime_operations set
+         state = 'validating',
+         last_failure = null,
+         started_at = $7,
+         deadline_at = $8,
+         updated_at = $9
+       where id = $1 and state = 'queued'
+         and requested_release_id is not distinct from $2
+         and expected_release_id is not distinct from $3
+         and expected_build_id is not distinct from $4
+         and expected_fingerprint is not distinct from $5
+         and target = $6
+       returning ${columns}`,
+      [
+        input.id, input.requestedReleaseId ?? null, input.expectedReleaseId ?? null,
+        input.expectedBuildId ?? null, input.expectedFingerprint ?? null, input.target,
+        input.startedAt, input.deadlineAt, input.updatedAt
+      ]
+    );
+    return result.rows[0] ? mapOperation(result.rows[0]) : null;
+  }
+
+  async coalesceQueuedUpdate(input: CoalesceQueuedConnectorRuntimeUpdateInput) {
+    const result = await this.client.query<OperationRow>(
+      `update connector_runtime_operations set
+         requested_release_id = $2,
+         expected_release_id = $3,
+         expected_build_id = $4,
+         expected_fingerprint = $5,
+         previous_fingerprint = $6,
+         previous_instance_id = $7,
+         target = $8,
+         deadline_at = $9,
+         last_failure = case when $10 then last_failure else null end,
+         updated_at = $11
+       where id = $1 and operation = 'update' and state = 'queued'
+         and expected_release_id = $12
+         and expected_fingerprint = $13
+         and target = $14
+       returning ${columns}`,
+      [
+        input.id, input.requestedReleaseId, input.expectedReleaseId,
+        input.expectedBuildId, input.expectedFingerprint,
+        input.previousFingerprint ?? null, input.previousInstanceId ?? null,
+        input.target, input.deadlineAt, input.preserveLastFailure === true,
+        input.updatedAt, input.fromExpectedReleaseId,
+        input.fromExpectedFingerprint, input.fromTarget
+      ]
+    );
+    return result.rows[0] ? mapOperation(result.rows[0]) : null;
+  }
+
   async createAccepted(input: CreateConnectorRuntimeOperationInput, audit: ConnectorRuntimeAuditInput, now: string) {
     const id = this.createId();
     const result = await this.client.query<OperationRow>(
@@ -196,26 +286,85 @@ export class PostgresConnectorRuntimeOperationStore implements ConnectorRuntimeO
          last_failure = case when $4 then $5 else last_failure end,
          started_at = coalesce($6, started_at),
          finished_at = coalesce($7, finished_at),
-         updated_at = $8
+         deadline_at = coalesce($8, deadline_at),
+         updated_at = $9
        where id = $1 and state = any($2::text[])
        returning ${columns}`,
       [
         input.id, input.expectedStates, input.state, updateFailure,
         input.lastFailure ?? null, input.startedAt ?? null,
-        input.finishedAt ?? null, input.updatedAt
+        input.finishedAt ?? null, input.deadlineAt ?? null, input.updatedAt
       ]
     );
     return result.rows[0] ? mapOperation(result.rows[0]) : null;
   }
 }
 
+interface MemoryOperationEntry {
+  operation: ConnectorRuntimeOperationRecord;
+  requestedReleaseId?: string;
+  target: ConnectorRuntimeReleaseTarget;
+}
+
 export class MemoryConnectorRuntimeOperationStore implements ConnectorRuntimeOperationStore {
-  private readonly operations = new Map<string, ConnectorRuntimeOperationRecord>();
+  private readonly operations = new Map<string, MemoryOperationEntry>();
   readonly audits: ConnectorRuntimeAuditInput[] = [];
 
+  async claimQueued(input: ClaimQueuedConnectorRuntimeOperationInput) {
+    const current = this.operations.get(input.id);
+    if (!current || current.operation.state !== 'queued' ||
+        current.requestedReleaseId !== input.requestedReleaseId ||
+        current.operation.expectedReleaseId !== input.expectedReleaseId ||
+        current.operation.expectedBuildId !== input.expectedBuildId ||
+        JSON.stringify(current.operation.expectedFingerprint) !==
+          JSON.stringify(input.expectedFingerprint) ||
+        current.target !== input.target) return null;
+    const operation: ConnectorRuntimeOperationRecord = {
+      ...current.operation,
+      deadlineAt: input.deadlineAt,
+      lastFailure: undefined,
+      startedAt: input.startedAt,
+      state: 'validating',
+      updatedAt: input.updatedAt
+    };
+    this.operations.set(operation.id, { ...current, operation });
+    return structuredClone(operation);
+  }
+
+  async coalesceQueuedUpdate(input: CoalesceQueuedConnectorRuntimeUpdateInput) {
+    const current = this.operations.get(input.id);
+    if (!current || current.operation.operation !== 'update' ||
+        current.operation.state !== 'queued' ||
+        current.operation.expectedReleaseId !== input.fromExpectedReleaseId ||
+        JSON.stringify(current.operation.expectedFingerprint) !==
+          JSON.stringify(input.fromExpectedFingerprint) ||
+        current.target !== input.fromTarget) {
+      return null;
+    }
+    const operation: ConnectorRuntimeOperationRecord = {
+      ...current.operation,
+      deadlineAt: input.deadlineAt,
+      expectedBuildId: input.expectedBuildId,
+      expectedFingerprint: structuredClone(input.expectedFingerprint),
+      expectedReleaseId: input.expectedReleaseId,
+      lastFailure: input.preserveLastFailure ? current.operation.lastFailure : undefined,
+      previousFingerprint: input.previousFingerprint
+        ? structuredClone(input.previousFingerprint)
+        : undefined,
+      previousInstanceId: input.previousInstanceId,
+      updatedAt: input.updatedAt
+    };
+    this.operations.set(operation.id, {
+      operation,
+      requestedReleaseId: input.requestedReleaseId,
+      target: input.target
+    });
+    return structuredClone(operation);
+  }
+
   async createAccepted(input: CreateConnectorRuntimeOperationInput, audit: ConnectorRuntimeAuditInput, now: string) {
-    if ([...this.operations.values()].some((entry) =>
-      entry.machineId === input.machineId && !terminalStates.includes(entry.state)
+    if ([...this.operations.values()].some(({ operation }) =>
+      operation.machineId === input.machineId && !terminalStates.includes(operation.state)
     )) throw new Error('A connector runtime operation is already active.');
     const operation: ConnectorRuntimeOperationRecord = {
       createdAt: now,
@@ -232,19 +381,26 @@ export class MemoryConnectorRuntimeOperationStore implements ConnectorRuntimeOpe
       state: 'queued',
       updatedAt: now
     };
-    this.operations.set(operation.id, operation);
+    this.operations.set(operation.id, {
+      operation,
+      requestedReleaseId: input.requestedReleaseId,
+      target: input.target
+    });
     this.audits.push({ ...audit, operationId: operation.id });
     return structuredClone(operation);
   }
 
   async latest(machineId: string) {
-    const value = [...this.operations.values()].filter((entry) => entry.machineId === machineId)
+    const value = [...this.operations.values()]
+      .map(({ operation }) => operation)
+      .filter((entry) => entry.machineId === machineId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
     return value ? structuredClone(value) : null;
   }
 
   async listActive() {
-    return [...this.operations.values()].filter((entry) => !terminalStates.includes(entry.state))
+    return [...this.operations.values()].map(({ operation }) => operation)
+      .filter((entry) => !terminalStates.includes(entry.state))
       .map((entry) => structuredClone(entry));
   }
 
@@ -254,16 +410,19 @@ export class MemoryConnectorRuntimeOperationStore implements ConnectorRuntimeOpe
 
   async transition(input: TransitionConnectorRuntimeOperationInput) {
     const current = this.operations.get(input.id);
-    if (!current || !input.expectedStates.includes(current.state)) return null;
+    if (!current || !input.expectedStates.includes(current.operation.state)) return null;
     const next: ConnectorRuntimeOperationRecord = {
-      ...current,
-      finishedAt: input.finishedAt ?? current.finishedAt,
-      lastFailure: input.lastFailure === null ? undefined : input.lastFailure ?? current.lastFailure,
-      startedAt: input.startedAt ?? current.startedAt,
+      ...current.operation,
+      deadlineAt: input.deadlineAt ?? current.operation.deadlineAt,
+      finishedAt: input.finishedAt ?? current.operation.finishedAt,
+      lastFailure: input.lastFailure === null
+        ? undefined
+        : input.lastFailure ?? current.operation.lastFailure,
+      startedAt: input.startedAt ?? current.operation.startedAt,
       state: input.state,
       updatedAt: input.updatedAt
     };
-    this.operations.set(next.id, next);
+    this.operations.set(next.id, { ...current, operation: next });
     return structuredClone(next);
   }
 }

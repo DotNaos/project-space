@@ -98,6 +98,10 @@ describe('machine connector topology model', () => {
 
     expect(result.machines.every((entry) => entry.connectors.length === 0)).toBe(true);
     expect(result.ungroupedConnectors[0]).toMatchObject({ id: 'unknown', isOnline: false });
+    expect(connectorLocationPresentation({
+      connector: unknown,
+      physicalMachines: [machine('a', ['unknown']), machine('b', ['unknown'])]
+    }).machineName).toBe('Connector identity conflict');
     expect(result.conflicts).toEqual([{
       connectorId: 'unknown',
       physicalMachineIds: ['a', 'b']

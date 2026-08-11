@@ -30,24 +30,26 @@ import {
   sendProjectConnectorCodexResult
 } from './project-connector-codex-runtime';
 import {
-  connectorRegistryForRuntimeConfiguration,
-  createConfiguredConnectorRuntimeDispatcher
+  ConnectorRuntimeMaintenanceAdmission, connectorRegistryForRuntimeConfiguration,
+  createConfiguredConnectorRuntimeDispatcher, createConnectorRuntimeMaintenanceSafetyCheck
 } from './connector-runtime-command-routing';
 import { clearConnectorRuntimeMaintenanceEvidence } from './connector-build-info';
 import { connectorRuntimeMaintenanceEvidence } from './connector-runtime-registration-decision';
 import { publishConnectorRuntimeReadiness } from './connector-runtime-readiness';
-import {
-  sendConnectorJson as sendJson,
-  settleConnectorCommandWithin as settleWithin
-} from './project-connector-websocket-utils';
+import { sendConnectorJson as sendJson } from './project-connector-websocket-utils';
 import { createProjectConnectorWorktreeLoads } from './project-connector-worktree-loads';
 import { createProjectConnectorRuntimeStopControl } from './project-connector-runtime-stop';
 import { createProjectConnectorActionControls } from './project-connector-action-controls';
+import { createProjectConnectorLegacyControls } from './project-connector-legacy-controls';
 import { CodexDaemonManager } from './codex-daemon/manager';
 import { projectSpaceLogger, recordObservedError } from './observability';
 interface ProjectConnectorWebSocketOptions extends ProjectConnectorConnectionOptions {
   backend: ProjectSpaceBackend & Partial<ConnectorDevServerAdapter & ConnectorWorktreeActionAdapter>;
   environment?: NodeJS.ProcessEnv;
+  runtimeMaintenanceSelection?: {
+    commit(operationId: string): Promise<unknown>;
+    restore(operationId: string): Promise<unknown>;
+  };
   runtimeShutdown?(): Promise<void> | void;
 }
 export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocketOptions) {
@@ -59,6 +61,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
   }
   let closed = false;
   const cleanupTasks: Array<() => void> = [];
+  const maintenanceAdmission = new ConnectorRuntimeMaintenanceAdmission();
   const codexSessionManager = createProjectConnectorCodexSessionManager(
     options.environment ?? process.env, options.runtimeCredential?.machineId
   );
@@ -152,10 +155,6 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
     const shutdownRuntime = options.runtimeShutdown ?? (() => {
       process.kill(process.pid, 'SIGTERM');
     });
-    const runtimeDispatcher = createConfiguredConnectorRuntimeDispatcher({
-      commandVerificationKey: commandGrantPublicKey, machineId: options.runtimeCredential?.machineId,
-      shutdown: shutdownRuntime
-    });
     const runtimeStopControl = createProjectConnectorRuntimeStopControl({
       commandVerificationKey: commandGrantPublicKey,
       machineId: options.runtimeCredential?.machineId,
@@ -165,19 +164,29 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
       ? new ConnectorDevServerCommandExecutor(
           adapter,
           commandGrantPublicKey,
-          options.runtimeCredential?.machineId
+          options.runtimeCredential?.machineId,
+          maintenanceAdmission
         )
       : undefined;
     const actionControls = createProjectConnectorActionControls({
-      backend, machineId: options.runtimeCredential?.machineId,
+      backend, maintenanceAdmission, machineId: options.runtimeCredential?.machineId,
       verificationKey: commandGrantPublicKey
+    });
+    const runtimeDispatcher = createConfiguredConnectorRuntimeDispatcher({
+      commandVerificationKey: commandGrantPublicKey, machineId: options.runtimeCredential?.machineId,
+      maintenanceSafety: createConnectorRuntimeMaintenanceSafetyCheck(maintenanceAdmission, codexSessionManager, actionControls),
+      maintenanceSelection: options.runtimeMaintenanceSelection ?? {
+        commit: (operationId) => codexDaemonManager.commitMaintenanceSelection(operationId),
+        restore: (operationId) => codexDaemonManager.restoreMaintenanceSelection(operationId)
+      },
+      shutdown: shutdownRuntime
     });
     const codexSessionsDispatcher = commandGrantPublicKey
       ? new CodexSessionsConnectorDispatcher({
           authorization: codexAuthorizationManager,
           daemonManager: codexDaemonManager,
           expectedMachineId: options.runtimeCredential?.machineId,
-          manager: codexSessionManager,
+          maintenanceAdmission, manager: codexSessionManager,
           onDaemonChanged: async () => {
             await publishCurrentRegistry?.();
           },
@@ -185,7 +194,6 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         })
       : undefined;
     cleanupTasks.push(() => codexSessionsDispatcher?.close());
-
     function scheduleReconnect() {
       if (closed || reconnectTimer) {
         return;
@@ -203,7 +211,6 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
       }
 
       const socket = new WebSocket(resolvedHubUrl);
-      const runningChats = new Map<string, AbortController>();
       const worktreeLoads = createProjectConnectorWorktreeLoads(
         backend,
         (message) => sendJson(socket, message)
@@ -222,15 +229,16 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
         return !closed && activeSocket === socket;
       }
 
+      const legacyControls = createProjectConnectorLegacyControls({
+        backend, isCurrentConnection, maintenanceAdmission, socket
+      });
+
       function cleanupConnection(closeSocket: boolean) {
         if (cleanedUp) {
           return;
         }
         cleanedUp = true;
-        for (const controller of runningChats.values()) {
-          controller.abort();
-        }
-        runningChats.clear();
+        legacyControls.cancelAll();
         worktreeLoads.cancelAll();
         codexSessionsDispatcher?.cancelAll();
         codexSessionsDispatcher?.setExpectedGeneration();
@@ -325,6 +333,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           runtimeStopControl.setExpectedGeneration(message.generation);
           codexSessionsDispatcher?.setExpectedGeneration(message.generation);
           actionControls.setExpectedGeneration(message.generation);
+          void codexSessionManager.reconcileMaintenanceState().catch(() => undefined);
           if (registrationEvidence && !(await publishRegistry()))
             throw new Error('Connector runtime maintenance acknowledgement failed.');
           if (registrationEvidence) clearConnectorRuntimeMaintenanceEvidence(registrationEvidence);
@@ -357,7 +366,7 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
             return;
           }
           if (worktreeLoads.cancel(message.id)) return;
-          runningChats.get(message.id)?.abort();
+          legacyControls.cancel(message.id);
           return;
         }
 
@@ -365,35 +374,6 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           handleProjectConnectorCodexMessage({
             dispatcher: codexSessionsDispatcher, isCurrentConnection, message, socket
           });
-          return;
-        }
-
-        if (message.type === 'codex.models') {
-          void backend
-            .getCodexModels(message.payload)
-            .then((result) => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: result,
-                  type: 'codex.models.result'
-                } satisfies ConnectorHubMessage);
-              }
-            })
-            .catch((error) => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: {
-                    message:
-                      error instanceof Error ? error.message : 'Could not load Codex models.',
-                    models: [],
-                    status: 'error'
-                  },
-                  type: 'codex.models.result'
-                } satisfies ConnectorHubMessage);
-              }
-            });
           return;
         }
 
@@ -450,204 +430,11 @@ export function startProjectConnectorWebSocket(options: ProjectConnectorWebSocke
           return;
         }
 
-        if (message.type === 'codex.chat') {
-          const controller = new AbortController();
-          runningChats.set(message.id, controller);
-          void backend
-            .streamCodexChat(
-              message.payload,
-              (event) => {
-                if (socket) {
-                  sendJson(socket, {
-                    id: message.id,
-                    payload: event,
-                    type: 'codex.chat.event'
-                  } satisfies ConnectorHubMessage);
-                }
-              },
-              controller.signal
-            )
-            .catch((error) => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: {
-                    message: error instanceof Error ? error.message : 'Codex chat failed.',
-                    type: 'error'
-                  },
-                  type: 'codex.chat.event'
-                } satisfies ConnectorHubMessage);
-              }
-            })
-            .finally(() => {
-              runningChats.delete(message.id);
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  type: 'codex.chat.complete'
-                } satisfies ConnectorHubMessage);
-              }
-            });
-          return;
-        }
-
-        if (message.type === 'terminal.run') {
-          void backend.runMachineTerminalCommand(message.payload).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'terminal.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
-          return;
-        }
-
         if (message.type === 'worktrees.list') {
           worktreeLoads.start(message);
           return;
         }
-
-        if (message.type === 'filesystem.root') {
-          void settleWithin(backend.getMachineFileSystemRoot(message.payload), {
-            defaultPath: '',
-            errorCode: 'permission-denied',
-            homePath: '',
-            message: 'The machine did not respond while opening its home directory.',
-            status: 'error'
-          }).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'filesystem.root.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
-          return;
-        }
-
-        if (message.type === 'filesystem.directory') {
-          void settleWithin(backend.readMachineDirectory(message.payload), {
-            entries: [],
-            errorCode: 'permission-denied',
-            message:
-              'macOS blocked this folder. Grant Full Disk Access to the Project Space connector and retry.',
-            path: message.payload.path,
-            status: 'error'
-          }).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'filesystem.directory.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
-          return;
-        }
-
-        if (message.type === 'filesystem.file') {
-          void settleWithin(backend.readMachineFile(message.payload), {
-            errorCode: 'permission-denied',
-            message:
-              'macOS blocked this file. Grant Full Disk Access to the Project Space connector and retry.',
-            name: message.payload.path.split('/').pop() ?? message.payload.path,
-            path: message.payload.path,
-            status: 'error'
-          }).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'filesystem.file.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
-          return;
-        }
-
-        if (message.type === 'filesystem.folder.create') {
-          void settleWithin(backend.createMachineDirectory(message.payload), {
-            affectedPaths: [],
-            errorCode: 'failed',
-            message: 'The machine did not respond while creating the folder.',
-            status: 'error'
-          }).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'filesystem.folder.create.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
-          return;
-        }
-
-        if (message.type === 'filesystem.folder.rename') {
-          void settleWithin(backend.renameMachineDirectory(message.payload), {
-            affectedPaths: [],
-            errorCode: 'failed',
-            message: 'The machine did not respond while renaming the folder.',
-            status: 'error'
-          }).then((result) => {
-            if (socket) {
-              sendJson(socket, {
-                id: message.id,
-                payload: result,
-                type: 'filesystem.folder.rename.result'
-              } satisfies ConnectorHubMessage);
-            }
-          });
-          return;
-        }
-
-        if (message.type === 'filesystem.folder.delete') {
-          void backend
-            .deleteMachineDirectories(message.payload)
-            .then((result) => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: result,
-                  type: 'filesystem.folder.delete.result'
-                } satisfies ConnectorHubMessage);
-              }
-            })
-            .catch(() => {
-              if (socket) {
-                sendJson(socket, {
-                  id: message.id,
-                  payload: {
-                    affectedPaths: [],
-                    errorCode: 'failed',
-                    message: 'The folders could not be deleted.',
-                    status: 'error'
-                  },
-                  type: 'filesystem.folder.delete.result'
-                } satisfies ConnectorHubMessage);
-              }
-            });
-          return;
-        }
-
-        if (message.type !== 'project-cli.run') {
-          return;
-        }
-
-        void backend.runProjectCliCommand(message.payload).then((result) => {
-          if (!socket) {
-            return;
-          }
-
-          sendJson(socket, {
-            id: message.id,
-            payload: result,
-            type: 'project-cli.result'
-          } satisfies ConnectorHubMessage);
-        });
+        legacyControls.handle(message);
       }
 
       socket.addEventListener('message', (event) => {

@@ -1,11 +1,12 @@
 import type {
-  ConnectorRuntimeFingerprint,
   ConnectorRuntimeOperationRecord,
-  ConnectorRuntimeOperationState,
   MachineRuntimeOperationResult,
   MachineRuntimeStatusResult
 } from '../src/shared/connector-runtime-api';
 import type { MachineRecord } from '../src/shared/project-space-api';
+import {
+  connectorCodexRuntimeIsReady
+} from './connector-runtime-maintenance-health';
 import {
   connectorRuntimeReleaseTarget,
   parseConnectorRuntimeMaintenanceBrowserRequest,
@@ -13,10 +14,7 @@ import {
   type ConnectorRuntimeMaintenanceOperation,
   type ConnectorRuntimeReleaseTarget
 } from './connector-runtime-maintenance-contract';
-import type {
-  ConnectorRuntimeCommandFingerprint,
-  ConnectorRuntimeCommandPlan
-} from './connector-runtime-command-contract';
+import type { ConnectorRuntimeCommandPlan } from './connector-runtime-command-contract';
 import type {
   ConnectorRuntimeAuditInput,
   ConnectorRuntimeOperationStore
@@ -25,26 +23,31 @@ import {
   ConnectorRuntimeReleaseManifestError,
   resolveConnectorRuntimeReleaseArtifact,
   verifyConnectorRuntimeReleaseManifest,
-  type ConnectorRuntimeReleaseArtifact,
-  type ConnectorRuntimeReleaseManifest,
   type SignedConnectorRuntimeReleaseManifest
 } from './connector-runtime-release-manifest';
 import {
   compareConnectorRuntimeSemanticVersions,
   connectorRuntimeFingerprint,
-  projectMachineRuntimeStatus,
-  runtimeMatchesExpectedFingerprint,
-  type ConnectorRuntimeApprovedRelease
+  projectMachineRuntimeStatus
 } from './connector-runtime-status';
 import { connectorRuntimeBridgeReleaseId } from './connector-runtime-release-source';
+import {
+  connectorRuntimeAutomaticUpdateActor,
+  connectorRuntimeExpectedFingerprint,
+  connectorRuntimeUpdateTimeoutMs,
+  connectorRuntimeUpdateMatchesApproved,
+  ensureConnectorRuntimeUpdatePending,
+  type ConnectorRuntimeVerifiedRelease
+} from './connector-runtime-auto-update';
+import {
+  activeConnectorRuntimeOperationStates as activeStates,
+  runtimeMatchesOperationFingerprint,
+  runtimeMatchesRollbackFingerprint
+} from './connector-runtime-reconnect';
+import { dispatchConnectorRuntimeOperation } from './connector-runtime-operation-dispatch';
 
 const identityPattern = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$/;
-const updateTimeoutMs = 10 * 60_000;
 const restartTimeoutMs = 2 * 60_000;
-const activeStates: ConnectorRuntimeOperationState[] = [
-  'queued', 'validating', 'staging', 'verified', 'switching', 'restarting',
-  'reconnecting', 'health-checking', 'rolling-back'
-];
 const recoverableRollbackFailureCodes = new Set(['health-timeout', 'reconnect-timeout']);
 
 export interface ConnectorRuntimeMachineMembership {
@@ -52,6 +55,7 @@ export interface ConnectorRuntimeMachineMembership {
 }
 
 export interface ConnectorRuntimeMaintenanceDirectory {
+  canAutomaticallyUpdate?(machineId: string, ownerUserId?: string): Promise<boolean>;
   readMachine(machineId: string): Promise<MachineRecord | null>;
   readMembership(input: {
     machineId: string;
@@ -122,10 +126,6 @@ export interface ConnectorRuntimeMaintenanceServiceOptions {
   releases: ConnectorRuntimeApprovedReleaseSource;
 }
 
-interface VerifiedRelease extends ConnectorRuntimeApprovedRelease {
-  signed: SignedConnectorRuntimeReleaseManifest;
-}
-
 function targetForMachine(machine: MachineRecord): ConnectorRuntimeReleaseTarget | undefined {
   const runtime = machine.connector.runtime;
   return runtime && connectorRuntimeReleaseTarget(runtime.platform, runtime.architecture);
@@ -139,80 +139,12 @@ export function connectorRuntimeBridgeReleaseForMachine(machine: MachineRecord) 
   return comparison === -1 ? connectorRuntimeBridgeReleaseId : undefined;
 }
 
-function commandFingerprint(machine: MachineRecord): ConnectorRuntimeCommandFingerprint {
-  const runtime = machine.connector.runtime!;
-  return {
-    buildId: runtime.buildId,
-    bundleVersions: { ...runtime.bundleVersions },
-    capabilities: [...new Set(machine.connector.capabilities ?? [])].sort(),
-    instanceId: runtime.instanceId,
-    protocolVersion: runtime.protocolVersion,
-    releaseId: runtime.releaseId,
-    version: runtime.version
-  };
-}
-
-function expectedFingerprint(
-  machine: MachineRecord,
-  release?: { artifact: ConnectorRuntimeReleaseArtifact; manifest: ConnectorRuntimeReleaseManifest }
-): ConnectorRuntimeFingerprint {
-  const runtime = machine.connector.runtime!;
-  return release
-      ? {
-        buildId: release.manifest.buildId,
-        bundleVersions: { ...release.artifact.bundleVersions },
-        capabilities: [...release.artifact.capabilities].sort(),
-        instanceId: runtime.instanceId,
-        protocolVersion: release.artifact.protocolVersion,
-        releaseId: release.manifest.releaseId,
-        version: release.manifest.version
-      }
-    : connectorRuntimeFingerprint(runtime, machine.connector.capabilities ?? []);
-}
-
-function runtimeMatchesRollbackFingerprint(
-  machine: MachineRecord,
-  operation: ConnectorRuntimeOperationRecord
-) {
-  const runtime = machine.connector.runtime;
-  const previous = operation.previousFingerprint;
-  if (!runtime || !previous || previous.instanceId !== operation.previousInstanceId ||
-      !runtimeMatchesExpectedFingerprint(
-        runtime,
-        machine.connector.capabilities ?? [],
-        previous,
-        operation.previousInstanceId
-      )) return false;
-  const actual = connectorRuntimeFingerprint(
-    runtime,
-    machine.connector.capabilities ?? []
-  );
-  return actual.capabilities.length === previous.capabilities.length &&
-    actual.capabilities.every((capability, index) => capability === previous.capabilities[index]);
-}
-
-function progressState(stage: ConnectorRuntimeMaintenanceProgress): ConnectorRuntimeOperationState {
-  if (stage === 'staging') return 'staging';
-  if (stage === 'verifying') return 'verified';
-  if (stage === 'accepted') return 'restarting';
-  return 'validating';
-}
-
 function reasonFor(error: unknown) {
   if (error instanceof ConnectorRuntimeMaintenanceServiceError ||
       error instanceof ConnectorRuntimeReleaseManifestError) return error.code;
   if (error && typeof error === 'object' && 'code' in error &&
       typeof error.code === 'string') return error.code.slice(0, 128);
   return 'internal-error';
-}
-
-function dispatchFailure(error: unknown, now: string) {
-  return {
-    at: now,
-    code: reasonFor(error),
-    message: 'The connector could not start the requested maintenance operation.',
-    rollbackAvailable: false
-  };
 }
 
 export class ConnectorRuntimeMaintenanceService {
@@ -229,7 +161,11 @@ export class ConnectorRuntimeMaintenanceService {
         'unknown-machine', 'The selected machine is unavailable.'
       );
     }
-    let operation = await this.options.operations.latest(machineId);
+    return this.statusForMachine(machine);
+  }
+
+  async statusForMachine(machine: MachineRecord): Promise<MachineRuntimeStatusResult> {
+    let operation = await this.options.operations.latest(machine.id);
     operation = await this.reconcileDeadline(operation);
     const approved = await this.approvedRelease(
       machine,
@@ -268,7 +204,12 @@ export class ConnectorRuntimeMaintenanceService {
   async decideReconnect(machine: MachineRecord) {
     const operation = await this.options.operations.latest(machine.id);
     const evidence = machine.connector.runtime?.maintenance;
-    if (!operation || !evidence || evidence.operationId !== operation.id) return undefined;
+    if (!evidence) {
+      if (await this.reconcileMissingMaintenanceEvidence(machine, operation)) return undefined;
+      await this.prepareReconnect(machine);
+      return undefined;
+    }
+    if (!operation || evidence.operationId !== operation.id) return undefined;
     const now = this.now().toISOString();
     if (evidence.state === 'rolled-back') {
       if (!runtimeMatchesRollbackFingerprint(machine, operation)) return undefined;
@@ -286,7 +227,7 @@ export class ConnectorRuntimeMaintenanceService {
         return recovered ? { action: 'rollback' as const, operationId: operation.id } : undefined;
       }
       if (!activeStates.includes(operation.state) && operation.state !== 'succeeded') return;
-      await this.options.operations.transition({
+      const rolledBack = await this.options.operations.transition({
         expectedStates: [operation.state],
         ...(operation.state === 'rolling-back' || operation.state === 'succeeded'
           ? { finishedAt: now }
@@ -305,31 +246,48 @@ export class ConnectorRuntimeMaintenanceService {
           : 'rolling-back',
         updatedAt: now
       });
-      return { action: 'rollback' as const, operationId: operation.id };
+      return rolledBack
+        ? { action: 'rollback' as const, operationId: operation.id }
+        : this.freshReconnectDecision(machine, operation.id, 'rollback');
     }
-    if (operation.state === 'succeeded')
-      return { action: 'commit' as const, operationId: operation.id };
-    if (!activeStates.includes(operation.state)) return undefined;
-    const runtime = machine.connector.runtime!;
-    const matches = runtimeMatchesExpectedFingerprint(
-      runtime,
-      machine.connector.capabilities ?? [],
-      operation.expectedFingerprint,
-      operation.previousInstanceId,
-      operation.previousFingerprint
-    );
+    const matches = runtimeMatchesOperationFingerprint(machine, operation);
     if (matches) {
-      await this.options.operations.transition({
+      if (!connectorCodexRuntimeIsReady(machine, operation)) {
+        if (!activeStates.includes(operation.state) && operation.state !== 'succeeded') return;
+        const rejected = await this.options.operations.transition({
+          expectedStates: [operation.state],
+          id: operation.id,
+          lastFailure: {
+            at: now,
+            code: 'codex-runtime-not-ready',
+            message: 'The connector updated, but its managed Codex runtime did not prove compatibility.',
+            rollbackAvailable: operation.operation === 'update'
+          },
+          state: operation.operation === 'update' ? 'rolling-back' : 'failed',
+          updatedAt: now
+        });
+        return rejected && operation.operation === 'update'
+          ? { action: 'rollback' as const, operationId: operation.id }
+          : undefined;
+      }
+      if (operation.state === 'succeeded')
+        return { action: 'commit' as const, operationId: operation.id };
+      if (!activeStates.includes(operation.state)) return undefined;
+      const succeeded = await this.options.operations.transition({
         expectedStates: [operation.state],
-        ...(operation.state === 'health-checking' ? { finishedAt: now } : {}),
+        finishedAt: now,
         id: operation.id,
-        state: operation.state === 'health-checking' ? 'succeeded' : 'health-checking',
+        lastFailure: null,
+        state: 'succeeded',
         updatedAt: now
       });
-      return { action: 'commit' as const, operationId: operation.id };
+      return succeeded
+        ? { action: 'commit' as const, operationId: operation.id }
+        : this.freshReconnectDecision(machine, operation.id, 'commit');
     }
-    await this.options.operations.transition({
-      expectedStates: activeStates,
+    if (!activeStates.includes(operation.state) && operation.state !== 'succeeded') return undefined;
+    const rejected = await this.options.operations.transition({
+      expectedStates: [operation.state],
       id: operation.id,
       lastFailure: {
         at: now, code: 'wrong-reconnect-version',
@@ -339,7 +297,75 @@ export class ConnectorRuntimeMaintenanceService {
       state: operation.operation === 'update' ? 'rolling-back' : 'failed',
       updatedAt: now
     });
-    return { action: 'rollback' as const, operationId: operation.id };
+    return rejected && operation.operation === 'update'
+      ? { action: 'rollback' as const, operationId: operation.id }
+      : rejected ? undefined : this.freshReconnectDecision(machine, operation.id, 'rollback');
+  }
+
+  private async freshReconnectDecision(
+    machine: MachineRecord,
+    operationId: string,
+    action: 'commit' | 'rollback'
+  ) {
+    const fresh = await this.options.operations.latest(machine.id);
+    if (!fresh || fresh.id !== operationId) return undefined;
+    if (action === 'commit' && fresh.state === 'succeeded' &&
+        runtimeMatchesOperationFingerprint(machine, fresh) &&
+        connectorCodexRuntimeIsReady(machine, fresh)) {
+      return { action, operationId } as const;
+    }
+    if (action === 'rollback' &&
+        (fresh.state === 'rolling-back' || fresh.state === 'rolled-back')) {
+      return { action, operationId } as const;
+    }
+    return undefined;
+  }
+
+  private async reconcileMissingMaintenanceEvidence(
+    machine: MachineRecord,
+    operation: ConnectorRuntimeOperationRecord | null
+  ) {
+    const reconciled = await this.reconcileDeadline(operation);
+    if (!reconciled || !activeStates.includes(reconciled.state) ||
+        reconciled.state === 'queued') return false;
+    if (machine.connector.runtime?.instanceId === reconciled.previousInstanceId) return false;
+    const at = this.now().toISOString();
+    await this.options.operations.transition({
+      expectedStates: [reconciled.state], finishedAt: at, id: reconciled.id,
+      lastFailure: {
+        at,
+        code: 'maintenance-evidence-missing',
+        message: 'The connector returned without evidence for the dispatched maintenance.',
+        rollbackAvailable: reconciled.operation === 'update'
+      },
+      state: reconciled.operation === 'update' ? 'recovery-required' : 'failed',
+      updatedAt: at
+    });
+    return true;
+  }
+
+  async prepareReconnect(machine: MachineRecord, ownerUserId?: string) {
+    const operation = await this.options.operations.latest(machine.id);
+    if (!machine.connector.runtime?.maintenance &&
+        !await this.reconcileMissingMaintenanceEvidence(machine, operation)) {
+      await this.ensureAutomaticUpdate(machine, ownerUserId);
+    }
+  }
+
+  async continueMaintenance(machine: MachineRecord, ownerUserId?: string) {
+    await this.reconcileDeadline(await this.options.operations.latest(machine.id));
+    const pending = await this.ensureAutomaticUpdate(machine, ownerUserId);
+    if (!pending) return;
+    const target = targetForMachine(machine);
+    if (!target) return;
+    await this.startQueuedOperation(
+      machine,
+      pending.operation,
+      target,
+      pending.approved,
+      pending.operation.requestedByUserId,
+      ownerUserId
+    );
   }
 
   private async authorizeAndStart(
@@ -416,9 +442,13 @@ export class ConnectorRuntimeMaintenanceService {
     try {
       operation = await this.options.operations.createAccepted({
         deadlineAt: new Date(Date.parse(requestedAt) +
-          (request.operation === 'update' ? updateTimeoutMs : restartTimeoutMs)).toISOString(),
+          (request.operation === 'update'
+            ? connectorRuntimeUpdateTimeoutMs
+            : restartTimeoutMs)).toISOString(),
         expectedBuildId: approved?.manifest.buildId ?? runtime.buildId,
-        expectedFingerprint: expectedFingerprint(machine, approved),
+        expectedFingerprint: approved
+          ? connectorRuntimeExpectedFingerprint(machine, approved)
+          : previous,
         expectedReleaseId: approved?.manifest.releaseId ?? runtime.releaseId,
         machineId: request.machineId,
         operation: request.operation,
@@ -442,24 +472,128 @@ export class ConnectorRuntimeMaintenanceService {
       }
       throw error;
     }
-    const plan = this.commandPlan(machine, operation.id, target, approved);
-    this.dispatch(operation, plan, userId);
+    await this.startQueuedOperation(machine, operation, target, approved, userId);
     return {
       operation,
       status: projectMachineRuntimeStatus({ approved, machine, operation })
     };
   }
 
+  private async ensureAutomaticUpdate(machine: MachineRecord, ownerUserId?: string) {
+    const approved = await this.approvedRelease(
+      machine,
+      connectorRuntimeBridgeReleaseForMachine(machine)
+    ).catch(() => undefined);
+    let pending = await ensureConnectorRuntimeUpdatePending({
+      approved,
+      machine,
+      now: this.now(),
+      operations: this.options.operations
+    });
+    if (!pending) {
+      const latest = await this.options.operations.latest(machine.id);
+      if (latest?.operation === 'update' && latest.state === 'queued' &&
+          latest.expectedReleaseId &&
+          latest.expectedReleaseId !== approved?.manifest.releaseId) {
+        let pinned: ConnectorRuntimeVerifiedRelease | undefined;
+        try {
+          pinned = await this.approvedRelease(machine, latest.expectedReleaseId, true);
+        } catch (error) {
+          const verifiedFailure = error instanceof ConnectorRuntimeReleaseManifestError;
+          await this.blockQueuedUpdate(
+            latest,
+            verifiedFailure ? error.code : 'unavailable',
+            verifiedFailure
+              ? 'Update blocked because its persisted release no longer verifies.'
+              : 'Update deferred until its persisted signed release is available again.'
+          );
+          return undefined;
+        }
+        pending = await ensureConnectorRuntimeUpdatePending({
+          approved: pinned, machine, now: this.now(), operations: this.options.operations
+        });
+        if (!pending) await this.blockQueuedUpdate(
+          latest,
+          'persisted-release-mismatch',
+          'Update blocked because its signed persisted release target cannot be reconstructed.'
+        );
+      }
+    }
+    if (!pending) return undefined;
+    if (!await this.automaticUpdateAllowed(machine.id, ownerUserId)) {
+      await this.blockQueuedUpdate(
+        pending.operation,
+        'ambiguous-physical-machine',
+        'Update blocked until one canonical live connector identifies this machine.'
+      );
+      return undefined;
+    }
+    return pending;
+  }
+
+  private async startQueuedOperation(
+    machine: MachineRecord,
+    operation: ConnectorRuntimeOperationRecord,
+    target: ConnectorRuntimeReleaseTarget,
+    approved: ConnectorRuntimeVerifiedRelease | undefined,
+    userId: string,
+    ownerUserId?: string
+  ) {
+    if (operation.requestedByUserId === connectorRuntimeAutomaticUpdateActor &&
+        !await this.automaticUpdateAllowed(machine.id, ownerUserId)) {
+      await this.blockQueuedUpdate(
+        operation,
+        'ambiguous-physical-machine',
+        'Update blocked because the connector is no longer the canonical live machine target.'
+      );
+      return;
+    }
+    if (!operation.previousFingerprint ||
+        (operation.operation === 'update' &&
+          (!approved || !connectorRuntimeUpdateMatchesApproved(operation, approved)))) {
+      await this.blockQueuedUpdate(
+        operation,
+        'persisted-release-mismatch',
+        'Update blocked because its signed manifest does not match the persisted target.'
+      );
+      return;
+    }
+    const startedAt = this.now().toISOString();
+    const claimed = await this.options.operations.claimQueued({
+      deadlineAt: new Date(Date.parse(startedAt) +
+        (operation.operation === 'update'
+          ? connectorRuntimeUpdateTimeoutMs
+          : restartTimeoutMs)).toISOString(),
+      expectedBuildId: operation.expectedBuildId,
+      expectedFingerprint: operation.expectedFingerprint,
+      expectedReleaseId: operation.expectedReleaseId,
+      id: operation.id,
+      requestedReleaseId: approved?.manifest.releaseId,
+      startedAt,
+      target,
+      updatedAt: startedAt
+    });
+    if (!claimed) return;
+    dispatchConnectorRuntimeOperation({
+      dispatcher: this.options.dispatcher,
+      now: this.now,
+      operation: claimed,
+      operations: this.options.operations,
+      plan: this.commandPlan(machine, claimed, target, approved),
+      userId
+    });
+  }
+
   private commandPlan(
     machine: MachineRecord,
-    operationId: string,
+    operation: ConnectorRuntimeOperationRecord,
     target: ConnectorRuntimeReleaseTarget,
-    approved?: VerifiedRelease
+    approved?: ConnectorRuntimeVerifiedRelease
   ): ConnectorRuntimeCommandPlan {
     const base = {
       machineId: machine.id,
-      operationId,
-      previousRuntime: commandFingerprint(machine),
+      operationId: operation.id,
+      previousRuntime: { ...operation.previousFingerprint! },
       schema: 'project-space.connector-runtime-command/v1' as const,
       target
     };
@@ -469,34 +603,22 @@ export class ConnectorRuntimeMaintenanceService {
       : { ...base, operation: 'restart' };
   }
 
-  private dispatch(
+  private async automaticUpdateAllowed(machineId: string, ownerUserId?: string) {
+    if (!this.options.directory.canAutomaticallyUpdate) return true;
+    return await this.options.directory.canAutomaticallyUpdate(machineId, ownerUserId)
+      .catch(() => false);
+  }
+
+  private async blockQueuedUpdate(
     operation: ConnectorRuntimeOperationRecord,
-    plan: ConnectorRuntimeCommandPlan,
-    userId: string
+    code: string,
+    message: string
   ) {
-    let transitions = Promise.resolve();
-    const transition = (state: ConnectorRuntimeOperationState) => {
-      transitions = transitions.then(async () => {
-        const now = this.now().toISOString();
-        await this.options.operations.transition({
-          expectedStates: activeStates, id: operation.id,
-          ...(state === 'validating' ? { startedAt: now } : {}), state, updatedAt: now
-        });
-      });
-    };
-    void this.options.dispatcher.dispatch({
-      onProgress: (stage) => transition(progressState(stage)), plan, userId
-    }).then(async () => {
-      await transitions;
-      transition('reconnecting');
-      await transitions;
-    }).catch(async (error) => {
-      await transitions;
-      const now = this.now().toISOString();
-      await this.options.operations.transition({
-        expectedStates: activeStates, finishedAt: now, id: operation.id,
-        lastFailure: dispatchFailure(error, now), state: 'failed', updatedAt: now
-      });
+    const now = this.now().toISOString();
+    await this.options.operations.transition({
+      expectedStates: ['queued'], id: operation.id,
+      lastFailure: { at: now, code, message, rollbackAvailable: false },
+      state: 'queued', updatedAt: now
     });
   }
 
@@ -504,7 +626,7 @@ export class ConnectorRuntimeMaintenanceService {
     machine: MachineRecord,
     releaseId?: string,
     required = false
-  ): Promise<VerifiedRelease | undefined> {
+  ): Promise<ConnectorRuntimeVerifiedRelease | undefined> {
     const target = targetForMachine(machine);
     if (!target) return undefined;
     try {
@@ -529,7 +651,7 @@ export class ConnectorRuntimeMaintenanceService {
   }
 
   private async reconcileDeadline(operation: ConnectorRuntimeOperationRecord | null) {
-    if (!operation || !activeStates.includes(operation.state) ||
+    if (!operation || operation.state === 'queued' || !activeStates.includes(operation.state) ||
         !operation.deadlineAt || Date.parse(operation.deadlineAt) > this.now().getTime()) {
       return operation;
     }

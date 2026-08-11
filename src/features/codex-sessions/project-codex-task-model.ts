@@ -116,14 +116,18 @@ export function groupProjectCodexTasks(
     (topology.connectors ?? []).map((connector) => [connector.id, connector])
   );
   const physicalMachines = topology.physicalMachines ?? [];
-  const physicalMachineByConnectorId = new Map<string, PhysicalMachineRecord>();
+  const physicalMemberships = new Map<string, PhysicalMachineRecord[]>();
   for (const physicalMachine of physicalMachines) {
-    for (const connectorId of physicalMachine.connectorIds) {
-      if (!physicalMachineByConnectorId.has(connectorId)) {
-        physicalMachineByConnectorId.set(connectorId, physicalMachine);
-      }
+    for (const connectorId of new Set(physicalMachine.connectorIds)) {
+      const memberships = physicalMemberships.get(connectorId) ?? [];
+      memberships.push(physicalMachine);
+      physicalMemberships.set(connectorId, memberships);
     }
   }
+  const physicalMachineByConnectorId = new Map(
+    [...physicalMemberships].flatMap(([connectorId, memberships]) =>
+      memberships.length === 1 ? [[connectorId, memberships[0]!] as const] : [])
+  );
   const orderedMachineIds = [...new Set([
     ...machines.map((machine) => machine.id),
     ...scopedMachineIds,

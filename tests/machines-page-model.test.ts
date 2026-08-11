@@ -152,6 +152,7 @@ describe('machineListRows', () => {
       ['os-macbook', true],
       ['lonely-connector', false]
     ]);
+    expect(rows.every((row) => !row.hasIdentityConflict)).toBe(true);
     expect(rows[0].connectorCount).toBe(2);
     expect(rows[0].onlineConnectorCount).toBe(1);
   });
@@ -182,6 +183,22 @@ describe('machineListRows', () => {
     const rows = rowsFor([], [physicalMachine('os-retired', ['gone'])]);
 
     expect(rows).toEqual([]);
+  });
+
+  test('marks conflicting physical identity instead of treating it as ungrouped', () => {
+    const rows = rowsFor(
+      [machine({ id: 'connector-a' })],
+      [
+        physicalMachine('os-first', ['connector-a']),
+        physicalMachine('os-second', ['connector-a'])
+      ]
+    );
+
+    expect(rows).toMatchObject([{
+      hasIdentityConflict: true,
+      id: 'connector-a',
+      isGrouped: false
+    }]);
   });
 });
 

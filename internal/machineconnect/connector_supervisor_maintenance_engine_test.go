@@ -32,6 +32,7 @@ func TestConnectorSupervisorMaintenanceRestartsCurrentReleaseAndCommits(t *testi
 	wantEnvironment := []string{
 		ConnectorSupervisorMaintenanceControlEnv + "=" + fixture.maintenance.paths.ControlFile,
 		ConnectorSupervisorMaintenanceDecisionEnv + "=" + fixture.maintenance.paths.DecisionFile,
+		ConnectorSupervisorMaintenanceOutcomeEnv + "=" + fixture.maintenance.paths.OutcomeFile,
 		ConnectorSupervisorMaintenanceStagingEnv + "=" + fixture.maintenance.paths.StagingRoot,
 		ConnectorCommandSigningKeyFileEnv + "=" + fixture.maintenance.commandVerificationKeyFile,
 		ConnectorReleaseSigningKeyFileEnv + "=" + fixture.maintenance.releaseVerificationKeyFile,
@@ -96,6 +97,97 @@ func TestConnectorSupervisorMaintenanceUpdatesAndCommits(t *testing.T) {
 	}
 	if fixture.pointer() != nextPointer {
 		t.Fatalf("commit changed pointer to %s", fixture.pointer())
+	}
+	outcome, outcomeErr := fixture.maintenance.readCommitOutcome()
+	if outcomeErr != nil || outcome.OperationID != maintenanceTestOperation {
+		t.Fatalf("commit outcome = %#v, err=%v", outcome, outcomeErr)
+	}
+}
+
+func TestConnectorSupervisorMaintenanceRecoversCommitAcceptedBeforeStateCleanup(t *testing.T) {
+	fixture := newMaintenanceTestFixture(t, "linux-x64")
+	fixture.writeUpdateControl(
+		maintenanceTestOperation,
+		maintenanceTestArchive(t, "linux-x64"),
+	)
+	if _, err := fixture.maintenance.ProcessControl(); err != nil {
+		t.Fatal(err)
+	}
+	interrupted := errors.New("simulated process death after durable outcome")
+	fixture.maintenance.afterOutcomeWrite = func() error { return interrupted }
+	fixture.writeDecision(maintenanceTestOperation, "commit")
+	if _, _, err := fixture.maintenance.CheckHealthDecision(); !errors.Is(err, interrupted) {
+		t.Fatalf("commit interruption error = %v", err)
+	}
+	if _, err := fixture.maintenance.readState(); err != nil {
+		t.Fatalf("pending state was not durable: %v", err)
+	}
+	outcome, err := fixture.maintenance.readCommitOutcome()
+	if err != nil || outcome.OperationID != maintenanceTestOperation {
+		t.Fatalf("durable outcome = %#v, err=%v", outcome, err)
+	}
+
+	fixture.maintenance.afterOutcomeWrite = nil
+	recovered, err := fixture.maintenance.RecoverStartup()
+	if err != nil || recovered.Outcome != ConnectorSupervisorMaintenanceSucceeded {
+		t.Fatalf("accepted commit recovery = %#v, err=%v", recovered, err)
+	}
+	assertMissing(t, fixture.maintenance.paths.StateFile)
+	assertMissing(t, fixture.maintenance.paths.DecisionFile)
+	if _, err := fixture.maintenance.readCommitOutcome(); err != nil {
+		t.Fatalf("recovery removed connector commit outcome: %v", err)
+	}
+}
+
+func TestConnectorSupervisorMaintenanceNeverRollsBackAfterDurableCommitOutcome(t *testing.T) {
+	for _, scenario := range []struct {
+		name    string
+		recover func(*ConnectorSupervisorMaintenance) (ConnectorSupervisorMaintenanceResult, error)
+	}{
+		{
+			name: "connector exit",
+			recover: func(maintenance *ConnectorSupervisorMaintenance) (ConnectorSupervisorMaintenanceResult, error) {
+				return maintenance.HandleConnectorExit()
+			},
+		},
+		{
+			name: "health timeout",
+			recover: func(maintenance *ConnectorSupervisorMaintenance) (ConnectorSupervisorMaintenanceResult, error) {
+				maintenance.now = func() time.Time { return maintenanceTestNow.Add(2 * time.Minute) }
+				return maintenance.HandleHealthTimeout()
+			},
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fixture := newMaintenanceTestFixture(t, "linux-x64")
+			fixture.writeUpdateControl(
+				maintenanceTestOperation,
+				maintenanceTestArchive(t, "linux-x64"),
+			)
+			if _, err := fixture.maintenance.ProcessControl(); err != nil {
+				t.Fatal(err)
+			}
+			nextPointer := fixture.pointer()
+			interrupted := errors.New("simulated interruption after durable outcome")
+			fixture.maintenance.afterOutcomeWrite = func() error { return interrupted }
+			fixture.writeDecision(maintenanceTestOperation, "commit")
+			if _, _, err := fixture.maintenance.CheckHealthDecision(); !errors.Is(err, interrupted) {
+				t.Fatalf("commit interruption error = %v", err)
+			}
+			fixture.maintenance.afterOutcomeWrite = nil
+
+			result, err := scenario.recover(fixture.maintenance)
+			if err != nil || result.Outcome != ConnectorSupervisorMaintenanceSucceeded {
+				t.Fatalf("accepted commit recovery = %#v, err=%v", result, err)
+			}
+			if fixture.pointer() != nextPointer || fixture.pointer() == maintenanceTestOldPointer {
+				t.Fatalf("accepted commit rolled back pointer to %s", fixture.pointer())
+			}
+			assertMissing(t, fixture.maintenance.paths.StateFile)
+			if _, err := fixture.maintenance.readCommitOutcome(); err != nil {
+				t.Fatalf("accepted commit lost outcome: %v", err)
+			}
+		})
 	}
 }
 
@@ -325,7 +417,7 @@ func TestConnectorSupervisorMaintenanceRestartFailureDoesNotChangeVersion(t *tes
 		t.Fatalf("restart failure = %#v pointer=%s err=%v", result, fixture.pointer(), err)
 	}
 	environment, envErr := fixture.maintenance.CompanionEnvironment(nil)
-	if envErr != nil || len(environment) != 6 {
+	if envErr != nil || len(environment) != 7 {
 		t.Fatalf("failed restart environment = %#v, %v", environment, envErr)
 	}
 }

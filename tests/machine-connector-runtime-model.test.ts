@@ -242,6 +242,8 @@ describe('machine connector runtime actions', () => {
   });
 
   test('uses honest state and operation labels', () => {
+    expect(runtimeStateLabel('update-pending')).toBe('Update pending');
+    expect(isRuntimeBusy({ state: 'update-pending' })).toBe(true);
     expect(runtimeStateLabel('rollback')).toBe('Rolled back');
     expect(runtimeStateLabel(undefined)).toBe('Version unknown');
     expect(

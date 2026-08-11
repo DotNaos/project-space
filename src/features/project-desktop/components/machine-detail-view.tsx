@@ -31,12 +31,29 @@ import {
   runtimeVersionLabel
 } from './machine-connector-runtime-model';
 import { ConnectorChannelChip } from './connector-channel-chip';
+import { ConnectorRuntimeStatusChip } from './connector-runtime-status-chip';
+import {
+  machineDetailDaemonStateLabel,
+  machineDetailDisplayName,
+  machineDetailRuntimeReason,
+  machineDetailVersionLabel
+} from './machine-detail-runtime-model';
 
-function MachineDetailRow({ label, value }: { label: string; value: string }) {
+function MachineDetailRow({
+  label,
+  value,
+  wrap = false
+}: {
+  label: string;
+  value: string;
+  wrap?: boolean;
+}) {
   return (
     <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-neutral-900/70 py-2 last:border-b-0">
       <Text className="shrink-0 text-xs font-medium text-neutral-500">{label}</Text>
-      <Text className="min-w-0 truncate text-right text-sm text-neutral-200">{value}</Text>
+      <Text className={`min-w-0 text-right text-sm text-neutral-200 ${wrap ? 'break-words' : 'truncate'}`}>
+        {value}
+      </Text>
     </div>
   );
 }
@@ -320,19 +337,23 @@ export function MachineDetailView({
 
   const origin =
     machine.connector.origin ?? machine.network.tailscaleIp ?? machine.connector.installCommand;
+  const displayName = machineDetailDisplayName(connector, machine);
+  const daemon = machine.connector.daemon;
+  const deferredOrBlockedReason = machineDetailRuntimeReason(machine);
 
   return (
     <div className={`mx-auto flex min-h-full w-full flex-col gap-4 ${tab === 'explorer' ? 'max-w-[100rem]' : 'max-w-5xl'}`}>
       <section className="border-b border-neutral-800/70 pb-4">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <MachineDeviceIcon machine={machine} />
               <Text className="truncate text-2xl font-semibold text-neutral-50">
-                {machine.name}
+                {displayName}
               </Text>
               <MachineOsMark machine={machine} />
               <ConnectorChannelChip machine={machine} />
+              <ConnectorRuntimeStatusChip update={machine.connector.update} />
             </div>
             <Text className="mt-1 block text-sm text-neutral-500">
               {machineSubtitle(machine) || 'machine'}
@@ -382,11 +403,49 @@ export function MachineDetailView({
           >
             <Text className="mb-3 block text-sm font-semibold text-neutral-100">Connection</Text>
             <MachineDetailRow label="Status" value={machine.connector.status} />
-            <MachineDetailRow label="Version" value={runtimeVersionLabel(machine)} />
+            <MachineDetailRow label="Current Project Space" value={runtimeVersionLabel(machine)} />
+            <MachineDetailRow
+              label="Available Project Space"
+              value={machineDetailVersionLabel(machine.connector.update?.availableVersion)}
+            />
             <MachineDetailRow
               label="Update"
               value={runtimeStateLabel(machine.connector.update?.state)}
             />
+            <MachineDetailRow label="Codex CLI" value={machineDetailVersionLabel(daemon?.cliVersion)} />
+            <MachineDetailRow
+              label="Codex app-server"
+              value={machineDetailVersionLabel(daemon?.appServerVersion)}
+            />
+            <MachineDetailRow
+              label="Managed Codex"
+              value={machineDetailVersionLabel(daemon?.managedCodexVersion)}
+            />
+            <MachineDetailRow
+              label="Daemon backend"
+              value={daemon?.backend ?? 'not reported'}
+            />
+            <MachineDetailRow
+              label="Codex compatibility"
+              value={daemon ? (daemon.compatible ? 'Compatible' : 'Not compatible') : 'not reported'}
+            />
+            <MachineDetailRow
+              label="Codex state"
+              value={machineDetailDaemonStateLabel(daemon?.state)}
+            />
+            <MachineDetailRow
+              label="Remote Control"
+              value={daemon
+                ? machineDetailDaemonStateLabel(daemon.remoteControlState)
+                : 'not reported'}
+            />
+            {deferredOrBlockedReason ? (
+              <MachineDetailRow
+                label="Deferred / blocked reason"
+                value={deferredOrBlockedReason}
+                wrap
+              />
+            ) : null}
             <MachineDetailRow label="Service" value={machine.connector.serviceName ?? 'unknown'} />
             <MachineDetailRow label="Last seen" value={formatOptionalTime(machine.connector.lastSeen)} />
             <MachineDetailRow label="Origin" value={origin ?? 'unknown'} />

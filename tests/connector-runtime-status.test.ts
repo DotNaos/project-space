@@ -85,13 +85,26 @@ function operation(state: ConnectorRuntimeOperationRecord['state']): ConnectorRu
 }
 
 describe('connector runtime status', () => {
-  test('does not claim a metadata-less or capability-less connector can update itself', () => {
+  test('does not claim a metadata-less connector can update itself', () => {
     expect(projectMachineRuntimeStatus({ machine: machine({
       connector: { capabilities, installCommand: 'legacy', status: 'online' }
     }) }).update.state).toBe('unsupported');
+  });
+
+  test('keeps a stale managed connector visible when it has no update command', () => {
     expect(projectMachineRuntimeStatus({ machine: machine({
       connector: { capabilities: [], installCommand: 'legacy', runtime, status: 'online' }
-    }), approved }).update.state).toBe('unsupported');
+    }), approved }).update).toMatchObject({
+      availableReleaseId: 'v0.5.0',
+      availableVersion: '0.5.0',
+      state: 'update-required'
+    });
+    expect(projectMachineRuntimeStatus({ machine: machine({
+      connector: { capabilities: [], installCommand: 'legacy', runtime, status: 'offline' }
+    }), approved })).toMatchObject({
+      online: false,
+      update: { state: 'update-required' }
+    });
   });
 
   test('keeps restart independent when this connector cannot self-update', () => {
@@ -102,11 +115,12 @@ describe('connector runtime status', () => {
       status: 'online'
     } });
     const status = projectMachineRuntimeStatus({ approved, machine: restartOnly });
-    expect(status.update.state).toBe('unsupported');
+    expect(status.update.state).toBe('update-required');
     expect(canRestartMachineRuntime({
       ...restartOnly,
       connector: { ...restartOnly.connector, update: status.update }
     })).toBe(true);
+    expect(status.capabilities).not.toContain('runtime.update');
   });
 
   test('keeps the shipped Windows runtime honestly unsupported', () => {
@@ -131,6 +145,22 @@ describe('connector runtime status', () => {
     expect(result.online).toBe(false);
     expect(result.update.state).toBe('updating');
     expect(result.update.operation?.state).toBe('reconnecting');
+  });
+
+  test('keeps stale offline connectors and deferred updates visible', () => {
+    const offline = machine({ connector: {
+      capabilities, installCommand: 'connector', runtime, status: 'offline'
+    } });
+    expect(projectMachineRuntimeStatus({ approved, machine: offline }).update)
+      .toMatchObject({
+        availableVersion: '0.5.0',
+        state: 'update-available'
+      });
+    expect(projectMachineRuntimeStatus({
+      approved,
+      machine: offline,
+      operation: operation('queued')
+    }).update.state).toBe('update-pending');
   });
 
   test('distinguishes required compatibility updates, optional updates, and current builds', () => {

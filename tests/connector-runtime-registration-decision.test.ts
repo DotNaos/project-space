@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +22,7 @@ import {
   isConnectorRuntimeSupervisorDecision
 } from '../server/connector-runtime-registration-decision';
 import { connectorRuntimeCredentialVersion } from '../server/connector-runtime-credential';
+import { connectorRuntimeSupervisorOutcomeSchema } from '../server/connector-runtime-supervisor-outcome';
 import { startProjectConnectorWebSocket } from '../server/project-connector-websocket';
 import type {
   ConnectorProjectRegistryResult,
@@ -34,6 +35,7 @@ const environmentKeys = [
   'PROJECT_CONNECTOR_RUNTIME_DECISION_FILE',
   'PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID',
   'PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE',
+  'PROJECT_CONNECTOR_RUNTIME_OUTCOME_FILE',
   'PROJECT_CONNECTOR_RUNTIME_STAGING_DIR',
   'PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY',
   'PROJECT_SPACE_INSTALL_SOURCE'
@@ -218,11 +220,54 @@ describe('connector runtime reconnect decisions', () => {
     }
   });
 
+  test('persists pending maintenance before registration and dispatches after the session exists', async () => {
+    const events: string[] = [];
+    let decisionCalls = 0;
+    const hub = await listeningServer({
+      async authenticateConnectorCredential() {
+        return { machineId: 'runtime-pending', userId: 'owner-576' };
+      },
+      async continueConnectorRuntimeMaintenance({ machineId, ownerUserId }) {
+        expect(isConnectorCommandChannelAvailable(machineId)).toBe(true);
+        expect(ownerUserId).toBe('owner-576');
+        events.push('continue');
+      },
+      async decideConnectorRuntimeMaintenance() {
+        decisionCalls += 1;
+        return undefined;
+      },
+      async prepareConnectorRuntimeMaintenance({ machineId, ownerUserId }) {
+        expect(isConnectorCommandChannelAvailable(machineId)).toBe(false);
+        expect(ownerUserId).toBe('owner-576');
+        events.push('prepare');
+      }
+    });
+    const socket = new WebSocket(hub.origin.replace(/^http/, 'ws') + '/api/connectors/socket');
+    await once(socket, 'open');
+    socket.send(JSON.stringify({
+      payload: registry('runtime-pending'),
+      token: 'credential',
+      type: 'connector.register'
+    }));
+    try {
+      await once(socket, 'message');
+      await waitFor(() => events.length === 2);
+      expect(events).toEqual(['prepare', 'continue']);
+      expect(decisionCalls).toBe(0);
+    } finally {
+      socket.close();
+      hub.server.closeAllConnections();
+      await hub.commands.close();
+      await new Promise<void>((resolve) => hub.server.close(() => resolve()));
+    }
+  });
+
   test('persists an authenticated matching hub decision before becoming ready', async () => {
     const root = await mkdtemp(join(tmpdir(), 'project-runtime-bridge-'));
     const maintenance = join(root, '.project-space-machine-tools', 'maintenance');
     await mkdir(maintenance, { recursive: true });
     const decisionPath = join(maintenance, 'decision.json');
+    const outcomePath = join(maintenance, 'outcome.json');
     const commandKeys = generateKeyPairSync('ed25519');
     const releaseKeys = generateKeyPairSync('ed25519');
     process.env.PROJECT_SPACE_INSTALL_SOURCE = 'managed';
@@ -232,6 +277,7 @@ describe('connector runtime reconnect decisions', () => {
       .export({ format: 'pem', type: 'spki' }).toString();
     process.env.PROJECT_CONNECTOR_RUNTIME_CONTROL_FILE = join(maintenance, 'control.json');
     process.env.PROJECT_CONNECTOR_RUNTIME_DECISION_FILE = decisionPath;
+    process.env.PROJECT_CONNECTOR_RUNTIME_OUTCOME_FILE = outcomePath;
     process.env.PROJECT_CONNECTOR_RUNTIME_STAGING_DIR = join(root, 'staging');
     let decisionCalls = 0;
     const hub = await listeningServer({
@@ -257,9 +303,18 @@ describe('connector runtime reconnect decisions', () => {
       }
     } as ProjectSpaceBackend;
     const bridges: Array<ReturnType<typeof startProjectConnectorWebSocket>> = [];
+    const selectionEvents: string[] = [];
     const startBridge = () => startProjectConnectorWebSocket({
       backend,
       reconnectDelayMs: 10,
+      runtimeMaintenanceSelection: {
+        async commit(operationId) {
+          selectionEvents.push(`commit:${operationId}`);
+        },
+        async restore(operationId) {
+          selectionEvents.push(`restore:${operationId}`);
+        }
+      },
       runtimeCredential: {
         backendUrl: hub.origin,
         credential: 'machine-credential',
@@ -268,6 +323,15 @@ describe('connector runtime reconnect decisions', () => {
       }
     });
     bridges.push(startBridge());
+    const supervisor = (async () => {
+      await waitFor(() => Bun.file(decisionPath).exists());
+      expect(selectionEvents).toEqual([]);
+      await writeFile(outcomePath, `${JSON.stringify({
+        action: 'commit',
+        operationId: 'operation-bridge',
+        schema: connectorRuntimeSupervisorOutcomeSchema
+      })}\n`, { mode: 0o600 });
+    })();
     try {
       await waitFor(async () => {
         try {
@@ -282,7 +346,9 @@ describe('connector runtime reconnect decisions', () => {
         action: 'commit', operationId: 'operation-bridge',
         schema: connectorRuntimeSupervisorDecisionSchema
       });
+      await supervisor;
       await waitFor(() => decisionCalls >= 2);
+      expect(selectionEvents).toEqual(['commit:operation-bridge']);
       expect(process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID).toBeUndefined();
       expect(process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE).toBeUndefined();
       expect(isConnectorCommandChannelAvailable('runtime-bridge')).toBe(true);

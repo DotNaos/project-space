@@ -623,6 +623,34 @@ describe('Canonical Codex task page', () => {
     expect(html).not.toContain('Models unavailable');
   });
 
+  test('shows a reachable model-readiness explanation and recovery action', () => {
+    const html = renderToStaticMarkup(
+      <CodexConversationPane
+        conversation={conversation}
+        machine={machine}
+        modelSelection={{
+          disabled: true,
+          error: 'Update deferred until the pending approval is resolved.',
+          models: [],
+          onChange: () => {},
+          onEffortChange: () => {},
+          onServiceTierChange: () => {},
+          recoveryCommand: 'project doctor --machine-id machine-mac',
+          recoveryHref: '/settings',
+          value: ''
+        }}
+        session={{ ...activeSession, status: 'idle' }}
+      />
+    );
+
+    expect(html).toContain('aria-label="Model settings unavailable. Update deferred');
+    expect(html).toContain('Update deferred until the pending approval is resolved.');
+    expect(html).toContain('project doctor --machine-id machine-mac');
+    expect(html).toContain('href="/settings"');
+    expect(html).toContain('Open machine recovery');
+    expect(html).not.toContain('disabled="" title=');
+  });
+
   test('exposes advertised permission profiles in the full task composer', () => {
     const html = renderToStaticMarkup(
       <CodexConversationPane

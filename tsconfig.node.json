@@ -18,6 +18,7 @@
   "include": [
     "vite.config.ts",
     "apps/prototype/vite.config.ts",
+    "apps/prototype/src/project-space-pages/machine-runtime-fixtures.ts",
     "apps/docs/lib/releases/catalog.ts",
     "apps/docs/lib/releases/changelog-source.ts",
     "apps/docs/lib/releases/frontmatter.ts",

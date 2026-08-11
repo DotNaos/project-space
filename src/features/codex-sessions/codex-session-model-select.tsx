@@ -1,6 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { Drawer, Popover } from '@heroui/react';
-import { Check, ChevronRight, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import {
+  Check,
+  ChevronRight,
+  CircleAlert,
+  RefreshCw,
+  SlidersHorizontal,
+  Wrench
+} from 'lucide-react';
 import { ListBox, ListBoxItem, Select } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
@@ -18,6 +25,7 @@ export type { CodexSessionModelSelection } from './codex-session-model-selection
 export function CodexSessionModelSelect(selection: CodexSessionModelSelection) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [unavailableOpen, setUnavailableOpen] = useState(false);
   const selected = selection.models.find((model) => model.model === selection.value);
   const modelLabel = (selected?.displayName ?? selection.value)
     || (selection.loading ? 'Loading models…' : 'Model catalogue unavailable');
@@ -27,18 +35,69 @@ export function CodexSessionModelSelect(selection: CodexSessionModelSelection) {
   ].filter(Boolean).join(' ');
 
   if (selection.disabled || selection.models.length === 0) {
+    if (selection.loading && !selection.error) {
+      return (
+        <button
+          aria-label="Loading Codex models"
+          className="h-9 max-w-52 truncate rounded-full px-2.5 text-xs font-medium text-neutral-500"
+          disabled
+          type="button"
+        >
+          {summary}
+        </button>
+      );
+    }
     return (
-      <button
-        aria-label={selection.onRetry ? 'Retry Codex model catalogue' : 'Codex model settings'}
-        className="inline-flex h-9 max-w-60 items-center gap-1.5 truncate rounded-full px-2.5 text-xs font-medium text-neutral-500 enabled:hover:bg-neutral-800 enabled:hover:text-neutral-200"
-        disabled={!selection.onRetry}
-        onClick={selection.onRetry}
-        title={selection.error}
-        type="button"
-      >
-        <span className="truncate">{summary}</span>
-        {selection.onRetry ? <RefreshCw className="size-3 shrink-0" /> : null}
-      </button>
+      <Popover isOpen={unavailableOpen} onOpenChange={setUnavailableOpen}>
+        <Popover.Trigger
+          aria-label={`Model settings unavailable. ${selection.error ?? ''}`.trim()}
+          className="flex h-9 max-w-56 min-w-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-amber-300/80 outline-none transition hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-neutral-700"
+        >
+          <CircleAlert className="size-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{summary}</span>
+          <ChevronRight className="size-3 shrink-0" />
+        </Popover.Trigger>
+        <Popover.Content
+          className="w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-neutral-700/80 bg-neutral-900/95 p-4 text-neutral-100 shadow-2xl shadow-black/70 backdrop-blur-xl"
+          offset={10}
+          placement="top"
+        >
+          <Popover.Dialog className="outline-none">
+            <p className="text-xs font-semibold text-neutral-100">Model settings unavailable</p>
+            <p className="mt-1 text-xs leading-5 text-neutral-400">
+              {selection.error ?? 'This machine has not proved compatible model readiness.'}
+            </p>
+            {selection.recoveryCommand ? (
+              <code className="mt-3 block overflow-x-auto rounded-lg bg-neutral-950 px-3 py-2 text-[10px] text-neutral-300">
+                {selection.recoveryCommand}
+              </code>
+            ) : null}
+            <div className="mt-3 flex items-center gap-2">
+              {selection.onRetry ? (
+                <button
+                  aria-label="Retry Codex model catalogue"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-neutral-100 px-3 text-xs font-semibold text-neutral-900"
+                  onClick={() => {
+                    setUnavailableOpen(false);
+                    selection.onRetry?.();
+                  }}
+                  type="button"
+                >
+                  <RefreshCw className="size-3.5" /> Retry
+                </button>
+              ) : null}
+              {selection.recoveryHref ? (
+                <a
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-neutral-800 px-3 text-xs font-semibold text-neutral-100 hover:bg-neutral-700"
+                  href={selection.recoveryHref}
+                >
+                  <Wrench className="size-3.5" /> Open machine recovery
+                </a>
+              ) : null}
+            </div>
+          </Popover.Dialog>
+        </Popover.Content>
+      </Popover>
     );
   }
 

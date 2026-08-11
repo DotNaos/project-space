@@ -74,6 +74,9 @@ type ExecutableOperation = Exclude<
   CodexSessionsConnectorOperation,
   'attach' | 'authorization' | 'daemon' | 'stream'
 >;
+const maintenanceActivityOperations = new Set<ExecutableOperation>([
+  'continue', 'settings', 'start'
+]);
 export class CodexSessionsExecutorError extends Error {
   readonly code = 'codex_sessions_executor_rejected';
 
@@ -81,6 +84,16 @@ export class CodexSessionsExecutorError extends Error {
     super('The Codex session operation was rejected.');
     this.name = 'CodexSessionsExecutorError';
   }
+}
+
+async function withMaintenanceActivity<Result>(
+  admission: CodexSessionsConnectorExecutorOptions['maintenanceAdmission'],
+  action: () => Promise<Result>
+) {
+  const lease = admission?.tryBeginActivity('codex');
+  if (admission && !lease) throw new CodexSessionsExecutorError();
+  try { return await action(); }
+  finally { lease?.release(); }
 }
 
 export class CodexSessionsConnectorExecutor {
@@ -101,7 +114,10 @@ export class CodexSessionsConnectorExecutor {
     signal?: AbortSignal
   ): Promise<CodexSessionsWireResult> {
     const request = this.verify(value, operation);
-    switch (operation) {
+    const admission = maintenanceActivityOperations.has(operation)
+      ? this.options.maintenanceAdmission : undefined;
+    return withMaintenanceActivity(admission, async () => {
+      switch (operation) {
       case 'browser':
         return {
           operation,
@@ -172,7 +188,9 @@ export class CodexSessionsConnectorExecutor {
           operation,
           result: await this.respondToInput(request.payload as CodexSessionUserInputResponse)
         };
-    }
+      }
+      throw new CodexSessionsExecutorError();
+    });
   }
 
   stream(value: unknown, emit: (event: CodexSessionStreamEvent) => void) {
@@ -205,15 +223,17 @@ export class CodexSessionsConnectorExecutor {
       machineName: this.options.machineName,
       manager: this.options.manager,
       mutate: async ({ kind, machineId, request, threadId: candidateThreadId }) => {
-        const result = kind === 'continue'
-          ? await this.continue(request as CodexSessionContinueRequest)
+        const admission = kind === 'continue' || kind === 'settings'
+          ? this.options.maintenanceAdmission : undefined;
+        const result = await withMaintenanceActivity(admission, async () => kind === 'continue'
+          ? this.continue(request as CodexSessionContinueRequest)
           : kind === 'interrupt'
-            ? await this.interrupt(request as CodexSessionInterruptRequest)
+            ? this.interrupt(request as CodexSessionInterruptRequest)
             : kind === 'approval'
-              ? await this.approve(request as CodexSessionApprovalRequest)
+              ? this.approve(request as CodexSessionApprovalRequest)
               : kind === 'settings'
-                ? await this.settings(request as CodexSessionSettingsRequest)
-                : await this.respondToInput(request as CodexSessionUserInputResponse);
+                ? this.settings(request as CodexSessionSettingsRequest)
+                : this.respondToInput(request as CodexSessionUserInputResponse));
         return { machineId, result, threadId: candidateThreadId };
       },
       now: () => this.options.now?.() ?? Date.now(),

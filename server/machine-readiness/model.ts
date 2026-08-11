@@ -70,9 +70,21 @@ export function evaluateMachineReadiness(
       state: 'unauthorized'
     });
   }
+  const selectedConnectorIds = input.connectorId ? [input.connectorId] : machine.connectorIds;
+  const identityConflict = selectedConnectorIds.find((connectorId) => (
+    input.physicalMachines.filter((candidate) => candidate.connectorIds.includes(connectorId))
+      .length > 1
+  ));
+  if (identityConflict) {
+    return baseResult({
+      checkedAt,
+      machine,
+      message: `Connector ${identityConflict} is assigned to more than one physical machine.`,
+      state: 'ambiguous'
+    });
+  }
   const connectorRecords = new Map(input.connectors.map((entry) => [entry.id, entry]));
-  const connectorIds = input.connectorId ? [input.connectorId] : machine.connectorIds;
-  const evaluated = connectorIds.map((connectorId) => evaluateConnector(
+  const evaluated = selectedConnectorIds.map((connectorId) => evaluateConnector(
     connectorId,
     connectorRecords.get(connectorId),
     input.generationFor(connectorId),
@@ -102,7 +114,7 @@ export function evaluateMachineReadiness(
   }
   if (outdated.length === 1) {
     return selectedResult(machine, checkedAt, checks, outdated[0]!, 'degraded',
-      'The machine is usable, but its managed connector is outdated.');
+      'New tasks are paused until the approved connector update finishes.');
   }
 
   const repairable = evaluated.filter((entry) => entry.check.state === 'repairable');
@@ -207,6 +219,28 @@ function evaluateConnector(
     return { check: { ...common, state: 'unreachable',
       summary: 'The connector installation is offline.' }, operation };
   }
+  if (update?.state === 'update-pending' || update?.state === 'updating' ||
+      update?.state === 'restarting') {
+    return { check: { ...common, state: 'repairing',
+      summary: 'A managed connector repair is in progress.' }, operation };
+  }
+  if (update?.state === 'rollback') {
+    return { check: { ...common, state: 'rolling-back',
+      summary: 'The managed connector update is rolling back.' }, operation };
+  }
+  if (update?.state === 'failed') {
+    return { check: { ...common, state: 'failed',
+      summary: 'Managed connector maintenance failed.' }, operation };
+  }
+  if (update?.state === 'unknown') {
+    return { check: { ...common, state: 'uncertain',
+      summary: 'The approved managed release could not be established.' }, operation };
+  }
+  if ((update?.state === 'update-available' || update?.state === 'update-required') && !action) {
+    return { check: { ...common, state: 'manually-blocked',
+      summary: 'An approved connector update is required, but this installation has no safe update channel.' },
+      operation };
+  }
 
   const codexReady = capabilities.includes(codexCapability) && generation !== undefined;
   const daemon = connector.connector.daemon;
@@ -307,22 +341,6 @@ function evaluateConnector(
       summary: 'The connector can be maintained safely, but no managed Codex installation is available.' },
       operation };
   }
-  if (update?.state === 'updating' || update?.state === 'restarting') {
-    return { check: { ...common, state: 'repairing',
-      summary: 'A managed connector repair is in progress.' }, operation };
-  }
-  if (update?.state === 'rollback') {
-    return { check: { ...common, state: 'rolling-back',
-      summary: 'The managed connector update is rolling back.' }, operation };
-  }
-  if (update?.state === 'failed') {
-    return { check: { ...common, state: 'failed',
-      summary: 'Managed connector maintenance failed.' }, operation };
-  }
-  if (update?.state === 'unknown') {
-    return { check: { ...common, state: 'uncertain',
-      summary: 'The approved managed release could not be established.' }, operation };
-  }
   if (runtime?.source === 'managed' && !runtimeStatus) {
     return { check: { ...common, state: 'uncertain',
       summary: 'Managed connector release status is unavailable.' }, operation };
@@ -353,7 +371,7 @@ function repairAction(
     };
   }
   if ((update.state !== 'update-available' && update.state !== 'update-required') ||
-      !update.availableReleaseId) return undefined;
+      !update.availableReleaseId || !status.capabilities.includes('runtime.update')) return undefined;
   return {
     connectorId,
     fromVersion: status.runtime?.version,
@@ -416,7 +434,7 @@ function resultFor(
 ): MachineReadinessResult {
   const command = `project doctor --machine-id ${machine.id}`;
   const fixable = state === 'repairable' || state === 'degraded';
-  const ready = state === 'ready' || state === 'degraded' || state === 'repaired';
+  const ready = state === 'ready' || state === 'repaired';
   return {
     apiVersion: MACHINE_READINESS_API_VERSION,
     checkedAt,

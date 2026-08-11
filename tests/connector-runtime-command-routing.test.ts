@@ -1,6 +1,9 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { once } from 'node:events';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 import { WebSocket } from 'ws';
@@ -13,14 +16,20 @@ import {
   isConnectorMachineMessage,
   type ConnectorMachineMessage
 } from '../server/connector-command-protocol';
-import type { ConnectorRuntimeRestartPlan } from '../server/connector-runtime-command-contract';
 import {
+  createConnectorRuntimeCommandWireRequest,
+  type ConnectorRuntimeRestartPlan
+} from '../server/connector-runtime-command-contract';
+import {
+  ConnectorRuntimeCommandDispatcher,
   ConnectorRuntimeCommandOutcomeUnknownError,
   connectorRegistryForRuntimeConfiguration,
   connectorRuntimeCommandBinding,
+  isConnectorRuntimeCommandResult,
   requestConnectorRuntimeCommand
 } from '../server/connector-runtime-command-routing';
 import type { ConnectorRuntimeReleaseTarget } from '../server/connector-runtime-maintenance-contract';
+import { connectorRuntimeSupervisorOutcomeSchema } from '../server/connector-runtime-supervisor-outcome';
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
 
 const originalSigningKey = process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY;
@@ -119,6 +128,167 @@ async function closeConnector(
 }
 
 describe('connector runtime command routing', () => {
+  test('commits Codex only after the supervisor durably accepts the Hub decision', async () => {
+    const keys = generateKeyPairSync('ed25519');
+    const root = mkdtempSync(join(tmpdir(), 'runtime-decision-codex-'));
+    const decisionPath = join(root, 'decision.json');
+    const outcomePath = join(root, 'outcome.json');
+    const events: string[] = [];
+    try {
+      const dispatcher = new ConnectorRuntimeCommandDispatcher({
+        commandVerificationKey: keys.publicKey,
+        controlFilePath: join(root, 'control.json'),
+        decisionFilePath: decisionPath,
+        expectedMachineId: 'runtime-decision',
+        expectedTarget: target(),
+        maintenanceSafety: () => ({ blockers: [], certainty: 'safe' }),
+        maintenanceSelection: {
+          async commit(operationId) {
+            expect(existsSync(outcomePath)).toBe(true);
+            events.push(`commit:${operationId}`);
+          },
+          async restore(operationId) {
+            expect(existsSync(decisionPath)).toBe(false);
+            events.push(`restore:${operationId}`);
+          }
+        },
+        outcomeFilePath: outcomePath,
+        outcomePollIntervalMs: 1,
+        outcomeTimeoutMs: 1_000,
+        releaseVerificationKey: keys.publicKey,
+        shutdown() {},
+        stagingDirectory: join(root, 'staging')
+      });
+      const evidence = {
+        operationId: 'operation-codex-decision',
+        state: 'pending-health-check' as const
+      };
+
+      await dispatcher.acceptRegistration(evidence, {
+        action: 'rollback', operationId: evidence.operationId
+      });
+      expect(events).toEqual(['restore:operation-codex-decision']);
+      expect(JSON.parse(readFileSync(decisionPath, 'utf8'))).toMatchObject({
+        action: 'rollback', operationId: evidence.operationId
+      });
+
+      rmSync(decisionPath);
+      const committing = dispatcher.acceptRegistration(evidence, {
+        action: 'commit', operationId: evidence.operationId
+      });
+      for (let attempt = 0; attempt < 100 && !existsSync(decisionPath); attempt += 1) {
+        await Bun.sleep(1);
+      }
+      expect(existsSync(decisionPath)).toBe(true);
+      expect(events).toEqual(['restore:operation-codex-decision']);
+      writeFileSync(outcomePath, `${JSON.stringify({
+        action: 'commit',
+        operationId: evidence.operationId,
+        schema: connectorRuntimeSupervisorOutcomeSchema
+      })}\n`, { mode: 0o600 });
+      await committing;
+      expect(events).toEqual([
+        'restore:operation-codex-decision',
+        'commit:operation-codex-decision'
+      ]);
+      expect(JSON.parse(readFileSync(decisionPath, 'utf8'))).toMatchObject({
+        action: 'commit', operationId: evidence.operationId
+      });
+      expect(existsSync(outcomePath)).toBe(false);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  test('does not commit Codex when the supervisor exits or times out without an outcome', async () => {
+    const keys = generateKeyPairSync('ed25519');
+    const root = mkdtempSync(join(tmpdir(), 'runtime-decision-timeout-'));
+    const decisionPath = join(root, 'decision.json');
+    let committed = false;
+    try {
+      const dispatcher = new ConnectorRuntimeCommandDispatcher({
+        commandVerificationKey: keys.publicKey,
+        controlFilePath: join(root, 'control.json'),
+        decisionFilePath: decisionPath,
+        expectedMachineId: 'runtime-decision-timeout',
+        expectedTarget: target(),
+        maintenanceSafety: () => ({ blockers: [], certainty: 'safe' }),
+        maintenanceSelection: {
+          async commit() { committed = true; },
+          async restore() {}
+        },
+        outcomeFilePath: join(root, 'outcome.json'),
+        outcomePollIntervalMs: 1,
+        outcomeTimeoutMs: 10,
+        releaseVerificationKey: keys.publicKey,
+        shutdown() {},
+        stagingDirectory: join(root, 'staging')
+      });
+      const evidence = {
+        operationId: 'operation-codex-timeout',
+        state: 'pending-health-check' as const
+      };
+
+      await expect(dispatcher.acceptRegistration(evidence, {
+        action: 'commit', operationId: evidence.operationId
+      })).rejects.toThrow('did not durably accept');
+      expect(existsSync(decisionPath)).toBe(true);
+      expect(committed).toBe(false);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  test('returns a typed busy rejection when connector safety is uncertain', async () => {
+    const keys = generateKeyPairSync('ed25519');
+    const root = mkdtempSync(join(tmpdir(), 'runtime-dispatch-safety-'));
+    const messages: unknown[] = [];
+    let authorizationRejected = false;
+    let shutdown = false;
+    const issuedAt = Date.parse('2026-08-10T12:00:00.000Z');
+    try {
+      const dispatcher = new ConnectorRuntimeCommandDispatcher({
+        commandVerificationKey: keys.publicKey,
+        controlFilePath: join(root, 'control', 'request.json'),
+        decisionFilePath: join(root, 'decision.json'),
+        expectedMachineId: 'runtime-busy',
+        expectedTarget: target(),
+        maintenanceSafety: () => ({ certainty: 'uncertain' }),
+        now: () => issuedAt,
+        releaseVerificationKey: keys.publicKey,
+        shutdown() { shutdown = true; },
+        shutdownDelayMs: 0,
+        stagingDirectory: join(root, 'staging')
+      });
+      dispatcher.setExpectedGeneration(7);
+      const request = createConnectorRuntimeCommandWireRequest({
+        generation: 7,
+        plan: restartPlan('runtime-busy', 'operation-busy'),
+        userId: 'user_test'
+      }, keys.privateKey, { nonce: 'runtime-busy-command-nonce', now: issuedAt });
+      dispatcher.dispatch(
+        'runtime-busy-request', request, (message) => messages.push(message),
+        () => { authorizationRejected = true; }
+      );
+      await Bun.sleep(0);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        id: 'runtime-busy-request',
+        payload: { code: 'codex-state-uncertain', status: 'rejected' },
+        type: 'runtime.maintenance.result'
+      });
+      expect(isConnectorRuntimeCommandResult(
+        (messages[0] as { payload: unknown }).payload
+      )).toBe(true);
+      expect(authorizationRejected).toBe(false);
+      expect(existsSync(join(root, 'control', 'request.json'))).toBe(false);
+      expect(shutdown).toBe(false);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   test('advertises managed maintenance or source stop without mixing capabilities', () => {
     const registry = JSON.parse(registration('runtime-capabilities', [
       'runtime.restart', 'runtime.stop', 'runtime.update', 'worktrees.list'

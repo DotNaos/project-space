@@ -18,7 +18,12 @@ type ModelState = {
 
 export function useCodexSessionModels(
   session: CodexSession,
-  enabled: boolean
+  enabled: boolean,
+  unavailable: {
+    command?: string;
+    href?: string;
+    reason?: string;
+  } = {}
 ): CodexSessionModelSelection {
   const key = `${session.machineId}\u0000${session.threadId}`;
   const [state, setState] = useState<ModelState>(() => initialState(key, session.model));
@@ -31,7 +36,8 @@ export function useCodexSessionModels(
     if (!enabled) {
       setState({
         ...initialState(key, session.model),
-        error: 'Update this machine connector to select model settings.',
+        error: unavailable.reason ??
+          'Update this machine connector to select model settings.',
         loading: false
       });
       return () => { cancelled = true; };
@@ -79,7 +85,8 @@ export function useCodexSessionModels(
     });
 
     return () => { cancelled = true; };
-  }, [enabled, key, retryRevision, session.cwd, session.machineId, session.model]);
+  }, [enabled, key, retryRevision, session.cwd, session.machineId, session.model,
+    unavailable.reason]);
 
   if (state.key !== key) {
     return disabledSelection(key, session.model);
@@ -135,6 +142,8 @@ export function useCodexSessionModels(
       model: state.value,
       ...(state.serviceTier !== undefined ? { serviceTier: state.serviceTier } : {})
     } : undefined,
+    recoveryCommand: !enabled ? unavailable.command : undefined,
+    recoveryHref: !enabled ? unavailable.href : undefined,
     serviceTier: state.serviceTier,
     usesCatalogueDefault: state.usesCatalogueDefault,
     value: state.value

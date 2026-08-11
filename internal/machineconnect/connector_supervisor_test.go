@@ -435,6 +435,7 @@ func TestConnectorSupervisorHelper(t *testing.T) {
 			os.Getenv("LC_CTYPE") == "UTF-8",
 		MaintenancePathsOK: filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceControlEnv)) &&
 			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceDecisionEnv)) &&
+			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceOutcomeEnv)) &&
 			filepath.IsAbs(os.Getenv(ConnectorSupervisorMaintenanceStagingEnv)),
 		MaintenanceSource:          os.Getenv(ConnectorRuntimeInstallSourceEnv),
 		MaintenanceState:           os.Getenv(ConnectorSupervisorMaintenanceStateEnv),

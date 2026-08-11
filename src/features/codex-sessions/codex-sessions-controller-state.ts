@@ -16,6 +16,10 @@ import type {
   CodexSession,
   CodexThreadOrigin
 } from './codex-sessions-types';
+import {
+  codexModelReadinessPresentation,
+  codexModelSettingsAvailable
+} from './codex-model-readiness';
 
 interface ApprovalBinding {
   approvalId?: string;
@@ -59,8 +63,15 @@ export function initialCodexSessionsControllerState(): CodexSessionsControllerSt
 
 export function toCodexMachine(
   result: CodexSessionListResult,
-  inventoryConnectorInstanceId?: string
+  inventoryConnectorInstanceId?: string,
+  runtime?: MachineRuntimeStatusResult
 ): CodexMachine {
+  const modelReadinessInput = {
+    machineId: result.machine.id,
+    runtime,
+    statusDetail: result.machine.statusMessage,
+    supportsModelSettings: result.machine.supportsModelSettings
+  };
   return {
     id: result.machine.id,
     inventoryCheckedAt: result.checkedAt,
@@ -68,10 +79,11 @@ export function toCodexMachine(
     inventoryPublishedAt: result.publishedAt,
     inventoryState: result.inventoryState,
     name: result.machine.name,
+    ...codexModelReadinessPresentation(modelReadinessInput),
     status: result.machine.online ? 'connected' : 'offline',
     statusDetail: result.machine.statusMessage,
     supportsModelSelection: result.machine.supportsModelSelection,
-    supportsModelSettings: result.machine.supportsModelSettings
+    supportsModelSettings: codexModelSettingsAvailable(modelReadinessInput)
   };
 }
 

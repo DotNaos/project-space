@@ -116,6 +116,9 @@ function progressState(operation: ConnectorRuntimeOperationRecord) {
   if (operation.state === 'failed' || operation.state === 'recovery-required') {
     return 'failed' as const;
   }
+  if (operation.state === 'queued' && operation.operation === 'update') {
+    return 'update-pending' as const;
+  }
   if (!terminalStates.has(operation.state)) {
     return operation.operation === 'restart' ? 'restarting' as const : 'updating' as const;
   }
@@ -192,13 +195,11 @@ function failedUpdateCanRetry(
       : approved.manifest.buildId !== expected.buildId);
 }
 
-function supportsManagedUpdate(machine: MachineRecord, runtime: ConnectorRuntimeRecord) {
-  const capabilities = machine.connector.capabilities ?? [];
+function supportsManagedReleaseComparison(runtime: ConnectorRuntimeRecord) {
   const targetSupported =
     (runtime.platform === 'darwin' && runtime.architecture === 'arm64') ||
     (runtime.platform === 'linux' && runtime.architecture === 'x64');
-  return runtime.source === 'managed' && targetSupported &&
-    capabilities.includes('runtime.update');
+  return runtime.source === 'managed' && targetSupported;
 }
 
 export function projectMachineRuntimeStatus(input: {
@@ -227,6 +228,12 @@ export function projectMachineRuntimeStatus(input: {
     capabilities,
     approved
   );
+  const releaseDetails = approved ? {
+    availableCapabilities: [...approved.artifact.capabilities].sort(),
+    availableReleaseId: approved.manifest.releaseId,
+    availableVersion: approved.manifest.version,
+    lastCheckedAt: approved.checkedAt
+  } : {};
   const activeState = operation && !completedRollback && !recoveredRollback &&
     !retryableFailure
     ? progressState(operation)
@@ -237,6 +244,7 @@ export function projectMachineRuntimeStatus(input: {
     online,
     runtime,
     update: {
+      ...releaseDetails,
       ...(operation?.lastFailure ? { lastFailure: operation.lastFailure } : {}),
       ...(operation ? { operation } : {})
     }
@@ -249,26 +257,22 @@ export function projectMachineRuntimeStatus(input: {
   if (activeState) {
     return { ...base, update: { ...base.update, state: activeState } };
   }
-  if (!online) {
+  if (!runtime || !supportsManagedReleaseComparison(runtime)) {
     if (completedRollback) return rolledBackResult();
-    return { ...base, update: { ...base.update, state: 'offline' } };
-  }
-  if (!runtime || !supportsManagedUpdate(machine, runtime)) {
-    if (completedRollback) return rolledBackResult();
-    return { ...base, update: { ...base.update, state: 'unsupported' } };
+    return {
+      ...base,
+      update: { ...base.update, state: online ? 'unsupported' : 'offline' }
+    };
   }
   if (!approved) {
     if (completedRollback) return rolledBackResult();
-    return { ...base, update: { ...base.update, state: 'unknown' } };
+    return {
+      ...base,
+      update: { ...base.update, state: online ? 'unknown' : 'offline' }
+    };
   }
 
-  const { artifact, checkedAt, manifest } = approved;
-  const releaseDetails = {
-    availableCapabilities: [...artifact.capabilities].sort(),
-    availableReleaseId: manifest.releaseId,
-    availableVersion: manifest.version,
-    lastCheckedAt: checkedAt
-  };
+  const { artifact, manifest } = approved;
   const versionOrder = compareConnectorRuntimeSemanticVersions(
     runtime.version,
     manifest.version
@@ -290,16 +294,22 @@ export function projectMachineRuntimeStatus(input: {
     if (completedRollback) return rolledBackResult();
     return {
       ...base,
-      update: { ...base.update, ...releaseDetails, state: 'up-to-date' }
+      update: {
+        ...base.update,
+        ...releaseDetails,
+        state: online ? 'up-to-date' : 'offline'
+      }
     };
   }
 
   const incompatible = runtime.protocolVersion !== artifact.protocolVersion ||
     artifact.capabilities.some((capability) => !capabilities.includes(capability));
+  const canUpdate = capabilities.includes('runtime.update');
   if (operation?.state === 'rolled-back' &&
       !connectorRuntimeRollbackAllowsRelease(operation, manifest.releaseId)) {
     return rolledBackResult();
   }
+  if (!online && completedRollback) return rolledBackResult();
   return {
     ...base,
     update: {
@@ -308,7 +318,7 @@ export function projectMachineRuntimeStatus(input: {
       ...(retryableFailure
         ? { retryEvidence: 'exact-preinstall-download-failure' as const }
         : {}),
-      state: incompatible ? 'update-required' : 'update-available'
+      state: incompatible || !canUpdate ? 'update-required' : 'update-available'
     }
   };
 }

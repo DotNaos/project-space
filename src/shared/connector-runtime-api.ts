@@ -40,6 +40,7 @@ export type ConnectorRuntimeState =
   | 'up-to-date'
   | 'update-available'
   | 'update-required'
+  | 'update-pending'
   | 'updating'
   | 'restart-required'
   | 'restarting'

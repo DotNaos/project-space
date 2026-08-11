@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { link, open, rm, unlink } from 'node:fs/promises';
-import { basename, isAbsolute } from 'node:path';
+import { basename, dirname, isAbsolute } from 'node:path';
 
 import type { ConnectorRuntimeMaintenanceEvidence } from '../src/shared/connector-runtime-api';
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
@@ -83,6 +83,12 @@ async function publishExclusive(path: string, body: string) {
     handle = undefined;
     await link(temporary, path);
     await unlink(temporary);
+    const directory = await open(dirname(path), 'r');
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
   } catch (error) {
     await handle?.close().catch(() => undefined);
     await rm(temporary, { force: true }).catch(() => undefined);

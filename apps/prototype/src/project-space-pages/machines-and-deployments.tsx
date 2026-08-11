@@ -1,85 +1,59 @@
-import { Cloud, ExternalLink, Monitor, RefreshCw, Server, Smartphone } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Cloud, ExternalLink, Server } from "lucide-react";
+import { useState } from "react";
 
+import { MachinesPage } from '../../../../src/features/project-desktop/components/machines-page';
 import type { PrototypeScenarioKind } from "../../../../src/shared/prototype-canvas";
 import { DeploymentDetailView, type PrototypeDeployment } from "./deployment-detail";
-import { MachineDetailView, type PrototypeMachine } from "./machine-detail";
 import {
   PagePrimaryAction,
   PageScaffold,
-  PageSearch,
   PageState,
   PageStatus,
   SectionHeading,
 } from "./page-foundation";
-
-const machines: Array<PrototypeMachine & { icon: typeof Monitor }> = [
-  { icon: Monitor, detail: "Windows 11 · local network", load: "42%", name: "os-pc", role: "Primary development", status: "Online" as const, tasks: "2 tasks" },
-  { icon: Smartphone, detail: "Ubuntu · Tailscale", load: "—", name: "os-yoga-unix", role: "Portable development", status: "Sleeping" as const, tasks: "No active work" },
-  { icon: Server, detail: "Ubuntu · VPS", load: "18%", name: "project-space-vps", role: "Production runtime", status: "Online" as const, tasks: "v0.4.56" },
-];
+import {
+  machineRuntimePrototypeConnectors,
+  machineRuntimePrototypeCredentials,
+  machineRuntimePrototypePhysicalMachines
+} from './machine-runtime-fixtures';
 
 export function ProjectMachinesPage({
-  projectName,
+  projectName: _projectName,
   scenario,
 }: {
   projectName: string;
   scenario: PrototypeScenarioKind;
 }) {
-  const unavailable = scenario === "empty" || scenario === "offline";
-  const [query, setQuery] = useState("");
-  const [selectedMachine, setSelectedMachine] = useState<PrototypeMachine | null>(null);
-  const visibleMachines = useMemo(() => machines.filter((machine) => `${machine.name} ${machine.role} ${machine.detail}`.toLowerCase().includes(query.toLowerCase())), [query]);
-
-  if (selectedMachine) return <MachineDetailView machine={selectedMachine} onBack={() => setSelectedMachine(null)} />;
-
   return (
-    <PageScaffold
-      action={<PagePrimaryAction icon={<RefreshCw className="size-4" />}>Refresh</PagePrimaryAction>}
-      description="Development destinations are shared infrastructure, not another project hierarchy."
-      projectName={projectName}
-      title="Machines"
-    >
-      <div className="border-b border-current/[.08] py-4"><PageSearch onChange={setQuery} placeholder="Search machines and connectors" value={query} /></div>
-      <div className="py-6 @5xl:py-8">
-        <SectionHeading meta={`${visibleMachines.length} known destinations`}>Available destinations</SectionHeading>
-        {unavailable ? <PageState emptyCopy="Connect a development destination to make it available here." scenario={scenario} /> : (
-          <div className="divide-y divide-current/[.07] border-y border-current/[.08]">
-            {visibleMachines.map((machine) => {
-              const Icon = machine.icon;
-              return (
-                <button
-                  className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4 text-left hover:bg-current/[.02] @md:grid-cols-[auto_minmax(0,1fr)_7rem_7rem_auto] @md:items-center @md:gap-4"
-                  key={machine.name}
-                  onClick={() => setSelectedMachine(machine)}
-                  type="button"
-                >
-                  <span className="grid size-9 place-items-center rounded-full bg-current/[.06] text-current/45">
-                    <Icon className="size-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{machine.name}</span>
-                    <span className="mt-1 block truncate text-xs text-current/40">{machine.role} · {machine.detail}</span>
-                  </span>
-                  <span className="hidden @md:block">
-                    <span className="block text-[11px] font-medium text-current/35">Current work</span>
-                    <span className="mt-1 block text-xs text-current/55">{machine.tasks}</span>
-                  </span>
-                  <span className="hidden @md:block">
-                    <span className="block text-[11px] font-medium text-current/35">Load</span>
-                    <span className="mt-1 block text-xs text-current/55">{machine.load}</span>
-                  </span>
-                  <PageStatus tone={machine.status === "Online" ? "success" : "muted"}>{machine.status}</PageStatus>
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <p className="mt-4 max-w-2xl text-xs leading-5 text-current/35">
-          A machine only becomes a project workspace after a worktree is placed on it. Availability and project ownership remain separate.
-        </p>
-      </div>
-    </PageScaffold>
+    <div className="h-full min-h-0 px-5 pt-5 @5xl:px-8 @5xl:pt-7">
+      <MachinesPage
+        connectors={scenario === 'empty' ? [] : machineRuntimePrototypeConnectors}
+        credentialListError=""
+        credentials={scenario === 'empty' ? [] : machineRuntimePrototypeCredentials}
+        hasCopiedInstallCommand={false}
+        installCommand="project connector install"
+        installScriptHref="/install"
+        installerError=""
+        isGeneratingInstaller={false}
+        loadError={scenario === 'offline' ? 'The connector registry is temporarily unavailable.' : ''}
+        onCopyInstallCommand={() => undefined}
+        onGenerateInstallCommand={() => undefined}
+        onRefresh={async () => undefined}
+        onRefreshCredentials={() => undefined}
+        onRevokeCredential={() => undefined}
+        onSaveMachine={async () => undefined}
+        physicalMachines={scenario === 'empty' ? [] : machineRuntimePrototypePhysicalMachines}
+        revokingCredentialId=""
+        status={scenario === 'offline' ? 'error' : 'ready'}
+        tailscale={{
+          connected: true,
+          installed: true,
+          ips: ['100.64.0.5'],
+          peersOnline: 4,
+          serveOrigins: ['https://project-space.tailnet.example']
+        }}
+      />
+    </div>
   );
 }
 

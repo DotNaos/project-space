@@ -11,6 +11,10 @@ import {
   verifyWorkspaceCommandGrant,
   WorkspaceCommandReplayProtection
 } from './connector-grant';
+import {
+  ConnectorRuntimeMaintenanceBusyError,
+  type ConnectorRuntimeMaintenanceAdmission
+} from '../connector-runtime-maintenance-safety';
 
 export class WorkspaceCommandConnectorExecutor {
   private expectedGeneration?: number;
@@ -18,7 +22,8 @@ export class WorkspaceCommandConnectorExecutor {
   constructor(
     private readonly adapter: WorkspaceCommandConnectorAdapter,
     private readonly verificationKey: KeyLike,
-    private readonly machineId?: string
+    private readonly machineId?: string,
+    private readonly maintenanceAdmission?: ConnectorRuntimeMaintenanceAdmission
   ) {}
 
   setExpectedGeneration(generation?: number) {
@@ -38,13 +43,22 @@ export class WorkspaceCommandConnectorExecutor {
     );
     if (this.expectedGeneration !== undefined && actor.generation !== this.expectedGeneration)
       throw new Error('Workspace command grant belongs to a stale connector generation.');
+    const mutates = operation !== 'status';
+    const admission = mutates ? this.maintenanceAdmission?.tryBeginActivity('workspace') : undefined;
+    if (mutates && this.maintenanceAdmission && !admission) {
+      throw new ConnectorRuntimeMaintenanceBusyError();
+    }
     const { grant: _grant, ...trusted } = request;
-    const result = await this.adapter.execute({ ...trusted, actor });
-    if (!isWorkspaceCommandConnectorResult(result) || result.machineId !== request.machineId ||
-        result.generation !== actor.generation || result.operation !== operation ||
-        result.commandId !== request.commandId || result.environmentId !== request.environmentId ||
-        result.executionId !== request.executionId || result.workspaceId !== request.workspaceId)
-      throw new Error('Connector returned workspace command state for a different target.');
-    return result;
+    try {
+      const result = await this.adapter.execute({ ...trusted, actor });
+      if (!isWorkspaceCommandConnectorResult(result) || result.machineId !== request.machineId ||
+          result.generation !== actor.generation || result.operation !== operation ||
+          result.commandId !== request.commandId || result.environmentId !== request.environmentId ||
+          result.executionId !== request.executionId || result.workspaceId !== request.workspaceId)
+        throw new Error('Connector returned workspace command state for a different target.');
+      return result;
+    } finally {
+      admission?.release();
+    }
   }
 }

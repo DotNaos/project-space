@@ -20,10 +20,11 @@ const Disclosure = Object.assign(({
   Indicator: element('span'),
   Trigger: element('button')
 });
+const HeroChip = Object.assign(element('span'), { Label: element('span') });
 
 const computeEnvironmentApi = await import('../src/shared/compute-environment-api');
 
-mock.module('@heroui/react', () => ({ Disclosure }));
+mock.module('@heroui/react', () => ({ Chip: HeroChip, Disclosure }));
 mock.module('@/shared/compute-environment-api', () => computeEnvironmentApi);
 mock.module('@/lib/utils', () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(' ')
@@ -129,7 +130,11 @@ describe('machines page compute hierarchy', () => {
         violations: []
       },
       connectors: [{
-        connector: { installCommand: 'project connector install', status: 'online' },
+        connector: {
+          installCommand: 'project connector install',
+          status: 'online',
+          update: { state: 'update-pending' }
+        },
         id: 'codespace-one',
         kind: 'connector',
         name: 'codespace-one',
@@ -143,23 +148,100 @@ describe('machines page compute hierarchy', () => {
     expect(html).toContain('GitHub Codespace');
     expect(html).toContain('Provider managed');
     expect(html).toContain('4 CPU · 8.0 GB · 32 GB');
+    expect(html).toContain('data-connector-runtime-status="update-pending"');
+    expect(html).toContain('Update pending');
+    expect(html.match(/data-connector-runtime-status="update-pending"/g)).toHaveLength(2);
   });
 
   test('falls back to the flat machine list without a compute inventory', () => {
     const html = renderToStaticMarkup(createElement(MachinesPage, {
       ...baseProps,
-      connectors: [{
-        connector: { installCommand: 'project connector install', status: 'online' },
-        id: 'os-macbook',
-        kind: 'connector',
-        name: 'os-macbook',
-        network: {},
-        roles: ['connector'],
-        sourcePath: 'test'
+      connectors: [
+        {
+          connector: {
+            installCommand: 'project connector install',
+            status: 'online',
+            update: { state: 'update-available' }
+          },
+          id: 'connector-stale',
+          kind: 'connector',
+          name: 'connector-stale',
+          network: {},
+          roles: ['connector'],
+          sourcePath: 'test'
+        },
+        {
+          connector: {
+            installCommand: 'project connector install',
+            status: 'online',
+            update: { state: 'updating' }
+          },
+          id: 'connector-updating',
+          kind: 'connector',
+          name: 'connector-updating',
+          network: {},
+          roles: ['connector'],
+          sourcePath: 'test'
+        },
+        {
+          connector: {
+            installCommand: 'project connector install',
+            status: 'offline',
+            update: { state: 'update-available' }
+          },
+          id: 'connector-archived-stale',
+          kind: 'connector',
+          name: 'connector-archived-stale',
+          network: {},
+          roles: ['connector'],
+          sourcePath: 'test'
+        }
+      ],
+      credentials: [{
+        createdAt: '2026-08-01T00:00:00.000Z',
+        expiresAt: '2027-08-01T00:00:00.000Z',
+        id: 'credential-archived',
+        machineId: 'connector-archived-stale',
+        status: 'revoked'
+      }],
+      physicalMachines: [{
+        connectorIds: ['connector-stale', 'connector-updating', 'connector-archived-stale'],
+        id: 'physical-os-macbook',
+        name: 'os-macbook'
       }]
     }));
 
     expect(html).toContain('os-macbook');
     expect(html).not.toContain('Provider managed');
+    expect(html).toContain('data-connector-runtime-status="update-available"');
+    expect(html).toContain('Update available');
+    expect(html.match(/data-connector-runtime-status="updating"/g)).toHaveLength(2);
+    expect(html).toContain('Updating');
+    expect(html).toContain('Archived connector history (1)');
+    expect(html).toContain('connector-archived-stale');
+    expect(html.match(/data-connector-runtime-status="update-available"/g)).toHaveLength(2);
+  });
+
+  test('labels a connector with conflicting physical identities explicitly', () => {
+    const connector = {
+      connector: { installCommand: 'project connector install', status: 'online' as const },
+      id: 'connector-conflict',
+      kind: 'connector' as const,
+      name: 'connector-conflict',
+      network: {},
+      roles: ['connector' as const],
+      sourcePath: 'test'
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, {
+      ...baseProps,
+      connectors: [connector],
+      physicalMachines: [
+        { connectorIds: [connector.id], id: 'physical-a', name: 'A' },
+        { connectorIds: [connector.id], id: 'physical-b', name: 'B' }
+      ]
+    }));
+
+    expect(html).toContain('Identity conflict');
+    expect(html).not.toContain('Ungrouped');
   });
 });

@@ -21,10 +21,17 @@ import {
   type ConnectorRuntimeCommandStageEvent
 } from './connector-runtime-command-executor';
 import type { ConnectorRuntimeReleaseTarget } from './connector-runtime-maintenance-contract';
+import type { ConnectorRuntimeMaintenanceSafetyCheck } from './connector-runtime-maintenance-safety';
+export {
+  ConnectorRuntimeMaintenanceAdmission,
+  createConnectorRuntimeMaintenanceSafetyCheck
+} from './connector-runtime-maintenance-safety';
 import {
+  connectorRuntimeDecisionMatchesEvidence,
   ConnectorRuntimeDecisionWriter,
   type ConnectorRuntimeMaintenanceDecision
 } from './connector-runtime-registration-decision';
+import { ConnectorRuntimeSupervisorOutcomeReader } from './connector-runtime-supervisor-outcome';
 export { isConnectorRuntimeMetadata } from './connector-runtime-metadata';
 import { connectorDevServerSigningKey } from './connector-dev-server-routing';
 import {
@@ -48,9 +55,17 @@ export interface ConnectorRuntimeCommandProgress {
 }
 
 export type ConnectorRuntimeCommandRejectionCode =
+  | 'busy'
+  | 'codex-state-uncertain'
+  | 'codex-turn-active'
+  | 'codex-turn-starting'
+  | 'codex-waiting-approval'
+  | 'codex-waiting-input'
   | 'control-conflict'
   | 'download-failed'
   | 'integrity-failed'
+  | 'machine-mutation'
+  | 'maintenance-in-progress'
   | 'unavailable';
 
 export type ConnectorRuntimeCommandResult =
@@ -89,9 +104,17 @@ const progressStages = new Set<ConnectorRuntimeCommandStage>([
   'verifying'
 ]);
 const rejectionCodes = new Set<ConnectorRuntimeCommandRejectionCode>([
+  'busy',
+  'codex-state-uncertain',
+  'codex-turn-active',
+  'codex-turn-starting',
+  'codex-waiting-approval',
+  'codex-waiting-input',
   'control-conflict',
   'download-failed',
   'integrity-failed',
+  'machine-mutation',
+  'maintenance-in-progress',
   'unavailable'
 ]);
 
@@ -190,6 +213,8 @@ type PendingRuntimeCommand = {
 const pending = new Map<string, PendingRuntimeCommand>();
 
 export class ConnectorRuntimeCommandUnavailableError extends Error {
+  readonly code = 'unavailable';
+
   constructor() {
     super('The selected connector does not provide managed runtime maintenance.');
     this.name = 'ConnectorRuntimeCommandUnavailableError';
@@ -197,6 +222,8 @@ export class ConnectorRuntimeCommandUnavailableError extends Error {
 }
 
 export class ConnectorRuntimeCommandOutcomeUnknownError extends Error {
+  readonly code = 'outcome-unknown';
+
   constructor() {
     super('The connector runtime command outcome is unknown.');
     this.name = 'ConnectorRuntimeCommandOutcomeUnknownError';
@@ -249,7 +276,14 @@ export function requestConnectorRuntimeCommand(
       timeout
     });
   });
-  socket.send(JSON.stringify({ id, payload: request, type: 'runtime.maintenance' }));
+  try {
+    socket.send(JSON.stringify({ id, payload: request, type: 'runtime.maintenance' }));
+  } catch {
+    const current = pending.get(id);
+    if (current) clearTimeout(current.timeout);
+    pending.delete(id);
+    throw new ConnectorRuntimeCommandUnavailableError();
+  }
   return promise;
 }
 
@@ -317,6 +351,14 @@ interface ConnectorRuntimeDispatcherOptions {
   expectedMachineId: string;
   expectedTarget: ConnectorRuntimeReleaseTarget;
   fetchArtifact?: (url: string, init: RequestInit) => Promise<Response>;
+  maintenanceSafety: ConnectorRuntimeMaintenanceSafetyCheck;
+  maintenanceSelection?: {
+    commit(operationId: string): Promise<unknown>;
+    restore(operationId: string): Promise<unknown>;
+  };
+  outcomeFilePath?: string;
+  outcomePollIntervalMs?: number;
+  outcomeTimeoutMs?: number;
   now?(): number;
   releaseVerificationKey: Buffer | KeyLike | string;
   shutdown(): Promise<void> | void;
@@ -327,21 +369,53 @@ interface ConnectorRuntimeDispatcherOptions {
 export class ConnectorRuntimeCommandDispatcher {
   private expectedGeneration?: number;
   private readonly decisionWriter: ConnectorRuntimeDecisionWriter;
+  private readonly outcomeReader?: ConnectorRuntimeSupervisorOutcomeReader;
   private readonly replay = new ConnectorRuntimeCommandReplayProtection();
 
   constructor(private readonly options: ConnectorRuntimeDispatcherOptions) {
     this.decisionWriter = new ConnectorRuntimeDecisionWriter(options.decisionFilePath);
+    this.outcomeReader = options.outcomeFilePath
+      ? new ConnectorRuntimeSupervisorOutcomeReader(options.outcomeFilePath)
+      : undefined;
   }
 
   setExpectedGeneration(generation?: number) {
     this.expectedGeneration = generation;
   }
 
-  acceptRegistration(
+  async acceptRegistration(
     evidence: ConnectorRuntimeMaintenanceEvidence | undefined,
     decision: ConnectorRuntimeMaintenanceDecision | undefined
   ) {
-    return this.decisionWriter.accept(evidence, decision);
+    if (!connectorRuntimeDecisionMatchesEvidence(evidence, decision)) {
+      if (!evidence && !decision) return;
+      throw new Error('The connector runtime decision does not match registration evidence.');
+    }
+    const transactional = evidence?.state === 'pending-health-check' ? decision : undefined;
+    if (transactional && !this.options.maintenanceSelection) {
+      throw new Error('The managed Codex maintenance selection is unavailable.');
+    }
+    if (transactional?.action === 'commit') {
+      if (!this.outcomeReader) {
+        throw new Error('The connector runtime supervisor outcome is unavailable.');
+      }
+      await this.decisionWriter.accept(evidence, decision);
+      await this.outcomeReader.waitForCommit(transactional.operationId, {
+        ...(this.options.outcomePollIntervalMs === undefined
+          ? {}
+          : { pollIntervalMs: this.options.outcomePollIntervalMs }),
+        ...(this.options.outcomeTimeoutMs === undefined
+          ? {}
+          : { timeoutMs: this.options.outcomeTimeoutMs })
+      });
+      await this.options.maintenanceSelection!.commit(transactional.operationId);
+      await this.outcomeReader.acknowledgeCommit(transactional.operationId);
+      return;
+    }
+    if (transactional?.action === 'rollback') {
+      await this.options.maintenanceSelection!.restore(transactional.operationId);
+    }
+    await this.decisionWriter.accept(evidence, decision);
   }
 
   dispatch(
@@ -417,6 +491,8 @@ export function createConfiguredConnectorRuntimeDispatcher(input: {
   commandVerificationKey?: KeyLike;
   environment?: NodeJS.ProcessEnv;
   machineId?: string;
+  maintenanceSafety: ConnectorRuntimeMaintenanceSafetyCheck;
+  maintenanceSelection?: ConnectorRuntimeDispatcherOptions['maintenanceSelection'];
   shutdown(): Promise<void> | void;
 }) {
   const environment = input.environment ?? process.env;
@@ -424,6 +500,7 @@ export function createConfiguredConnectorRuntimeDispatcher(input: {
   const releaseVerificationKey = releasePublicKey(environment);
   const controlFilePath = environment.PROJECT_CONNECTOR_RUNTIME_CONTROL_FILE?.trim();
   const decisionFilePath = environment.PROJECT_CONNECTOR_RUNTIME_DECISION_FILE?.trim();
+  const outcomeFilePath = environment.PROJECT_CONNECTOR_RUNTIME_OUTCOME_FILE?.trim();
   const stagingDirectory = environment.PROJECT_CONNECTOR_RUNTIME_STAGING_DIR?.trim();
   if (environment.PROJECT_SPACE_INSTALL_SOURCE !== 'managed' || !input.commandVerificationKey ||
       !input.machineId || !target || !releaseVerificationKey || !controlFilePath ||
@@ -439,6 +516,9 @@ export function createConfiguredConnectorRuntimeDispatcher(input: {
       decisionFilePath,
       expectedMachineId: input.machineId,
       expectedTarget: target,
+      maintenanceSafety: input.maintenanceSafety,
+      maintenanceSelection: input.maintenanceSelection,
+      outcomeFilePath,
       releaseVerificationKey: releaseKey,
       shutdown: input.shutdown,
       stagingDirectory
