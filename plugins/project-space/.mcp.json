@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "project-space": {
+      "type": "http",
+      "url": "https://projects.os-home.net/mcp"
+    }
+  }
+}

@@ -57,6 +57,7 @@ The repository currently targets a web-first fullstack MVP:
 ## Documentation
 
 - [Hosted Project documentation](https://projects.os-home.net/docs)
+- [Project Space Codex plugin](docs/codex-plugin.md)
 - [Generated CLI command reference](apps/docs/content/docs/cli/index.mdx)
 - [CLI self-update guide](apps/docs/content/docs/cli/self-update.mdx)
 - [Connector install and usage guide](docs/connector.md)

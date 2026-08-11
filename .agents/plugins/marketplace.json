@@ -1,0 +1,20 @@
+{
+  "name": "project-space",
+  "interface": {
+    "displayName": "Project Space"
+  },
+  "plugins": [
+    {
+      "name": "project-space",
+      "source": {
+        "source": "local",
+        "path": "./plugins/project-space"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

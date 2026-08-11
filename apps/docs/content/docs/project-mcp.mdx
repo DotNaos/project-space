@@ -34,13 +34,21 @@ Assignees are not exposed yet because the current Project Space GitHub backend d
 
 ## Connect Codex
 
-Register the same production endpoint from a terminal:
+The recommended setup installs the repository-owned plugin, which adds both
+this production MCP server and guidance for the local `project` CLI. From a
+Project Space checkout, run:
 
 ```sh
-codex mcp add project-space --url https://projects.os-home.net/mcp
+codex plugin marketplace add .
+codex plugin add project-space@project-space
 ```
 
-Codex opens Project Space in the browser for approval, then returns to the local app through a loopback callback. The MCP server remains remote and continues to use the production Project Space backend.
+Start a new Codex task after installation. To configure only the remote MCP
+server, use
+`codex mcp add project-space --url https://projects.os-home.net/mcp` instead.
+Codex opens Project Space in the browser for approval, then returns to the local
+app through a loopback callback. The MCP server remains remote and continues to
+use the production Project Space backend.
 
 ## Authentication configuration
 

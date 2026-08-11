@@ -1,0 +1,11 @@
+interface:
+  display_name: "Project Space Tools"
+  short_description: "Operate Project Space through MCP and CLI"
+  default_prompt: "Use $project-space-tools to inspect my Project Space projects and choose the right tool."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "project-space"
+      description: "Project Space projects, machines, and Codex tasks"
+      transport: "streamable_http"
+      url: "https://projects.os-home.net/mcp"

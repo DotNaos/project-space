@@ -1,0 +1,38 @@
+{
+  "name": "project-space",
+  "version": "0.1.0",
+  "description": "Manage Project Space projects, machines, worktrees, and Codex tasks through MCP and the Project CLI.",
+  "author": {
+    "name": "DotNaos",
+    "url": "https://github.com/DotNaos"
+  },
+  "homepage": "https://projects.os-home.net",
+  "repository": "https://github.com/DotNaos/project-space",
+  "keywords": [
+    "project-space",
+    "projects",
+    "codex",
+    "worktrees",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Project Space",
+    "shortDescription": "Manage projects, machines, and Codex tasks.",
+    "longDescription": "Use Project Space from Codex through its authenticated remote MCP tools and the local Project CLI. Discover projects and machines, coordinate persistent Codex tasks, prepare isolated worktrees, inspect readiness, and run approved project workflows.",
+    "developerName": "DotNaos",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://projects.os-home.net",
+    "defaultPrompt": [
+      "Show my Project Space projects and where they are available.",
+      "Check Project Space readiness on this machine.",
+      "Find my Codex tasks and summarize the relevant one."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
