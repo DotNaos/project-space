@@ -38,13 +38,17 @@ project
 | [`dev-build`](#project-dev-build) | - | Build short-lived development tools for an exact pull request head |
 | [`disconnect`](#project-disconnect) | - | Disconnect this machine from Project Space |
 | [`doctor`](#project-doctor) | - | Diagnose local or managed-machine Project Space readiness |
+| [`environment`](#project-environment) | - | Discover Environment definitions and instances |
 | [`help`](#project-help) | - | Help about any command |
+| [`host`](#project-host) | - | Discover physical or virtual hosts |
 | [`init`](#project-init) | - | Initialize a project template lock |
+| [`inventory`](#project-inventory) | - | Discover the complete compute inventory |
 | [`list`](#project-list) | - | List account projects and local availability |
 | [`machine`](#project-machine) | - | Manage exact physical machines |
 | [`module`](#project-module) | - | Manage project template modules |
 | [`open`](#project-open) | - | Open a local project in the system's selected terminal |
 | [`path`](#project-path) | - | Print a project's canonical local path |
+| [`platform`](#project-platform) | - | Discover compute capacity providers |
 | [`prepare`](#project-prepare) | - | Run trusted repository setup steps |
 | [`roadmap`](#project-roadmap) | - | Read and update the issue dependency roadmap |
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
@@ -744,6 +748,85 @@ project doctor
 | `--machine-id` | `string` | local | exact physical machine ID |
 | `--yes` | `bool` | local | confirm the current exact repair plan non-interactively |
 
+<h3 id="project-environment" className="scroll-m-28"><code>project environment</code></h3>
+
+Discover Environment definitions and instances
+
+```sh
+project environment
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for environment |
+
+<h3 id="project-environment-instance" className="scroll-m-28"><code>project environment instance</code></h3>
+
+Discover concrete Environment Instances
+
+```sh
+project environment instance
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for instance |
+
+<h3 id="project-environment-instance-list" className="scroll-m-28"><code>project environment instance list</code></h3>
+
+List concrete Environment Instances
+
+```sh
+project environment instance list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--environment` | `string` | local | exact Environment definition selector |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+| `--host` | `string` | local | exact host selector |
+| `--platform` | `string` | local | exact platform selector |
+
+<h3 id="project-environment-instance-show" className="scroll-m-28"><code>project environment instance show</code></h3>
+
+Show one concrete Environment Instance
+
+```sh
+project environment instance show <instance-ref>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
+
+<h3 id="project-environment-list" className="scroll-m-28"><code>project environment list</code></h3>
+
+List reusable Environment definitions
+
+```sh
+project environment list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-environment-show" className="scroll-m-28"><code>project environment show</code></h3>
+
+Show one Environment definition
+
+```sh
+project environment show <environment-definition>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
+
 <h3 id="project-help" className="scroll-m-28"><code>project help</code></h3>
 
 Help about any command
@@ -755,6 +838,45 @@ project help [command]
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for help |
+
+<h3 id="project-host" className="scroll-m-28"><code>project host</code></h3>
+
+Discover physical or virtual hosts
+
+```sh
+project host
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for host |
+
+<h3 id="project-host-list" className="scroll-m-28"><code>project host list</code></h3>
+
+List inventory hosts
+
+```sh
+project host list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+| `--platform` | `string` | local | exact platform ID, name, kind, or alias |
+
+<h3 id="project-host-show" className="scroll-m-28"><code>project host show</code></h3>
+
+Show one exact inventory host
+
+```sh
+project host show <host>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
 
 <h3 id="project-init" className="scroll-m-28"><code>project init</code></h3>
 
@@ -772,6 +894,20 @@ project init [directory]
 | `--template` | `string` | local | template repository |
 | `--template-path` | `string` | local | template path |
 | `--version` | `string` | local | template version |
+
+<h3 id="project-inventory" className="scroll-m-28"><code>project inventory</code></h3>
+
+Discover the complete compute inventory
+
+```sh
+project inventory
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for inventory |
+| `--json` | `bool` | local | print machine-readable JSON |
 
 <h3 id="project-list" className="scroll-m-28"><code>project list</code></h3>
 
@@ -797,6 +933,20 @@ project machine
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for machine |
+
+<h3 id="project-machine-list" className="scroll-m-28"><code>project machine list</code></h3>
+
+Deprecated compatibility: list inventory hosts
+
+```sh
+project machine list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+| `--platform` | `string` | local | exact platform ID, name, kind, or alias |
 
 <h3 id="project-machine-power" className="scroll-m-28"><code>project machine power</code></h3>
 
@@ -856,6 +1006,19 @@ project machine power status
 | `-h`, `--help` | `bool` | local | help for status |
 | `--machine` | `string` | local | exact physical machine name |
 | `--machine-id` | `string` | local | exact physical machine ID |
+
+<h3 id="project-machine-show" className="scroll-m-28"><code>project machine show</code></h3>
+
+Deprecated compatibility: show one inventory host
+
+```sh
+project machine show <host>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
 
 <h3 id="project-module" className="scroll-m-28"><code>project module</code></h3>
 
@@ -953,6 +1116,44 @@ project path <project>
 | --- | --- | --- | --- |
 | `--format` | `string` | local | output format: path or json |
 | `-h`, `--help` | `bool` | local | help for path |
+
+<h3 id="project-platform" className="scroll-m-28"><code>project platform</code></h3>
+
+Discover compute capacity providers
+
+```sh
+project platform
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for platform |
+
+<h3 id="project-platform-list" className="scroll-m-28"><code>project platform list</code></h3>
+
+List configured compute platforms
+
+```sh
+project platform list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-platform-show" className="scroll-m-28"><code>project platform show</code></h3>
+
+Show one exact compute platform
+
+```sh
+project platform show <platform>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
 
 <h3 id="project-prepare" className="scroll-m-28"><code>project prepare</code></h3>
 

@@ -28,6 +28,9 @@ import type {
   createConfiguredProjectCatalogCliHandler
 } from './project-catalog/project-catalog-cli-runtime';
 import type {
+  createConfiguredComputeInventoryCliHandler
+} from './compute-inventory-cli/configured-runtime';
+import type {
   createConfiguredMachinePowerHandler
 } from './machine-power/configured-runtime';
 import type { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
@@ -42,6 +45,7 @@ interface ProjectSpaceApiHandlerOptions {
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
   projectCatalogCli?: ReturnType<typeof createConfiguredProjectCatalogCliHandler>;
+  computeInventoryCli?: ReturnType<typeof createConfiguredComputeInventoryCliHandler>;
   projectTopology?: ProjectTopologyInventoryHttpHandler;
   roadmapCli?: ReturnType<typeof createConfiguredRoadmapCliHandler>;
 }
@@ -107,6 +111,13 @@ export function createProjectSpaceApiHandler(
       if (
         options.projectCatalogCli &&
         await options.projectCatalogCli(request, response, url)
+      ) {
+        return true;
+      }
+
+      if (
+        options.computeInventoryCli &&
+        await options.computeInventoryCli(request, response, url)
       ) {
         return true;
       }

@@ -1821,6 +1821,158 @@
         "commands": []
       },
       {
+        "path": "project environment",
+        "name": "environment",
+        "usage": "environment",
+        "short": "Discover Environment definitions and instances",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for environment",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project environment instance",
+            "name": "instance",
+            "usage": "instance",
+            "short": "Discover concrete Environment Instances",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for instance",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project environment instance list",
+                "name": "list",
+                "usage": "list",
+                "short": "List concrete Environment Instances",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "environment",
+                    "type": "string",
+                    "description": "exact Environment definition selector",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for list",
+                    "inherited": false
+                  },
+                  {
+                    "name": "host",
+                    "type": "string",
+                    "description": "exact host selector",
+                    "inherited": false
+                  },
+                  {
+                    "name": "platform",
+                    "type": "string",
+                    "description": "exact platform selector",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project environment instance show",
+                "name": "show",
+                "usage": "show <instance-ref>",
+                "short": "Show one concrete Environment Instance",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for show",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          },
+          {
+            "path": "project environment list",
+            "name": "list",
+            "usage": "list",
+            "short": "List reusable Environment definitions",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project environment show",
+            "name": "show",
+            "usage": "show <environment-definition>",
+            "short": "Show one Environment definition",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project help",
         "name": "help",
         "usage": "help [command]",
@@ -1837,6 +1989,79 @@
           }
         ],
         "commands": []
+      },
+      {
+        "path": "project host",
+        "name": "host",
+        "usage": "host",
+        "short": "Discover physical or virtual hosts",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for host",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project host list",
+            "name": "list",
+            "usage": "list",
+            "short": "List inventory hosts",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              },
+              {
+                "name": "platform",
+                "type": "string",
+                "description": "exact platform ID, name, kind, or alias",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project host show",
+            "name": "show",
+            "usage": "show <host>",
+            "short": "Show one exact inventory host",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
       },
       {
         "path": "project init",
@@ -1887,6 +2112,36 @@
         "commands": []
       },
       {
+        "path": "project inventory",
+        "name": "inventory",
+        "usage": "inventory",
+        "short": "Discover the complete compute inventory",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: text or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for inventory",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable JSON",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
         "path": "project list",
         "name": "list",
         "usage": "list",
@@ -1927,6 +2182,36 @@
           }
         ],
         "commands": [
+          {
+            "path": "project machine list",
+            "name": "list",
+            "usage": "list",
+            "short": "Deprecated compatibility: list inventory hosts",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              },
+              {
+                "name": "platform",
+                "type": "string",
+                "description": "exact platform ID, name, kind, or alias",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
           {
             "path": "project machine power",
             "name": "power",
@@ -2065,6 +2350,30 @@
                 "commands": []
               }
             ]
+          },
+          {
+            "path": "project machine show",
+            "name": "show",
+            "usage": "show <host>",
+            "short": "Deprecated compatibility: show one inventory host",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
           }
         ]
       },
@@ -2264,6 +2573,73 @@
           }
         ],
         "commands": []
+      },
+      {
+        "path": "project platform",
+        "name": "platform",
+        "usage": "platform",
+        "short": "Discover compute capacity providers",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for platform",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project platform list",
+            "name": "list",
+            "usage": "list",
+            "short": "List configured compute platforms",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project platform show",
+            "name": "show",
+            "usage": "show <platform>",
+            "short": "Show one exact compute platform",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
       },
       {
         "path": "project prepare",
