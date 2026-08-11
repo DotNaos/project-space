@@ -5,7 +5,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 
 	"github.com/DotNaos/project-space/internal/projectrun"
 	"github.com/spf13/cobra"
@@ -15,7 +17,10 @@ type projectServeOptions struct {
 	AllowedHosts []string
 	Format       string
 	JSON         bool
+	LocalOnly    bool
 	Script       string
+	Configured   bool
+	Follow       bool
 }
 
 type projectServeReconciler interface {
@@ -45,7 +50,10 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 			if err != nil {
 				return err
 			}
-			result, startErr := manager.Start(cmd.Context(), directory, script, options.AllowedHosts)
+			result, startErr := manager.StartWithOptions(cmd.Context(), directory, script, projectrun.StartOptions{
+				AllowedHosts: options.AllowedHosts,
+				LocalOnly:    options.LocalOnly,
+			})
 			if err := printServeResult(cmd, result, format); err != nil {
 				return err
 			}
@@ -54,19 +62,22 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	}
 	bindServeOutputFlags(cmd, &options)
 	cmd.Flags().StringArrayVar(&options.AllowedHosts, "allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
+	cmd.Flags().BoolVar(&options.LocalOnly, "local-only", false, "start explicitly without a Tailscale route")
 	cmd.AddCommand(newServeReconcileCommand(managerFactory))
-	cmd.AddCommand(newServeListCommand())
+	cmd.AddCommand(newServeListCommand(managerFactory))
+	cmd.AddCommand(newServeLogsCommand(managerFactory))
+	cmd.AddCommand(newServeAttachCommand(managerFactory))
 	cmd.AddCommand(newServePublishPullRequestCommand(managerFactory))
 	cmd.AddCommand(newServeStatusCommand(managerFactory))
 	cmd.AddCommand(newServeStopCommand(managerFactory))
 	return cmd
 }
 
-func newServeListCommand() *cobra.Command {
+func newServeListCommand(managerFactory projectManagerFactory) *cobra.Command {
 	options := projectServeOptions{}
 	cmd := &cobra.Command{
 		Use:               "list [directory]",
-		Short:             "List trusted development servers configured by a repository",
+		Short:             "List managed project server sessions",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: directoryCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -74,21 +85,106 @@ func newServeListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, listErr := projectrun.ListServers(argumentOrCurrentDirectory(args), nil)
+			if !options.Configured && len(args) > 0 {
+				return fmt.Errorf("a directory is accepted only with --configured")
+			}
+			if options.Configured {
+				result, listErr := projectrun.ListServers(argumentOrCurrentDirectory(args), nil)
+				if format == "json" {
+					if err := printProjectRunJSON(cmd, result); err != nil {
+						return err
+					}
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Configured project servers: %s\n", result.Directory)
+					for _, server := range result.Servers {
+						fmt.Fprintf(cmd.OutOrStdout(), "- %s: %s\n", server.ServerID, server.Label)
+					}
+				}
+				return listErr
+			}
+			manager, err := managerFactory()
+			if err != nil {
+				return err
+			}
+			result, listErr := manager.ListSessions(cmd.Context())
 			if format == "json" {
 				if err := printProjectRunJSON(cmd, result); err != nil {
 					return err
 				}
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Configured project servers: %s\n", result.Directory)
-				for _, server := range result.Servers {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s: %s\n", server.ServerID, server.Label)
+				fmt.Fprintf(cmd.OutOrStdout(), "Managed project servers: %d\n", len(result.Sessions))
+				for _, session := range result.Sessions {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s (%s): %s %s\n", session.Directory, session.Script, session.State, session.Mode)
 				}
 			}
 			return listErr
 		},
 	}
 	bindServeOutputFlags(cmd, &options)
+	cmd.Flags().BoolVar(&options.Configured, "configured", false, "list declarations from one repository instead of runtime sessions")
+	return cmd
+}
+
+func newServeLogsCommand(managerFactory projectManagerFactory) *cobra.Command {
+	options := projectServeOptions{Script: "dev"}
+	cmd := &cobra.Command{
+		Use:   "logs [directory]",
+		Short: "Read the bounded log for one managed project server",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := managerFactory()
+			if err != nil {
+				return err
+			}
+			access, err := manager.AccessSession(cmd.Context(), argumentOrCurrentDirectory(args), options.Script)
+			if err != nil {
+				return err
+			}
+			file, err := os.Open(access.LogPath)
+			if err != nil {
+				return fmt.Errorf("open managed server log: %w", err)
+			}
+			defer file.Close()
+			if _, err := io.Copy(cmd.OutOrStdout(), file); err != nil {
+				return err
+			}
+			if !options.Follow {
+				return nil
+			}
+			follow := exec.CommandContext(cmd.Context(), "tail", "-f", access.LogPath)
+			follow.Stdout, follow.Stderr = cmd.OutOrStdout(), cmd.ErrOrStderr()
+			return follow.Run()
+		},
+	}
+	cmd.Flags().StringVar(&options.Script, "script", "dev", "configured server name")
+	cmd.Flags().BoolVar(&options.Follow, "follow", false, "continue streaming new log output")
+	return cmd
+}
+
+func newServeAttachCommand(managerFactory projectManagerFactory) *cobra.Command {
+	options := projectServeOptions{Script: "dev"}
+	cmd := &cobra.Command{
+		Use:   "attach [directory]",
+		Short: "Attach to the exact owned tmux session for one managed server",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !roadmapTerminalInteractive(cmd.InOrStdin(), cmd.OutOrStdout()) {
+				return fmt.Errorf("project serve attach requires an interactive terminal")
+			}
+			manager, err := managerFactory()
+			if err != nil {
+				return err
+			}
+			access, err := manager.AccessSession(cmd.Context(), argumentOrCurrentDirectory(args), options.Script)
+			if err != nil {
+				return err
+			}
+			attach := exec.CommandContext(cmd.Context(), "tmux", "attach-session", "-t", access.Result.TmuxSession)
+			attach.Stdin, attach.Stdout, attach.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+			return attach.Run()
+		},
+	}
+	cmd.Flags().StringVar(&options.Script, "script", "dev", "configured server name")
 	return cmd
 }
 
@@ -222,6 +318,18 @@ func printServeResult(cmd *cobra.Command, result projectrun.ServeResult, format 
 		return printProjectRunJSON(cmd, result)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Project server: %s\n", result.State)
+	if result.Disposition != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Disposition: %s\n", result.Disposition)
+	}
+	if result.Mode != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Mode: %s\n", result.Mode)
+	}
+	if result.ServerID != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Server ID: %s\n", result.ServerID)
+	}
+	if result.TmuxSession != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "tmux: %s\n", result.TmuxSession)
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Script: %s\n", result.Script)
 	fmt.Fprintf(cmd.OutOrStdout(), "Directory: %s\n", result.Directory)
 	if result.LocalURL != nil {

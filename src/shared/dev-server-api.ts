@@ -1,5 +1,13 @@
 export type DevServerCapability = 'configured' | 'unavailable';
-export type DevServerState = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
+export type DevServerState =
+  | 'starting'
+  | 'running'
+  | 'local-only'
+  | 'stopping'
+  | 'stopped'
+  | 'failed'
+  | 'stale'
+  | 'error';
 export type DevServerOperation = 'inspect' | 'list' | 'start' | 'stop';
 export type MachineMembershipAccess =
   'owner' | 'member' | 'unclaimed' | 'denied' | 'database-required';
@@ -114,18 +122,25 @@ export interface DevServerRuntimeResult {
   capability: DevServerCapability;
   checkedAt: string;
   directory: string;
+  disposition?: 'created' | 'reused';
   lastError: string | null;
   localPort: number | null;
   localUrl: string | null;
+  mode: 'managed' | 'local-only';
   operation: 'start' | 'status' | 'stop';
   pid: number | null;
+  portlessName: string;
   publicPort: number | null;
   publicUrl: string | null;
-  schemaVersion: 1;
+  repository: string;
+  schemaVersion: 2;
+  serverId: string;
+  serverKey: string;
   script: string;
   startedAt: string | null;
   state: DevServerState;
   tailscaleIPv4: string | null;
+  tmuxSession: string;
 }
 
 /** Stable JSON contract returned by `project serve list`. */
@@ -135,7 +150,7 @@ export interface DevServerRuntimeListResult {
   directory: string;
   lastError: string | null;
   operation: 'list';
-  schemaVersion: 1;
+  schemaVersion: 2;
   servers: ConfiguredDevServerRecord[];
 }
 

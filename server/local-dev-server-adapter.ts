@@ -32,16 +32,24 @@ const serveResultKeys = [
   'lastError',
   'localPort',
   'localUrl',
+  'mode',
   'operation',
   'pid',
+  'portlessName',
   'publicPort',
   'publicUrl',
+  'repository',
   'schemaVersion',
   'script',
+  'serverId',
+  'serverKey',
   'startedAt',
   'state',
-  'tailscaleIPv4'
+  'tailscaleIPv4',
+  'tmuxSession'
 ] as const;
+
+const optionalServeResultKeys = ['disposition'] as const;
 
 const serveListResultKeys = [
   'capability',
@@ -71,7 +79,9 @@ function isProjectServeJson(value: unknown): value is ProjectServeJson {
   if (!isRecord(value)) {
     return false;
   }
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value).filter(
+    (key) => !optionalServeResultKeys.includes(key as (typeof optionalServeResultKeys)[number])
+  ).sort();
   if (
     keys.length !== serveResultKeys.length ||
     !serveResultKeys.every((key, index) => key === keys[index])
@@ -79,16 +89,26 @@ function isProjectServeJson(value: unknown): value is ProjectServeJson {
     return false;
   }
   return (
-    value.schemaVersion === 1 &&
+    value.schemaVersion === 2 &&
     (value.operation === 'start' || value.operation === 'status' || value.operation === 'stop') &&
     typeof value.script === 'string' &&
     typeof value.directory === 'string' &&
+    (value.mode === 'managed' || value.mode === 'local-only') &&
+    typeof value.serverId === 'string' &&
+    typeof value.serverKey === 'string' &&
+    value.serverKey === value.script &&
+    typeof value.repository === 'string' &&
+    typeof value.tmuxSession === 'string' &&
+    typeof value.portlessName === 'string' &&
+    (value.disposition === undefined || value.disposition === 'created' || value.disposition === 'reused') &&
     (value.capability === 'configured' || value.capability === 'unavailable') &&
     (value.state === 'starting' ||
       value.state === 'running' ||
+      value.state === 'local-only' ||
       value.state === 'stopping' ||
       value.state === 'stopped' ||
-      value.state === 'error') &&
+      value.state === 'failed' ||
+      value.state === 'stale') &&
     (value.pid === null || (Number.isInteger(value.pid) && Number(value.pid) > 0)) &&
     isNullablePort(value.localPort) &&
     isNullableString(value.localUrl) &&
@@ -111,7 +131,7 @@ function isProjectServeListJson(value: unknown): value is ProjectServeListJson {
   return (
     keys.length === serveListResultKeys.length &&
     serveListResultKeys.every((key, index) => key === keys[index]) &&
-    value.schemaVersion === 1 &&
+    value.schemaVersion === 2 &&
     value.operation === 'list' &&
     typeof value.directory === 'string' &&
     (value.capability === 'configured' || value.capability === 'unavailable') &&
@@ -210,7 +230,7 @@ export function createLocalDevServerAdapter(
     async listDevServers(request: ConnectorDevServerListExecutionRequest) {
       const worktreePath = await resolvedWorktreePath(request);
       const result = await runBinary(
-        ['serve', 'list', worktreePath, '--format', 'json'],
+        ['serve', 'list', worktreePath, '--configured', '--format', 'json'],
         worktreePath
       );
       let parsed: unknown;

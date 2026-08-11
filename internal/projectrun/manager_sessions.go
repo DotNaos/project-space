@@ -8,31 +8,32 @@ import (
 )
 
 func (manager *Manager) Status(ctx context.Context, directory, scriptName string) (ServeResult, error) {
-	root, resolutionErr := manager.resolveSessionDirectory(directory, scriptName)
-	if resolutionErr != nil && root == "" {
-		return manager.configErrorResult("status", root, scriptName, resolutionErr), resolutionErr
+	identity, resolutionErr := manager.resolveSessionIdentity(ctx, directory, scriptName)
+	if resolutionErr != nil && identity.ServerID == "" {
+		return manager.configErrorResult("status", identity.WorktreePath, scriptName, resolutionErr), resolutionErr
 	}
 
-	unlock, err := acquireFileLock(manager.store.sessionLockPath(root, scriptName))
+	unlock, err := acquireFileLock(manager.store.sessionLockPath(identity.ServerID))
 	if err != nil {
-		return manager.runtimeErrorResult("status", root, scriptName, err), err
+		return manager.runtimeErrorResult("status", identity.WorktreePath, scriptName, err), err
 	}
 	defer unlock()
 
-	state, ok, err := manager.store.load(root, scriptName)
+	state, ok, err := manager.store.load(identity)
 	if err != nil {
-		return manager.runtimeErrorResult("status", root, scriptName, err), err
+		return manager.runtimeErrorResult("status", identity.WorktreePath, scriptName, err), err
 	}
 	if !ok {
-		return manager.statusWithoutState(root, scriptName, resolutionErr)
+		result, statusErr := manager.statusWithoutState(identity.WorktreePath, scriptName, resolutionErr)
+		return decorateServeIdentity(result, identity), statusErr
 	}
 
-	_, script, configErr := LoadScript(root, scriptName)
+	_, script, configErr := LoadScript(identity.WorktreePath, scriptName)
 	if configErr != nil {
 		return manager.removeUnavailableSession("status", state, configErr)
 	}
 
-	if state.State == StateRunning {
+	if state.State == StateRunning || state.State == StateLocalOnly {
 		healthErr := manager.checkRuntime(ctx, state, script)
 		if healthErr == nil {
 			state.CheckedAt = manager.timestamp()
@@ -67,28 +68,32 @@ func (manager *Manager) Status(ctx context.Context, directory, scriptName string
 	return manager.resultFromState("status", CapabilityConfigured, state, nil), nil
 }
 
-func (manager *Manager) Stop(_ context.Context, directory, scriptName string) (ServeResult, error) {
-	root, resolutionErr := manager.resolveSessionDirectory(directory, scriptName)
-	if resolutionErr != nil && root == "" {
-		return manager.configErrorResult("stop", root, scriptName, resolutionErr), resolutionErr
+func (manager *Manager) Stop(ctx context.Context, directory, scriptName string) (ServeResult, error) {
+	identity, resolutionErr := manager.resolveSessionIdentity(ctx, directory, scriptName)
+	if resolutionErr != nil && identity.ServerID == "" {
+		return manager.unavailableResult("stop", identity.WorktreePath, scriptName, resolutionErr), nil
 	}
 
-	unlock, err := acquireFileLock(manager.store.sessionLockPath(root, scriptName))
+	unlock, err := acquireFileLock(manager.store.sessionLockPath(identity.ServerID))
 	if err != nil {
-		return manager.runtimeErrorResult("stop", root, scriptName, err), err
+		return manager.runtimeErrorResult("stop", identity.WorktreePath, scriptName, err), err
 	}
 	defer unlock()
 
-	state, ok, err := manager.store.load(root, scriptName)
+	state, ok, err := manager.store.load(identity)
 	if err != nil {
-		return manager.runtimeErrorResult("stop", root, scriptName, err), err
+		return manager.runtimeErrorResult("stop", identity.WorktreePath, scriptName, err), err
 	}
-	capability, configErr := manager.sessionCapability(root, scriptName)
+	capability, configErr := manager.sessionCapability(identity.WorktreePath, scriptName)
 	if !ok {
 		if configErr != nil {
-			return manager.unavailableResult("stop", root, scriptName, configErr), nil
+			return decorateServeIdentity(
+				manager.unavailableResult("stop", identity.WorktreePath, scriptName, configErr), identity,
+			), nil
 		}
-		return manager.stoppedResult("stop", root, scriptName, capability), nil
+		return decorateServeIdentity(
+			manager.stoppedResult("stop", identity.WorktreePath, scriptName, capability), identity,
+		), nil
 	}
 
 	state.State = StateStopping
@@ -97,6 +102,11 @@ func (manager *Manager) Stop(_ context.Context, directory, scriptName string) (S
 	if cleanupErr := manager.cleanupRuntime(state); cleanupErr != nil {
 		return manager.persistCleanupFailure("stop", capability, state, cleanupErr)
 	}
+	stopped := state
+	clearRuntimeResources(&stopped)
+	stopped.State = StateStopped
+	stopped.LastError = ""
+	stopped.CheckedAt = manager.timestamp()
 	if err := manager.deleteSessionArtifacts(state); err != nil {
 		clearRuntimeResources(&state)
 		state.State = StateError
@@ -105,7 +115,7 @@ func (manager *Manager) Stop(_ context.Context, directory, scriptName string) (S
 		_ = manager.store.save(state)
 		return manager.resultFromState("stop", capability, state, err), err
 	}
-	return manager.stoppedResult("stop", root, scriptName, capability), nil
+	return manager.resultFromState("stop", capability, stopped, nil), nil
 }
 
 func (manager *Manager) Reconcile(ctx context.Context) (ServeCollectionResult, error) {
@@ -151,13 +161,14 @@ func (manager *Manager) reconcileSession(
 	ctx context.Context,
 	candidate runtimeState,
 ) (ServeResult, bool, error) {
-	unlock, err := acquireFileLock(manager.store.sessionLockPath(candidate.Directory, candidate.Script))
+	identity := identityFromState(candidate)
+	unlock, err := acquireFileLock(manager.store.sessionLockPath(candidate.ServerID))
 	if err != nil {
 		return manager.resultFromState("reconcile", CapabilityUnavailable, candidate, err), true, err
 	}
 	defer unlock()
 
-	state, ok, err := manager.store.load(candidate.Directory, candidate.Script)
+	state, ok, err := manager.store.load(identity)
 	if err != nil {
 		return manager.resultFromState("reconcile", CapabilityUnavailable, candidate, err), true, err
 	}
@@ -173,7 +184,7 @@ func (manager *Manager) reconcileSession(
 	var cause error
 	if configErr != nil {
 		cause = configErr
-	} else if state.State == StateRunning {
+	} else if state.State == StateRunning || state.State == StateLocalOnly {
 		healthErr := manager.checkRuntime(ctx, state, script)
 		if healthErr == nil {
 			state.CheckedAt = manager.timestamp()
@@ -215,41 +226,42 @@ func (manager *Manager) reconcileSession(
 		_ = manager.store.save(state)
 		return manager.resultFromState("reconcile", capability, state, combined), true, combined
 	}
-	stopped := runtimeState{
-		Directory:    state.Directory,
-		Script:       state.Script,
-		State:        StateStopped,
-		AllowedHosts: append([]string{}, state.AllowedHosts...),
-		CheckedAt:    manager.timestamp(),
-		LastError:    cause.Error(),
-	}
+	stopped := state
+	clearRuntimeResources(&stopped)
+	stopped.State = StateStopped
+	stopped.CheckedAt = manager.timestamp()
+	stopped.LastError = cause.Error()
 	return manager.resultFromState("reconcile", capability, stopped, nil), true, nil
 }
 
-func (manager *Manager) resolveSessionDirectory(directory, script string) (string, error) {
+func (manager *Manager) resolveSessionIdentity(
+	ctx context.Context,
+	directory string,
+	script string,
+) (ServerIdentity, error) {
 	absolute, err := absoluteDirectory(directory)
 	if err != nil {
-		return "", err
-	}
-	if _, ok, loadErr := manager.store.load(absolute, script); loadErr != nil {
-		return absolute, loadErr
-	} else if ok {
-		return absolute, nil
+		return ServerIdentity{}, err
 	}
 	canonical, canonicalErr := canonicalDirectory(directory)
-	if canonicalErr != nil {
-		listing, listErr := manager.store.list()
-		if listErr != nil {
-			return absolute, listErr
+	if canonicalErr == nil {
+		identity, identityErr := manager.identity.Resolve(ctx, canonical, script)
+		if identityErr == nil {
+			return identity, nil
 		}
-		for _, state := range listing.States {
-			if state.Script == script && state.RequestedDirectory == absolute {
-				return state.Directory, nil
-			}
-		}
-		return absolute, errors.Join(append([]error{canonicalErr}, listing.Failures...)...)
+		canonicalErr = identityErr
 	}
-	return canonical, nil
+	listing, listErr := manager.store.list()
+	if listErr != nil {
+		return ServerIdentity{WorktreePath: absolute, ServerKey: script}, listErr
+	}
+	for _, state := range listing.States {
+		if state.Script == script && (state.RequestedDirectory == absolute || state.Directory == canonical || state.Directory == absolute) {
+			return identityFromState(state), nil
+		}
+	}
+	return ServerIdentity{WorktreePath: absolute, ServerKey: script},
+		errors.Join(append([]error{canonicalErr}, listing.Failures...)...)
 }
 
 func absoluteDirectory(directory string) (string, error) {
@@ -338,19 +350,41 @@ func (manager *Manager) persistCleanupFailure(
 }
 
 func (manager *Manager) deleteSessionArtifacts(state runtimeState) error {
-	if err := manager.store.deleteLog(state.Directory, state.Script); err != nil {
+	if err := manager.store.deleteLog(state.ServerID); err != nil {
 		return err
 	}
-	return manager.store.delete(state.Directory, state.Script)
+	return manager.store.delete(state.ServerID)
 }
 
 func clearRuntimeResources(state *runtimeState) {
 	state.PID, state.ProcessID = 0, ""
 	state.LocalPort, state.PublicPort = 0, 0
+	state.PortlessName, state.PortlessURL = "", ""
 	state.TailscaleIPv4 = ""
 	state.StartedAt = ""
 }
 
 func hasRuntimeResources(state runtimeState) bool {
-	return state.PID > 0 || state.LocalPort > 0 || state.PublicPort > 0
+	return state.PID > 0 || state.LocalPort > 0 || state.PublicPort > 0 || state.PortlessURL != ""
+}
+
+func identityFromState(state runtimeState) ServerIdentity {
+	return ServerIdentity{
+		RepositoryPath: state.RepositoryPath,
+		WorktreePath:   state.Directory,
+		ServerKey:      state.Script,
+		ServerID:       state.ServerID,
+		TmuxSession:    state.TmuxSession,
+	}
+}
+
+func decorateServeIdentity(result ServeResult, identity ServerIdentity) ServeResult {
+	result.Mode = ServeModeManaged
+	result.ServerID = identity.ServerID
+	result.ServerKey = identity.ServerKey
+	result.Repository = identity.RepositoryPath
+	result.Directory = identity.WorktreePath
+	result.Script = identity.ServerKey
+	result.TmuxSession = identity.TmuxSession
+	return result
 }

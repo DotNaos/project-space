@@ -121,7 +121,8 @@ describe('database migrations', () => {
       '0034_task_execution_storage',
       '0035_task_handoff_artifacts',
       '0036_workspace_commands',
-      '0037_task_delivery'
+      '0037_task_delivery',
+      '0038_dev_server_managed_states'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
@@ -139,6 +140,10 @@ describe('database migrations', () => {
     expect(sql).toContain('foreign key (machine_id, user_id)');
     expect(sql).toContain('on dev_server_sessions (machine_id, worktree_id, server_id)');
     expect(sql).toContain('drop index if exists dev_server_sessions_one_active_per_worktree');
+    expect(sql).toContain('drop index if exists dev_server_sessions_one_active_per_server');
+    expect(sql).toContain(
+      "where state in ('starting', 'running', 'local-only', 'stopping')"
+    );
     expect(sql).toContain('create table if not exists dev_server_sessions');
     expect(sql).toContain('foreign key (machine_id, owner_user_id)');
     expect(sql).toContain('create table machine_power_operations');

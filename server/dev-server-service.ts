@@ -147,7 +147,9 @@ function transitionInput(
 ): TransitionDevServerSessionInput {
   return {
     expectedGeneration: session.generation,
-    lastError: record.state === 'error' ? (record.lastError ?? 'Development server failed.') : null,
+    lastError: ['error', 'failed', 'stale'].includes(record.state)
+      ? (record.lastError ?? 'Development server failed.')
+      : null,
     lastSeenAt: checkedAt(now),
     localPort: record.localPort ?? null,
     sessionId: session.id,
@@ -301,6 +303,7 @@ export function createDevServerService(options: DevServerServiceOptions) {
         (session) =>
           session.state === 'starting' ||
           session.state === 'running' ||
+          session.state === 'local-only' ||
           session.state === 'stopping'
       ) ?? sessions[0]
     );

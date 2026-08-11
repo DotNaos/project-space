@@ -27,6 +27,13 @@ func TestServeCommandsExposeStableJSONContract(t *testing.T) {
 		!reflect.DeepEqual(manager.allowedHosts, []string{"preview.example.com", "app.example.com"}) {
 		t.Fatalf("start call = directory %q script %q hosts %#v", manager.startDirectory, manager.startScript, manager.allowedHosts)
 	}
+	localOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
+		"dev", "/tmp/worktree", "--local-only", "--json",
+	})
+	assertServeJSONKeys(t, localOutput)
+	if !manager.localOnly {
+		t.Fatal("--local-only was not passed to the managed start transaction")
+	}
 
 	statusOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
 		"status", "/tmp/worktree", "--script", "dev", "--format", "json",
@@ -146,8 +153,8 @@ func assertServeJSONKeys(t *testing.T, output string) {
 		t.Fatalf("invalid JSON: %v\n%s", err, output)
 	}
 	for _, key := range []string{
-		"schemaVersion", "operation", "script", "directory", "capability", "state",
-		"pid", "localPort", "localUrl", "publicPort", "publicUrl", "tailscaleIPv4",
+		"schemaVersion", "operation", "mode", "serverId", "serverKey", "script", "directory", "repository", "tmuxSession", "capability", "state",
+		"pid", "localPort", "localUrl", "portlessName", "publicPort", "publicUrl", "tailscaleIPv4",
 		"allowedHosts", "startedAt", "checkedAt", "lastError",
 	} {
 		if _, exists := payload[key]; !exists {
@@ -164,6 +171,7 @@ type fakeProjectCommandManager struct {
 	startDirectory   string
 	startScript      string
 	allowedHosts     []string
+	localOnly        bool
 	reconcileCalls   int
 	statusDirectory  string
 	statusScript     string
@@ -200,6 +208,30 @@ func (manager *fakeProjectCommandManager) Start(
 	manager.allowedHosts = append([]string{}, allowedHosts...)
 	manager.serveResult.Operation = "start"
 	return manager.serveResult, manager.startErr
+}
+
+func (manager *fakeProjectCommandManager) StartWithOptions(
+	ctx context.Context,
+	directory string,
+	script string,
+	options projectrun.StartOptions,
+) (projectrun.ServeResult, error) {
+	manager.localOnly = options.LocalOnly
+	return manager.Start(ctx, directory, script, options.AllowedHosts)
+}
+
+func (manager *fakeProjectCommandManager) ListSessions(
+	_ context.Context,
+) (projectrun.ServeCollectionResult, error) {
+	return manager.reconcileResult, nil
+}
+
+func (manager *fakeProjectCommandManager) AccessSession(
+	_ context.Context,
+	_ string,
+	_ string,
+) (projectrun.SessionAccess, error) {
+	return projectrun.SessionAccess{Result: manager.serveResult}, nil
 }
 
 func (manager *fakeProjectCommandManager) Status(
@@ -266,17 +298,23 @@ func (manager *fakeProjectCommandManager) SetupStatus(
 
 func runningServeFixture() projectrun.ServeResult {
 	pid, localPort, publicPort := 7001, 43117, 44419
-	localURL, publicURL := "http://127.0.0.1:43117", "http://100.80.135.9:44419"
+	localURL, publicURL := "http://worktree.project-space.localhost:1355", "http://100.80.135.9:44419"
 	ip, startedAt := "100.80.135.9", "2026-07-11T12:00:00Z"
 	return projectrun.ServeResult{
-		SchemaVersion: 1,
+		SchemaVersion: projectrun.SchemaVersion,
+		Mode:          projectrun.ServeModeManaged,
+		ServerID:      "project-serve-project-space-dev-test",
+		ServerKey:     "dev",
 		Script:        "dev",
 		Directory:     "/tmp/worktree",
+		Repository:    "/tmp/project-space/.git",
+		TmuxSession:   "project-serve-project-space-dev-test",
 		Capability:    projectrun.CapabilityConfigured,
 		State:         projectrun.StateRunning,
 		PID:           &pid,
 		LocalPort:     &localPort,
 		LocalURL:      &localURL,
+		PortlessName:  "worktree.project-space",
 		PublicPort:    &publicPort,
 		PublicURL:     &publicURL,
 		TailscaleIPv4: &ip,

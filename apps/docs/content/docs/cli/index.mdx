@@ -1092,10 +1092,24 @@ project serve [script] [directory]
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for serve |
 | `--json` | `bool` | local | print machine-readable JSON output |
+| `--local-only` | `bool` | local | start explicitly without a Tailscale route |
+
+<h3 id="project-serve-attach" className="scroll-m-28"><code>project serve attach</code></h3>
+
+Attach to the exact owned tmux session for one managed server
+
+```sh
+project serve attach [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for attach |
+| `--script` | `string` | local | configured server name |
 
 <h3 id="project-serve-list" className="scroll-m-28"><code>project serve list</code></h3>
 
-List trusted development servers configured by a repository
+List managed project server sessions
 
 ```sh
 project serve list [directory]
@@ -1103,9 +1117,24 @@ project serve list [directory]
 
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
+| `--configured` | `bool` | local | list declarations from one repository instead of runtime sessions |
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for list |
 | `--json` | `bool` | local | print machine-readable JSON output |
+
+<h3 id="project-serve-logs" className="scroll-m-28"><code>project serve logs</code></h3>
+
+Read the bounded log for one managed project server
+
+```sh
+project serve logs [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--follow` | `bool` | local | continue streaming new log output |
+| `-h`, `--help` | `bool` | local | help for logs |
+| `--script` | `string` | local | configured server name |
 
 <h3 id="project-serve-publish-pr" className="scroll-m-28"><code>project serve publish-pr</code></h3>
 

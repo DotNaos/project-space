@@ -290,42 +290,82 @@ order on the server.
 
 ## Run And Serve Project Scripts
 
-Projects declare a small, shared script catalog in `.project/scripts.yaml`:
+Projects declare finite commands separately from long-running servers in
+`.project/scripts.yaml`:
 
 ```yaml
-version: 1
-scripts:
+version: 3
+setup:
+  - id: dependencies
+    command: [bun, install, --frozen-lockfile]
+commands:
+  test:
+    command: [bun, test, --isolate]
+  build:
+    command: [bun, scripts/build-project.ts]
+servers:
   dev:
+    label: Project Space
     command:
       - bun
-      - run
-      - dev
-      - --
+      - x
+      - vite
       - --host
       - "{host}"
       - --port
       - "{port}"
       - --strictPort
+    environment:
+      VITE_PROJECT_SPACE_API_BASE_URL: http://127.0.0.1:45873
+      VITE_PROJECT_SPACE_AUTH_DISABLED: "1"
+      PROJECT_SPACE_AUTH_DISABLED: "1"
+      PROJECT_SPACE_PUBLIC_ORIGIN: ""
+    secretEnvironment:
+      GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
     healthCheck:
-      path: /health
+      path: /
       timeoutSeconds: 45
 ```
 
 `command` is always an argument list. It is never passed through a shell.
 `{host}` and `{port}` are replaced before the process starts. The same values
-are also available as `PROJECT_HOST` and `PROJECT_PORT`.
+are also available as `PROJECT_HOST` and `PROJECT_PORT`. Schema version 3 is
+the capability boundary: an older Project CLI that does not understand the
+separate `commands` and `servers` sections rejects the file instead of falling
+back to a package script.
+
+Use `environment` for ordinary configuration and `secretEnvironment` for
+1Password `op://` references. A secret declaration is launched through
+`op run`: the declaration and the protected tmux request contain only the
+reference, while 1Password resolves the value for the child process. This is
+repeated on every managed restart. Project CLI rejects plaintext values and
+keys duplicated across the two sections.
+
+Project Space's `dev` server deliberately declares its database-free local
+preview profile: `PROJECT_SPACE_AUTH_DISABLED=1`,
+`VITE_PROJECT_SPACE_AUTH_DISABLED=1`, and an explicitly empty
+`PROJECT_SPACE_PUBLIC_ORIGIN`. The two auth flags keep the server and browser
+on the same local-auth mode. `PORTLESS_URL` remains the browser-facing local
+address, but it cannot implicitly enable the database-backed machine runtime.
+This profile is for trusted development only. Its GitHub OAuth client ID is
+loaded from `op://projects/GitHub OAuth App/client_id` without storing the
+resolved value in the repository or managed server state.
+
+These workflows require the installed `project` executable on `PATH`. A missing
+or older CLI is an explicit setup error; package-manager scripts are not a
+development-server fallback.
 
 Run a script in the foreground, like `bun run`:
 
 ```sh
-project run dev
-project run dev <directory>
 project run test --format json
+project run build <directory>
 ```
 
 `project run` inherits the current terminal environment. In JSON mode, child
 output goes to stderr and the final result is printed as one JSON object on
-stdout.
+stdout. A server name is not accepted by `project run`; it must enter the
+managed lifecycle through `project serve`.
 
 Run a managed dev server and publish it through Tailscale:
 
@@ -334,6 +374,11 @@ project serve
 project serve dev <directory>
 project serve dev <directory> --allowed-host preview.example.com
 project serve status <directory> --script dev --json
+project serve list --json
+project serve list <directory> --configured --json
+project serve logs <directory> --script dev
+project serve logs <directory> --script dev --follow
+project serve attach <directory> --script dev
 project serve stop <directory> --script dev --json
 project serve reconcile --json
 ```
@@ -341,11 +386,30 @@ project serve reconcile --json
 `project serve` defaults to the `dev` script and current directory. If its only
 argument is an existing directory, it runs `dev` there.
 
-Managed servers listen on a free `127.0.0.1` port. The CLI creates one exact
-raw Tailscale TCP route and reports a DNS-free URL such as
+Managed servers listen on a free `127.0.0.1` port. The CLI registers one exact
+Portless alias such as `http://612-managed-dev.project-space.localhost:1355`
+for normal local use, then creates one exact raw Tailscale TCP route and reports a DNS-free URL such as
 `http://100.80.135.9:44000`. MagicDNS and Tailscale certificate domains are not
-required. Stop removes only the recorded port when its current target still
-matches the recorded local server. It never resets unrelated Tailscale routes.
+required. Stop removes only the recorded Portless alias and Tailscale port when
+their current targets still match the recorded local server. It never resets
+unrelated Portless or Tailscale routes, and it never stops the shared Portless
+proxy.
+
+Each canonical worktree and server name has one deterministic identity and one
+owned tmux session. Repeated starts reuse the healthy session, while different
+worktrees and server names receive independent sessions and collision-free
+ports and Portless names. The session survives the terminal or Codex task that launched it.
+`status`, `logs`, `attach`, `stop`, and `reconcile` resolve that same identity;
+they refuse to mutate a tmux session, Portless alias, or Tailscale route whose ownership evidence
+no longer matches the persisted generation.
+
+Normal mode is fail-closed. A start is not `running` until the tmux process,
+local listener, exact Portless alias, exact Tailscale route, and direct,
+Portless, and Tailnet health checks all
+agree. If publication fails, the CLI compensates the resources created by that
+start and reports `failed`. It never silently leaves a local server running.
+For an exceptional debugging session, `--local-only` is the only supported
+fallback; it reports `local-only` and never returns a public URL.
 
 `--allowed-host` is repeatable and accepts explicit hostnames or IP addresses
 only. Every validated value is available to project tooling in the
@@ -355,39 +419,49 @@ extra host is configured; Vite interprets a comma-separated value as one
 literal hostname. Raw Tailscale IPv4 URLs normally do not need an extra Vite
 host entry.
 
-If `healthCheck` is configured, both the local and Tailscale URL must return a
+If `healthCheck` is configured, the direct listener, Portless URL, and Tailscale URL must return a
 2xx or 3xx response before the session becomes `running`. Without it, the CLI
-checks the TCP listener. In both cases, it also verifies that the selected port
-belongs to the managed process group. `tailscale` and `lsof` must be available
-on the connector machine.
+checks each TCP listener. In both cases, it also verifies that the selected port
+belongs to the managed process group. The globally installed `portless`, plus
+`tmux`, `tailscale`, and `lsof`, must be available on the connector machine.
 
 The managed process receives a small allowlist of runtime and toolchain
 environment variables. Connector registration tokens, Clerk keys, database
-URLs, and other server secrets are not inherited. A private supervisor keeps a
-bounded 64 KiB log tail outside the worktree. Startup failures include a short,
-sanitized tail in `lastError`; the CLI never creates an unbounded project log.
+URLs, and other server secrets are not inherited. A private supervisor inside
+the owned tmux session keeps a bounded 64 KiB log tail outside the worktree.
+Startup failures include a short, sanitized tail in `lastError`; the CLI never
+creates an unbounded project log.
 
 Session state and locks live in the current operating-system user's durable
 state directory, outside the worktree (`~/Library/Application Support/Project
 Space/serve` on macOS or `$XDG_STATE_HOME/project-space/serve`). A session is
-identified by canonical directory and script. App-user ownership and access
-remain in Project Space's database; the machine-local state contains only the
-real process and route identity. `project serve reconcile` checks all recorded
-sessions and removes stale processes or exact routes after connector restarts.
+identified by the canonical Git repository, canonical worktree, and server key.
+App-user ownership and access remain in Project Space's database; the
+machine-local state contains only the generation-scoped tmux, process, listener,
+Portless alias, and route identity. `project serve reconcile` checks all
+recorded sessions one at a time and leaves foreign or ambiguous resources
+untouched.
 
 Machine-readable serve output always contains the same fields:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "operation": "start",
+  "disposition": "created",
+  "mode": "managed",
+  "serverId": "project-serve-project-space-dev-a81f2c3d4e5f",
+  "serverKey": "dev",
   "script": "dev",
   "directory": "/absolute/worktree",
+  "repository": "/absolute/repository/.git",
+  "tmuxSession": "project-serve-project-space-dev-a81f2c3d4e5f",
   "capability": "configured",
   "state": "running",
   "pid": 7001,
   "localPort": 43117,
-  "localUrl": "http://127.0.0.1:43117",
+  "localUrl": "http://worktree.project-space.localhost:1355",
+  "portlessName": "worktree.project-space",
   "publicPort": 44000,
   "publicUrl": "http://100.80.135.9:44000",
   "tailscaleIPv4": "100.80.135.9",
@@ -399,8 +473,12 @@ Machine-readable serve output always contains the same fields:
 ```
 
 `capability` is `configured` or `unavailable`. Runtime `state` is `stopped`,
-`starting`, `running`, `stopping`, or `error`. Nullable runtime fields remain
-present so connector clients can decode one stable shape.
+`starting`, `running`, `local-only`, `stopping`, `failed`, or `stale`. Start
+`disposition` is `created` or `reused`. Nullable runtime fields remain present
+so connector clients can decode one stable shape. `localUrl` is the stable
+Portless address while `localPort` retains the verified direct listener for
+diagnostics; `publicUrl` is always null in
+local-only mode.
 
 ## Deploy
 

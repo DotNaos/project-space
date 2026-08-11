@@ -120,7 +120,11 @@ class PullRequestConflictDatabase implements DatabaseQueryClient {
 describe("task delivery migration", () => {
   test("registers exact owner-scoped evidence, review, and unresolved operation fences", () => {
     expect(taskDeliveryMigrationId).toBe("0037_task_delivery");
-    expect(databaseMigrations.at(-1)).toEqual({
+    expect(
+      databaseMigrations.find(
+        (migration) => migration.id === taskDeliveryMigrationId,
+      ),
+    ).toEqual({
       id: taskDeliveryMigrationId,
       sql: taskDeliveryMigrationSql,
     });

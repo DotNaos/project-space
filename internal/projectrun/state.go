@@ -6,28 +6,38 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
 )
 
 type runtimeState struct {
-	Version            int      `json:"version"`
-	Directory          string   `json:"directory"`
-	RequestedDirectory string   `json:"requestedDirectory,omitempty"`
-	Script             string   `json:"script"`
-	State              State    `json:"state"`
-	PID                int      `json:"pid,omitempty"`
-	ProcessID          string   `json:"processIdentity,omitempty"`
-	LocalPort          int      `json:"localPort,omitempty"`
-	PublicPort         int      `json:"publicPort,omitempty"`
-	TailscaleIPv4      string   `json:"tailscaleIPv4,omitempty"`
-	AllowedHosts       []string `json:"allowedHosts"`
-	StartedAt          string   `json:"startedAt,omitempty"`
-	CheckedAt          string   `json:"checkedAt"`
-	LastError          string   `json:"lastError,omitempty"`
+	Version            int       `json:"schemaVersion"`
+	ServerID           string    `json:"serverId"`
+	RepositoryPath     string    `json:"repositoryPath"`
+	Directory          string    `json:"directory"`
+	RequestedDirectory string    `json:"requestedDirectory,omitempty"`
+	Script             string    `json:"script"`
+	Mode               ServeMode `json:"mode"`
+	State              State     `json:"state"`
+	Generation         string    `json:"generation"`
+	TmuxSession        string    `json:"tmuxSession"`
+	TmuxOwnershipToken string    `json:"tmuxOwnershipToken"`
+	PID                int       `json:"pid,omitempty"`
+	ProcessID          string    `json:"processIdentity,omitempty"`
+	LocalPort          int       `json:"localPort,omitempty"`
+	PortlessName       string    `json:"portlessName,omitempty"`
+	PortlessURL        string    `json:"portlessUrl,omitempty"`
+	PublicPort         int       `json:"publicPort,omitempty"`
+	TailscaleIPv4      string    `json:"tailscaleIPv4,omitempty"`
+	AllowedHosts       []string  `json:"allowedHosts"`
+	StartedAt          string    `json:"startedAt,omitempty"`
+	CheckedAt          string    `json:"checkedAt"`
+	LastError          string    `json:"lastError,omitempty"`
 }
 
 type stateStore struct {
@@ -66,6 +76,7 @@ func newStateStore(root string) (*stateStore, error) {
 		filepath.Join(resolved, "sessions"),
 		filepath.Join(resolved, "locks"),
 		filepath.Join(resolved, "logs"),
+		filepath.Join(resolved, "requests"),
 		filepath.Join(resolved, "setup-states"),
 		filepath.Join(resolved, "setup-logs"),
 	} {
@@ -81,8 +92,8 @@ func sessionKey(directory, script string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func (store *stateStore) load(directory, script string) (runtimeState, bool, error) {
-	body, err := os.ReadFile(store.statePath(directory, script))
+func (store *stateStore) load(identity ServerIdentity) (runtimeState, bool, error) {
+	body, err := os.ReadFile(store.statePath(identity.ServerID))
 	if errors.Is(err, os.ErrNotExist) {
 		return runtimeState{}, false, nil
 	}
@@ -93,7 +104,12 @@ func (store *stateStore) load(directory, script string) (runtimeState, bool, err
 	if err := json.Unmarshal(body, &state); err != nil {
 		return runtimeState{}, false, fmt.Errorf("parse serve state: %w", err)
 	}
-	if state.Version != SchemaVersion || state.Directory != directory || state.Script != script {
+	if err := validateRuntimeState(state); err != nil {
+		return runtimeState{}, false, fmt.Errorf("serve state is invalid: %w", err)
+	}
+	if state.ServerID != identity.ServerID ||
+		state.RepositoryPath != identity.RepositoryPath || state.Directory != identity.WorktreePath ||
+		state.Script != identity.ServerKey || state.TmuxSession != identity.TmuxSession {
 		return runtimeState{}, false, fmt.Errorf("serve state identity is invalid")
 	}
 	return state, true, nil
@@ -101,11 +117,14 @@ func (store *stateStore) load(directory, script string) (runtimeState, bool, err
 
 func (store *stateStore) save(state runtimeState) error {
 	state.Version = SchemaVersion
+	if err := validateRuntimeState(state); err != nil {
+		return fmt.Errorf("refuse invalid serve state: %w", err)
+	}
 	body, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode serve state: %w", err)
 	}
-	path := store.statePath(state.Directory, state.Script)
+	path := store.statePath(state.ServerID)
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".state-*.json")
 	if err != nil {
 		return fmt.Errorf("create temporary serve state: %w", err)
@@ -133,8 +152,8 @@ func (store *stateStore) save(state runtimeState) error {
 	return nil
 }
 
-func (store *stateStore) delete(directory, script string) error {
-	err := os.Remove(store.statePath(directory, script))
+func (store *stateStore) delete(serverID string) error {
+	err := os.Remove(store.statePath(serverID))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -174,9 +193,11 @@ func (store *stateStore) list() (stateListing, error) {
 			listing.Failures = append(listing.Failures, fmt.Errorf("parse serve state %q: %w", entry.Name(), err))
 			continue
 		}
-		expectedName := sessionKey(state.Directory, state.Script) + ".json"
-		if state.Version != SchemaVersion || state.Directory == "" || state.Script == "" || entry.Name() != expectedName {
-			listing.Failures = append(listing.Failures, fmt.Errorf("serve state %q has an invalid identity", entry.Name()))
+		expectedName := state.ServerID + ".json"
+		if validationErr := validateRuntimeState(state); validationErr != nil || entry.Name() != expectedName {
+			listing.Failures = append(listing.Failures, fmt.Errorf(
+				"serve state %q is invalid: %v", entry.Name(), validationErr,
+			))
 			continue
 		}
 		listing.States = append(listing.States, state)
@@ -188,12 +209,94 @@ func (store *stateStore) list() (stateListing, error) {
 	return listing, nil
 }
 
-func (store *stateStore) statePath(directory, script string) string {
-	return filepath.Join(store.root, "sessions", sessionKey(directory, script)+".json")
+func validateRuntimeState(state runtimeState) error {
+	if state.Version != SchemaVersion {
+		return fmt.Errorf("schema version %d is not supported", state.Version)
+	}
+	for name, value := range map[string]string{
+		"server ID": state.ServerID, "repository path": state.RepositoryPath,
+		"worktree path": state.Directory, "server key": state.Script,
+		"tmux session": state.TmuxSession, "generation": state.Generation,
+		"tmux ownership token": state.TmuxOwnershipToken,
+	} {
+		if strings.TrimSpace(value) == "" || len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
+			return fmt.Errorf("%s is invalid", name)
+		}
+	}
+	if state.Mode != ServeModeManaged && state.Mode != ServeModeLocalOnly {
+		return fmt.Errorf("mode %q is invalid", state.Mode)
+	}
+	if !validRuntimeStatePhase(state.State) {
+		return fmt.Errorf("state %q is invalid", state.State)
+	}
+	if state.State == StateRunning && state.Mode != ServeModeManaged {
+		return fmt.Errorf("running state requires managed mode")
+	}
+	if state.State == StateLocalOnly && state.Mode != ServeModeLocalOnly {
+		return fmt.Errorf("local-only state requires local-only mode")
+	}
+	if err := validateRuntimePort("local", state.LocalPort); err != nil {
+		return err
+	}
+	if err := validateRuntimePort("public", state.PublicPort); err != nil {
+		return err
+	}
+	if state.Mode == ServeModeLocalOnly && (state.PublicPort != 0 || state.TailscaleIPv4 != "") {
+		return fmt.Errorf("local-only state contains Tailscale resources")
+	}
+	if state.Mode == ServeModeManaged && hasRuntimeResources(state) &&
+		(state.PublicPort == 0 || net.ParseIP(state.TailscaleIPv4).To4() == nil) {
+		return fmt.Errorf("managed runtime has no valid Tailscale port and IPv4 address")
+	}
+	if state.PortlessName != "" {
+		if err := validatePortlessName(state.PortlessName); err != nil {
+			return err
+		}
+	}
+	if state.PortlessURL != "" {
+		if err := validatePortlessRoute(state.PortlessName, state.PortlessURL); err != nil {
+			return err
+		}
+	}
+	if (state.State == StateRunning || state.State == StateLocalOnly || state.PID > 0) &&
+		(state.PortlessName == "" || state.PortlessURL == "") {
+		return fmt.Errorf("active runtime has no verified Portless route")
+	}
+	if state.PID < 0 || (state.PID == 0) != (state.ProcessID == "") {
+		return fmt.Errorf("process identity is inconsistent")
+	}
+	if state.CheckedAt == "" {
+		return fmt.Errorf("checked timestamp is missing")
+	}
+	if normalized, err := NormalizeAllowedHosts(state.AllowedHosts); err != nil ||
+		!reflect.DeepEqual(normalized, state.AllowedHosts) {
+		return fmt.Errorf("allowed hosts are not normalized")
+	}
+	return nil
 }
 
-func (store *stateStore) sessionLockPath(directory, script string) string {
-	return filepath.Join(store.root, "locks", "session-"+sessionKey(directory, script)+".lock")
+func validRuntimeStatePhase(state State) bool {
+	switch state {
+	case StateStarting, StateRunning, StateLocalOnly, StateStopping, StateFailed, StateStale:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateRuntimePort(name string, port int) error {
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("%s port %d is invalid", name, port)
+	}
+	return nil
+}
+
+func (store *stateStore) statePath(serverID string) string {
+	return filepath.Join(store.root, "sessions", serverID+".json")
+}
+
+func (store *stateStore) sessionLockPath(serverID string) string {
+	return filepath.Join(store.root, "locks", "session-"+serverID+".lock")
 }
 
 func (store *stateStore) portLockPath() string {
@@ -204,12 +307,20 @@ func (store *stateStore) tailnetLockPath() string {
 	return filepath.Join(store.root, "locks", "tailnet.lock")
 }
 
-func (store *stateStore) logPath(directory, script string) string {
-	return filepath.Join(store.root, "logs", sessionKey(directory, script)+".log")
+func (store *stateStore) portlessLockPath() string {
+	return filepath.Join(store.root, "locks", "portless.lock")
 }
 
-func (store *stateStore) deleteLog(directory, script string) error {
-	err := os.Remove(store.logPath(directory, script))
+func (store *stateStore) logPath(serverID string) string {
+	return filepath.Join(store.root, "logs", serverID+".log")
+}
+
+func (store *stateStore) requestPath(serverID, generation string) string {
+	return filepath.Join(store.root, "requests", serverID+"-"+generation+".json")
+}
+
+func (store *stateStore) deleteLog(serverID string) error {
+	err := os.Remove(store.logPath(serverID))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

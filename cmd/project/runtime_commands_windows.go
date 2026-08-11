@@ -30,8 +30,11 @@ func newServeCommand() *cobra.Command {
 	)
 	addWindowsRuntimeOutputFlags(cmd)
 	cmd.Flags().StringArray("allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
+	cmd.Flags().Bool("local-only", false, "start explicitly without a Tailscale route")
 	cmd.AddCommand(newWindowsServeReconcileCommand())
 	cmd.AddCommand(newWindowsServeListCommand())
+	cmd.AddCommand(newWindowsServeLogsCommand())
+	cmd.AddCommand(newWindowsServeAttachCommand())
 	cmd.AddCommand(newWindowsServeStatusCommand())
 	cmd.AddCommand(newWindowsServeStopCommand())
 	return cmd
@@ -40,12 +43,32 @@ func newServeCommand() *cobra.Command {
 func newWindowsServeListCommand() *cobra.Command {
 	cmd := newWindowsRuntimeCommand(
 		"list [directory]",
-		"List trusted development servers configured by a repository",
+		"List managed project server sessions",
 		cobra.MaximumNArgs(1),
 		"serve list",
 		"wsl.exe --distribution <distribution> -- project serve list",
 	)
 	addWindowsRuntimeOutputFlags(cmd)
+	cmd.Flags().Bool("configured", false, "list declarations from one repository instead of runtime sessions")
+	return cmd
+}
+
+func newWindowsServeLogsCommand() *cobra.Command {
+	cmd := newWindowsRuntimeCommand(
+		"logs [directory]", "Read the bounded log for one managed project server",
+		cobra.MaximumNArgs(1), "serve logs", "wsl.exe --distribution <distribution> -- project serve logs",
+	)
+	cmd.Flags().String("script", "dev", "configured server name")
+	cmd.Flags().Bool("follow", false, "continue streaming new log output")
+	return cmd
+}
+
+func newWindowsServeAttachCommand() *cobra.Command {
+	cmd := newWindowsRuntimeCommand(
+		"attach [directory]", "Attach to one managed project server",
+		cobra.MaximumNArgs(1), "serve attach", "wsl.exe --distribution <distribution> -- project serve attach",
+	)
+	cmd.Flags().String("script", "dev", "configured server name")
 	return cmd
 }
 
@@ -96,6 +119,15 @@ func newRuntimeLogCommand() *cobra.Command {
 		cobra.ExactArgs(1),
 		"runtime supervisor",
 		"wsl.exe --distribution <distribution> -- project serve",
+	)
+	cmd.Hidden = true
+	return cmd
+}
+
+func newRuntimeTmuxCommand() *cobra.Command {
+	cmd := newWindowsRuntimeCommand(
+		"__runtime-tmux <request-path> <log-path>", "", cobra.ExactArgs(2),
+		"runtime tmux", "wsl.exe --distribution <distribution> -- project serve",
 	)
 	cmd.Hidden = true
 	return cmd

@@ -1011,7 +1011,7 @@ export class ProjectSpaceDatabaseRepository {
     addFilter('worktree_id', filter.worktreeId);
     addFilter('server_id', filter.serverId);
     if (filter.activeOnly) {
-      conditions.push(`state in ('starting', 'running', 'stopping')`);
+      conditions.push(`state in ('starting', 'running', 'local-only', 'stopping')`);
     }
 
     const result = await this.client.query<DevServerSessionRow>(

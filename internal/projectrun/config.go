@@ -19,6 +19,7 @@ const scriptsConfigPath = ".project/scripts.yaml"
 
 const (
 	maximumSetupSteps = 64
+	maximumCommands   = 64
 	maximumServers    = 64
 )
 
@@ -27,16 +28,18 @@ var (
 	ErrScriptNotFound  = errors.New("project script is not configured")
 	ErrSetupNotFound   = errors.New("project setup step is not configured")
 	declarationPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
+	environmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 // ScriptsConfig v1 remains readable for repositories created before named
-// setup steps and servers were introduced. Version 2 intentionally separates
-// finite preparation from long-running development servers.
+// setup steps and servers were introduced. Version 2 separates preparation
+// from servers; version 3 also separates finite commands from servers.
 type ScriptsConfig struct {
-	Version int               `yaml:"version"`
-	Scripts map[string]Script `yaml:"scripts,omitempty"`
-	Setup   []SetupStep       `yaml:"setup,omitempty"`
-	Servers map[string]Script `yaml:"servers,omitempty"`
+	Version  int               `yaml:"version"`
+	Scripts  map[string]Script `yaml:"scripts,omitempty"`
+	Setup    []SetupStep       `yaml:"setup,omitempty"`
+	Commands map[string]Script `yaml:"commands,omitempty"`
+	Servers  map[string]Script `yaml:"servers,omitempty"`
 }
 
 type SetupStep struct {
@@ -45,10 +48,12 @@ type SetupStep struct {
 }
 
 type Script struct {
-	Label            string       `yaml:"label,omitempty"`
-	Command          []string     `yaml:"command"`
-	HealthCheck      *HealthCheck `yaml:"healthCheck,omitempty"`
-	PrototypeSurface string       `yaml:"prototypeSurface,omitempty"`
+	Label             string            `yaml:"label,omitempty"`
+	Command           []string          `yaml:"command"`
+	Environment       map[string]string `yaml:"environment,omitempty"`
+	SecretEnvironment map[string]string `yaml:"secretEnvironment,omitempty"`
+	HealthCheck       *HealthCheck      `yaml:"healthCheck,omitempty"`
+	PrototypeSurface  string            `yaml:"prototypeSurface,omitempty"`
 }
 
 type HealthCheck struct {
@@ -57,10 +62,11 @@ type HealthCheck struct {
 }
 
 type Declaration struct {
-	Root   string
-	Digest string
-	Setup  []SetupStep
-	Server map[string]Script
+	Root    string
+	Digest  string
+	Setup   []SetupStep
+	Command map[string]Script
+	Server  map[string]Script
 }
 
 func LoadDeclaration(directory string) (Declaration, error) {
@@ -99,9 +105,29 @@ func LoadDeclaration(directory string) (Declaration, error) {
 		servers = config.Scripts
 	}
 	digest := sha256.Sum256(body)
+	commands := config.Commands
+	if config.Version == 1 {
+		commands = config.Scripts
+	}
 	return Declaration{
-		Root: root, Digest: hex.EncodeToString(digest[:]), Setup: config.Setup, Server: servers,
+		Root: root, Digest: hex.EncodeToString(digest[:]), Setup: config.Setup,
+		Command: commands, Server: servers,
 	}, nil
+}
+
+func LoadCommand(directory, name string) (string, Script, error) {
+	declaration, err := LoadDeclaration(directory)
+	if err != nil {
+		return declaration.Root, Script{}, err
+	}
+	command, ok := declaration.Command[name]
+	if !ok {
+		return declaration.Root, Script{}, fmt.Errorf(
+			"%w: command %q is not defined in %s (long-running servers require project serve)",
+			ErrScriptNotFound, name, scriptsConfigPath,
+		)
+	}
+	return declaration.Root, command, nil
 }
 
 func LoadScript(directory, name string) (string, Script, error) {
@@ -152,8 +178,24 @@ func validateScriptsConfig(config ScriptsConfig) error {
 		if len(config.Servers) == 0 {
 			return fmt.Errorf("servers must not be empty")
 		}
+		if len(config.Commands) != 0 {
+			return fmt.Errorf("version 2 does not support commands")
+		}
+	case 3:
+		if len(config.Scripts) != 0 {
+			return fmt.Errorf("version 3 uses commands and servers instead of scripts")
+		}
+		if len(config.Setup) == 0 {
+			return fmt.Errorf("setup must not be empty")
+		}
+		if len(config.Commands) == 0 {
+			return fmt.Errorf("commands must not be empty")
+		}
+		if len(config.Servers) == 0 {
+			return fmt.Errorf("servers must not be empty")
+		}
 	default:
-		return fmt.Errorf("version must be 1 or 2")
+		return fmt.Errorf("version must be 1, 2, or 3")
 	}
 	if len(config.Setup) > maximumSetupSteps {
 		return fmt.Errorf("setup must contain at most %d steps", maximumSetupSteps)
@@ -169,13 +211,26 @@ func validateScriptsConfig(config ScriptsConfig) error {
 		}
 	}
 	servers := config.Scripts
-	if config.Version == 2 {
+	if config.Version >= 2 {
 		servers = config.Servers
+	}
+	declarations := map[string]Script{}
+	for name, declaration := range servers {
+		declarations[name] = declaration
+	}
+	for name, declaration := range config.Commands {
+		if _, exists := declarations[name]; exists {
+			return fmt.Errorf("command and server name %q must be distinct", name)
+		}
+		declarations[name] = declaration
 	}
 	if len(servers) > maximumServers {
 		return fmt.Errorf("servers must contain at most %d entries", maximumServers)
 	}
-	for name, script := range servers {
+	if len(config.Commands) > maximumCommands {
+		return fmt.Errorf("commands must contain at most %d entries", maximumCommands)
+	}
+	for name, script := range declarations {
 		if config.Version == 1 && script.Label != "" {
 			return fmt.Errorf("version 1 scripts do not support labels")
 		}
@@ -183,6 +238,15 @@ func validateScriptsConfig(config ScriptsConfig) error {
 			return fmt.Errorf("version 1 scripts do not support prototypeSurface")
 		}
 		if err := validateCommand("server", name, script.Command); err != nil {
+			return err
+		}
+		if err := validateScriptEnvironment(name, script.Environment); err != nil {
+			return err
+		}
+		if err := validateScriptEnvironment(name, script.SecretEnvironment); err != nil {
+			return err
+		}
+		if err := validateScriptSecretEnvironment(name, script.Environment, script.SecretEnvironment); err != nil {
 			return err
 		}
 		if script.HealthCheck != nil {
@@ -200,6 +264,42 @@ func validateScriptsConfig(config ScriptsConfig) error {
 				"server %q prototypeSurface must be mobile-prototype or desktop-prototype",
 				name,
 			)
+		}
+	}
+	return nil
+}
+
+func validateScriptSecretEnvironment(name string, environment, secrets map[string]string) error {
+	for key, reference := range secrets {
+		if !environmentPattern.MatchString(key) {
+			return fmt.Errorf("declaration %q secretEnvironment key %q is invalid", name, key)
+		}
+		if _, exists := environment[key]; exists {
+			return fmt.Errorf("declaration %q environment and secretEnvironment both define %q", name, key)
+		}
+		if !strings.HasPrefix(reference, "op://") || strings.TrimSpace(reference) != reference ||
+			strings.ContainsAny(reference, "\x00\r\n\t") {
+			return fmt.Errorf("declaration %q secretEnvironment value %q must be a single 1Password op:// reference", name, key)
+		}
+	}
+	return nil
+}
+
+func validateScriptEnvironment(name string, environment map[string]string) error {
+	reserved := map[string]bool{
+		"PROJECT_HOST": true, "PROJECT_PORT": true, "PROJECT_SPACE_MANAGED_SERVE": true,
+		"PROJECT_SPACE_SERVE_MODE": true, "PROJECT_ALLOWED_HOSTS": true,
+		"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": true, "PWD": true,
+	}
+	for key, value := range environment {
+		if !environmentPattern.MatchString(key) {
+			return fmt.Errorf("declaration %q environment key %q is invalid", name, key)
+		}
+		if reserved[key] {
+			return fmt.Errorf("declaration %q environment key %q is managed by Project CLI", name, key)
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return fmt.Errorf("declaration %q environment value %q contains a null byte", name, key)
 		}
 	}
 	return nil

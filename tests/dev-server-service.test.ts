@@ -993,6 +993,32 @@ describe('development-server service exposure verification', () => {
     });
   });
 
+  test('preserves the verified Portless URL for normal local use', async () => {
+    const localUrl = 'http://issue-612-managed-dev.project-space.localhost:1355/';
+    const harness = createHarness({
+      connectorResult: (_operation, request, actor) => resultFor(request, actor, { localUrl }),
+      memberships: [membership('user-a')]
+    });
+
+    const overview = await harness.service.inspect({ machineId, projectId });
+
+    expect(overview.servers[0]?.localUrl).toBe(localUrl);
+    expect(overview.servers[0]?.localPort).toBe(43117);
+  });
+
+  test('drops an untrusted local URL while retaining the verified runtime state', async () => {
+    const harness = createHarness({
+      connectorResult: (_operation, request, actor) =>
+        resultFor(request, actor, { localUrl: 'http://attacker.example:1355/' }),
+      memberships: [membership('user-a')]
+    });
+
+    const overview = await harness.service.inspect({ machineId, projectId });
+
+    expect(overview.servers[0]?.localUrl).toBeUndefined();
+    expect(overview.servers[0]?.state).toBe('running');
+  });
+
   test.each([
     ['stale', '2026-07-10T12:00:00.000Z'],
     ['implausibly future-dated', '2026-07-11T12:01:00.000Z']

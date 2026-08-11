@@ -197,11 +197,10 @@ function positiveInteger(value: string | null) {
 export default defineConfig(({ command }) => {
   if (
     command === 'serve' &&
-    !process.env.PORTLESS_URL &&
-    process.env.PROJECT_SPACE_ALLOW_DIRECT_DEV !== '1'
+    process.env.PROJECT_SPACE_MANAGED_SERVE !== '1'
   ) {
     throw new Error(
-      'Project Space dev servers must run through Portless. Use `bun run dev`, or `bun run dev:direct` only for exceptional local debugging.'
+      'Project Space dev servers are managed by the Project CLI. Use `project serve dev`, or `project serve dev --local-only` for the explicit local fallback.'
     );
   }
 

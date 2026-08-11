@@ -19,8 +19,11 @@ type projectRunOptions struct {
 type projectCommandManager interface {
 	Run(context.Context, string, string, projectrun.Streams) (projectrun.RunResult, error)
 	Start(context.Context, string, string, []string) (projectrun.ServeResult, error)
+	StartWithOptions(context.Context, string, string, projectrun.StartOptions) (projectrun.ServeResult, error)
 	Status(context.Context, string, string) (projectrun.ServeResult, error)
 	Stop(context.Context, string, string) (projectrun.ServeResult, error)
+	ListSessions(context.Context) (projectrun.ServeCollectionResult, error)
+	AccessSession(context.Context, string, string) (projectrun.SessionAccess, error)
 }
 
 type projectManagerFactory func() (projectCommandManager, error)

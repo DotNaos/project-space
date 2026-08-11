@@ -29,15 +29,21 @@ function runtimeJson(directory: string) {
     lastError: null,
     localPort: null,
     localUrl: null,
+    mode: 'managed',
     operation: 'status',
     pid: null,
+    portlessName: '',
     publicPort: null,
     publicUrl: null,
-    schemaVersion: 1,
+    repository: '/tmp/project/.git',
+    schemaVersion: 2,
+    serverId: 'project-serve-project-space-dev-test',
+    serverKey: 'dev',
     script: 'dev',
     startedAt: null,
     state: 'stopped',
-    tailscaleIPv4: null
+    tailscaleIPv4: null,
+    tmuxSession: 'project-serve-project-space-dev-test'
   });
 }
 

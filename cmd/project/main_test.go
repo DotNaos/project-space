@@ -31,6 +31,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 	want := []string{
 		"__docs-model",
 		"__runtime-supervisor",
+		"__runtime-tmux",
 		"adopt",
 		"agent",
 		"chat",

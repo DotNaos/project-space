@@ -6,7 +6,21 @@ import (
 	"time"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
+
+type ServeMode string
+
+const (
+	ServeModeManaged   ServeMode = "managed"
+	ServeModeLocalOnly ServeMode = "local-only"
+)
+
+type ServeDisposition string
+
+const (
+	ServeDispositionCreated ServeDisposition = "created"
+	ServeDispositionReused  ServeDisposition = "reused"
+)
 
 type Capability string
 
@@ -18,30 +32,45 @@ const (
 type State string
 
 const (
-	StateStopped  State = "stopped"
-	StateStarting State = "starting"
-	StateRunning  State = "running"
-	StateStopping State = "stopping"
-	StateError    State = "error"
+	StateStopped   State = "stopped"
+	StateStarting  State = "starting"
+	StateRunning   State = "running"
+	StateLocalOnly State = "local-only"
+	StateStopping  State = "stopping"
+	StateFailed    State = "failed"
+	StateStale     State = "stale"
+	StateError           = StateFailed
 )
 
 type ServeResult struct {
-	SchemaVersion int        `json:"schemaVersion"`
-	Operation     string     `json:"operation"`
-	Script        string     `json:"script"`
-	Directory     string     `json:"directory"`
-	Capability    Capability `json:"capability"`
-	State         State      `json:"state"`
-	PID           *int       `json:"pid"`
-	LocalPort     *int       `json:"localPort"`
-	LocalURL      *string    `json:"localUrl"`
-	PublicPort    *int       `json:"publicPort"`
-	PublicURL     *string    `json:"publicUrl"`
-	TailscaleIPv4 *string    `json:"tailscaleIPv4"`
-	AllowedHosts  []string   `json:"allowedHosts"`
-	StartedAt     *string    `json:"startedAt"`
-	CheckedAt     string     `json:"checkedAt"`
-	LastError     *string    `json:"lastError"`
+	SchemaVersion int              `json:"schemaVersion"`
+	Operation     string           `json:"operation"`
+	Disposition   ServeDisposition `json:"disposition,omitempty"`
+	Mode          ServeMode        `json:"mode"`
+	ServerID      string           `json:"serverId"`
+	ServerKey     string           `json:"serverKey"`
+	Script        string           `json:"script"`
+	Directory     string           `json:"directory"`
+	Repository    string           `json:"repository"`
+	TmuxSession   string           `json:"tmuxSession"`
+	Capability    Capability       `json:"capability"`
+	State         State            `json:"state"`
+	PID           *int             `json:"pid"`
+	LocalPort     *int             `json:"localPort"`
+	LocalURL      *string          `json:"localUrl"`
+	PortlessName  string           `json:"portlessName"`
+	PublicPort    *int             `json:"publicPort"`
+	PublicURL     *string          `json:"publicUrl"`
+	TailscaleIPv4 *string          `json:"tailscaleIPv4"`
+	AllowedHosts  []string         `json:"allowedHosts"`
+	StartedAt     *string          `json:"startedAt"`
+	CheckedAt     string           `json:"checkedAt"`
+	LastError     *string          `json:"lastError"`
+}
+
+type StartOptions struct {
+	AllowedHosts []string
+	LocalOnly    bool
 }
 
 type RunResult struct {
@@ -97,9 +126,10 @@ type Tailnet interface {
 }
 
 type ProbeTarget struct {
-	Host string
-	Port int
-	Path string
+	Scheme string
+	Host   string
+	Port   int
+	Path   string
 }
 
 type Prober interface {

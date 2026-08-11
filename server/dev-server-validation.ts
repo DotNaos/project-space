@@ -32,7 +32,10 @@ const runTargetPattern = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/;
 const hostLabelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const allowedStates = new Set<DevServerState>([
   'error',
+  'failed',
+  'local-only',
   'running',
+  'stale',
   'starting',
   'stopped',
   'stopping'
@@ -159,9 +162,25 @@ function canonicalLocalUrl(result: DevServerConnectorResult) {
   ) {
     return undefined;
   }
-  const canonical = `http://127.0.0.1:${result.localPort}/`;
   try {
-    return new URL(result.localUrl).toString() === canonical ? canonical : undefined;
+    const supplied = new URL(result.localUrl);
+    const direct = `http://127.0.0.1:${result.localPort}/`;
+    if (supplied.toString() === direct) {
+      return direct;
+    }
+    if (
+      (supplied.protocol !== 'http:' && supplied.protocol !== 'https:') ||
+      !supplied.hostname.endsWith('.localhost') ||
+      !supplied.port ||
+      supplied.pathname !== '/' ||
+      supplied.username ||
+      supplied.password ||
+      supplied.search ||
+      supplied.hash
+    ) {
+      return undefined;
+    }
+    return supplied.toString();
   } catch {
     return undefined;
   }
@@ -200,6 +219,9 @@ export function validateConnectorResult(
   if (result.state === 'running' && result.capability !== 'configured') {
     throw new Error('The connector returned an invalid running state.');
   }
+  if (result.state === 'local-only' && result.capability !== 'configured') {
+    throw new Error('The connector returned an invalid local-only state.');
+  }
   return result;
 }
 
@@ -214,11 +236,19 @@ export function recordFromResult(
   if (result.state === 'running' && !exposure) {
     throw new Error('The connector did not verify a canonical Tailscale TCP exposure.');
   }
+  if (
+    result.state === 'local-only' &&
+    (result.publicPort !== undefined || result.tailscaleIPv4 || result.tailscaleUrl)
+  ) {
+    throw new Error('A local-only development server must not expose a Tailscale route.');
+  }
   const observedAt = checkedAt(now);
   return {
     capability: result.capability,
     checkedAt: observedAt,
-    lastError: result.state === 'error' ? 'Development server reported an error.' : undefined,
+    lastError: ['error', 'failed', 'stale'].includes(result.state)
+      ? 'Development server reported an error.'
+      : undefined,
     localPort: result.localPort,
     localUrl,
     machineId: request.machineId,
