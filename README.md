@@ -23,17 +23,19 @@ The repository currently targets a web-first fullstack MVP:
 - TailwindCSS
 - Bun for the local production-style web server
 
-## Scripts
+## Project commands
 
-- `bun install`
-- `bun run dev`
+- `project prepare`
+- `project serve dev`
   Run the web app in fullstack development mode.
-- `bun run build`
+- `project serve dev --local-only`
+  Explicitly run without publishing a Tailscale route when managed publication cannot be used for a debugging session.
+- `project run build`
   Build the deployable web frontend.
-- `bun run start`
-  Serve the built frontend plus backend from one local HTTP server.
-- `bun run check`
+- `project run check`
   Type-check the app.
+- `project run test`
+  Run the test suite.
 
 ## Structure
 

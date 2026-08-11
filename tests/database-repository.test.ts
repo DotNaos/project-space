@@ -217,7 +217,9 @@ describe('ProjectSpaceDatabaseRepository', () => {
     expect(client.calls[0]?.sql).toContain('machine_id = $2');
     expect(client.calls[0]?.sql).toContain('worktree_id = $3');
     expect(client.calls[0]?.sql).toContain('server_id = $4');
-    expect(client.calls[0]?.sql).toContain("state in ('starting', 'running', 'stopping')");
+    expect(client.calls[0]?.sql).toContain(
+      "state in ('starting', 'running', 'local-only', 'stopping')"
+    );
     expect(client.calls[0]?.values).toEqual(['user-a', 'macbook', 'worktree-main', 'dev']);
   });
 

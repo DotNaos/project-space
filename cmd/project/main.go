@@ -52,6 +52,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newProjectPathCommand())
 	root.AddCommand(newPrepareCommand())
 	root.AddCommand(newRuntimeLogCommand())
+	root.AddCommand(newRuntimeTmuxCommand())
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newRoadmapCommand())
 	root.AddCommand(newSelfUpdateCommand())

@@ -1,23 +1,43 @@
-version: 2
+version: 3
 setup:
   - id: dependencies
     command:
       - bun
       - install
       - --frozen-lockfile
+commands:
+  test:
+    command:
+      - bun
+      - test
+      - --isolate
+  check:
+    command:
+      - bun
+      - run
+      - check
+  build:
+    command:
+      - bun
+      - scripts/build-project.ts
+  preflight:
+    command:
+      - bun
+      - scripts/ci-preflight.ts
 servers:
   dev:
     label: Project Space
     command:
       - bun
-      - run
-      - dev:direct
-      - --
+      - x
+      - vite
       - --host
       - "{host}"
       - --port
       - "{port}"
       - --strictPort
+    environment:
+      VITE_PROJECT_SPACE_API_BASE_URL: http://127.0.0.1:45873
     healthCheck:
       path: /
       timeoutSeconds: 45
@@ -25,9 +45,9 @@ servers:
     label: Project Space docs
     command:
       - bun
-      - run
-      - docs:dev
-      - --
+      - apps/docs/node_modules/next/dist/bin/next
+      - dev
+      - apps/docs
       - --hostname
       - "{host}"
       - --port
@@ -40,9 +60,10 @@ servers:
     prototypeSurface: desktop-prototype
     command:
       - bun
-      - run
-      - serve:prototype:desktop
-      - --
+      - x
+      - vite
+      - --config
+      - apps/prototype/vite.config.ts
       - --host
       - "{host}"
       - --port
@@ -56,9 +77,10 @@ servers:
     prototypeSurface: mobile-prototype
     command:
       - bun
-      - run
-      - serve:prototype:desktop
-      - --
+      - x
+      - vite
+      - --config
+      - apps/prototype/vite.config.ts
       - --host
       - "{host}"
       - --port

@@ -40,7 +40,10 @@ export interface UpsertProjectRunSettingsInput extends ProjectRunSettingsKey {
 
 export type DevServerSessionState =
   | 'error'
+  | 'failed'
+  | 'local-only'
   | 'running'
+  | 'stale'
   | 'starting'
   | 'stopped'
   | 'stopping';

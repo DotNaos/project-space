@@ -11,7 +11,7 @@ func (manager *Manager) Run(
 	scriptName string,
 	streams Streams,
 ) (RunResult, error) {
-	root, script, err := LoadScript(directory, scriptName)
+	root, script, err := LoadCommand(directory, scriptName)
 	if err != nil {
 		return manager.runErrorResult(root, scriptName, nil, 0, err), err
 	}

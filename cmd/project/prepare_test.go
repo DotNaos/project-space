@@ -84,11 +84,11 @@ func TestServeListJSONExposesOnlySafeInventory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, ".project", "scripts.yaml"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	command := newServeListCommand()
+	command := newServeListCommand(defaultProjectManager)
 	stdout := &bytes.Buffer{}
 	command.SetOut(stdout)
 	command.SetErr(io.Discard)
-	command.SetArgs([]string{project, "--format", "json"})
+	command.SetArgs([]string{project, "--configured", "--format", "json"})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}

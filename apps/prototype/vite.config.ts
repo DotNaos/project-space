@@ -27,11 +27,10 @@ function releaseChangelogSourceForBuild() {
 export default defineConfig(({ command }) => {
   if (
     command === 'serve' &&
-    !process.env.PORTLESS_URL &&
-    process.env.PROJECT_SPACE_ALLOW_DIRECT_DEV !== '1'
+    process.env.PROJECT_SPACE_MANAGED_SERVE !== '1'
   ) {
     throw new Error(
-      'Prototype dev servers must run through Portless. Use `bun run dev:prototype`, or `bun run dev:prototype:direct` only for exceptional local debugging.'
+      'Prototype dev servers are managed by the Project CLI. Use `project serve prototype-desktop`, or add `--local-only` for the explicit local fallback.'
     );
   }
 

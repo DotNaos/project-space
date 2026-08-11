@@ -61,6 +61,9 @@ func commandFor(script Script, directory, host string, port int, allowedHosts []
 		"PROJECT_PORT": portValue,
 		"PWD":          directory,
 	}
+	for key, value := range script.Environment {
+		replacements[key] = value
+	}
 	if allowedHosts != nil {
 		replacements["PROJECT_ALLOWED_HOSTS"] = strings.Join(allowedHosts, ",")
 		replacements["__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"] = ""
@@ -73,6 +76,22 @@ func commandFor(script Script, directory, host string, port int, allowedHosts []
 	}
 	env := mergeEnvironment(nil, replacements)
 	return Command{Argv: argv, Dir: directory, Env: env}
+}
+
+func serverCommandFor(
+	script Script,
+	directory string,
+	host string,
+	port int,
+	allowedHosts []string,
+	mode ServeMode,
+) Command {
+	command := commandFor(script, directory, host, port, allowedHosts)
+	command.Env = mergeEnvironment(command.Env, map[string]string{
+		"PROJECT_SPACE_MANAGED_SERVE": "1",
+		"PROJECT_SPACE_SERVE_MODE":    string(mode),
+	})
+	return command
 }
 
 func mergeEnvironment(base []string, replacements map[string]string) []string {

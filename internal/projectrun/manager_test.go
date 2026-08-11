@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
@@ -34,7 +33,9 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 		t.Fatalf("command = %q", got)
 	}
 	if !containsEnvironment(command.Env, "PROJECT_ALLOWED_HOSTS=app.example.com,preview.example.com") ||
-		!containsEnvironment(command.Env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=") {
+		!containsEnvironment(command.Env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=") ||
+		!containsEnvironment(command.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
+		!containsEnvironment(command.Env, "PROJECT_SPACE_SERVE_MODE=managed") {
 		t.Fatalf("managed environment = %#v", command.Env)
 	}
 
@@ -116,7 +117,7 @@ func TestStatusCleansRuntimeWhenScriptsConfigDisappears(t *testing.T) {
 	if len(processes.stopped) != 1 || len(tailnet.stopped) != 1 || len(tailnet.routes) != 0 {
 		t.Fatalf("runtime was not cleaned: processes=%#v routes=%#v", processes.stopped, tailnet.routes)
 	}
-	if _, ok, loadErr := manager.store.load(project, "dev"); loadErr != nil || ok {
+	if _, ok, loadErr := manager.store.load(mustTestIdentity(t, manager, project, "dev")); loadErr != nil || ok {
 		t.Fatalf("stale state remains: ok=%v err=%v", ok, loadErr)
 	}
 }
@@ -257,6 +258,180 @@ func TestConcurrentStartUsesOneSessionAndOnePortReservation(t *testing.T) {
 	}
 }
 
+func TestLocalOnlyRequiresExplicitModeAndNeverPublishesTailnet(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+
+	started, err := manager.StartWithOptions(context.Background(), project, "dev", StartOptions{LocalOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.State != StateLocalOnly || started.Mode != ServeModeLocalOnly || started.PublicURL != nil ||
+		started.PublicPort != nil || started.TailscaleIPv4 != nil {
+		t.Fatalf("local-only result = %#v", started)
+	}
+	if len(tailnet.started) != 0 || len(tailnet.routes) != 0 {
+		t.Fatalf("local-only start touched Tailscale: %#v %#v", tailnet.started, tailnet.routes)
+	}
+	if len(processes.started) != 1 || !containsEnvironment(
+		processes.started[0].Env, "PROJECT_SPACE_SERVE_MODE=local-only",
+	) {
+		t.Fatalf("local-only command = %#v", processes.started)
+	}
+	stopped, err := manager.Stop(context.Background(), project, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.State != StateStopped || stopped.Mode != ServeModeLocalOnly || stopped.TmuxSession == "" {
+		t.Fatalf("stopped local-only result = %#v", stopped)
+	}
+	started, err = manager.StartWithOptions(context.Background(), project, "dev", StartOptions{LocalOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := manager.Start(context.Background(), project, "dev", nil); err == nil ||
+		!strings.Contains(err.Error(), "already running in local-only mode") {
+		t.Fatalf("managed mode mismatch error = %v", err)
+	}
+}
+
+func TestTailscaleStartFailureCompensatesOwnedTmuxWithoutLocalOnlyFallback(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	tailnet.startErr = errors.New("Tailscale publication failed")
+
+	result, err := manager.Start(context.Background(), project, "dev", nil)
+	if err == nil || !strings.Contains(err.Error(), "Tailscale publication failed") {
+		t.Fatalf("start error = %v", err)
+	}
+	if result.State != StateFailed || result.Mode != ServeModeManaged || result.PublicURL != nil ||
+		result.State == StateLocalOnly {
+		t.Fatalf("failed managed result = %#v", result)
+	}
+	if len(processes.stopped) != 1 || len(tailnet.routes) != 0 {
+		t.Fatalf("compensation = stopped %#v routes %#v", processes.stopped, tailnet.routes)
+	}
+}
+
+func TestStopRefusesChangedTmuxOwnershipBeforeMutatingRoute(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	started, err := manager.Start(context.Background(), project, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux := manager.tmux.(*fakeTmux)
+	observation := tmux.sessions[started.TmuxSession]
+	observation.Spec.OwnershipToken = "foreign-generation"
+	tmux.sessions[started.TmuxSession] = observation
+
+	result, err := manager.Stop(context.Background(), project, "dev")
+	if err == nil || !strings.Contains(err.Error(), "ownership changed") {
+		t.Fatalf("stop error = %v", err)
+	}
+	if result.State != StateFailed || len(processes.stopped) != 0 || len(tailnet.stopped) != 0 ||
+		tailnet.routes[*started.PublicPort] != *started.LocalPort {
+		t.Fatalf("foreign tmux resources were mutated: result=%#v stopped=%#v routes=%#v", result, processes.stopped, tailnet.routes)
+	}
+}
+
+func TestListRevalidatesRuntimeAndLeavesForeignOwnershipUntouched(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	started, err := manager.Start(context.Background(), project, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux := manager.tmux.(*fakeTmux)
+	observation := tmux.sessions[started.TmuxSession]
+	observation.Spec.OwnershipToken = "foreign-generation"
+	tmux.sessions[started.TmuxSession] = observation
+
+	result, err := manager.ListSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Sessions) != 1 || result.Sessions[0].State != StateFailed ||
+		result.Sessions[0].LastError == nil {
+		t.Fatalf("runtime list = %#v", result)
+	}
+	if len(processes.stopped) != 0 || len(tailnet.stopped) != 0 ||
+		tailnet.routes[*started.PublicPort] != *started.LocalPort {
+		t.Fatalf("runtime list mutated foreign ownership: %#v %#v", processes.stopped, tailnet.stopped)
+	}
+}
+
+func TestDifferentWorktreesReceiveDistinctSessionsAndPorts(t *testing.T) {
+	firstProject := writeTestScripts(t)
+	secondProject := writeTestScripts(t)
+	manager, _, _, _ := newTestManager(t)
+
+	first, err := manager.Start(context.Background(), firstProject, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Start(context.Background(), secondProject, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ServerID == second.ServerID || first.TmuxSession == second.TmuxSession ||
+		*first.LocalPort == *second.LocalPort || *first.PublicPort == *second.PublicPort {
+		t.Fatalf("worktree instances collided: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestPortBindRaceRetriesWithFreshPorts(t *testing.T) {
+	project := writeTestScripts(t)
+	ports := &sequencePorts{
+		local: []int{43117, 43118}, public: []int{44419, 44420},
+	}
+	manager, processes, tailnet, prober := newTestManagerWithPorts(t, ports)
+	prober.waitErrorsByPort[43117] = []error{errors.New("foreign listener won the port race")}
+	processes.foreignPorts[43117] = true
+
+	result, err := manager.Start(context.Background(), project, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.LocalPort == nil || *result.LocalPort != 43118 ||
+		result.PublicPort == nil || *result.PublicPort != 44420 {
+		t.Fatalf("retry result = %#v", result)
+	}
+	if len(processes.started) != 2 || len(processes.stopped) != 1 ||
+		len(manager.tmux.(*fakeTmux).created) != 2 || len(tailnet.started) != 1 {
+		t.Fatalf(
+			"retry lifecycle = started %d stopped %d tmux %d routes %d",
+			len(processes.started), len(processes.stopped), len(manager.tmux.(*fakeTmux).created), len(tailnet.started),
+		)
+	}
+}
+
+func TestPortRaceRetriesAreBounded(t *testing.T) {
+	project := writeTestScripts(t)
+	ports := &sequencePorts{
+		local:  []int{43117, 43118, 43119, 43120},
+		public: []int{44419, 44420, 44421, 44422},
+	}
+	manager, processes, tailnet, prober := newTestManagerWithPorts(t, ports)
+	prober.waitErrors["127.0.0.1"] = errors.New("foreign listener keeps winning")
+	portOpen := true
+	processes.tcpOpen = &portOpen
+	processes.owner = false
+
+	result, err := manager.Start(context.Background(), project, "dev", nil)
+	if err == nil || result.State != StateFailed {
+		t.Fatalf("bounded retry result = %#v error = %v", result, err)
+	}
+	if len(processes.started) != maximumPortRaceAttempts || ports.localN != maximumPortRaceAttempts ||
+		ports.publicN != maximumPortRaceAttempts || len(tailnet.started) != 0 {
+		t.Fatalf(
+			"retry was not bounded: processes %d local %d public %d routes %d",
+			len(processes.started), ports.localN, ports.publicN, len(tailnet.started),
+		)
+	}
+}
+
 func TestStartRollsBackProcessAndExactRouteWhenPublicProbeFails(t *testing.T) {
 	project := writeTestScripts(t)
 	manager, processes, tailnet, prober := newTestManager(t)
@@ -319,7 +494,7 @@ func TestTransientStatusFailurePreservesRuntimeAndRecovers(t *testing.T) {
 	if len(processes.stopped) != 0 || tailnet.routes[*started.PublicPort] != *started.LocalPort {
 		t.Fatalf("transient failure destroyed runtime: stopped=%#v routes=%#v", processes.stopped, tailnet.routes)
 	}
-	persisted, ok, loadErr := manager.store.load(started.Directory, "dev")
+	persisted, ok, loadErr := manager.store.load(mustTestIdentity(t, manager, started.Directory, "dev"))
 	if loadErr != nil || !ok {
 		t.Fatalf("load preserved runtime: ok=%v err=%v", ok, loadErr)
 	}
@@ -444,59 +619,4 @@ func TestStatusRefusesToSignalReusedPID(t *testing.T) {
 	if len(processes.stopped) != 0 {
 		t.Fatal("a reused PID was signalled")
 	}
-}
-
-func newTestManager(t *testing.T) (*Manager, *fakeProcesses, *fakeTailnet, *fakeProber) {
-	t.Helper()
-	processes := newFakeProcesses()
-	tailnet := newFakeTailnet()
-	prober := newFakeProber()
-	manager, err := NewManager(Dependencies{
-		Processes: processes,
-		Tailnet:   tailnet,
-		Prober:    prober,
-		Ports:     fixedPorts{local: 43117, public: 44419},
-		StateRoot: filepath.Join(t.TempDir(), "runtime"),
-		Now: func() time.Time {
-			return time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return manager, processes, tailnet, prober
-}
-
-func writeTestScripts(t *testing.T) string {
-	t.Helper()
-	project := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(project, ".project"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := "version: 1\nscripts:\n  dev:\n    command: [test-server, --host, \"{host}\", --port, \"{port}\"]\n    healthCheck:\n      path: /health\n      timeoutSeconds: 2\n"
-	if err := os.WriteFile(filepath.Join(project, scriptsConfigPath), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return project
-}
-
-func assertRunningResult(t *testing.T, result ServeResult) {
-	t.Helper()
-	if result.SchemaVersion != 1 || result.Operation != "start" || result.State != StateRunning {
-		t.Fatalf("unexpected running result: %#v", result)
-	}
-	if result.PID == nil || result.LocalPort == nil || *result.LocalPort != 43117 ||
-		result.PublicPort == nil || *result.PublicPort != 44419 ||
-		result.PublicURL == nil || *result.PublicURL != "http://100.80.135.9:44419" {
-		t.Fatalf("running fields = %#v", result)
-	}
-}
-
-func containsEnvironment(environment []string, value string) bool {
-	for _, entry := range environment {
-		if entry == value {
-			return true
-		}
-	}
-	return false
 }

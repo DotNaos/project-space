@@ -159,11 +159,14 @@ machine, project, and worktree IDs. The hub resolves the trusted path, verifies
 the user's database membership, loads that user's run settings, signs a
 short-lived Ed25519 grant, and sends a typed operation to the connector.
 
-The connector runs `project serve` and exposes one exact raw Tailscale TCP port,
-for example `http://100.80.135.9:44000/`. This is intentionally DNS-free because
-MagicDNS is disabled. It never uses Funnel, resets Tailscale Serve, or removes a
-route it did not create. The UI shows the URL only for a fresh, verified
-`running` state.
+The connector runs the installed `project serve` command. The CLI owns one tmux
+session per canonical worktree and configured server, then exposes one exact raw
+Tailscale TCP port, for example `http://100.80.135.9:44000/`. This is
+intentionally DNS-free because MagicDNS is disabled. It never uses Funnel,
+resets Tailscale Serve, or removes a route or tmux session whose generation no
+longer matches. The UI shows the URL only for a fresh, verified `running` state.
+An explicitly requested local-only session remains visibly `local-only` and has
+no public URL; publication failures never downgrade to it automatically.
 
 Project Space authentication controls who can start, stop, and see the URL.
 Network access is still governed by Tailscale ACLs: any tailnet principal

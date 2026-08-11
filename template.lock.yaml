@@ -78,8 +78,8 @@ features:
     path: template.lock.yaml
   connectorBackedDevelopment:
     status: configured
-    path: package.json
-    command: bun run dev
+    path: .project/scripts.yaml
+    command: project serve dev
     notes:
       - Local development uses the os-connector API at 127.0.0.1:45873.
   localFilesystem:

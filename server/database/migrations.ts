@@ -79,6 +79,10 @@ import {
   taskDeliveryMigrationId,
   taskDeliveryMigrationSql
 } from './task-delivery-migration';
+import {
+  devServerManagedStateMigrationId,
+  devServerManagedStateMigrationSql
+} from './dev-server-managed-state-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -739,6 +743,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: taskDeliveryMigrationId,
     sql: taskDeliveryMigrationSql
+  },
+  {
+    id: devServerManagedStateMigrationId,
+    sql: devServerManagedStateMigrationSql
   }
 ];
 

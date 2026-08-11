@@ -11,12 +11,20 @@ func (manager *Manager) resultFromState(
 	result := ServeResult{
 		SchemaVersion: SchemaVersion,
 		Operation:     operation,
+		Mode:          state.Mode,
+		ServerID:      state.ServerID,
+		ServerKey:     state.Script,
 		Script:        state.Script,
 		Directory:     state.Directory,
+		Repository:    state.RepositoryPath,
+		TmuxSession:   state.TmuxSession,
 		Capability:    capability,
 		State:         state.State,
 		AllowedHosts:  append([]string{}, state.AllowedHosts...),
 		CheckedAt:     state.CheckedAt,
+	}
+	if result.Mode == "" {
+		result.Mode = ServeModeManaged
 	}
 	if result.AllowedHosts == nil {
 		result.AllowedHosts = []string{}
@@ -31,10 +39,10 @@ func (manager *Manager) resultFromState(
 		result.LocalPort = pointer(state.LocalPort)
 		result.LocalURL = pointer(localURL(state.LocalPort))
 	}
-	if state.PublicPort > 0 {
+	if state.Mode == ServeModeManaged && state.PublicPort > 0 {
 		result.PublicPort = pointer(state.PublicPort)
 	}
-	if state.TailscaleIPv4 != "" {
+	if state.Mode == ServeModeManaged && state.TailscaleIPv4 != "" {
 		result.TailscaleIPv4 = pointer(state.TailscaleIPv4)
 		if state.PublicPort > 0 {
 			result.PublicURL = pointer(publicURL(state.TailscaleIPv4, state.PublicPort))

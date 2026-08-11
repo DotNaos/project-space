@@ -290,42 +290,60 @@ order on the server.
 
 ## Run And Serve Project Scripts
 
-Projects declare a small, shared script catalog in `.project/scripts.yaml`:
+Projects declare finite commands separately from long-running servers in
+`.project/scripts.yaml`:
 
 ```yaml
-version: 1
-scripts:
+version: 3
+setup:
+  - id: dependencies
+    command: [bun, install, --frozen-lockfile]
+commands:
+  test:
+    command: [bun, test, --isolate]
+  build:
+    command: [bun, scripts/build-project.ts]
+servers:
   dev:
+    label: Project Space
     command:
       - bun
-      - run
-      - dev
-      - --
+      - x
+      - vite
       - --host
       - "{host}"
       - --port
       - "{port}"
       - --strictPort
+    environment:
+      VITE_PROJECT_SPACE_API_BASE_URL: http://127.0.0.1:45873
     healthCheck:
-      path: /health
+      path: /
       timeoutSeconds: 45
 ```
 
 `command` is always an argument list. It is never passed through a shell.
 `{host}` and `{port}` are replaced before the process starts. The same values
-are also available as `PROJECT_HOST` and `PROJECT_PORT`.
+are also available as `PROJECT_HOST` and `PROJECT_PORT`. Schema version 3 is
+the capability boundary: an older Project CLI that does not understand the
+separate `commands` and `servers` sections rejects the file instead of falling
+back to a package script.
+
+These workflows require the installed `project` executable on `PATH`. A missing
+or older CLI is an explicit setup error; package-manager scripts are not a
+development-server fallback.
 
 Run a script in the foreground, like `bun run`:
 
 ```sh
-project run dev
-project run dev <directory>
 project run test --format json
+project run build <directory>
 ```
 
 `project run` inherits the current terminal environment. In JSON mode, child
 output goes to stderr and the final result is printed as one JSON object on
-stdout.
+stdout. A server name is not accepted by `project run`; it must enter the
+managed lifecycle through `project serve`.
 
 Run a managed dev server and publish it through Tailscale:
 
@@ -334,6 +352,11 @@ project serve
 project serve dev <directory>
 project serve dev <directory> --allowed-host preview.example.com
 project serve status <directory> --script dev --json
+project serve list --json
+project serve list <directory> --configured --json
+project serve logs <directory> --script dev
+project serve logs <directory> --script dev --follow
+project serve attach <directory> --script dev
 project serve stop <directory> --script dev --json
 project serve reconcile --json
 ```
@@ -346,6 +369,21 @@ raw Tailscale TCP route and reports a DNS-free URL such as
 `http://100.80.135.9:44000`. MagicDNS and Tailscale certificate domains are not
 required. Stop removes only the recorded port when its current target still
 matches the recorded local server. It never resets unrelated Tailscale routes.
+
+Each canonical worktree and server name has one deterministic identity and one
+owned tmux session. Repeated starts reuse the healthy session, while different
+worktrees and server names receive independent sessions and collision-free
+ports. The session survives the terminal or Codex task that launched it.
+`status`, `logs`, `attach`, `stop`, and `reconcile` resolve that same identity;
+they refuse to mutate a tmux session or Tailscale route whose ownership evidence
+no longer matches the persisted generation.
+
+Normal mode is fail-closed. A start is not `running` until the tmux process,
+local listener, exact Tailscale route, and local and Tailnet health checks all
+agree. If publication fails, the CLI compensates the resources created by that
+start and reports `failed`. It never silently leaves a local server running.
+For an exceptional debugging session, `--local-only` is the only supported
+fallback; it reports `local-only` and never returns a public URL.
 
 `--allowed-host` is repeatable and accepts explicit hostnames or IP addresses
 only. Every validated value is available to project tooling in the
@@ -363,26 +401,34 @@ on the connector machine.
 
 The managed process receives a small allowlist of runtime and toolchain
 environment variables. Connector registration tokens, Clerk keys, database
-URLs, and other server secrets are not inherited. A private supervisor keeps a
-bounded 64 KiB log tail outside the worktree. Startup failures include a short,
-sanitized tail in `lastError`; the CLI never creates an unbounded project log.
+URLs, and other server secrets are not inherited. A private supervisor inside
+the owned tmux session keeps a bounded 64 KiB log tail outside the worktree.
+Startup failures include a short, sanitized tail in `lastError`; the CLI never
+creates an unbounded project log.
 
 Session state and locks live in the current operating-system user's durable
 state directory, outside the worktree (`~/Library/Application Support/Project
 Space/serve` on macOS or `$XDG_STATE_HOME/project-space/serve`). A session is
-identified by canonical directory and script. App-user ownership and access
-remain in Project Space's database; the machine-local state contains only the
-real process and route identity. `project serve reconcile` checks all recorded
-sessions and removes stale processes or exact routes after connector restarts.
+identified by the canonical Git repository, canonical worktree, and server key.
+App-user ownership and access remain in Project Space's database; the
+machine-local state contains only the generation-scoped tmux, process, listener,
+and route identity. `project serve reconcile` checks all recorded sessions one
+at a time and leaves foreign or ambiguous resources untouched.
 
 Machine-readable serve output always contains the same fields:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "operation": "start",
+  "disposition": "created",
+  "mode": "managed",
+  "serverId": "project-serve-project-space-dev-a81f2c3d4e5f",
+  "serverKey": "dev",
   "script": "dev",
   "directory": "/absolute/worktree",
+  "repository": "/absolute/repository/.git",
+  "tmuxSession": "project-serve-project-space-dev-a81f2c3d4e5f",
   "capability": "configured",
   "state": "running",
   "pid": 7001,
@@ -399,8 +445,10 @@ Machine-readable serve output always contains the same fields:
 ```
 
 `capability` is `configured` or `unavailable`. Runtime `state` is `stopped`,
-`starting`, `running`, `stopping`, or `error`. Nullable runtime fields remain
-present so connector clients can decode one stable shape.
+`starting`, `running`, `local-only`, `stopping`, `failed`, or `stale`. Start
+`disposition` is `created` or `reused`. Nullable runtime fields remain present
+so connector clients can decode one stable shape; `publicUrl` is always null in
+local-only mode.
 
 ## Deploy
 

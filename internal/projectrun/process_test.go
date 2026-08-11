@@ -138,7 +138,7 @@ func TestParseLinuxProcessStartTimeUsesFieldAfterParenthesizedName(t *testing.T)
 		fields = append(fields, strconv.Itoa(index+1))
 	}
 	fields = append(fields, "987654321", "0", "0")
-	startTime, err := parseLinuxProcessStartTime("42 (project supervisor) "+strings.Join(fields, " "))
+	startTime, err := parseLinuxProcessStartTime("42 (project supervisor) " + strings.Join(fields, " "))
 	if err != nil {
 		t.Fatal(err)
 	}

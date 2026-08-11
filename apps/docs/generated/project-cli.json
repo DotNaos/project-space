@@ -2613,17 +2613,53 @@
             "type": "bool",
             "description": "print machine-readable JSON output",
             "inherited": false
+          },
+          {
+            "name": "local-only",
+            "type": "bool",
+            "description": "start explicitly without a Tailscale route",
+            "inherited": false
           }
         ],
         "commands": [
           {
-            "path": "project serve list",
-            "name": "list",
-            "usage": "list [directory]",
-            "short": "List trusted development servers configured by a repository",
+            "path": "project serve attach",
+            "name": "attach",
+            "usage": "attach [directory]",
+            "short": "Attach to the exact owned tmux session for one managed server",
             "aliases": [],
             "runnable": true,
             "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for attach",
+                "inherited": false
+              },
+              {
+                "name": "script",
+                "type": "string",
+                "description": "configured server name",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project serve list",
+            "name": "list",
+            "usage": "list [directory]",
+            "short": "List managed project server sessions",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "configured",
+                "type": "bool",
+                "description": "list declarations from one repository instead of runtime sessions",
+                "inherited": false
+              },
               {
                 "name": "format",
                 "type": "string",
@@ -2641,6 +2677,36 @@
                 "name": "json",
                 "type": "bool",
                 "description": "print machine-readable JSON output",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project serve logs",
+            "name": "logs",
+            "usage": "logs [directory]",
+            "short": "Read the bounded log for one managed project server",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "follow",
+                "type": "bool",
+                "description": "continue streaming new log output",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for logs",
+                "inherited": false
+              },
+              {
+                "name": "script",
+                "type": "string",
+                "description": "configured server name",
                 "inherited": false
               }
             ],

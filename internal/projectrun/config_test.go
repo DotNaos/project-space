@@ -32,7 +32,7 @@ func TestLoadScriptRejectsShellStringAndUnknownFields(t *testing.T) {
 		want string
 	}{
 		{"shell string", "version: 1\nscripts:\n  dev:\n    command: bun run dev\n", "cannot unmarshal"},
-		{"unknown field", "version: 1\nscripts:\n  dev:\n    command: [bun, run, dev]\n    environment: {TOKEN: secret}\n", "field environment not found"},
+		{"unknown field", "version: 1\nscripts:\n  dev:\n    command: [bun, run, dev]\n    environmentVariables: {TOKEN: secret}\n", "field environmentVariables not found"},
 		{"wrong version shape", "version: 2\nscripts:\n  dev:\n    command: [bun, run, dev]\n", "version 2 uses servers"},
 		{"extra document", "version: 1\nscripts:\n  dev:\n    command: [bun, run, dev]\n---\nversion: 1\n", "multiple YAML documents"},
 	}
@@ -78,6 +78,51 @@ func TestLoadDeclarationBindsPrototypeSurfaceToServer(t *testing.T) {
 	if _, err := LoadDeclaration(project); err == nil ||
 		!strings.Contains(err.Error(), "prototypeSurface") {
 		t.Fatalf("invalid surface error = %v", err)
+	}
+}
+
+func TestVersionThreeSeparatesFiniteCommandsFromServersAndKeepsEnvironment(t *testing.T) {
+	project := t.TempDir()
+	writeScriptsBody(t, project, `version: 3
+setup:
+  - id: dependencies
+    command: [bun, install]
+commands:
+  test:
+    command: [bun, test]
+servers:
+  dev:
+    command: [bun, x, vite, --port, "{port}"]
+    environment:
+      VITE_PROJECT_SPACE_API_BASE_URL: http://127.0.0.1:45873
+`)
+	root, command, err := LoadCommand(project, "test")
+	if err != nil || root == "" || strings.Join(command.Command, " ") != "bun test" {
+		t.Fatalf("command root=%q declaration=%#v err=%v", root, command, err)
+	}
+	_, server, err := LoadScript(project, "dev")
+	if err != nil || server.Environment["VITE_PROJECT_SPACE_API_BASE_URL"] != "http://127.0.0.1:45873" {
+		t.Fatalf("server = %#v err=%v", server, err)
+	}
+	if _, _, err := LoadCommand(project, "dev"); err == nil ||
+		!strings.Contains(err.Error(), "long-running servers require project serve") {
+		t.Fatalf("server escaped through project run: %v", err)
+	}
+}
+
+func TestManagedServeMarkerCannotEscapeIntoFiniteCommands(t *testing.T) {
+	script := Script{Command: []string{"bun", "x", "vite", "--port", "{port}"}}
+	finite := commandFor(script, "/tmp/project", "127.0.0.1", 43117, nil)
+	if containsEnvironment(finite.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
+		containsEnvironment(finite.Env, "PROJECT_SPACE_SERVE_MODE=managed") {
+		t.Fatalf("finite command received serve authority: %#v", finite.Env)
+	}
+	server := serverCommandFor(
+		script, "/tmp/project", "127.0.0.1", 43117, nil, ServeModeManaged,
+	)
+	if !containsEnvironment(server.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
+		!containsEnvironment(server.Env, "PROJECT_SPACE_SERVE_MODE=managed") {
+		t.Fatalf("server command is missing serve authority: %#v", server.Env)
 	}
 }
 
