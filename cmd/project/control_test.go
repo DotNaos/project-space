@@ -458,7 +458,9 @@ func (manager *contractWorkspaceRuntimeManager) Start(
 	streams workspacerun.Streams,
 ) (workspacerun.Result, error) {
 	if options.ExpectedBranch != manager.expectedBranch || options.RuntimeSession == nil ||
-		options.RuntimeSession.RuntimeVersion != "0.5.0-test" {
+		options.RuntimeSession.RuntimeVersion != "0.5.0-test" ||
+		options.RuntimeSession.OwnerUserID != "owner-one" ||
+		!reflect.DeepEqual(options.RuntimeSession.RequestedCapabilities, []string{"runtime.control.v1"}) {
 		return workspacerun.Result{}, fmt.Errorf("Workspace runtime authority was not transported")
 	}
 	return manager.fakeWorkspaceRuntimeManager.Start(ctx, directory, options, streams)

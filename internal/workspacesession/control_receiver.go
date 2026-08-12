@@ -444,6 +444,7 @@ func (receiver *controlReceiver) acceptedResponse(command controlCommand, replay
 	sequence := receiver.journal.LastEventSequence + 1
 	response.AcceptedCommandSequence = &command.CommandSequence
 	response.EventSequence = &sequence
+	response.Operation = command.Operation
 	response.Replayed = &replayed
 	response.Type = "runtime.control.command-accepted"
 	return response

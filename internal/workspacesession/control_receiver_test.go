@@ -34,6 +34,7 @@ func TestControlReceiverExecutesOnlyFixedReadOnlySummaries(t *testing.T) {
 			t.Fatalf("%s: %v", operation.operation, err)
 		}
 		if len(emitted) != 2 || emitted[0].Type != "runtime.control.command-accepted" ||
+			emitted[0].Operation != command.Operation ||
 			emitted[0].EventSequence == nil || emitted[1].EventSequence == nil ||
 			*emitted[1].EventSequence != *emitted[0].EventSequence+1 ||
 			emitted[1].Type != "runtime.control.result" || !reflect.DeepEqual(emitted[1].Output, operation.want) {

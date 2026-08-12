@@ -13,7 +13,7 @@ const authority = {
   branch: 'issue-625', commit: 'a'.repeat(40),
   environmentId: '11111111-1111-4111-8111-111111111111',
   generation: '22222222-2222-4222-8222-222222222222', manifestDigest: 'b'.repeat(64),
-  mode: 'process' as const, operationId: 'workspace-start:625', ownerUserId: 'owner',
+  mode: 'process' as const, operationId: 'workspace-start:625', ownerUserId: 'owner', profile: 'codex' as const,
   runtimeVersion: '0.5.0-test', workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 };
 
@@ -55,6 +55,29 @@ describe('Workspace Runtime trusted launch boundary', () => {
       workspaceId: authority.workspaceId
     });
     expect(scope?.capabilities).not.toContain(workspaceRuntimeCodexCapability);
+  });
+
+  test('launches the inspection profile with no Connector-backed Codex capability', async () => {
+    const sessions = new MemoryRuntimeSessionStore(undefined, undefined, () => 'I'.repeat(43));
+    let dispatched: WorkspaceRuntimeStartDispatch | undefined;
+    const service = new WorkspaceRuntimeLaunchService({
+      dispatcher: {
+        async replay() { return undefined; },
+        async start(input) {
+          dispatched = input;
+          return {
+            checkedAt: new Date().toISOString(), generation: input.expectedGeneration,
+            manifestDigest: input.expectedManifestDigest, operation: input.operation,
+            operationId: input.operationId, sourceHead: input.expectedCommit,
+            state: 'running', workspaceId: input.workspaceId
+          };
+        }
+      },
+      endpoint: 'wss://projects.os-home.net/api/workspace-runtimes/socket', sessions
+    });
+    await service.start({ ...authority, operationId: 'workspace-start:inspection', profile: 'inspection' });
+    expect(dispatched?.runtimeSessionRequestedCapabilities).toEqual([workspaceRuntimeControlCapability]);
+    expect(dispatched?.runtimeSessionRequestedCapabilities).not.toContain(workspaceRuntimeCodexCapability);
   });
 
   test('revokes the short-lived credential when dispatch is rejected or returns changed authority', async () => {
