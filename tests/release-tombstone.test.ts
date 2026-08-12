@@ -26,13 +26,14 @@ function job(name: string, conclusion: string): TombstoneWorkflowJob {
 }
 
 const windows = 'Windows x64 machine tools / Build Windows x64 machine tools';
+const linux = 'Linux x64 machine tools / Build Linux x64 machine tools';
 const exhaustedJobs = [
   job(windows, 'failure'),
   job('Publish GitHub release', 'skipped'),
 ];
 const verificationJobs = [
   job(windows, 'failure'),
-  job('Linux x64 machine tools / Build Linux x64 machine tools', 'success'),
+  job(linux, 'success'),
   job('macOS arm64 machine tools / Build macOS arm64 runtime', 'success'),
   job(
     'macOS arm64 machine tools / Package verified macOS machine tools',
@@ -220,6 +221,63 @@ describe('unpublished immutable release tombstones', () => {
       ],
       verificationRun,
     })).toThrow('Publish GitHub release');
+  });
+
+  test('accepts only matching cross-platform packaging incompatibility evidence', () => {
+    const tombstone = parseReleaseTombstone(JSON.stringify({
+      ...JSON.parse(tombstoneSource),
+      reason: 'cross-platform-packaging-check-source-incompatible',
+    }), 'v0.21.0.json');
+    const exhaustedRun = {
+      conclusion: 'failure',
+      displayTitle: 'Release v0.21.0',
+      event: 'workflow_dispatch',
+      headBranch: 'main',
+      headSha: sourceCommit,
+      id: tombstone.exhaustedRunId,
+      runAttempt: 2,
+      status: 'completed',
+      workflowPath: '.github/workflows/release.yml',
+      workflowSha256: tombstone.workflowSha256,
+    };
+    const verificationRun = {
+      ...exhaustedRun,
+      headSha: '7'.repeat(40),
+      id: tombstone.verificationRunId,
+      runAttempt: 1,
+    };
+    const packagingFailures = [
+      job(windows, 'failure'),
+      job(linux, 'failure'),
+      job('macOS arm64 machine tools / Build macOS arm64 runtime', 'success'),
+      job(
+        'macOS arm64 machine tools / Package verified macOS machine tools',
+        'success',
+      ),
+      job('Cross-platform quality gates', 'success'),
+      job('Publish GitHub release', 'skipped'),
+    ];
+    const verifiedFailures = verificationJobs.map((entry) =>
+      entry.name === linux ? job(linux, 'failure') : entry
+    );
+    const input = {
+      exhaustedJobs: packagingFailures,
+      exhaustedRun,
+      releaseState: 'missing' as const,
+      tagCommit: sourceCommit,
+      tombstone,
+      verificationJobs: verifiedFailures,
+      verificationRun,
+    };
+    expect(() => validateReleaseTombstoneProof(input)).not.toThrow();
+    expect(() => validateReleaseTombstoneProof({
+      ...input,
+      verificationJobs,
+    })).toThrow(linux);
+    expect(() => validateReleaseTombstoneProof({
+      ...input,
+      exhaustedJobs: exhaustedJobs,
+    })).toThrow(linux);
   });
 
   test('loads and projects only the required live GitHub evidence', async () => {

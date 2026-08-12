@@ -6,7 +6,9 @@ export const releaseTombstoneSchema =
 
 export interface UnpublishedReleaseTombstone {
   exhaustedRunId: number;
-  reason: 'windows-x64-source-incompatible';
+  reason:
+    | 'cross-platform-packaging-check-source-incompatible'
+    | 'windows-x64-source-incompatible';
   schema: typeof releaseTombstoneSchema;
   sourceCommit: string;
   tag: string;
@@ -65,7 +67,10 @@ export function parseReleaseTombstone(
   const expectedTag = basename(fileName, '.json');
   if (
     value.schema !== releaseTombstoneSchema ||
-    value.reason !== 'windows-x64-source-incompatible' ||
+    ![
+      'cross-platform-packaging-check-source-incompatible',
+      'windows-x64-source-incompatible',
+    ].includes(String(value.reason)) ||
     value.tag !== expectedTag ||
     !isCommit(value.sourceCommit) ||
     !isRunId(value.exhaustedRunId) ||
@@ -124,24 +129,38 @@ export function validateReleaseTombstoneProof(input: {
       `Release tombstone ${tombstone.tag} has ambiguous verification retry evidence.`,
     );
   }
-  requireJob(
-    input.exhaustedJobs,
-    'Windows x64 machine tools / Build Windows x64 machine tools',
-    'failure',
-  );
+  const windowsJob =
+    'Windows x64 machine tools / Build Windows x64 machine tools';
+  const linuxJob =
+    'Linux x64 machine tools / Build Linux x64 machine tools';
+  requireJob(input.exhaustedJobs, windowsJob, 'failure');
+  if (tombstone.reason === 'cross-platform-packaging-check-source-incompatible') {
+    requireJob(input.exhaustedJobs, linuxJob, 'failure');
+    for (const name of [
+      'macOS arm64 machine tools / Build macOS arm64 runtime',
+      'macOS arm64 machine tools / Package verified macOS machine tools',
+      'Cross-platform quality gates',
+    ]) {
+      requireJob(input.exhaustedJobs, name, 'success');
+    }
+  }
   requireJob(input.exhaustedJobs, 'Publish GitHub release', 'skipped');
-  requireJob(
-    input.verificationJobs,
-    'Windows x64 machine tools / Build Windows x64 machine tools',
-    'failure',
-  );
-  for (const [name, conclusion] of [
-    ['Linux x64 machine tools / Build Linux x64 machine tools', 'success'],
+  requireJob(input.verificationJobs, windowsJob, 'failure');
+  const verificationRequirements: ReadonlyArray<readonly [string, string]> = [
+    [
+      linuxJob,
+      tombstone.reason === 'cross-platform-packaging-check-source-incompatible'
+        ? 'failure'
+        : 'success',
+    ],
     ['macOS arm64 machine tools / Build macOS arm64 runtime', 'success'],
     ['macOS arm64 machine tools / Package verified macOS machine tools', 'success'],
-    ['Cross-platform quality gates', 'success'],
     ['Publish GitHub release', 'skipped'],
-  ] as const) {
+    ...(tombstone.reason === 'windows-x64-source-incompatible'
+      ? [['Cross-platform quality gates', 'success'] as const]
+      : []),
+  ];
+  for (const [name, conclusion] of verificationRequirements) {
     requireJob(input.verificationJobs, name, conclusion);
   }
 }
