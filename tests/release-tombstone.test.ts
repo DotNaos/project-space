@@ -245,15 +245,15 @@ describe('unpublished immutable release tombstones', () => {
       path: '.github/workflows/release.yml',
     });
     const routes = new Map<string, unknown>([
-      [`/actions/runs/${tombstone.exhaustedRunId}`,
+      [`/actions/runs/${tombstone.exhaustedRunId}/attempts/2`,
         run(tombstone.exhaustedRunId, 2, sourceCommit)],
-      [`/actions/runs/${tombstone.exhaustedRunId}/jobs?per_page=100`, {
+      [`/actions/runs/${tombstone.exhaustedRunId}/attempts/2/jobs?per_page=100`, {
         jobs: exhaustedJobs,
         total_count: exhaustedJobs.length,
       }],
-      [`/actions/runs/${tombstone.verificationRunId}`,
+      [`/actions/runs/${tombstone.verificationRunId}/attempts/1`,
         run(tombstone.verificationRunId, 1, verificationCommit)],
-      [`/actions/runs/${tombstone.verificationRunId}/jobs?per_page=100`, {
+      [`/actions/runs/${tombstone.verificationRunId}/attempts/1/jobs?per_page=100`, {
         jobs: verificationJobs,
         total_count: verificationJobs.length,
       }],
@@ -284,10 +284,10 @@ describe('unpublished immutable release tombstones', () => {
       },
     )).resolves.toBeUndefined();
     expect(requested.sort()).toEqual([
-      `/actions/runs/${tombstone.exhaustedRunId}`,
-      `/actions/runs/${tombstone.exhaustedRunId}/jobs?per_page=100`,
-      `/actions/runs/${tombstone.verificationRunId}`,
-      `/actions/runs/${tombstone.verificationRunId}/jobs?per_page=100`,
+      `/actions/runs/${tombstone.exhaustedRunId}/attempts/2`,
+      `/actions/runs/${tombstone.exhaustedRunId}/attempts/2/jobs?per_page=100`,
+      `/actions/runs/${tombstone.verificationRunId}/attempts/1`,
+      `/actions/runs/${tombstone.verificationRunId}/attempts/1/jobs?per_page=100`,
       `/git/ref/tags/${tombstone.tag}`,
       `/contents/.github/workflows/release.yml?ref=${sourceCommit}`,
       `/contents/.github/workflows/release.yml?ref=${verificationCommit}`,
