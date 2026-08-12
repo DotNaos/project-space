@@ -17,7 +17,7 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import express from 'express';
 
-import { requestPublicOrigin } from './connector-installation';
+import { requestPublicOrigin } from './public-origin';
 import {
   isProjectSpaceAuthRequired,
   isProjectSpaceEmailAllowed,

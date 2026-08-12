@@ -10,7 +10,7 @@ import {
 import { isProjectSpaceAuthRequired, readAuthSessionFromRequest } from '../local-auth-store';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { writeJson } from '../project-space-http-response';
-import { requestPublicOrigin } from '../connector-installation';
+import { requestPublicOrigin } from '../public-origin';
 import type { RuntimeSessionStore } from '../workspace-runtime-session/contracts';
 import { PostgresTaskExecutionStore } from '../task-execution/execution-store';
 import { createWorkspaceRuntimeMutationLaunchAuthorizer } from '../workspace-runtime-session/mutation-launch-authorizer';

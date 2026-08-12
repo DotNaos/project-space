@@ -13,7 +13,7 @@ import {
 
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import type { AgentRuntimeService } from './agent-authorization/service';
-import { requestPublicOrigin } from './connector-installation';
+import { requestPublicOrigin } from './public-origin';
 import type { ConfiguredCodexMachineTasksRuntime } from './codex-machine-tasks/configured-runtime';
 import { loadConfiguredComputeInventory } from './configured-compute-inventory';
 import type {
