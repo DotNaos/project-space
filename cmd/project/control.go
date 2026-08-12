@@ -7,15 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/DotNaos/project-space/internal/computecontrol"
 	"github.com/DotNaos/project-space/internal/machineconnect"
-	"github.com/DotNaos/project-space/internal/workspacerun"
 	"github.com/spf13/cobra"
 )
 
@@ -220,9 +217,7 @@ func newControlGatewayCommand() *cobra.Command {
 }
 
 func serveControlGateway(input io.Reader, output io.Writer, identity controlGatewayIdentity) error {
-	return serveControlGatewayWithRuntime(input, output, identity, func() (workspaceRuntimeManager, error) {
-		return workspacerun.NewDefaultManager()
-	})
+	return serveControlGatewayWithRuntime(input, output, identity, newWorkspaceRuntimeManager)
 }
 
 func serveControlGatewayWithRuntime(
@@ -280,6 +275,9 @@ func serveControlGatewayWithRuntime(
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("read control frame: %w", err)
 	}
+	if !supportsControlOperation(request.Operation) {
+		return fmt.Errorf("control operation is unavailable on this platform")
+	}
 	if request.Operation == "worktree.prepare.v1" {
 		return executeWorktreePrepareControl(output, identity, request)
 	}
@@ -293,35 +291,13 @@ func serveControlGatewayWithRuntime(
 	})
 }
 
-func loadControlGatewayIdentity(path string) (controlGatewayIdentity, error) {
-	installed, err := os.Lstat(path)
-	if err != nil || !installed.Mode().IsRegular() || installed.Mode().Perm()&0022 != 0 {
-		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is not trusted")
+func supportsControlOperation(operation string) bool {
+	for _, supported := range controlOperations() {
+		if operation == supported {
+			return true
+		}
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is unavailable")
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 ||
-		!os.SameFile(installed, info) {
-		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is not trusted")
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != 0 {
-		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is not root-owned")
-	}
-	bounded, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
-	if err != nil || len(bounded) > 64<<10 {
-		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is invalid")
-	}
-	var identity controlGatewayIdentity
-	if err := decodeControlFrame(strings.TrimSpace(string(bounded)), &identity); err != nil ||
-		!validControlGatewayIdentity(identity) {
-		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is invalid")
-	}
-	return identity, nil
+	return false
 }
 
 func writeControlFrame(output io.Writer, value any) error {

@@ -104,6 +104,11 @@ describe('release verification policy', () => {
       'HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.requested_head_sha }}',
     );
     expect(ci).toContain('EVENT_NAME: pull_request');
+    expect(ci).toContain('name: Windows CLI compatibility');
+    expect(ci).toContain("if: needs.fast-ci.outputs.go == 'true'");
+    expect(ci).toContain(
+      'go test ./cmd/project ./internal/machineconnect ./internal/selfupdate',
+    );
     expect(windowsCall).toContain(
       "if: needs.classify.outputs.full-matrix == 'true'",
     );
