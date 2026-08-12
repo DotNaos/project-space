@@ -1,4 +1,9 @@
-import type { ConnectorCompatibilitySurface } from './contracts';
+type ConnectorCompatibilitySurface =
+  | 'connector.codex-chat.websocket.v1'
+  | 'connector.codex-models.websocket.v1'
+  | 'connector.command.remote.v2'
+  | 'connector.dev-server.command.v1'
+  | 'connector.project-registry.websocket.v2';
 
 export type ConnectorCompatibilityCommandKind =
   | 'chat'

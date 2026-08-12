@@ -32,7 +32,8 @@ import {
   connectorSessionGeneration,
   connectorSocket
 } from './connector-command-session-registry';
-import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
+
+type CompatibilityUseRecorder = (ownerUserId: string, surface: string) => Promise<unknown>;
 
 export interface ConnectorRuntimeCommandBinding {
   generation: number;
@@ -273,7 +274,7 @@ export function handleConnectorRuntimeCommandMessage(
   machineId: string,
   message: ConnectorRuntimeHubCommandMessage,
   options: {
-    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+    recordCompatibilityUse?: CompatibilityUseRecorder;
   } = {}
 ) {
   const current = pending.get(message.id);
@@ -297,7 +298,7 @@ export function handleConnectorRuntimeCommandMessage(
   }
   finishPending(message.id, undefined, message.payload);
   if (message.payload.status === 'accepted') {
-    void (options.recordCompatibilityUse ?? recordSuccessfulConnectorCompatibilityUse)(
+    void options.recordCompatibilityUse?.(
       current.ownerUserId,
       'connector.runtime-maintenance.websocket.v2'
     );

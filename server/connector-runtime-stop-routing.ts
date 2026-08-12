@@ -23,7 +23,8 @@ import {
   type ConnectorRuntimeStopWireRequest
 } from './connector-runtime-stop-contract';
 import type { ConnectorRuntimeReleaseTarget } from './connector-runtime-maintenance-contract';
-import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
+
+type CompatibilityUseRecorder = (ownerUserId: string, surface: string) => Promise<unknown>;
 
 export type ConnectorRuntimeStopMachineMessage = {
   id: string;
@@ -154,7 +155,7 @@ export function handleConnectorRuntimeStopMessage(
   machineId: string,
   message: ConnectorRuntimeStopHubMessage,
   options: {
-    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+    recordCompatibilityUse?: CompatibilityUseRecorder;
   } = {}
 ) {
   const current = pending.get(message.id);
@@ -164,7 +165,7 @@ export function handleConnectorRuntimeStopMessage(
     return true;
   }
   finishPending(message.id, undefined, message.payload);
-  void (options.recordCompatibilityUse ?? recordSuccessfulConnectorCompatibilityUse)(
+  void options.recordCompatibilityUse?.(
     current.ownerUserId,
     'connector.runtime-stop.websocket.v1'
   );

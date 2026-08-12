@@ -42,7 +42,9 @@ import {
   type BoundCodexSessionsResult,
   type CodexSessionsCommandBinding
 } from './connector-channel';
-import { recordSuccessfulConnectorCompatibilityUse } from '../connector-retirement/configured-runtime';
+
+type CompatibilityUseRecorder = (ownerUserId: string, surface: string) => Promise<unknown>;
+const ignoreCompatibilityUse: CompatibilityUseRecorder = async () => undefined;
 
 type CodexPayload = CodexSessionsWireRequest['payload'];
 
@@ -294,11 +296,10 @@ export function handleCodexSessionsConnectorMessage(
   machineId: string,
   message: ConnectorHubMessage,
   options: {
-    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+    recordCompatibilityUse?: CompatibilityUseRecorder;
   } = {}
 ) {
-  const recordCompatibilityUse = options.recordCompatibilityUse ??
-    recordSuccessfulConnectorCompatibilityUse;
+  const recordCompatibilityUse = options.recordCompatibilityUse ?? ignoreCompatibilityUse;
   if (message.type === 'codex.attach.ready') {
     const current = attachTunnels.get(message.id);
     if (!current || current.machineId !== machineId || current.ready ||
@@ -502,7 +503,7 @@ function finish(
   id: string,
   value?: CodexSessionsWireResult,
   recordUsage = true,
-  recordCompatibilityUse = recordSuccessfulConnectorCompatibilityUse
+  recordCompatibilityUse = ignoreCompatibilityUse
 ) {
   const current = take(id);
   current?.resolve(value);
