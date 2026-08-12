@@ -13,9 +13,8 @@ describe('canonical Environment bootstrap', () => {
 
     expect(page).toContain('project environment bootstrap <environment-instance>');
     expect(page).toContain('without a permanent Connector');
-    expect(page.indexOf('Environment bootstrap')).toBeLessThan(
-      page.indexOf('Legacy Connector compatibility')
-    );
+    expect(page).not.toContain('Legacy Connector compatibility');
+    expect(page).not.toContain('project connector install');
     expect(command).toContain('LaunchWorkspaceRuntime');
     expect(command).toContain('ManifestDigest: options.manifestDigest');
     expect(command).not.toContain('project connect');

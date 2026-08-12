@@ -3,14 +3,11 @@ import { Disclosure } from '@heroui/react';
 import {
   Archive,
   Boxes,
-  Check,
   ChevronRight,
   Circle,
   CircleOff,
   Cloud,
-  Copy,
   Cpu,
-  Download,
   ExternalLink,
   Link2,
   ListFilter,
@@ -21,7 +18,6 @@ import {
   Plus,
   RefreshCw,
   ShieldAlert,
-  Trash2
 } from 'lucide-react';
 import {
   Button,
@@ -76,15 +72,6 @@ const filters: Array<{ icon: typeof ListFilter; id: MachineFilter; label: string
   { icon: Circle, id: 'online', label: 'Online' },
   { icon: CircleOff, id: 'offline', label: 'Offline' }
 ];
-
-function formatCredentialTime(value: string) {
-  return new Date(value).toLocaleString([], {
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    month: 'short'
-  });
-}
 
 function StatusChip({ isOnline }: { isOnline: boolean }) {
   return (
@@ -323,175 +310,15 @@ function MachineRow({
   );
 }
 
-function InstallerPanel({
-  credentials,
-  credentialListError,
-  installCommand,
-  installScriptHref,
-  installerError,
-  isGenerating,
-  hasCopied,
-  onCopy,
-  onGenerate,
-  onRefreshCredentials,
-  onRevoke,
-  revokingCredentialId
-}: {
-  credentials: ConnectorCredentialRecord[];
-  credentialListError: string;
-  installCommand: string;
-  installScriptHref: string;
-  installerError: string;
-  isGenerating: boolean;
-  hasCopied: boolean;
-  onCopy(): void;
-  onGenerate(): void;
-  onRefreshCredentials(): void;
-  onRevoke(credentialId: string): void;
-  revokingCredentialId: string;
-}) {
-  return (
-    <div className="shrink-0 border-b border-neutral-800/70 py-4">
-      <Text className="block text-sm font-medium text-neutral-200">Legacy Connector enrollment</Text>
-      <Text className="mt-1 block text-sm text-neutral-500">
-        Compatibility only. This installs the existing managed Connector while Environment
-        bootstrap and canonical runtime routing complete their measured migration window.
-      </Text>
-
-      {installCommand ? (
-        <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-lg bg-neutral-900/70 px-3 py-2 font-mono text-xs text-neutral-300">
-            {installCommand}
-          </code>
-          <Button
-            aria-label="Copy install command"
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            className="size-9 min-w-0 px-0"
-            onPress={onCopy}
-          >
-            {hasCopied ? <Check className="size-4 text-emerald-400" /> : <Copy className="size-4" />}
-          </Button>
-          <Button size="sm" variant="ghost" isDisabled={isGenerating} onPress={onGenerate}>
-            <RefreshCw className={cn('size-3.5', isGenerating && 'animate-spin')} />
-            Replace
-          </Button>
-          <a href={installScriptHref} rel="noreferrer" target="_blank">
-            <Button size="sm" variant="ghost">
-              <Download className="size-3.5" />
-              Script
-            </Button>
-          </a>
-        </div>
-      ) : (
-        <Button
-          className="mt-3"
-          size="sm"
-          variant="secondary"
-          isDisabled={isGenerating}
-          onPress={onGenerate}
-        >
-          {isGenerating ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : (
-            <Plus className="size-4" />
-          )}
-          Generate managed installer
-        </Button>
-      )}
-
-      {installerError ? (
-        <Text className="mt-2 block text-xs text-red-300/80">{installerError}</Text>
-      ) : null}
-
-      <div className="mt-4">
-        <div className="flex items-center justify-between gap-3">
-          <Text className="text-[11px] font-medium uppercase tracking-[.08em] text-neutral-600">
-            Legacy enrollment credentials
-          </Text>
-          <Button
-            aria-label="Refresh connector credentials"
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            className="size-7 min-w-0 px-0"
-            onPress={onRefreshCredentials}
-          >
-            <RefreshCw className="size-3.5" />
-          </Button>
-        </div>
-        {credentials.length > 0 ? (
-          <div className="divide-y divide-neutral-800/50">
-            {credentials.slice(0, 10).map((credential) => {
-              const detail = credential.status === 'active'
-                ? `Last seen ${formatCredentialTime(credential.lastSeenAt ?? credential.createdAt)}`
-                : `Expires ${formatCredentialTime(credential.expiresAt)}`;
-
-              return (
-                <div key={credential.id} className="flex min-w-0 items-center gap-3 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <Text className="block truncate text-sm text-neutral-300">
-                      {credential.machineId ?? 'Pending enrollment'}
-                    </Text>
-                    <Text className="block truncate text-[11px] text-neutral-600">{detail}</Text>
-                  </div>
-                  <Chip size="sm" className="shrink-0 text-neutral-600">
-                    {credential.status}
-                  </Chip>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    isDisabled={Boolean(revokingCredentialId)}
-                    onPress={() => onRevoke(credential.id)}
-                  >
-                    {revokingCredentialId === credential.id ? (
-                      <LoaderCircle className="size-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="size-3.5" />
-                    )}
-                    Revoke
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <Text className="mt-1 block text-xs text-neutral-600">No legacy credentials yet.</Text>
-        )}
-        {credentials.length > 10 ? (
-          <Text className="mt-2 block text-xs text-neutral-600">
-            Showing the 10 most relevant of {credentials.length} credentials.
-          </Text>
-        ) : null}
-        {credentialListError ? (
-          <Text className="mt-2 block text-xs text-red-300/80">{credentialListError}</Text>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 export interface MachinesPageProps {
   computeInventory?: ComputeInventorySnapshot;
   connectors: readonly ConnectorInstallationRecord[];
   credentials: readonly ConnectorCredentialRecord[];
-  credentialListError: string;
-  hasCopiedInstallCommand: boolean;
-  installCommand: string;
-  installScriptHref: string;
-  installerError: string;
-  isGeneratingInstaller: boolean;
   localSimulation: boolean;
   loadError: string;
-  onCopyInstallCommand(): void;
-  onGenerateInstallCommand(): void;
   onRefresh(): Promise<unknown>;
-  onRefreshCredentials(): void;
-  onRevokeCredential(credentialId: string): void;
   onSaveMachine(request: PhysicalMachineSaveRequest): Promise<void>;
   physicalMachines: readonly PhysicalMachineRecord[];
-  revokingCredentialId: string;
   status: SettingsMachineGroupsStatus;
   tailscale: ConnectorOverviewResult['tailscale'];
 }
@@ -500,28 +327,16 @@ export function MachinesPage({
   computeInventory,
   connectors,
   credentials,
-  credentialListError,
-  hasCopiedInstallCommand,
-  installCommand,
-  installScriptHref,
-  installerError,
-  isGeneratingInstaller,
   localSimulation,
   loadError,
-  onCopyInstallCommand,
-  onGenerateInstallCommand,
   onRefresh,
-  onRefreshCredentials,
-  onRevokeCredential,
   onSaveMachine,
   physicalMachines,
-  revokingCredentialId,
   status,
   tailscale
 }: MachinesPageProps) {
   const [editingConnector, setEditingConnector] = useState<SettingsConnectorInstance>();
   const [filter, setFilter] = useState<MachineFilter>('all');
-  const [isInstallerOpen, setIsInstallerOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const presentation = settingsMachineGroupsPresentation(status);
@@ -579,23 +394,12 @@ export function MachinesPage({
   );
   const archivedCount = archivedInstances.length + archivedCredentials.length;
   const hasGroupedMachine = rows.some((row) => row.isGrouped);
-  const currentCredentials = useMemo(
-    () => credentials.filter(
-      (credential) => credential.status === 'active' || credential.status === 'pending'
-    ),
-    [credentials]
-  );
   const tailscaleLabel = tailscale.connected
     ? 'Tailscale connected'
     : tailscale.installed
       ? 'Tailscale offline'
       : 'Tailscale not installed';
   const tailnetAddress = tailscale.serveOrigins[0] ?? tailscale.ips[0];
-
-  function openInstaller() {
-    setIsInstallerOpen(true);
-    if (!installCommand && !isGeneratingInstaller) onGenerateInstallCommand();
-  }
 
   return (
     <section className="flex h-full min-h-0 flex-col">
@@ -610,34 +414,15 @@ export function MachinesPage({
             </Text>
           </div>
           {!localSimulation ? (
-            <Button
-              size="sm"
-              variant={isInstallerOpen ? 'secondary' : 'primary'}
-              onPress={() => (isInstallerOpen ? setIsInstallerOpen(false) : openInstaller())}
-            >
-              <Plus className="size-4" />
-              Legacy setup
-            </Button>
+            <a href="/connector">
+              <Button size="sm" variant="primary">
+                <Plus className="size-4" />
+                Add environment
+              </Button>
+            </a>
           ) : null}
         </div>
       </header>
-
-      {isInstallerOpen ? (
-        <InstallerPanel
-          credentials={currentCredentials}
-          credentialListError={credentialListError}
-          hasCopied={hasCopiedInstallCommand}
-          installCommand={installCommand}
-          installScriptHref={installScriptHref}
-          installerError={installerError}
-          isGenerating={isGeneratingInstaller}
-          onCopy={onCopyInstallCommand}
-          onGenerate={onGenerateInstallCommand}
-          onRefreshCredentials={onRefreshCredentials}
-          onRevoke={onRevokeCredential}
-          revokingCredentialId={revokingCredentialId}
-        />
-      ) : null}
 
       <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-800/70 py-4 lg:flex-row lg:items-center lg:justify-between">
         <SearchField

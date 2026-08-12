@@ -370,9 +370,8 @@ describe('connector release and production deployment contract', () => {
     expect(deployConfig).toContain(
       'PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64'
     );
-    expect(compose).toContain(
-      'PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID: v${PROJECT_SPACE_BUILD_VERSION:-}'
-    );
+    expect(compose).not.toContain('PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID:');
+    expect(compose).not.toContain('PROJECT_CONNECTOR_REGISTRATION_TOKEN:');
     expect(compose).not.toContain('PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET:');
     expect(workflow).not.toContain('PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64');
     expect(deployConfig).not.toContain('PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64');

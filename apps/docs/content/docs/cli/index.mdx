@@ -32,7 +32,7 @@ project
 | [`codex`](#project-codex) | - | Start, inspect, continue, or attach to persistent Codex tasks |
 | [`completion`](#project-completion) | - | Generate the autocompletion script for the specified shell |
 | [`connect`](#project-connect) | - | Connect this machine to Project Space |
-| [`connector`](#project-connector) | - | Set up Project Space machine connector links |
+| [`connector`](#project-connector) | - | Retired compatibility command |
 | [`control`](#project-control) | - | Run typed control-gateway operations |
 | [`create`](#project-create) | `new` | Create and initialize a new project |
 | [`deploy`](#project-deploy) | - | Deploy this project to the VPS |
@@ -362,7 +362,7 @@ project connect
 
 <h3 id="project-connector" className="scroll-m-28"><code>project connector</code></h3>
 
-Set up Project Space machine connector links
+Retired compatibility command
 
 ```sh
 project connector
@@ -371,142 +371,7 @@ project connector
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for connector |
-
-<h3 id="project-connector-connect" className="scroll-m-28"><code>project connector connect</code></h3>
-
-Add or update one Project Space connector hub
-
-```sh
-project connector connect <name> <url>
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--config` | `string` | local | connector config file path |
-| `--disabled` | `bool` | local | write the hub but keep it disabled |
-| `-h`, `--help` | `bool` | local | help for connect |
-| `--json` | `bool` | local | print machine-readable output |
-| `--token-env` | `string` | local | environment variable that contains the connector registration token |
-
-<h3 id="project-connector-install" className="scroll-m-28"><code>project connector install</code></h3>
-
-Install and start the machine connector service
-
-```sh
-project connector install
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--binary` | `string` | local | connector binary to install |
-| `--config` | `string` | local | connector config file path |
-| `--dev-url` | `string` | local | local development Project Space hub URL |
-| `-h`, `--help` | `bool` | local | help for install |
-| `--install-dir` | `string` | local | directory for the installed connector |
-| `--json` | `bool` | local | print machine-readable output |
-| `--no-dev` | `bool` | local | only configure the remote Project Space hub |
-| `--prod-url` | `string` | local | remote Project Space hub URL |
-| `--service-name` | `string` | local | connector service name shown in Project Space |
-| `--token-env` | `string` | local | environment variable that contains the connector registration token |
-| `--token-file` | `string` | local | private file used by the service to load the registration token |
-
-<h3 id="project-connector-run" className="scroll-m-28"><code>project connector run</code></h3>
-
-Run the authenticated Project Space connector
-
-```sh
-project connector run
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `-h`, `--help` | `bool` | local | help for run |
-
-<h3 id="project-connector-setup" className="scroll-m-28"><code>project connector setup</code></h3>
-
-Configure this machine connector for prod and local Project Space hubs
-
-```sh
-project connector setup
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--config` | `string` | local | connector config file path |
-| `--dev-url` | `string` | local | local development Project Space hub URL |
-| `-h`, `--help` | `bool` | local | help for setup |
-| `--json` | `bool` | local | print machine-readable output |
-| `--no-dev` | `bool` | local | only configure the remote Project Space hub |
-| `--prod-url` | `string` | local | remote Project Space hub URL |
-| `--token-env` | `string` | local | environment variable that contains the connector registration token |
-
-<h3 id="project-connector-source" className="scroll-m-28"><code>project connector source</code></h3>
-
-Run an isolated development connector from source
-
-```sh
-project connector source
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `-h`, `--help` | `bool` | local | help for source |
-
-<h3 id="project-connector-source-connect" className="scroll-m-28"><code>project connector source connect</code></h3>
-
-Pair the isolated source development connector
-
-```sh
-project connector source connect
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `-h`, `--help` | `bool` | local | help for connect |
-| `--json` | `bool` | local | print machine-readable output |
-| `--name` | `string` | local | display name shown in Project Space |
-| `--no-open` | `bool` | local | print the approval URL without opening a browser |
-| `--root` | `string` | local | trusted Project Space source checkout |
-
-<h3 id="project-connector-source-run" className="scroll-m-28"><code>project connector source run</code></h3>
-
-Run the paired development connector from source
-
-```sh
-project connector source run
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `-h`, `--help` | `bool` | local | help for run |
-| `--root` | `string` | local | trusted Project Space source checkout |
-
-<h3 id="project-connector-source-status" className="scroll-m-28"><code>project connector source status</code></h3>
-
-Show the isolated development connector status
-
-```sh
-project connector source status
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `-h`, `--help` | `bool` | local | help for status |
-| `--json` | `bool` | local | print machine-readable output |
-
-<h3 id="project-connector-status" className="scroll-m-28"><code>project connector status</code></h3>
-
-Show configured Project Space connector hubs
-
-```sh
-project connector status
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--config` | `string` | local | connector config file path |
-| `-h`, `--help` | `bool` | local | help for status |
-| `--json` | `bool` | local | print machine-readable output |
+| `--json` | `bool` | local | print the retirement response as JSON |
 
 <h3 id="project-control" className="scroll-m-28"><code>project control</code></h3>
 

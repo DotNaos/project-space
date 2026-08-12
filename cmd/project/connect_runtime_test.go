@@ -408,11 +408,8 @@ func TestConnectorRunPropagatesCommandCancellation(t *testing.T) {
 }
 
 func TestConnectorCommandRegistersAuthenticatedRun(t *testing.T) {
-	command, _, err := newConnectorCommand().Find([]string{"run"})
-	if err != nil {
-		t.Fatalf("find connector run: %v", err)
-	}
-	if command == nil || command.Name() != "run" {
-		t.Fatalf("connector run command = %#v", command)
+	command := newConnectorCommand()
+	if len(command.Commands()) != 0 {
+		t.Fatalf("retired connector command still registers subcommands: %#v", command.Commands())
 	}
 }

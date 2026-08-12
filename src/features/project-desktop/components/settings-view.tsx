@@ -6,7 +6,6 @@ import { GitHubMark } from './github-mark';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
   AppMeta,
-  ConnectorCredentialRecord,
   ConnectorOverviewResult,
   GitHubCatalogResult,
   GitHubOAuthDeviceStartResult,
@@ -80,32 +79,12 @@ export function SettingsView({
   const runtime = useRuntimeBinding();
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
-  const [installCommand, setInstallCommand] = useState('');
-  const [installScriptHref, setInstallScriptHref] = useState('/connector/install.sh');
-  const [hasCopiedInstallCommand, setHasCopiedInstallCommand] = useState(false);
-  const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
-  const [credentials, setCredentials] = useState<ConnectorCredentialRecord[]>([]);
-  const [credentialListError, setCredentialListError] = useState('');
   const [physicalMachines, setPhysicalMachines] = useState<PhysicalMachineRecord[]>([]);
   const [physicalMachinesStatus, setPhysicalMachinesStatus] = useState<
     'error' | 'loading' | 'ready' | 'refreshing'
   >('loading');
   const [physicalMachinesError, setPhysicalMachinesError] = useState('');
   const hasPhysicalMachinesSnapshot = useRef(false);
-  const [revokingCredentialId, setRevokingCredentialId] = useState('');
-  const [installerError, setInstallerError] = useState('');
-
-  async function refreshConnectorCredentials() {
-    setCredentialListError('');
-    try {
-      const result = await projectSpaceClient.listConnectorCredentials();
-      setCredentials(result.credentials);
-    } catch (error) {
-      setCredentialListError(
-        error instanceof Error ? error.message : 'Could not load connector credentials.'
-      );
-    }
-  }
 
   async function refreshPhysicalMachines() {
     setPhysicalMachinesStatus(hasPhysicalMachinesSnapshot.current ? 'refreshing' : 'loading');
@@ -126,15 +105,10 @@ export function SettingsView({
   }
 
   async function refreshMachineAdministration() {
-    await Promise.all([
-      refreshConnectorCredentials(),
-      refreshPhysicalMachines(),
-      onRefreshConnectorOverview()
-    ]);
+    await Promise.all([refreshPhysicalMachines(), onRefreshConnectorOverview()]);
   }
 
   useEffect(() => {
-    void refreshConnectorCredentials();
     void refreshPhysicalMachines().catch(() => undefined);
   }, []);
 
@@ -175,47 +149,6 @@ export function SettingsView({
     }
   }
 
-  async function copyInstallCommand() {
-    await navigator.clipboard?.writeText(installCommand);
-    setHasCopiedInstallCommand(true);
-    window.setTimeout(() => setHasCopiedInstallCommand(false), 1_500);
-  }
-
-  async function generateInstallCommand() {
-    setIsGeneratingInstaller(true);
-    setInstallerError('');
-    try {
-      const result = await projectSpaceClient.getConnectorInstallCommand();
-      setInstallCommand(result.command);
-      setInstallScriptHref(result.scriptUrl);
-      setHasCopiedInstallCommand(false);
-    } catch (error) {
-      setInstallerError(error instanceof Error ? error.message : 'Could not create an installer.');
-    } finally {
-      setIsGeneratingInstaller(false);
-    }
-  }
-
-  async function revokeCredential(credentialId: string) {
-    if (!credentialId) {
-      return;
-    }
-
-    setRevokingCredentialId(credentialId);
-    setInstallerError('');
-    try {
-      const result = await projectSpaceClient.revokeConnectorCredential(credentialId);
-      if (!result.revoked) {
-        throw new Error('This connector credential no longer exists.');
-      }
-      await refreshConnectorCredentials();
-    } catch (error) {
-      setInstallerError(error instanceof Error ? error.message : 'Could not revoke the installer.');
-    } finally {
-      setRevokingCredentialId('');
-    }
-  }
-
   const whatsNewHref = releasedChangelogHref(appMeta.version);
 
   if (section === 'machines') {
@@ -223,23 +156,12 @@ export function SettingsView({
       <MachinesPage
         computeInventory={connectorOverview.computeInventory}
         connectors={connectorOverview.machines}
-        credentials={credentials}
-        credentialListError={credentialListError}
-        hasCopiedInstallCommand={hasCopiedInstallCommand}
-        installCommand={installCommand}
-        installScriptHref={installScriptHref}
-        installerError={installerError}
-        isGeneratingInstaller={isGeneratingInstaller}
+        credentials={[]}
         localSimulation={runtime.apis === 'simulated'}
         loadError={physicalMachinesError}
-        onCopyInstallCommand={() => void copyInstallCommand()}
-        onGenerateInstallCommand={() => void generateInstallCommand()}
         onRefresh={refreshMachineAdministration}
-        onRefreshCredentials={() => void refreshConnectorCredentials()}
-        onRevokeCredential={(credentialId) => void revokeCredential(credentialId)}
         onSaveMachine={savePhysicalMachine}
         physicalMachines={physicalMachines}
-        revokingCredentialId={revokingCredentialId}
         status={physicalMachinesStatus}
         tailscale={connectorOverview.tailscale}
       />

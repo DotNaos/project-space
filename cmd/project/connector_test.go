@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -11,28 +10,15 @@ import (
 	"time"
 )
 
-func TestConnectorSetupWritesProdAndDevHubs(t *testing.T) {
+func TestLegacyConnectorSetupHelperRemainsReadableForMigration(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "connector.json")
-	cmd := newRootCommand()
-	stdout := &bytes.Buffer{}
-	cmd.SetOut(stdout)
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{
-		"connector",
-		"setup",
-		"--config",
-		configPath,
-		"--prod-url",
-		"https://projects.example.test/",
-		"--dev-url",
-		"http://127.0.0.1:5999/",
-		"--token-env",
-		"PROJECT_CONNECTOR_TEST_TOKEN",
-		"--json",
-	})
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("connector setup failed: %v", err)
+	if _, err := setupConnector(connectorSetupOptions{
+		ConnectorOptions: connectorOptions{ConfigPath: configPath},
+		ProdURL:          "https://projects.example.test/",
+		DevURL:           "http://127.0.0.1:5999/",
+		TokenEnv:         "PROJECT_CONNECTOR_TEST_TOKEN",
+	}); err != nil {
+		t.Fatalf("legacy connector config migration helper failed: %v", err)
 	}
 
 	body, err := os.ReadFile(configPath)
