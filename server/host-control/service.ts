@@ -4,6 +4,7 @@ import {
   hostControlSchemaVersion,
   type HostConsoleInput,
   type HostControlOperationRequest,
+  type HostControlOperationResult,
   type HostControlRisk
 } from '../../src/shared/host-control-api';
 import {
@@ -125,7 +126,7 @@ export function createHostControlService(options: {
         if (request.input.x < 0 || request.input.y < 0 ||
           request.input.x >= frame.width || request.input.y >= frame.height) throw invalid();
       }
-      const result = {
+      const result: HostControlOperationResult = {
         auditId: randomUUID(), completedAt: now().toISOString(), hostId,
         operationId: request.operationId, provider: binding.capabilities.provider,
         replayed: false, schemaVersion: hostControlSchemaVersion,

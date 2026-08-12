@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { DatabaseQueryClient } from '../database/client';
-import { PostgresHostControlOperationStore } from './postgres-store';
+import type { DatabaseQueryClient } from '../server/database/client';
+import { PostgresHostControlOperationStore } from '../server/host-control/postgres-store';
 
 describe('Postgres Host control audit store', () => {
   test('reserves and completes one exact owner, caller, Host, and fingerprint', async () => {
