@@ -72,6 +72,23 @@ describe('local simulation HTTP runtime', () => {
     expect(worktree.headSha).toBe(pullRequest.headSha);
   });
 
+  test('projects the simulated Connector through the canonical compute hierarchy', async () => {
+    const overview = await json('/api/connectors/overview');
+    const inventory = overview.computeInventory as {
+      connectors: Array<{ connectorId: string; environmentId: string }>;
+      environments: Array<{ id: string; platformId: string }>;
+      platforms: Array<{ id: string }>;
+    };
+
+    expect(inventory.connectors).toHaveLength(1);
+    expect(inventory.connectors[0]?.connectorId).toBe('local-simulation-machine');
+    expect(inventory.environments).toHaveLength(1);
+    expect(inventory.environments[0]?.id).toBe(inventory.connectors[0]?.environmentId);
+    expect(inventory.platforms.map(({ id }) => id)).toContain(
+      inventory.environments[0]?.platformId
+    );
+  });
+
   test('materializes a simulated branch into coherent local worktree state', async () => {
     const created = await json('/api/worktrees/materialize', {
       body: JSON.stringify({
