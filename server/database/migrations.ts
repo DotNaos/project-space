@@ -112,6 +112,10 @@ import {
   projectHostdMigrationSql
 } from './project-hostd-migration';
 import {
+  hostControlMigrationId,
+  hostControlMigrationSql
+} from './host-control-migration';
+import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from './workspace-runtime-capability-promotion-migration';
@@ -811,6 +815,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: projectHostdMigrationId,
     sql: projectHostdMigrationSql
+  },
+  {
+    id: hostControlMigrationId,
+    sql: hostControlMigrationSql
   }
 ];
 

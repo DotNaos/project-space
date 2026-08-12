@@ -44,6 +44,10 @@ import {
   projectHostdMigrationSql
 } from '../server/database/project-hostd-migration';
 import {
+  hostControlMigrationId,
+  hostControlMigrationSql
+} from '../server/database/host-control-migration';
+import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from '../server/database/workspace-runtime-capability-promotion-migration';
@@ -202,7 +206,18 @@ describe('database migrations', () => {
     expect(projectHostdMigrationSql).toContain('unique (owner_user_id, device_id, sequence)');
     expect(projectHostdMigrationSql).toContain("retain_until timestamptz not null default now() + interval '24 hours'");
     expect(projectHostdMigrationSql).not.toContain(' token text');
-    expect(databaseMigrations.at(-1)?.id).toBe(projectHostdMigrationId);
+    expect(databaseMigrations.find(({ id }) => id === projectHostdMigrationId)?.id)
+      .toBe(projectHostdMigrationId);
+  });
+
+  test('durably binds Host control replay and audit evidence to one owner and Host', () => {
+    expect(hostControlMigrationId).toBe('0047_host_control_operations');
+    expect(hostControlMigrationSql).toContain('create table host_control_operations');
+    expect(hostControlMigrationSql).toContain('primary key (owner_user_id, operation_id)');
+    expect(hostControlMigrationSql).toContain('foreign key (host_id, owner_user_id)');
+    expect(hostControlMigrationSql).toContain("state in ('reserved', 'completed', 'failed', 'rejected', 'uncertain')");
+    expect(hostControlMigrationSql).toContain('pg_column_size(result) <= 65536');
+    expect(databaseMigrations.at(-1)?.id).toBe(hostControlMigrationId);
   });
 
   test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
@@ -315,7 +330,8 @@ describe('database migrations', () => {
       '0043_workspace_runtime_sessions',
       '0044_codex_machine_task_message_delivery',
       '0045_workspace_runtime_capability_promotions',
-      '0046_project_hostd_telemetry'
+      '0046_project_hostd_telemetry',
+      '0047_host_control_operations'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
