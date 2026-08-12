@@ -383,18 +383,7 @@ func (workflow *Workflow) Uninstall(ctx context.Context) (
 	if !ok {
 		return result, errors.New("machine credential store does not support complete removal")
 	}
-	runtimeRelease := func() error { return nil }
-	if runtimeLocker, ok := workflow.store.(ConnectorRuntimeLocker); ok {
-		barrierCtx, cancelBarrier := workflow.cleanupContext(ctx)
-		runtimeRelease, err = runtimeLocker.LockConnectorRuntime(barrierCtx)
-		cancelBarrier()
-		if err != nil {
-			return result, err
-		}
-	}
-	purgeErr := purger.Purge()
-	releaseErr := runtimeRelease()
-	return result, errors.Join(purgeErr, releaseErr)
+	return result, purger.Purge()
 }
 
 func (workflow *Workflow) lockCredentialMutation(ctx context.Context) (func() error, error) {
