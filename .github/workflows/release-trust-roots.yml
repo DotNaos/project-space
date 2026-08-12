@@ -85,11 +85,6 @@ jobs:
           umask 077
           /bin/rm -rf "$public_root"
           /bin/mkdir -p "$public_root"
-          /bin/cat > "$public_root/connector-command-signing-public-key.pem" <<'PEM'
-          -----BEGIN PUBLIC KEY-----
-          MCowBQYDK2VwAyEArV+hyDd0dJe9d3xrBPwyluiSux7+67nFnkmNn8mgEm4=
-          -----END PUBLIC KEY-----
-          PEM
           /bin/cat > "$public_root/release-manifest-signing-public-key.pem" <<'PEM'
           -----BEGIN PUBLIC KEY-----
           MCowBQYDK2VwAyEABuZYqkn+3DcolGfvYxy3Fc8cn/XPDzL3t0J5jWE2Jug=
@@ -104,15 +99,12 @@ jobs:
           PATH: /usr/bin:/bin
         run: |
           root="$RUNNER_TEMP/connector-runtime-trust-roots"
-          expected=$'connector-command-signing-public-key.pem\nrelease-manifest-signing-public-key.pem'
+          expected='release-manifest-signing-public-key.pem'
           actual=$(/usr/bin/find "$root" -mindepth 1 -maxdepth 1 -type f -print | /usr/bin/sed "s#^$root/##" | LC_ALL=C /usr/bin/sort)
           [[ $actual == "$expected" ]]
           [[ -z $(/usr/bin/find "$root" -mindepth 1 \( -type l -o ! -type f \) -print -quit) ]]
-          /usr/bin/openssl pkey -pubin -in "$root/connector-command-signing-public-key.pem" -noout
           /usr/bin/openssl pkey -pubin -in "$root/release-manifest-signing-public-key.pem" -noout
-          command_digest=$(/usr/bin/sha256sum "$root/connector-command-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1)
           release_digest=$(/usr/bin/sha256sum "$root/release-manifest-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1)
-          [[ $command_digest == 502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1 ]]
           [[ $release_digest == aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451 ]]
 
       - name: Upload public trust roots

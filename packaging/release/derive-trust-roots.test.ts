@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  commandTrustRootFileName,
   deriveReleaseTrustRoots,
   releaseTrustRootFileName
 } from './derive-trust-roots';
@@ -36,25 +35,18 @@ describe('release trust roots', () => {
   test('derives only the matching public Ed25519 roots', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'project-trust-roots-'));
     temporaryDirectories.push(outputDirectory);
-    const commandKey = generateKeyPairSync('ed25519').privateKey;
     const releaseKey = generateKeyPairSync('ed25519').privateKey;
 
     await deriveReleaseTrustRoots({
-      commandPrivateKeyBase64: privateKeyBase64(commandKey),
       outputDirectory,
       releasePrivateKeyBase64: privateKeyBase64(releaseKey)
     });
 
-    const commandRoot = createPublicKey(await readFile(
-      join(outputDirectory, commandTrustRootFileName)
-    ));
     const releaseRoot = createPublicKey(await readFile(
       join(outputDirectory, releaseTrustRootFileName)
     ));
-    expect(commandRoot.type).toBe('public');
-    expect(commandRoot.asymmetricKeyType).toBe('ed25519');
-    expect(commandRoot.export({ format: 'der', type: 'spki' }))
-      .toEqual(publicDer(commandKey));
+    expect(releaseRoot.type).toBe('public');
+    expect(releaseRoot.asymmetricKeyType).toBe('ed25519');
     expect(releaseRoot.export({ format: 'der', type: 'spki' }))
       .toEqual(publicDer(releaseKey));
   });
@@ -65,15 +57,14 @@ describe('release trust roots', () => {
     const releaseKey = generateKeyPairSync('ed25519').privateKey;
     const rsaKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
     const input = {
-      commandPrivateKeyBase64: '',
       outputDirectory,
-      releasePrivateKeyBase64: privateKeyBase64(releaseKey)
+      releasePrivateKeyBase64: ''
     };
 
     await expect(deriveReleaseTrustRoots(input)).rejects.toThrow('valid base64');
     await expect(deriveReleaseTrustRoots({
       ...input,
-      commandPrivateKeyBase64: privateKeyBase64(rsaKey)
+      releasePrivateKeyBase64: privateKeyBase64(rsaKey)
     })).rejects.toThrow('private Ed25519 key');
   });
 
@@ -88,10 +79,6 @@ describe('release trust roots', () => {
     );
     const pinnedRoots = [
       [
-        commandTrustRootFileName,
-        '502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1'
-      ],
-      [
         releaseTrustRootFileName,
         'aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451'
       ]
@@ -105,6 +92,7 @@ describe('release trust roots', () => {
     expect(releaseWorkflow).not.toContain('date -u -r');
     expect(trustWorkflow).not.toContain('github.ref_type');
     expect(trustWorkflow).not.toContain('Create disposable validation roots');
+    expect(trustWorkflow).not.toContain('connector-command-signing-public-key.pem');
     expect(trustWorkflow).toContain(
       'Release tag must point at the exact queued merge.'
     );

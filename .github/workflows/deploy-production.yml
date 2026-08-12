@@ -244,7 +244,6 @@ jobs:
           CLERK_SECRET_KEY: op://projects/clerk-project/secret_key
           GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
           PROJECT_GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
-          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
           PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
           PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: op://projects/project-space-machine-rate-limit/password
           PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/password
@@ -293,7 +292,6 @@ jobs:
           CLERK_SECRET_KEY: ${{ steps.deploy-secrets.outputs.CLERK_SECRET_KEY }}
           GITHUB_OAUTH_CLIENT_ID: ${{ steps.deploy-secrets.outputs.GITHUB_OAUTH_CLIENT_ID }}
           GITHUB_TOKEN: ${{ steps.deploy-secrets.outputs.PROJECT_GITHUB_TOKEN }}
-          PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64 }}
           PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64 }}
           PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET }}
           PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD }}
