@@ -4,6 +4,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -38,6 +40,46 @@ func TestWindowsRuntimeCommandsKeepStableShape(t *testing.T) {
 	supervisor := newRuntimeLogCommand()
 	if supervisor.Name() != "__runtime-supervisor" || !supervisor.Hidden {
 		t.Fatalf("supervisor = name %q hidden %t", supervisor.Name(), supervisor.Hidden)
+	}
+}
+
+func TestWindowsWorkspaceRuntimeCommandsKeepShapeAndPointToWSL(t *testing.T) {
+	for _, operation := range []string{"start", "inspect", "suspend", "resume", "stop", "clean", "reconcile"} {
+		workspace := newWorkspaceCommand()
+		runtimeCommand, _, err := workspace.Find([]string{"runtime"})
+		if err != nil {
+			t.Fatalf("find workspace runtime: %v", err)
+		}
+		command, _, err := runtimeCommand.Find([]string{operation})
+		if err != nil {
+			t.Fatalf("find workspace runtime %s: %v", operation, err)
+		}
+		assertWindowsRuntimeFlags(
+			t, command, "expected-commit", "expected-digest", "expected-generation", "format", "json", "mode", "thread-id",
+		)
+		workspace.SetArgs([]string{"runtime", operation})
+		err = workspace.Execute()
+		if err == nil || !strings.Contains(err.Error(), "installed WSL distribution") {
+			t.Fatalf("workspace runtime %s error = %v", operation, err)
+		}
+	}
+}
+
+func TestWindowsControlHandshakeAdvertisesOnlyOwnerSideStatus(t *testing.T) {
+	command := newControlCommandWithDependencies(controlCommandDependencies{})
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetErr(output)
+	command.SetArgs([]string{"handshake"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("control handshake: %v", err)
+	}
+	var handshake controlHandshakeResult
+	if err := json.Unmarshal(output.Bytes(), &handshake); err != nil {
+		t.Fatalf("decode control handshake: %v", err)
+	}
+	if !reflect.DeepEqual(handshake.Operations, []string{"status.v1"}) {
+		t.Fatalf("operations = %v, want owner-side status only", handshake.Operations)
 	}
 }
 

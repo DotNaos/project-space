@@ -6,11 +6,20 @@ test('folds path-selected documentation checks into one clear PR job', () => {
 
   expect(workflow.match(/^  [a-z][a-z-]+:$/gm)).toEqual([
     '  fast-ci:',
+    '  windows-cli:',
     '  preview-artifacts:',
   ]);
   expect(workflow).toContain('needs: fast-ci');
   expect(workflow).toContain('name: Build exact-head Preview artifacts');
   expect(workflow).toContain('name: Fast CI');
+  expect(workflow).toContain('name: Windows CLI compatibility');
+  expect(workflow).toContain("if: needs.fast-ci.outputs.go == 'true'");
+  expect(workflow).toContain(
+    "go test ./cmd/project -run '^TestWindows' -count=1",
+  );
+  expect(workflow).toContain(
+    "go test ./internal/machineconnect ./internal/selfupdate -run '^$'",
+  );
   expect(workflow).toContain(
     "run-name: 'CI · PR #${{ github.event.pull_request.number || inputs.pr || ''manual'' }}'",
   );

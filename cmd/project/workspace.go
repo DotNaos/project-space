@@ -1,3 +1,5 @@
+//go:build !windows
+
 package main
 
 import (
@@ -31,9 +33,11 @@ type workspaceRuntimeOptions struct {
 }
 
 func newWorkspaceCommand() *cobra.Command {
-	return newWorkspaceCommandWithManager(func() (workspaceRuntimeManager, error) {
-		return workspacerun.NewDefaultManager()
-	})
+	return newWorkspaceCommandWithManager(newWorkspaceRuntimeManager)
+}
+
+func newWorkspaceRuntimeManager() (workspaceRuntimeManager, error) {
+	return workspacerun.NewDefaultManager()
 }
 
 func newWorkspaceCommandWithManager(factory func() (workspaceRuntimeManager, error)) *cobra.Command {
