@@ -26,7 +26,7 @@ fn collect_from_snapshot(
     let runtimes = config
         .runtimes
         .iter()
-        .filter_map(|runtime| match runtime_telemetry(&system, runtime) {
+        .filter_map(|runtime| match runtime_telemetry(system, runtime) {
             Some(telemetry) => Some(telemetry),
             None => {
                 if !partial.iter().any(|metric| metric == "runtime") {
