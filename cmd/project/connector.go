@@ -57,17 +57,24 @@ type connectorHubConfig struct {
 }
 
 func newConnectorCommand() *cobra.Command {
+	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "connector",
-		Short: "Set up Project Space machine connector links",
+		Use:          "connector",
+		Short:        "Retired compatibility command",
+		Args:         cobra.ArbitraryArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if asJSON {
+				_ = json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{
+					"code":        "canonical_runtime_required",
+					"error":       "The permanent Project Space Connector has been retired.",
+					"replacement": "project environment bootstrap",
+				})
+			}
+			return fmt.Errorf("canonical_runtime_required: the permanent Project Space Connector has been retired; use project environment bootstrap")
+		},
 	}
-	cmd.AddCommand(newConnectorSetupCommand())
-	cmd.AddCommand(newConnectorInstallCommand())
-	cmd.AddCommand(newConnectorConnectCommand())
-	cmd.AddCommand(newConnectorRunCommand())
-	cmd.AddCommand(newConnectorSourceCommand())
-	cmd.AddCommand(newConnectorMachineServiceCommand())
-	cmd.AddCommand(newConnectorStatusCommand())
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the retirement response as JSON")
 	return cmd
 }
 

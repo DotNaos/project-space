@@ -44,7 +44,6 @@ import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
 import { runtimeVersionLabel } from './machine-connector-runtime-model';
 import { machineSubtitle } from './project-main-model';
 import {
-  AddMachineDialog,
   BranchChips,
   MainListSearch,
   ProjectListItem,
@@ -114,12 +113,6 @@ export function ProjectHomeOverview({
   >({});
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
-  const [isInstallDialogOpen, setIsInstallDialogOpen] = useState(false);
-  const [installCommand, setInstallCommand] = useState('');
-  const [installerError, setInstallerError] = useState('');
-  const [isGeneratingInstaller, setIsGeneratingInstaller] = useState(false);
-  const [installScriptHref, setInstallScriptHref] = useState('/connector/install.sh');
-  const [hasCopiedInstallCommand, setHasCopiedInstallCommand] = useState(false);
   const [layout, setLayout] = useState<'grid' | 'list'>('list');
   const [machineQuery, setMachineQuery] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
@@ -184,30 +177,6 @@ export function ProjectHomeOverview({
       }
     } finally {
       setIsConnectingGitHub(false);
-    }
-  }
-
-  async function copyInstallCommand() {
-    if (!installCommand) {
-      return;
-    }
-    await navigator.clipboard?.writeText(installCommand);
-    setHasCopiedInstallCommand(true);
-    window.setTimeout(() => setHasCopiedInstallCommand(false), 1_500);
-  }
-
-  async function generateInstallCommand() {
-    setIsGeneratingInstaller(true);
-    setInstallerError('');
-    try {
-      const result = await projectSpaceClient.getConnectorInstallCommand();
-      setInstallCommand(result.command);
-      setInstallScriptHref(result.scriptUrl);
-      setHasCopiedInstallCommand(false);
-    } catch (error) {
-      setInstallerError(error instanceof Error ? error.message : 'Could not create an installer.');
-    } finally {
-      setIsGeneratingInstaller(false);
     }
   }
 
@@ -908,18 +877,6 @@ export function ProjectHomeOverview({
 
   return (
     <div className="flex min-h-full w-full flex-col">
-      {isInstallDialogOpen ? (
-        <AddMachineDialog
-          hasCopiedInstallCommand={hasCopiedInstallCommand}
-          installCommand={installCommand}
-          installScriptHref={installScriptHref}
-          installerError={installerError}
-          isGeneratingInstaller={isGeneratingInstaller}
-          onClose={() => setIsInstallDialogOpen(false)}
-          onCopy={() => void copyInstallCommand()}
-          onGenerate={() => void generateInstallCommand()}
-        />
-      ) : null}
       <div className="mb-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           {mode === 'machines' ? (
@@ -936,10 +893,12 @@ export function ProjectHomeOverview({
         </div>
         <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
           {mode === 'machines' ? (
-            <Button size="sm" variant="outline" onPress={() => setIsInstallDialogOpen(true)}>
-              <Plus className="size-4" />
-              Add machine
-            </Button>
+            <a href="/connector">
+              <Button size="sm" variant="outline">
+                <Plus className="size-4" />
+                Add environment
+              </Button>
+            </a>
           ) : null}
           {mode === 'projects' ? (
             <div className="order-1 inline-flex min-w-0 flex-wrap items-center gap-2">

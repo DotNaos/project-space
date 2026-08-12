@@ -113,13 +113,18 @@ func TestRootCommandPrintsBuildVersion(t *testing.T) {
 	}
 }
 
-func TestRootCommandKeepsConnectorRunDiscoverable(t *testing.T) {
-	command, _, err := newRootCommand().Find([]string{"connector", "run"})
-	if err != nil {
-		t.Fatalf("Find(connector run) error: %v", err)
+func TestRootCommandRejectsRetiredConnectorCommands(t *testing.T) {
+	command := newRootCommand()
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetErr(output)
+	command.SetArgs([]string{"connector", "install", "--json"})
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "canonical_runtime_required") {
+		t.Fatalf("connector retirement error = %v", err)
 	}
-	if command.CommandPath() != "project connector run" {
-		t.Fatalf("command path = %q, want project connector run", command.CommandPath())
+	if !strings.Contains(output.String(), `"replacement":"project environment bootstrap"`) {
+		t.Fatalf("connector retirement output = %q", output.String())
 	}
 }
 

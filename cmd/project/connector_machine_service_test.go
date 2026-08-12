@@ -136,12 +136,9 @@ func connectedConnectorServiceDependencies(
 }
 
 func TestConnectorMachineServiceIsHiddenButRegistered(t *testing.T) {
-	command, _, err := newConnectorCommand().Find([]string{"service", "stop"})
-	if err != nil {
-		t.Fatalf("find connector service stop: %v", err)
-	}
-	if command == nil || command.Name() != "stop" || command.Parent() == nil || !command.Parent().Hidden {
-		t.Fatalf("connector service command is not registered as hidden: %#v", command)
+	command := newConnectorCommand()
+	if len(command.Commands()) != 0 {
+		t.Fatalf("retired connector service remains registered: %#v", command.Commands())
 	}
 }
 

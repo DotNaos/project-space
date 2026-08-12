@@ -1,13 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
-import { createConnectorCommandUpgradeHandler } from './connector-command-hub';
 import { createAuthorizedProjectSpaceBackend } from './authorized-project-space-backend';
-import { connectorInstallScript, requestPublicOrigin } from './connector-installation';
-import { resolveConnectorMachineTokenIdentity } from './connector-registration-auth';
-import {
-  createLocalProjectSpaceBackend,
-  type LocalProjectSpaceBackend
-} from './local-project-space-backend';
+import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
@@ -19,7 +13,7 @@ import {
   projectChatMachineAuthenticator,
   type ProjectChatRuntime
 } from './project-chat/runtime';
-import { writeJson, writeText } from './project-space-http-response';
+import { writeJson } from './project-space-http-response';
 import { serveProjectSpaceStatic } from './project-space-static';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { previewPullRequestNumberFromHostname } from '../src/shared/preview-host';
@@ -85,9 +79,9 @@ import {
 } from './project-hostd/configured-runtime';
 import { createConfiguredHostControlHandler } from './host-control/configured-runtime';
 import {
-  closeConfiguredConnectorRetirementService,
-  configuredConnectorRetirementService
-} from './connector-retirement/configured-runtime';
+  handleRetiredConnectorHttp,
+  rejectRetiredConnectorUpgrade
+} from './legacy-connector-retirement';
 import {
   createCanonicalRuntimeControlRuntime,
   createConfiguredCanonicalRuntimeControlHandler
@@ -329,13 +323,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
         return;
       }
 
-      if (request.method === 'GET' && url.pathname === '/connector/install.sh') {
-        writeText(
-          response,
-          200,
-          connectorInstallScript(requestPublicOrigin(request)),
-          'text/x-shellscript; charset=utf-8'
-        );
+      if (handleRetiredConnectorHttp(request, response, url)) {
         return;
       }
 
@@ -418,23 +406,6 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   );
   const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
   const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
-  const connectorCommands = createConnectorCommandUpgradeHandler({
-    async authenticateConnectorCredential(token, machineId) {
-      const machineIdentity = machineConnectionRuntime
-        ? typeof machineConnectionRuntime.resolveMachineCredentialIdentity === 'function'
-          ? await machineConnectionRuntime.resolveMachineCredentialIdentity(token, machineId)
-          : await machineConnectionRuntime.authenticateConnectorCredential(token, machineId)
-            ? { machineId }
-            : null
-        : null;
-      return machineIdentity ?? resolveConnectorMachineTokenIdentity(token, machineId);
-    },
-    async decideConnectorRuntimeMaintenance({ machine }) {
-      const decideReconnect = (backend as Partial<LocalProjectSpaceBackend>).decideReconnect;
-      if (!decideReconnect) return undefined;
-      return decideReconnect(machine);
-    }
-  });
   const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);
   const workspaceRuntimeSessions = createWorkspaceRuntimeSessionUpgradeHandler(
     workspaceRuntimeSessionService
@@ -456,7 +427,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       if (
         !codexAttach.handleUpgrade(request, socket, head) &&
         !workspaceRuntimeSessions.handleUpgrade(request, socket, head) &&
-        !connectorCommands.handleUpgrade(request, socket, head) &&
+        !rejectRetiredConnectorUpgrade(request, socket) &&
         !handleMachineTerminalUpgrade(request, socket, head) &&
         !handleProjectTerminalUpgrade(request, socket, head)
       ) {
@@ -472,9 +443,6 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   });
 
   try {
-    // Start the durable observation heartbeat with the server, even when no
-    // compatibility request or report is made during this process lifetime.
-    await configuredConnectorRetirementService();
     projectChatRuntime.start();
     machineConnectionRuntime?.start();
     await new Promise<void>((resolveListen, rejectListen) => {
@@ -492,8 +460,6 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     clearInterval(staleProjectHostd);
     await workspaceRuntimeSessions.close();
     canonicalRuntimeControl?.close();
-    await connectorCommands.close();
-    await closeConfiguredConnectorRetirementService();
     throw error;
   }
 
@@ -511,8 +477,6 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       clearInterval(staleProjectHostd);
       await workspaceRuntimeSessions.close();
       canonicalRuntimeControl?.close();
-      await connectorCommands.close();
-      await closeConfiguredConnectorRetirementService();
       await new Promise<void>((resolveClose, rejectClose) => {
         let settled = false;
         const finish = (error?: Error | null) => {

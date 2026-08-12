@@ -25,12 +25,9 @@ func (supervisor *sourceTestSupervisor) Run(ctx context.Context) error {
 }
 
 func TestConnectorCommandRegistersSourceRuntime(t *testing.T) {
-	command, _, err := newConnectorCommand().Find([]string{"source", "run"})
-	if err != nil {
-		t.Fatalf("find source connector command: %v", err)
-	}
-	if command.CommandPath() != "connector source run" {
-		t.Fatalf("source connector command path = %q", command.CommandPath())
+	command := newConnectorCommand()
+	if len(command.Commands()) != 0 {
+		t.Fatalf("retired source connector remains registered: %#v", command.Commands())
 	}
 }
 

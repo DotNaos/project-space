@@ -6,7 +6,6 @@ secrets:
   CLERK_SECRET_KEY: op://projects/clerk-project/secret_key
   GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
   GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
-  PROJECT_CONNECTOR_REGISTRATION_TOKEN: op://projects/Project Space Connector Registration Token/password
   PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64: op://projects/project-connector-command-signing-key/private_key_b64
   PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
   PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: op://projects/project-space-machine-rate-limit/password

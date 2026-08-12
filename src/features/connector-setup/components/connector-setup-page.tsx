@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Disclosure } from '@heroui/react';
 import { Button, Card, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import {
   ArrowRight,
@@ -7,20 +6,12 @@ import {
   Check,
   Copy,
   Download,
-  ExternalLink,
   Github,
   Home,
   Network,
   Terminal
 } from 'lucide-react';
 import { MachineConnectionApprovalPage } from './machine-connection-approval-page';
-
-const legacyConnectorCommands = [
-  '# Download one exact machine-tools archive from the release page',
-  'tar -xzf project-space-machine-tools-darwin-arm64-vX.Y.Z.tar.gz',
-  './project-space-machine-tools-darwin-arm64-vX.Y.Z/install.sh',
-  '~/.local/bin/project connect'
-];
 
 const environmentBootstrapCommands = [
   'project environment list --format json',
@@ -302,42 +293,6 @@ export function ConnectorSetupPage() {
           </Card>
         </section>
 
-        <Disclosure className="border-t border-neutral-800/70">
-          <Disclosure.Heading>
-            <Disclosure.Trigger className="group flex min-h-12 w-full items-center gap-3 py-3 text-left text-sm text-neutral-500 outline-none transition hover:text-neutral-300 focus-visible:ring-2 focus-visible:ring-neutral-500">
-              <Disclosure.Indicator className="size-4 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none" />
-              Legacy Connector compatibility — deprecated and time-bounded
-            </Disclosure.Trigger>
-          </Disclosure.Heading>
-          <Disclosure.Content>
-            <Disclosure.Body className="grid gap-4 pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-              <div className="grid min-w-0 gap-3">
-                <Text className="max-w-3xl text-sm leading-6 text-neutral-500">
-                  Use this only for a workload that has not yet moved to Environment bootstrap.
-                  The generated command pins one release, requires an explicit compatibility
-                  acknowledgement, and stops working at its configured sunset. It remains
-                  reversible so an existing identity can be preserved during migration.
-                </Text>
-                <CommandBlock commands={legacyConnectorCommands} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <a href="/settings">
-                  <Button variant="outline">Open compatibility settings</Button>
-                </a>
-                <a
-                  href="https://github.com/DotNaos/project-space/releases/latest"
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  <Button variant="ghost">
-                    Exact release assets
-                    <ExternalLink className="size-4" />
-                  </Button>
-                </a>
-              </div>
-            </Disclosure.Body>
-          </Disclosure.Content>
-        </Disclosure>
       </div>
     </main>
   );

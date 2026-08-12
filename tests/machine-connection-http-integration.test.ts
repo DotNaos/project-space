@@ -3,15 +3,9 @@ import type { AddressInfo } from 'node:net';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import {
-  isConnectorCommandChannelAuthenticated,
-  isConnectorCommandChannelAvailable
-} from '../server/connector-command-hub';
 import type { MachineConnectionRuntime } from '../server/machine-connection-runtime';
 import type { ProjectChatRuntime } from '../server/project-chat/runtime';
-import { startProjectConnectorWebSocket } from '../server/project-connector-websocket';
 import { createProjectSpaceServer } from '../server/project-space-http';
-import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 
 const originalAuthDisabled = process.env.PROJECT_SPACE_AUTH_DISABLED;
 
@@ -90,37 +84,6 @@ class TestProjectChatRuntime implements ProjectChatRuntime {
   }
 }
 
-function connectorBackend() {
-  return {
-    async getConnectorProjectRegistry() {
-      return {
-        checkedAt: new Date().toISOString(),
-        connector: {
-          machineId: 'machine-runtime',
-          machineName: 'Runtime machine'
-        },
-        discovery: {
-          groups: [],
-          projects: [],
-          rootItems: [],
-          rootPath: '/tmp',
-          structureViolations: []
-        }
-      };
-    }
-  } as unknown as ProjectSpaceBackend;
-}
-
-async function waitForChannel(machineId: string, available: boolean) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (isConnectorCommandChannelAvailable(machineId) === available) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`Connector channel did not become ${available ? 'available' : 'closed'}.`);
-}
-
 describe('machine connection HTTP integration', () => {
   test('routes machine bearer requests before the generic Clerk gate', async () => {
     delete process.env.PROJECT_SPACE_AUTH_DISABLED;
@@ -157,7 +120,7 @@ describe('machine connection HTTP integration', () => {
     expect(machineRuntime.stops).toBe(1);
   });
 
-  test('authenticates the live connector through the machine runtime', async () => {
+  test('retires the permanent Connector before machine authentication', async () => {
     const machineRuntime = new TestMachineConnectionRuntime();
     const server = await createProjectSpaceServer({
       host: '127.0.0.1',
@@ -165,33 +128,19 @@ describe('machine connection HTTP integration', () => {
       port: 0,
       projectChatRuntime: new TestProjectChatRuntime()
     });
-    const bridge = startProjectConnectorWebSocket({
-      backend: connectorBackend(),
-      reconnectDelayMs: 10,
-      registryIntervalMs: 1_000,
-      runtimeCredential: {
-        backendUrl: server.origin,
-        credential: 'machine-secret',
-        machineId: 'machine-runtime',
-        version: 'project-space.connector-runtime/v1'
-      }
-    });
-
     try {
-      await waitForChannel('machine-runtime', true);
-      expect(machineRuntime.identityCalls).toEqual([
-        { machineId: 'machine-runtime', token: 'machine-secret' }
-      ]);
+      const response = await fetch(`${server.origin}/api/connectors/project-registry`, {
+        headers: {
+          Authorization: 'Bearer machine-secret',
+          'X-Project-Machine-Id': 'machine-runtime'
+        },
+        method: 'POST'
+      });
+      expect(response.status).toBe(410);
+      expect(await response.json()).toMatchObject({ code: 'canonical_runtime_required' });
+      expect(machineRuntime.identityCalls).toEqual([]);
       expect(machineRuntime.authenticationCalls).toEqual([]);
-      expect(
-        isConnectorCommandChannelAuthenticated('machine-runtime', 'machine-secret')
-      ).toBe(true);
-      expect(
-        isConnectorCommandChannelAuthenticated('machine-runtime', 'rotated-secret')
-      ).toBe(false);
     } finally {
-      bridge.close();
-      await waitForChannel('machine-runtime', false);
       await server.close();
     }
   });
