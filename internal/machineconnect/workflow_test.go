@@ -265,11 +265,12 @@ func TestWorkflowConnectPreflightsBeforeRequestingApproval(t *testing.T) {
 	backend := &fakeBackend{}
 	store := &memoryStore{}
 	presenter := &recordingPresenter{}
-	connector := &preflightConnector{preflightErr: ErrUnsupportedSupervisor}
+	preflightErr := errors.New("connector preflight failed")
+	connector := &preflightConnector{preflightErr: preflightErr}
 	workflow := newTestWorkflow(t, backend, store, presenter, connector, &fakeClock{now: now})
 
 	_, err := workflow.Connect(context.Background(), testMachine())
-	if !errors.Is(err, ErrUnsupportedSupervisor) {
+	if !errors.Is(err, preflightErr) {
 		t.Fatalf("connect error = %v", err)
 	}
 	if connector.preflightCalls != 1 || backend.healthCalls != 0 || backend.createCalls != 0 {
@@ -305,11 +306,12 @@ func TestWorkflowConnectPreflightsBeforeRestartingOfflineCredential(t *testing.T
 	credential := testCredential(now)
 	backend := &fakeBackend{connections: []ConnectionState{ConnectionOffline}}
 	store := &memoryStore{credential: &credential}
-	connector := &preflightConnector{preflightErr: ErrUnsupportedSupervisor}
+	preflightErr := errors.New("connector preflight failed")
+	connector := &preflightConnector{preflightErr: preflightErr}
 	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
 
 	_, err := workflow.Connect(context.Background(), testMachine())
-	if !errors.Is(err, ErrUnsupportedSupervisor) {
+	if !errors.Is(err, preflightErr) {
 		t.Fatalf("connect error = %v", err)
 	}
 	if connector.preflightCalls != 1 || connector.startCalls != 0 ||

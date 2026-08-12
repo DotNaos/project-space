@@ -7,12 +7,11 @@ import (
 )
 
 var (
-	ErrCredentialNotFound    = errors.New("machine credential not found")
-	ErrMachineKeyNotFound    = errors.New("machine identity key not found")
-	ErrApprovalDenied        = errors.New("machine connection was not approved")
-	ErrApprovalExpired       = errors.New("machine connection approval expired")
-	ErrMachineRevoked        = errors.New("machine connection was revoked")
-	ErrUnsupportedSupervisor = errors.New("machine connector supervisor is unavailable")
+	ErrCredentialNotFound = errors.New("machine credential not found")
+	ErrMachineKeyNotFound = errors.New("machine identity key not found")
+	ErrApprovalDenied     = errors.New("machine connection was not approved")
+	ErrApprovalExpired    = errors.New("machine connection approval expired")
+	ErrMachineRevoked     = errors.New("machine connection was revoked")
 )
 
 type Machine struct {
@@ -102,13 +101,6 @@ type CredentialLocker interface {
 // caller must hold CredentialLocker for the same store when it is available.
 type CredentialPurger interface {
 	Purge() error
-}
-
-// ConnectorRuntimeLocker waits until no connector supervisor is using the
-// local credential and prevents a new supervisor from loading it. Uninstall
-// uses this barrier after stopping the service and before purging identity.
-type ConnectorRuntimeLocker interface {
-	LockConnectorRuntime(context.Context) (release func() error, err error)
 }
 
 type ApprovalPresenter interface {

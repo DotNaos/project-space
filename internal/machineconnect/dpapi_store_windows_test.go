@@ -17,10 +17,9 @@ import (
 )
 
 var (
-	_ CredentialStore        = (*windowsDPAPICredentialStore)(nil)
-	_ CredentialLocker       = (*windowsDPAPICredentialStore)(nil)
-	_ CredentialPurger       = (*windowsDPAPICredentialStore)(nil)
-	_ ConnectorRuntimeLocker = (*windowsDPAPICredentialStore)(nil)
+	_ CredentialStore  = (*windowsDPAPICredentialStore)(nil)
+	_ CredentialLocker = (*windowsDPAPICredentialStore)(nil)
+	_ CredentialPurger = (*windowsDPAPICredentialStore)(nil)
 )
 
 func TestDefaultWindowsCredentialStoreUsesCurrentUserDPAPI(t *testing.T) {
