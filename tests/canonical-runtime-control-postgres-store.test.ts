@@ -129,6 +129,38 @@ describe('Postgres canonical Runtime control operation store', () => {
       });
   });
 
+  test('records a replayed acceptance while uncertain so the terminal result can reconcile', async () => {
+    const client = transactionalClient(async <Row>(sql: string) => {
+      if (sql.includes('for update')) return { rows: [operationRow({
+        command_id: 'command-one', command_sequence: '1', completed_at: reservation.reservedAt,
+        dispatch_lease_until: null, failure_code: 'dispatch_outcome_unknown',
+        reserved_until: null, state: 'uncertain'
+      })] as Row[] };
+      if (sql.includes('last_control_event_sequence = last_control_event_sequence + 1')) {
+        return { rows: [{ last_control_event_sequence: 1 }] as Row[] };
+      }
+      if (sql.includes("state = 'uncertain'") && sql.includes('accepted_command_sequence = $3')) {
+        return { rows: [operationRow({
+          accepted_at: reservation.reservedAt, accepted_command_sequence: '1',
+          accepted_event_sequence: '1', command_id: 'command-one', command_sequence: '1',
+          completed_at: reservation.reservedAt, dispatch_lease_until: null,
+          failure_code: 'dispatch_outcome_unknown', reserved_until: null, state: 'uncertain'
+        })] as Row[] };
+      }
+      return { rows: [] as Row[] };
+    });
+    await expect(new PostgresCanonicalRuntimeControlOperationStore(client).accept({
+      acceptedAt: reservation.reservedAt,
+      acceptedCommandSequence: 1,
+      command: { commandId: 'command-one', commandSequence: 1 },
+      eventSequence: 1,
+      fingerprint: reservation.fingerprint,
+      identity
+    })).resolves.toMatchObject({
+      acceptedCommandSequence: 1, acceptedEventSequence: 1, state: 'uncertain'
+    });
+  });
+
   test('isolates replay identity by owner, actor, and exact Runtime session binding', async () => {
     const client = transactionalClient(async <Row>(sql: string) => ({
       rows: sql.includes('for update') ? [operationRow()] as Row[] : [] as Row[]

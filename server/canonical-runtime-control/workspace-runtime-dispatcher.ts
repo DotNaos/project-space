@@ -135,7 +135,19 @@ export function createWorkspaceRuntimeControlDispatcher(
       }
       pending.clear();
     },
-    async dispatch({ actor, fingerprint, request, target }) {
+    async replay({ actor, fingerprint, request }) {
+      const record = await operations.read(actor.ownerUserId, request.operationId);
+      if (!record) return undefined;
+      if (record.fingerprint !== fingerprint || record.identity.actorId !== actor.actorId ||
+          record.identity.actorKind !== actor.actorKind ||
+          record.identity.actorUserId !== actor.ownerUserId ||
+          record.identity.operation !== request.operation ||
+          record.identity.diffStaged !== (request.operation === 'git.diff' ? request.staged : undefined)) {
+        return 'conflict';
+      }
+      return record.result ? { ...record.result, replayed: true } : 'in_progress';
+    },
+    async dispatch({ actor, fingerprint, freshTarget, request, target }) {
       const identity: CanonicalRuntimeControlOperationIdentity = {
         actorId: actor.actorId,
         actorKind: actor.actorKind,
@@ -190,6 +202,10 @@ export function createWorkspaceRuntimeControlDispatcher(
         pending.set(pendingKey, { reject, resolve, timeout });
       });
       try {
+        const verified = await freshTarget();
+        if (JSON.stringify(verified) !== JSON.stringify(target)) {
+          throw new Error('Canonical Runtime target changed before send.');
+        }
         sessions.dispatchControl(identity.ownerUserId, command);
       } catch {
         const current = pending.get(pendingKey);

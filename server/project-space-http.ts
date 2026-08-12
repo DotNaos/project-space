@@ -88,12 +88,17 @@ import {
   closeConfiguredConnectorRetirementService,
   configuredConnectorRetirementService
 } from './connector-retirement/configured-runtime';
-import { createConfiguredCanonicalRuntimeControlHandler } from './canonical-runtime-control/configured-runtime';
+import {
+  createCanonicalRuntimeControlRuntime,
+  createConfiguredCanonicalRuntimeControlHandler
+} from './canonical-runtime-control/configured-runtime';
 import { PostgresCanonicalRuntimeControlOperationStore } from './canonical-runtime-control/postgres-operation-store';
+import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
   codexSessions?: CodexSessionsHttpHandler;
+  canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
   codexAttachLeases?: CodexAttachLeaseStore;
   host?: string;
   machineConnectionRuntime?: MachineConnectionRuntime;
@@ -260,7 +265,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
-  const canonicalRuntimeControl = createConfiguredCanonicalRuntimeControlHandler({
+  const canonicalRuntimeControl = options.canonicalRuntimeControl ??
+    createConfiguredCanonicalRuntimeControlHandler({
     machineConnection: options.machineConnectionRuntime,
     runtimeSessions: options.workspaceRuntimeSessions
   });
@@ -389,11 +395,19 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     runtimeSessions: workspaceRuntimeSessionService,
     store: projectHostdStore
   });
+  const canonicalRuntimeControl = runtimeControlOperations
+    ? createCanonicalRuntimeControlRuntime({
+        machineConnection: options.machineConnectionRuntime,
+        operations: runtimeControlOperations,
+        runtimeSessions: workspaceRuntimeSessionService
+      })
+    : undefined;
   const server = createServer(
     createProjectSpaceRequestHandler({
       ...options,
       backend,
       codexAttachLeases,
+      canonicalRuntimeControl: canonicalRuntimeControl?.handleRequest,
       logger,
       projectChatRuntime,
       workspaceRuntimeSessions: workspaceRuntimeSessionService,
@@ -476,6 +490,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     clearInterval(staleRuntimeSessions);
     clearInterval(staleProjectHostd);
     await workspaceRuntimeSessions.close();
+    canonicalRuntimeControl?.close();
     await connectorCommands.close();
     await closeConfiguredConnectorRetirementService();
     throw error;
@@ -494,6 +509,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       clearInterval(staleRuntimeSessions);
       clearInterval(staleProjectHostd);
       await workspaceRuntimeSessions.close();
+      canonicalRuntimeControl?.close();
       await connectorCommands.close();
       await closeConfiguredConnectorRetirementService();
       await new Promise<void>((resolveClose, rejectClose) => {

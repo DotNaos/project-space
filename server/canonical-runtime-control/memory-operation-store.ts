@@ -51,7 +51,8 @@ implements CanonicalRuntimeControlOperationStore {
   async accept(input: Parameters<CanonicalRuntimeControlOperationStore['accept']>[0]) {
     const current = this.exact(input);
     if (current.acceptedEventSequence !== undefined) return current;
-    if (current.state !== 'dispatching' || input.acceptedCommandSequence !== input.command.commandSequence) {
+    if (current.state !== 'dispatching' && current.state !== 'uncertain' ||
+        input.acceptedCommandSequence !== input.command.commandSequence) {
       throw changed();
     }
     this.advance(input.identity, input.eventSequence);

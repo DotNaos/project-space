@@ -9,6 +9,7 @@ import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-sess
 import { createWorkspaceRuntimeSessionUpgradeHandler } from '../server/workspace-runtime-session/upgrade-handler';
 import {
   workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeControlCapability,
   workspaceRuntimeReadyCapabilities
 } from '../src/shared/workspace-runtime-session-api';
 
@@ -96,10 +97,66 @@ describe('Workspace Runtime WebSocket gateway', () => {
     socket.send(Buffer.from([1, 2, 3]));
     expect((await closed(socket)).code).toBe(1003);
   });
+
+  test('serializes immediate control acceptance and result frames without closing the Runtime', async () => {
+    const store = new MemoryRuntimeSessionStore();
+    const issued = await store.issue({
+      branch: 'issue-657', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
+      environmentId, generation, manifestDigest, ownerUserId: 'owner',
+      operationId: 'start:websocket-control', requestedCapabilities: [workspaceRuntimeControlCapability],
+      runtimeVersion: '0.4.66', workspaceId
+    });
+    const service = new WorkspaceRuntimeSessionService(
+      store, undefined, undefined,
+      { async read() { return { commandSequence: 1, eventSequence: 0 }; } }
+    );
+    const received: string[] = [];
+    service.onControlMessage(async (control) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      received.push(control.type);
+      service.acknowledgeControl('owner', control);
+    });
+    const runtime = await startGateway(store, service);
+    cleanups.push(runtime.close);
+    const socket = new WebSocket(`${runtime.origin}/api/workspace-runtimes/socket`, {
+      headers: { Authorization: `Bearer ${issued.credential.token}` }
+    });
+    socket.on('error', () => {});
+    await opened(socket);
+    socket.send(JSON.stringify({
+      branch: 'issue-657', commit, environmentId, generation, manifestDigest,
+      readyCapabilities: [workspaceRuntimeControlCapability],
+      resumeAfterControlCommandSequence: 0, resumeAfterControlEventSequence: 0,
+      resumeAfterSequence: 0, runtimeVersion: '0.4.66', schemaVersion: 1,
+      type: 'runtime.register', workspaceId
+    }));
+    const registered = await message(socket);
+    const binding = {
+      actorId: 'agent', actorKind: 'agent', actorUserId: 'owner', commandId: 'operation-one',
+      commandSequence: 1, environmentId, generation, operation: 'git.status',
+      operationId: 'operation-one', schemaVersion: 1, sessionId: registered.sessionId,
+      targetIdentityRevision: '7:environment_canonical', workspaceId
+    };
+    socket.send(JSON.stringify({
+      ...binding, acceptedCommandSequence: 1, eventSequence: 1, replayed: false,
+      type: 'runtime.control.command-accepted'
+    }));
+    socket.send(JSON.stringify({
+      ...binding, eventSequence: 2,
+      output: { clean: true, conflicted: 0, staged: 0, truncated: false, unstaged: 0, untracked: 0 },
+      state: 'completed', type: 'runtime.control.result'
+    }));
+    expect(await message(socket)).toMatchObject({ acceptedControlEventSequence: 1 });
+    expect(await message(socket)).toMatchObject({ acceptedControlEventSequence: 2 });
+    expect(received).toEqual(['runtime.control.command-accepted', 'runtime.control.result']);
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+  });
 });
 
-async function startGateway(store: MemoryRuntimeSessionStore) {
-  const service = new WorkspaceRuntimeSessionService(store);
+async function startGateway(
+  store: MemoryRuntimeSessionStore,
+  service = new WorkspaceRuntimeSessionService(store)
+) {
   const gateway = createWorkspaceRuntimeSessionUpgradeHandler(service);
   const server = createServer((_request, response) => response.writeHead(404).end());
   const connections = new Set<Socket>();

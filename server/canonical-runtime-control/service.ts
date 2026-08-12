@@ -29,6 +29,19 @@ export function createCanonicalRuntimeControlService(dependencies: {
     if (!await dependencies.authorizer.authorize({
       actor, operation: request.operation, phase: 'coarse'
     })) denied();
+    const fingerprint = sha(stableJson({ actor, request }));
+    const replay = await dependencies.dispatcher.replay({ actor, fingerprint, request });
+    if (replay === 'conflict') {
+      throw new CanonicalRuntimeControlError(
+        'operation_conflict', 'The operation ID belongs to different canonical input.'
+      );
+    }
+    if (replay === 'in_progress') {
+      throw new CanonicalRuntimeControlError(
+        'operation_in_progress', 'The canonical operation is already in progress.'
+      );
+    }
+    if (replay) return replay;
     const authorizedTarget = await resolveCanonicalRuntimeControlTarget(
       dependencies.inventory,
       actor.ownerUserId,
@@ -46,8 +59,23 @@ export function createCanonicalRuntimeControlService(dependencies: {
     if (!await dependencies.authorizer.authorize({
       actor, operation: request.operation, phase: 'exact', target
     })) denied();
-    const fingerprint = sha(stableJson({ actor, request }));
-    return dependencies.dispatcher.dispatch({ actor, fingerprint, request, target });
+    return dependencies.dispatcher.dispatch({
+      actor,
+      fingerprint,
+      async freshTarget() {
+        const fresh = await resolveCanonicalRuntimeControlTarget(
+          dependencies.inventory,
+          actor.ownerUserId,
+          request
+        );
+        if (!sameTarget(target, fresh) || !await dependencies.authorizer.authorize({
+          actor, operation: request.operation, phase: 'exact', target: fresh
+        })) denied();
+        return fresh;
+      },
+      request,
+      target
+    });
   }
 
   return {

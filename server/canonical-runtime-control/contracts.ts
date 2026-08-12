@@ -42,9 +42,15 @@ export interface CanonicalRuntimeControlAuthorizer {
 }
 
 export interface CanonicalRuntimeControlDispatcher {
+  replay(input: {
+    actor: CanonicalRuntimeControlActor;
+    fingerprint: string;
+    request: CanonicalRuntimeControlRequest;
+  }): Promise<CanonicalRuntimeControlResult | 'conflict' | 'in_progress' | undefined>;
   dispatch(input: {
     actor: CanonicalRuntimeControlActor;
     fingerprint: string;
+    freshTarget(): Promise<CanonicalRuntimeControlTarget>;
     request: CanonicalRuntimeControlRequest;
     target: CanonicalRuntimeControlTarget;
   }): Promise<CanonicalRuntimeControlResult>;

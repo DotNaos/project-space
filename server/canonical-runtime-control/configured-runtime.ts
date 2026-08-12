@@ -10,6 +10,22 @@ import { createCanonicalRuntimeControlService } from './service';
 import { createCanonicalRuntimeControlHttpApi } from './http';
 import { PostgresCanonicalRuntimeControlOperationStore } from './postgres-operation-store';
 import { createWorkspaceRuntimeControlDispatcher } from './workspace-runtime-dispatcher';
+import type { CanonicalRuntimeControlOperationStore } from './operation-store-contracts';
+
+export function createCanonicalRuntimeControlRuntime(options: {
+  machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
+  operations: CanonicalRuntimeControlOperationStore;
+  runtimeSessions: WorkspaceRuntimeSessionService;
+}) {
+  const dispatcher = createWorkspaceRuntimeControlDispatcher(
+    options.runtimeSessions,
+    options.operations
+  );
+  return {
+    close: () => dispatcher.close(),
+    handleRequest: createHandler({ ...options, dispatcher })
+  };
+}
 
 export function createConfiguredCanonicalRuntimeControlHandler(options: {
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
@@ -20,10 +36,13 @@ export function createConfiguredCanonicalRuntimeControlHandler(options: {
     if (url.pathname !== '/api/runtime-control/v1/operations') return false;
     if (!isDatabaseConfigured() || !options.runtimeSessions) return unavailable(response);
     try {
-      runtime ??= createHandler({
-        machineConnection: options.machineConnection,
-        runtimeSessions: options.runtimeSessions
-      });
+      runtime ??= getMachineConnectionDatabaseClient().then((database) => (
+        createCanonicalRuntimeControlRuntime({
+          machineConnection: options.machineConnection,
+          operations: new PostgresCanonicalRuntimeControlOperationStore(database),
+          runtimeSessions: options.runtimeSessions!
+        }).handleRequest
+      ));
       return await (await runtime)(request, response, url);
     } catch {
       runtime = undefined;
@@ -32,14 +51,13 @@ export function createConfiguredCanonicalRuntimeControlHandler(options: {
   };
 }
 
-async function createHandler(options: {
+function createHandler(options: {
+  dispatcher?: ReturnType<typeof createWorkspaceRuntimeControlDispatcher>;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
+  operations?: CanonicalRuntimeControlOperationStore;
   runtimeSessions: WorkspaceRuntimeSessionService;
 }) {
-  const operations = new PostgresCanonicalRuntimeControlOperationStore(
-    await getMachineConnectionDatabaseClient()
-  );
-  const dispatcher = createWorkspaceRuntimeControlDispatcher(options.runtimeSessions, operations);
+  if (!options.dispatcher) throw new Error('Canonical Runtime dispatcher is unavailable.');
   const service = createCanonicalRuntimeControlService({
     authorizer: {
       async authorize(input) {
@@ -49,7 +67,7 @@ async function createHandler(options: {
         );
       }
     },
-    dispatcher,
+    dispatcher: options.dispatcher,
     inventory: {
       compute: listComputeInventory,
       runtimes: (ownerUserId) => options.runtimeSessions.list(ownerUserId)

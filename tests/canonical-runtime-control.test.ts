@@ -63,14 +63,13 @@ function fixture(options: {
       }
     },
     dispatcher: {
-      async dispatch(input) {
+      async replay(input) {
         const prior = results.get(input.request.operationId);
-        if (prior) {
-          if (prior.fingerprint !== input.fingerprint) {
-            throw Object.assign(new Error('conflict'), { code: 'operation_conflict' });
-          }
-          return { ...(prior.result as object), replayed: true } as never;
-        }
+        if (!prior) return undefined;
+        if (prior.fingerprint !== input.fingerprint) return 'conflict' as const;
+        return { ...(prior.result as object), replayed: true } as never;
+      },
+      async dispatch(input) {
         calls.push({
           dispatched: input.request.operation,
           environmentId: input.target.environmentId,
@@ -186,11 +185,14 @@ describe('canonical runtime control', () => {
   test('replays identical input and rejects operation ID reuse with changed input', async () => {
     const runtime = fixture();
     const first = await runtime.service.execute(actor, request('git.status', 'stable-operation'));
+    const inventoryReadsAfterDispatch = runtime.calls.filter(({ inventory }) => inventory).length;
     const replay = await runtime.service.execute(actor, request('git.status', 'stable-operation'));
     expect(first.replayed).toBe(false);
     expect(replay.replayed).toBe(true);
+    expect(runtime.calls.filter(({ inventory }) => inventory)).toHaveLength(inventoryReadsAfterDispatch);
     await expect(runtime.service.execute(actor, request('git.diff', 'stable-operation')))
       .rejects.toMatchObject({ code: 'operation_conflict' });
+    expect(runtime.calls.filter(({ inventory }) => inventory)).toHaveLength(inventoryReadsAfterDispatch);
     expect(runtime.calls.filter(({ dispatched }) => dispatched)).toHaveLength(1);
   });
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -230,6 +231,86 @@ func TestControlOutputBufferFailsClosedAtTheByteLimit(t *testing.T) {
 	if _, err := buffer.Write([]byte("overflow")); err == nil {
 		t.Fatal("oversized command output was accepted")
 	}
+}
+
+func TestControlReceiverInspectsARealRepresentativeGitWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	workspaceID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	runGitTestCommand(t, workspace, "init", "-b", "issue-657")
+	runGitTestCommand(t, workspace, "config", "user.name", "Project Test")
+	runGitTestCommand(t, workspace, "config", "user.email", "project@example.invalid")
+	runGitTestCommand(t, workspace, "config", "extensions.worktreeConfig", "true")
+	runGitTestCommand(t, workspace, "config", "--worktree", "project.workspaceId", workspaceID)
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitTestCommand(t, workspace, "add", "tracked.txt")
+	runGitTestCommand(t, workspace, "commit", "-m", "fixture")
+	commit := strings.TrimSpace(runGitTestCommand(t, workspace, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	private := t.TempDir()
+	if err := os.Chmod(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(private, "state.json")
+	if err := os.WriteFile(statePath, []byte(`{"lifecycleState":"running","devServers":[{"name":"docs","port":3000,"state":"ready"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(original)
+	receiver, err := newControlReceiver(Bootstrap{
+		WorkspaceID: workspaceID, EnvironmentID: "11111111-1111-4111-8111-111111111111",
+		Generation: "22222222-2222-4222-8222-222222222222", Branch: "issue-657", Commit: commit,
+		ManifestDigest: strings.Repeat("b", 64), OwnerUserID: "owner", WorkspacePath: workspace,
+		JournalPath: filepath.Join(private, "session.json"), StatePath: statePath,
+		RequestedCapabilities: []string{controlCapability}, ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := receiver.bind("session-real", 0); err != nil {
+		t.Fatal(err)
+	}
+	operations := []struct {
+		name   string
+		staged *bool
+	}{
+		{"git.status", nil}, {"git.diff", boolPointer(false)},
+		{"worktree.list", nil}, {"dev-server.inspect", nil},
+	}
+	for index, operation := range operations {
+		var responses []controlResponse
+		if err := receiver.handle(
+			context.Background(),
+			mustJSON(t, controlTestCommand(receiver, int64(index+1), operation.name, operation.staged)),
+			func(response controlResponse) error { responses = append(responses, response); return nil },
+		); err != nil {
+			t.Fatalf("%s: %v", operation.name, err)
+		}
+		if len(responses) != 2 || responses[1].Type != "runtime.control.result" ||
+			strings.Contains(string(mustJSON(t, responses[1])), workspace) {
+			t.Fatalf("%s unsafe result: %#v", operation.name, responses)
+		}
+	}
+}
+
+func runGitTestCommand(t *testing.T, directory string, args ...string) string {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", directory}, args...)...)
+	command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
+	return string(output)
 }
 
 func controlReceiverFixture(t *testing.T) (*controlReceiver, *[][]string) {

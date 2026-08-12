@@ -187,7 +187,7 @@ implements CanonicalRuntimeControlOperationStore {
         }
         return rowToRecord(current);
       }
-      if (current.state !== 'dispatching') throw changed();
+      if (current.state !== 'dispatching' && current.state !== 'uncertain') throw changed();
       await advanceEventSequence(client, input.identity, input.eventSequence, input.acceptedAt);
       const updated = await client.query<OperationRow>(
         `update canonical_runtime_control_operations
@@ -199,6 +199,19 @@ implements CanonicalRuntimeControlOperationStore {
         [input.identity.ownerUserId, input.identity.operationId,
           input.acceptedCommandSequence, input.eventSequence, input.acceptedAt]
       );
+      if (!updated.rows[0] && current.state === 'uncertain') {
+        const recovered = await client.query<OperationRow>(
+          `update canonical_runtime_control_operations
+              set accepted_command_sequence = $3, accepted_event_sequence = $4,
+                  accepted_at = $5::timestamptz, updated_at = $5::timestamptz
+            where owner_user_id = $1 and operation_id = $2 and state = 'uncertain'
+              and accepted_event_sequence is null
+            returning ${columns}`,
+          [input.identity.ownerUserId, input.identity.operationId,
+            input.acceptedCommandSequence, input.eventSequence, input.acceptedAt]
+        );
+        if (recovered.rows[0]) return rowToRecord(recovered.rows[0]);
+      }
       if (!updated.rows[0]) throw changed();
       return rowToRecord(updated.rows[0]);
     });
