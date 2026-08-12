@@ -18,9 +18,12 @@ import {
   workspaceCommandSigningKey,
   type WorkspaceCommandRoutingOptions
 } from './connector-routing';
+import { recordSuccessfulConnectorCompatibilityUse } from '../connector-retirement/configured-runtime';
+import { successfulWorkspaceCompatibilityResult } from '../connector-retirement/command-classification';
 
 interface PendingWorkspaceCommand {
   machineId: string;
+  ownerUserId: string;
   reject(error: Error): void;
   resolve(result: WorkspaceCommandConnectorResult): void;
   target: {
@@ -58,7 +61,10 @@ export function failWorkspaceCommandsForMachine(machineId: string) {
 
 export function handleWorkspaceCommandHubMessage(
   machineId: string,
-  message: ConnectorHubMessage
+  message: ConnectorHubMessage,
+  options: {
+    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+  } = {}
 ) {
   if (message.type !== 'workspace.command.result') return false;
   const command = pending.get(message.id);
@@ -76,6 +82,12 @@ export function handleWorkspaceCommandHubMessage(
   pending.delete(message.id);
   clearTimeout(command.timeout);
   command.resolve(message.payload);
+  if (successfulWorkspaceCompatibilityResult(message.payload)) {
+    void (options.recordCompatibilityUse ?? recordSuccessfulConnectorCompatibilityUse)(
+      command.ownerUserId,
+      'connector.workspace-command.websocket.v1'
+    );
+  }
   return true;
 }
 
@@ -98,7 +110,7 @@ export async function requestConnectorWorkspaceCommand(
         fail(id, new Error(`The connector command on ${request.machineId} timed out.`));
       }, options.timeoutMs ?? defaultTimeoutMs);
       pending.set(id, {
-        machineId: request.machineId, reject, resolve,
+        machineId: request.machineId, ownerUserId: actor.userId, reject, resolve,
         target: {
           commandId: request.commandId, environmentId: request.environmentId,
           generation: actor.generation, operation, workspaceId: request.workspaceId

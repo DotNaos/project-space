@@ -23,6 +23,7 @@ import {
   type ConnectorRuntimeStopWireRequest
 } from './connector-runtime-stop-contract';
 import type { ConnectorRuntimeReleaseTarget } from './connector-runtime-maintenance-contract';
+import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
 
 export type ConnectorRuntimeStopMachineMessage = {
   id: string;
@@ -75,6 +76,7 @@ function bindingsEqual(left: ConnectorRuntimeStopBinding, right: ConnectorRuntim
 interface PendingRuntimeStop {
   binding: ConnectorRuntimeStopBinding;
   machineId: string;
+  ownerUserId: string;
   reject(error: Error): void;
   resolve(result: ConnectorRuntimeStopAcceptedResult): void;
   timeout: ReturnType<typeof setTimeout>;
@@ -126,7 +128,14 @@ export function requestConnectorRuntimeStop(
       pending.delete(id);
       reject(new ConnectorRuntimeStopOutcomeUnknownError());
     }, options.timeoutMs ?? defaultTimeoutMs);
-    pending.set(id, { binding, machineId: plan.machineId, reject, resolve, timeout });
+    pending.set(id, {
+      binding,
+      machineId: plan.machineId,
+      ownerUserId: userId,
+      reject,
+      resolve,
+      timeout
+    });
   });
   const message: ConnectorRuntimeStopMachineMessage = {
     id,
@@ -143,7 +152,10 @@ export function requestConnectorRuntimeStop(
 
 export function handleConnectorRuntimeStopMessage(
   machineId: string,
-  message: ConnectorRuntimeStopHubMessage
+  message: ConnectorRuntimeStopHubMessage,
+  options: {
+    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+  } = {}
 ) {
   const current = pending.get(message.id);
   if (!current) return true;
@@ -152,6 +164,10 @@ export function handleConnectorRuntimeStopMessage(
     return true;
   }
   finishPending(message.id, undefined, message.payload);
+  void (options.recordCompatibilityUse ?? recordSuccessfulConnectorCompatibilityUse)(
+    current.ownerUserId,
+    'connector.runtime-stop.websocket.v1'
+  );
   return true;
 }
 

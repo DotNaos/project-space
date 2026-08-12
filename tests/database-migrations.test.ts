@@ -55,6 +55,10 @@ import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from '../server/database/workspace-runtime-capability-promotion-migration';
+import {
+  connectorCompatibilityUsageMigrationId,
+  connectorCompatibilityUsageMigrationSql
+} from '../server/database/connector-compatibility-usage-migration';
 
 interface QueryCall {
   sql: string;
@@ -241,7 +245,7 @@ describe('database migrations', () => {
       "state in ('failed', 'uncertain') and result_code = 'provider_unavailable'"
     );
     expect(hostControlHardeningMigrationSql).not.toContain('result jsonb');
-    expect(databaseMigrations.at(-1)?.id).toBe(hostControlHardeningMigrationId);
+    expect(databaseMigrations.at(-2)?.id).toBe(hostControlHardeningMigrationId);
   });
 
   test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
@@ -356,8 +360,23 @@ describe('database migrations', () => {
       '0045_workspace_runtime_capability_promotions',
       '0046_project_hostd_telemetry',
       '0047_host_control_operations',
-      '0048_host_control_hardening'
+      '0048_host_control_hardening',
+      '0049_connector_compatibility_usage'
     ]);
+
+    expect(connectorCompatibilityUsageMigrationId).toBe('0049_connector_compatibility_usage');
+    expect(connectorCompatibilityUsageMigrationSql).toContain(
+      'create table if not exists connector_compatibility_usage'
+    );
+    expect(connectorCompatibilityUsageMigrationSql).toContain(
+      'create table if not exists connector_compatibility_observations'
+    );
+    expect(connectorCompatibilityUsageMigrationSql).toContain(
+      "recorder_state text not null check (recorder_state in ('active', 'clean'))"
+    );
+    expect(connectorCompatibilityUsageMigrationSql).not.toMatch(
+      /request_body|target_id|path|token|secret|content/i
+    );
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
 

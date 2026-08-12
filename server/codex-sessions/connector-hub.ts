@@ -42,6 +42,7 @@ import {
   type BoundCodexSessionsResult,
   type CodexSessionsCommandBinding
 } from './connector-channel';
+import { recordSuccessfulConnectorCompatibilityUse } from '../connector-retirement/configured-runtime';
 
 type CodexPayload = CodexSessionsWireRequest['payload'];
 
@@ -62,6 +63,7 @@ type PendingCodexCommand = {
   binding: CodexSessionsCommandBinding;
   emit?: (event: BoundCodexSessionsEvent['event']['event']) => void;
   machineId: string;
+  ownerUserId: string;
   reject(error: Error): void;
   request: CodexSessionsWireRequest;
   resolve(value?: CodexSessionsWireResult): void;
@@ -74,6 +76,7 @@ type PendingCodexAttach = {
   assembler: CodexAttachChunkAssembler;
   binding: CodexSessionsCommandBinding;
   machineId: string;
+  ownerUserId: string;
   nextInputMessageId: number;
   onClose(code: BoundCodexAttachClosed['code']): void;
   onMessage(message: string): void;
@@ -175,6 +178,7 @@ export function openConnectorCodexAttach(
       assembler: new CodexAttachChunkAssembler(),
       binding,
       machineId: input.machineId,
+      ownerUserId: options.userId,
       nextInputMessageId: 1,
       onClose: options.onClose,
       onMessage: options.onMessage,
@@ -251,6 +255,7 @@ function run(
       binding,
       emit,
       machineId: payload.machineId,
+      ownerUserId: options.userId,
       reject,
       request,
       resolve,
@@ -287,8 +292,13 @@ function requiredCapability(operation: CodexSessionsConnectorOperation, payload:
 
 export function handleCodexSessionsConnectorMessage(
   machineId: string,
-  message: ConnectorHubMessage
+  message: ConnectorHubMessage,
+  options: {
+    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+  } = {}
 ) {
+  const recordCompatibilityUse = options.recordCompatibilityUse ??
+    recordSuccessfulConnectorCompatibilityUse;
   if (message.type === 'codex.attach.ready') {
     const current = attachTunnels.get(message.id);
     if (!current || current.machineId !== machineId || current.ready ||
@@ -296,6 +306,10 @@ export function handleCodexSessionsConnectorMessage(
     current.ready = true;
     clearTimeout(current.timeout);
     current.resolve(attachHandle(message.id));
+    void recordCompatibilityUse(
+      current.ownerUserId,
+      'connector.codex-sessions-control.websocket.v1'
+    );
     return true;
   }
   if (message.type === 'codex.attach.output') {
@@ -339,7 +353,12 @@ export function handleCodexSessionsConnectorMessage(
         ]);
       }
     }
-    finish(message.id, message.payload.result);
+    finish(
+      message.id,
+      message.payload.result,
+      successfulCodexCompatibilityResult(message.payload.result),
+      recordCompatibilityUse
+    );
     return true;
   }
   if (message.type === 'codex.sessions.event') {
@@ -476,12 +495,41 @@ function cancel(id: string, error?: Error) {
     }
   }
   if (error) fail(id, error);
-  else finish(id);
+  else finish(id, undefined, false);
 }
 
-function finish(id: string, value?: CodexSessionsWireResult) {
+function finish(
+  id: string,
+  value?: CodexSessionsWireResult,
+  recordUsage = true,
+  recordCompatibilityUse = recordSuccessfulConnectorCompatibilityUse
+) {
   const current = take(id);
   current?.resolve(value);
+  if (current && recordUsage) {
+    void recordCompatibilityUse(
+      current.ownerUserId,
+      codexCompatibilitySurface(current.binding.operation)
+    );
+  }
+}
+
+export function codexCompatibilitySurface(operation: CodexSessionsConnectorOperation) {
+  return operation === 'start' || operation === 'daemon' || operation === 'settings'
+    ? 'connector.codex-sessions-launch.websocket.v1' as const
+    : 'connector.codex-sessions-control.websocket.v1' as const;
+}
+
+export function successfulCodexCompatibilityResult(value: CodexSessionsWireResult) {
+  if (value.operation === 'browser' || value.operation === 'inspect' ||
+      value.operation === 'list' || value.operation === 'read') return true;
+  if (value.operation === 'authorization') {
+    return value.result.state === 'pending' || value.result.state === 'ready';
+  }
+  if (value.operation === 'daemon') return value.result.state === 'completed';
+  if (value.operation === 'start') return value.result.state === 'confirmed';
+  return !value.result.replayed &&
+    (value.result.status === 'accepted' || value.result.status === 'completed');
 }
 
 function fail(id: string, error: Error) {

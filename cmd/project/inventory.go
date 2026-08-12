@@ -10,7 +10,8 @@ import (
 )
 
 type computeInventoryCommandDependencies struct {
-	Load func(context.Context) (computeinventory.API, error)
+	CompatibilitySurface string
+	Load                 func(context.Context) (computeinventory.API, error)
 }
 
 type inventoryFormatOptions struct {
@@ -143,6 +144,9 @@ func newHostCommandWithDependencies(dependencies computeInventoryCommandDependen
 }
 
 func newHostListCommand(dependencies computeInventoryCommandDependencies, compatibility bool) *cobra.Command {
+	if compatibility {
+		dependencies.CompatibilitySurface = computeinventory.MachineListCompatibilitySurface
+	}
 	options := inventoryFormatOptions{format: "text"}
 	platformSelector := ""
 	command := &cobra.Command{
@@ -182,6 +186,9 @@ func newHostListCommand(dependencies computeInventoryCommandDependencies, compat
 }
 
 func newHostShowCommand(dependencies computeInventoryCommandDependencies, compatibility bool) *cobra.Command {
+	if compatibility {
+		dependencies.CompatibilitySurface = computeinventory.MachineShowCompatibilitySurface
+	}
 	options := inventoryFormatOptions{format: "text"}
 	command := &cobra.Command{
 		Use: "show <host>", Short: "Show one exact inventory host", Args: cobra.ExactArgs(1),
@@ -369,6 +376,9 @@ func loadComputeInventory(ctx context.Context, dependencies computeInventoryComm
 	client, err := dependencies.Load(ctx)
 	if err != nil {
 		return computeinventory.Inventory{}, err
+	}
+	if dependencies.CompatibilitySurface != "" {
+		ctx = computeinventory.WithCompatibilitySurface(ctx, dependencies.CompatibilitySurface)
 	}
 	return client.List(ctx)
 }
