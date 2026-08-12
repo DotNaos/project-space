@@ -18,7 +18,6 @@ import {
   workspaceCommandSigningKey,
   type WorkspaceCommandRoutingOptions
 } from './connector-routing';
-import { recordSuccessfulConnectorCompatibilityUse } from '../connector-retirement/configured-runtime';
 import { successfulWorkspaceCompatibilityResult } from '../connector-retirement/command-classification';
 
 interface PendingWorkspaceCommand {
@@ -38,6 +37,7 @@ interface PendingWorkspaceCommand {
 
 const pending = new Map<string, PendingWorkspaceCommand>();
 const defaultTimeoutMs = 10 * 60_000;
+type CompatibilityUseRecorder = (ownerUserId: string, surface: string) => Promise<unknown>;
 
 function unavailable(machineId: string) {
   return new Error(
@@ -63,7 +63,7 @@ export function handleWorkspaceCommandHubMessage(
   machineId: string,
   message: ConnectorHubMessage,
   options: {
-    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+    recordCompatibilityUse?: CompatibilityUseRecorder;
   } = {}
 ) {
   if (message.type !== 'workspace.command.result') return false;
@@ -83,7 +83,7 @@ export function handleWorkspaceCommandHubMessage(
   clearTimeout(command.timeout);
   command.resolve(message.payload);
   if (successfulWorkspaceCompatibilityResult(message.payload)) {
-    void (options.recordCompatibilityUse ?? recordSuccessfulConnectorCompatibilityUse)(
+    void options.recordCompatibilityUse?.(
       command.ownerUserId,
       'connector.workspace-command.websocket.v1'
     );

@@ -30,18 +30,9 @@ export interface ComputeInventoryCliHttpService {
   ): Promise<ProjectCliComputeInventory>;
 }
 
-const compatibilitySurfaceHeader = 'x-project-compatibility-surface';
-const inventoryCompatibilitySurfaces = new Set([
-  'connector.machine-list.cli.v1',
-  'connector.machine-show.cli.v1'
-]);
-
 export function createComputeInventoryCliHttpApi(
   service: ComputeInventoryCliHttpService,
-  resolveActor: (request: IncomingMessage) => Promise<ComputeInventoryCliActor>,
-  options: {
-    recordCompatibilityUse?(ownerUserId: string, surface: string): Promise<unknown>;
-  } = {}
+  resolveActor: (request: IncomingMessage) => Promise<ComputeInventoryCliActor>
 ) {
   return async function handleComputeInventoryCliHttpRequest(
     request: IncomingMessage,
@@ -73,11 +64,6 @@ export function createComputeInventoryCliHttpApi(
       const actor = await resolveActor(request);
       const result = await service.list(actor, schemaVersion);
       writeJson(response, 200, result);
-      const compatibilitySurface = request.headers[compatibilitySurfaceHeader];
-      if (typeof compatibilitySurface === 'string' &&
-          inventoryCompatibilitySurfaces.has(compatibilitySurface)) {
-        await options.recordCompatibilityUse?.(actor.userId, compatibilitySurface);
-      }
     } catch (error) {
       if (error instanceof CodexMachineTasksAuthError) {
         writeJson(response, error.statusCode, {

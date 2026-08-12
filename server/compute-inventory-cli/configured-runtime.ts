@@ -11,7 +11,6 @@ import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { createComputeInventoryCliHttpApi } from './http';
 import { buildProjectCliComputeInventory } from './service';
 import type { ProjectHostdService } from '../project-hostd/service';
-import { recordSuccessfulConnectorCompatibilityUse } from '../connector-retirement/configured-runtime';
 
 export function createConfiguredComputeInventoryCliHandler(options: {
   backend: Pick<ProjectSpaceBackend, 'getConnectorOverview'>;
@@ -49,9 +48,7 @@ export function createConfiguredComputeInventoryCliHandler(options: {
         });
       });
     }
-  }, resolveActor, {
-    recordCompatibilityUse: recordSuccessfulConnectorCompatibilityUse
-  });
+  }, resolveActor);
 }
 
 function machineSession(userId: string) {

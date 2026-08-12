@@ -34,7 +34,9 @@ import {
   connectorRuntimeMaintenanceEvidence,
   type ConnectorRuntimeMaintenanceDecision
 } from './connector-runtime-registration-decision';
-import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
+
+type CompatibilityUseRecorder = (ownerUserId: string | undefined, surface: string) => Promise<unknown>;
+const ignoreCompatibilityUse: CompatibilityUseRecorder = async () => undefined;
 
 const connectorSocketPath = '/api/connectors/socket';
 const defaultCredentialRevalidationIntervalMs = 30_000;
@@ -58,7 +60,7 @@ export interface ConnectorCommandUpgradeHandlerOptions {
     machine: MachineRecord;
     registry: ConnectorProjectRegistryResult;
   }): Promise<ConnectorRuntimeMaintenanceDecision | undefined>;
-  recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+  recordCompatibilityUse?: CompatibilityUseRecorder;
 }
 
 interface ConnectorCommandUpgradeHandlerDependencies {
@@ -91,8 +93,7 @@ export function createConnectorCommandUpgradeHandlerCore(
   options: ConnectorCommandUpgradeHandlerOptions = {}
 ) {
   const authenticate = options.authenticateConnectorCredential ?? authenticateConnectorCredential;
-  const recordCompatibilityUse = options.recordCompatibilityUse ??
-    recordSuccessfulConnectorCompatibilityUse;
+  const recordCompatibilityUse = options.recordCompatibilityUse ?? ignoreCompatibilityUse;
   const revalidationIntervalMs =
     options.credentialRevalidationIntervalMs ?? defaultCredentialRevalidationIntervalMs;
   if (!Number.isSafeInteger(revalidationIntervalMs) || revalidationIntervalMs <= 0) {

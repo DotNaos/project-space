@@ -7,7 +7,8 @@ import {
   failConnectorRuntimeStopsForMachine,
   handleConnectorRuntimeStopMessage
 } from './connector-runtime-stop-routing';
-import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
+
+type CompatibilityUseRecorder = (ownerUserId: string, surface: string) => Promise<unknown>;
 
 export function failConnectorRuntimeHubCommandsForMachine(machineId: string) {
   failConnectorRuntimeCommandsForMachine(machineId);
@@ -18,7 +19,7 @@ export function handleConnectorRuntimeHubMessage(
   machineId: string,
   message: ConnectorHubMessage,
   options: {
-    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+    recordCompatibilityUse?: CompatibilityUseRecorder;
   } = {}
 ) {
   if (message.type === 'runtime.stop.result') {

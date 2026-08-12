@@ -90,7 +90,6 @@ import type {
   ProjectWorktreeRecord,
   TerminalCommandResult
 } from '../src/shared/project-space-api';
-import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
 import {
   compatibilitySurfaceForPendingKind,
   successfulCompatibilityResult,
@@ -108,6 +107,9 @@ type ConnectorCommandResult =
   | ConnectorDevServerListResult
   | ConnectorWorktreeActionResult
   | TerminalCommandResult;
+
+type CompatibilityUseRecorder = (ownerUserId: string | undefined, surface: string) => Promise<unknown>;
+const ignoreCompatibilityUse: CompatibilityUseRecorder = async () => undefined;
 interface PendingCommand {
   worktreeActionTarget?: {
     generation: number;
@@ -163,7 +165,7 @@ function socketForMachine(machineId: string, capability?: string) {
 function finishPending(
   id: string,
   value?: ConnectorCommandResult,
-  recordCompatibilityUse = recordSuccessfulConnectorCompatibilityUse
+  recordCompatibilityUse = ignoreCompatibilityUse
 ) {
   const pending = pendingCommands.get(id);
   if (!pending) return;
@@ -248,7 +250,7 @@ function failCommandsForMachine(machineId: string) {
 function handleConnectorResult(
   machineId: string,
   message: ConnectorHubMessage,
-  recordCompatibilityUse = recordSuccessfulConnectorCompatibilityUse
+  recordCompatibilityUse = ignoreCompatibilityUse
 ) {
   if (handleConnectorRuntimeHubMessage(machineId, message, { recordCompatibilityUse })) return;
   if (handleCodexSessionsConnectorMessage(machineId, message, { recordCompatibilityUse })) return;
@@ -687,8 +689,7 @@ export async function streamConnectorCodexChat(
 export function createConnectorCommandUpgradeHandler(
   options: ConnectorCommandUpgradeHandlerOptions = {}
 ) {
-  const recordCompatibilityUse = options.recordCompatibilityUse ??
-    recordSuccessfulConnectorCompatibilityUse;
+  const recordCompatibilityUse = options.recordCompatibilityUse ?? ignoreCompatibilityUse;
   return createConnectorCommandUpgradeHandlerCore(
     {
       failCommandsForMachine,
