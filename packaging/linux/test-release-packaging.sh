@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PROJECT_SPACE_MACHINE_TOOLS_SERVICE_MODE=managed
+unset PROJECT_SPACE_MACHINE_TOOLS_SERVICE_MODE
 
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 temporary_root=$(mktemp -d)

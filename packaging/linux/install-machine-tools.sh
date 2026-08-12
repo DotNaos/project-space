@@ -39,7 +39,7 @@ done
 
 case $connector_service_mode in
   auto)
-    connector_service_mode=external
+    connector_service_mode=managed
     ;;
   managed|external) ;;
   *)

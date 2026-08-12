@@ -12,17 +12,17 @@ on:
         required: false
         type: string
       linux_x64:
-        description: Build unsigned Linux x64 CLI and connector.
+        description: Build unsigned Linux x64 CLI and Codex host.
         required: true
         default: true
         type: boolean
       macos_arm64:
-        description: Build unsigned macOS arm64 CLI and connector.
+        description: Build unsigned macOS arm64 CLI and Codex host.
         required: true
         default: false
         type: boolean
       windows_x64:
-        description: Build unsigned Windows x64 CLI and connector.
+        description: Build unsigned Windows x64 CLI and Codex host.
         required: true
         default: false
         type: boolean
