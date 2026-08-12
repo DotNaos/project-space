@@ -1,0 +1,34 @@
+version: 1
+defaultMode: devcontainer
+credentialScope: workspace-generation
+projectProtocol: 1
+projectRuntime:
+  id: project
+  version: 0.5.0
+  sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+codex:
+  id: codex
+  version: 1.2.3
+  sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+toolchains:
+  - id: bun
+    version: 1.2.20
+    sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+inputs:
+  - bun.lock
+setup:
+  - dependencies
+startup: []
+shutdown: []
+devServers:
+  - prototype-desktop
+ports:
+  - id: prototype
+    devServer: prototype-desktop
+    protocol: tcp
+resources:
+  cpuMillis: 1000
+  memoryMiB: 2048
+  pids: 128
+devcontainer:
+  path: .devcontainer/devcontainer.json

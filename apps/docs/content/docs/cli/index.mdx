@@ -59,6 +59,7 @@ project
 | [`template`](#project-template) | - | Manage the local project template snapshot |
 | [`token`](#project-token) | - | Manage the Project 1Password token |
 | [`validate`](#project-validate) | - | Validate a project against its template |
+| [`workspace`](#project-workspace) | - | Manage one exact repository Workspace |
 | [`worktree`](#project-worktree) | - | Prepare and validate isolated Codex worktrees |
 
 ## Command Reference
@@ -1583,6 +1584,163 @@ project validate [directory|file]
 | `--status-color-only` | `bool` | local | color only the status text |
 | `--view` | `string` | local | pretty output view |
 | `-y`, `--yes` | `bool` | local | apply the quarantine plan without prompting |
+
+<h3 id="project-workspace" className="scroll-m-28"><code>project workspace</code></h3>
+
+Manage one exact repository Workspace
+
+```sh
+project workspace
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for workspace |
+
+<h3 id="project-workspace-runtime" className="scroll-m-28"><code>project workspace runtime</code></h3>
+
+Manage the Workspace's ephemeral runtime
+
+```sh
+project workspace runtime
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for runtime |
+
+<h3 id="project-workspace-runtime-clean" className="scroll-m-28"><code>project workspace runtime clean</code></h3>
+
+Remove only stopped generation-owned runtime state
+
+```sh
+project workspace runtime clean [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for clean |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-inspect" className="scroll-m-28"><code>project workspace runtime inspect</code></h3>
+
+Inspect exact runtime ownership
+
+```sh
+project workspace runtime inspect [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for inspect |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-reconcile" className="scroll-m-28"><code>project workspace runtime reconcile</code></h3>
+
+Repair an interrupted runtime only from exact ownership evidence
+
+```sh
+project workspace runtime reconcile [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for reconcile |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-resume" className="scroll-m-28"><code>project workspace runtime resume</code></h3>
+
+Resume the exact Workspace runtime
+
+```sh
+project workspace runtime resume [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for resume |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-start" className="scroll-m-28"><code>project workspace runtime start</code></h3>
+
+Start or reuse an exact Workspace runtime
+
+```sh
+project workspace runtime start [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for start |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-stop" className="scroll-m-28"><code>project workspace runtime stop</code></h3>
+
+Stop the exact Workspace runtime without deleting its checkout
+
+```sh
+project workspace runtime stop [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for stop |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-suspend" className="scroll-m-28"><code>project workspace runtime suspend</code></h3>
+
+Suspend the exact Workspace runtime
+
+```sh
+project workspace runtime suspend [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for suspend |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
 
 <h3 id="project-worktree" className="scroll-m-28"><code>project worktree</code></h3>
 

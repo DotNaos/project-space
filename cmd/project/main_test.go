@@ -32,6 +32,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"__docs-model",
 		"__runtime-supervisor",
 		"__runtime-tmux",
+		"__workspace-runtime-idle",
 		"adopt",
 		"agent",
 		"chat",
@@ -64,6 +65,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"template",
 		"token",
 		"validate",
+		"workspace",
 		"worktree",
 	}
 	root := newRootCommand()

@@ -3709,6 +3709,464 @@
         "commands": []
       },
       {
+        "path": "project workspace",
+        "name": "workspace",
+        "usage": "workspace",
+        "short": "Manage one exact repository Workspace",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for workspace",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project workspace runtime",
+            "name": "runtime",
+            "usage": "runtime",
+            "short": "Manage the Workspace's ephemeral runtime",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for runtime",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project workspace runtime clean",
+                "name": "clean",
+                "usage": "clean [directory]",
+                "short": "Remove only stopped generation-owned runtime state",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for clean",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime inspect",
+                "name": "inspect",
+                "usage": "inspect [directory]",
+                "short": "Inspect exact runtime ownership",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for inspect",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime reconcile",
+                "name": "reconcile",
+                "usage": "reconcile [directory]",
+                "short": "Repair an interrupted runtime only from exact ownership evidence",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for reconcile",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime resume",
+                "name": "resume",
+                "usage": "resume [directory]",
+                "short": "Resume the exact Workspace runtime",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for resume",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime start",
+                "name": "start",
+                "usage": "start [directory]",
+                "short": "Start or reuse an exact Workspace runtime",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for start",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime stop",
+                "name": "stop",
+                "usage": "stop [directory]",
+                "short": "Stop the exact Workspace runtime without deleting its checkout",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for stop",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime suspend",
+                "name": "suspend",
+                "usage": "suspend [directory]",
+                "short": "Suspend the exact Workspace runtime",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for suspend",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          }
+        ]
+      },
+      {
         "path": "project worktree",
         "name": "worktree",
         "usage": "worktree",

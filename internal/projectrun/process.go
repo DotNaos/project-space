@@ -178,6 +178,29 @@ func (OSProcessRunner) Alive(process ProcessRef) bool {
 	return err == nil && identity == process.Identity
 }
 
+func (OSProcessRunner) PIDExists(pid int) bool { return pid > 0 && pidExists(pid) }
+
+// Suspended reports whether the exact managed process is currently stopped.
+func (runner OSProcessRunner) Suspended(process ProcessRef) (bool, error) {
+	if !runner.Alive(process) {
+		return false, fmt.Errorf("process identity no longer matches PID %d", process.PID)
+	}
+	command := exec.Command("ps", "-o", "state=", "-p", strconv.Itoa(process.PID))
+	command.Env = safeEnvironment(os.Environ())
+	body, err := command.Output()
+	if err != nil {
+		return false, fmt.Errorf("inspect process %d state: %w", process.PID, err)
+	}
+	state := strings.TrimSpace(string(body))
+	if state == "" {
+		return false, fmt.Errorf("process %d state is unavailable", process.PID)
+	}
+	if !runner.Alive(process) {
+		return false, fmt.Errorf("process identity changed while inspecting PID %d", process.PID)
+	}
+	return state[0] == 'T', nil
+}
+
 func (OSProcessRunner) OwnsTCP(process ProcessRef, host string, port int) (bool, error) {
 	if !(OSProcessRunner{}).Alive(process) {
 		return false, fmt.Errorf("process identity no longer matches PID %d", process.PID)
@@ -252,6 +275,47 @@ func tcpListeners(port int) ([]tcpListener, error) {
 
 func (OSProcessRunner) StopGroup(process ProcessRef, timeout time.Duration) error {
 	return stopProcessGroup(process, timeout)
+}
+
+// SuspendGroup pauses an exact managed process group only while the recorded
+// process identity still names its live group leader.
+func (runner OSProcessRunner) SuspendGroup(process ProcessRef) error {
+	if err := runner.verifyGroupLeader(process); err != nil {
+		return fmt.Errorf("refusing to suspend process group %d: %w", process.PID, err)
+	}
+	if err := syscall.Kill(-process.PID, syscall.SIGSTOP); err != nil {
+		return fmt.Errorf("suspend process group %d: %w", process.PID, err)
+	}
+	return nil
+}
+
+// ResumeGroup continues an exact managed process group only while the recorded
+// process identity still names its live group leader.
+func (runner OSProcessRunner) ResumeGroup(process ProcessRef) error {
+	if err := runner.verifyGroupLeader(process); err != nil {
+		return fmt.Errorf("refusing to resume process group %d: %w", process.PID, err)
+	}
+	if err := syscall.Kill(-process.PID, syscall.SIGCONT); err != nil {
+		return fmt.Errorf("resume process group %d: %w", process.PID, err)
+	}
+	return nil
+}
+
+func (runner OSProcessRunner) verifyGroupLeader(process ProcessRef) error {
+	if !runner.Alive(process) {
+		return fmt.Errorf("verified leader is gone")
+	}
+	group, err := syscall.Getpgid(process.PID)
+	if err != nil {
+		return fmt.Errorf("inspect process group: %w", err)
+	}
+	if group != process.PID {
+		return fmt.Errorf("PID is no longer its process-group leader")
+	}
+	if !runner.Alive(process) {
+		return fmt.Errorf("verified leader changed while checking its process group")
+	}
+	return nil
 }
 
 func prepareCommand(command Command) (*exec.Cmd, error) {

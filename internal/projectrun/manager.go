@@ -122,6 +122,10 @@ func (manager *Manager) StartWithOptions(
 	scriptName string,
 	options StartOptions,
 ) (ServeResult, error) {
+	if (options.WorkspaceID == "") != (options.RuntimeGeneration == "") {
+		err := fmt.Errorf("workspace ID and runtime generation must be supplied together")
+		return manager.runtimeErrorResult("start", directory, scriptName, err), err
+	}
 	requestedDirectory, err := absoluteDirectory(directory)
 	if err != nil {
 		return manager.configErrorResult("start", "", scriptName, err), err
@@ -180,6 +184,10 @@ func (manager *Manager) StartWithOptions(
 	} else if ok {
 		if existing.State == StateRunning || existing.State == StateLocalOnly {
 			if healthErr := manager.checkRuntime(ctx, existing, script); healthErr == nil {
+				if existing.WorkspaceID != options.WorkspaceID || existing.RuntimeGeneration != options.RuntimeGeneration {
+					err := fmt.Errorf("serve session belongs to a different Workspace runtime generation; stop it through its owning runtime")
+					return manager.resultFromState("start", CapabilityConfigured, existing, err), err
+				}
 				if existing.APIs != apis || existing.Data != data {
 					err := fmt.Errorf(
 						"serve session is already running with APIs=%s and data=%s; stop it before requesting APIs=%s and data=%s",
@@ -225,7 +233,8 @@ func (manager *Manager) StartWithOptions(
 	defer cancelStart()
 	state, failure, err := manager.startLocalRuntime(
 		startCtx, identity, requestedDirectory, mode, allowedHosts, script, root,
-		apis, data,
+		apis, data, options.WorkspaceID, options.RuntimeGeneration,
+		options.Environment,
 	)
 	if err != nil {
 		return failure, err
@@ -264,6 +273,9 @@ func (manager *Manager) reserveSession(
 	allowedHosts []string,
 	apis APIsMode,
 	data DataMode,
+	workspaceID string,
+	runtimeGeneration string,
+	environment []string,
 ) (runtimeState, error) {
 	unlock, err := acquireFileLock(manager.store.portLockPath())
 	if err != nil {
@@ -327,6 +339,8 @@ func (manager *Manager) reserveSession(
 		Generation:         generation,
 		TmuxSession:        identity.TmuxSession,
 		TmuxOwnershipToken: ownershipToken,
+		WorkspaceID:        workspaceID,
+		RuntimeGeneration:  runtimeGeneration,
 		LocalPort:          localPort,
 		PortlessName:       portlessName(identity),
 		PublicPort:         publicPort,
@@ -482,6 +496,7 @@ func tmuxSpecFromState(state runtimeState) TmuxSessionSpec {
 		Name: state.TmuxSession, ServerID: state.ServerID, RepositoryPath: state.RepositoryPath,
 		WorktreePath: state.Directory, ServerKey: state.Script, Generation: state.Generation,
 		OwnershipToken: state.TmuxOwnershipToken, Mode: state.Mode, APIs: state.APIs, Data: state.Data,
+		WorkspaceID: state.WorkspaceID, RuntimeGeneration: state.RuntimeGeneration,
 		LocalPort: state.LocalPort, PublicPort: state.PublicPort,
 	}
 }

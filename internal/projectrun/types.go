@@ -57,39 +57,49 @@ const (
 )
 
 type ServeResult struct {
-	SchemaVersion int              `json:"schemaVersion"`
-	Operation     string           `json:"operation"`
-	Disposition   ServeDisposition `json:"disposition,omitempty"`
-	Mode          ServeMode        `json:"mode"`
-	APIs          APIsMode         `json:"apis"`
-	Data          DataMode         `json:"data"`
-	Secrets       string           `json:"secrets"`
-	ServerID      string           `json:"serverId"`
-	ServerKey     string           `json:"serverKey"`
-	Script        string           `json:"script"`
-	Directory     string           `json:"directory"`
-	Repository    string           `json:"repository"`
-	TmuxSession   string           `json:"tmuxSession"`
-	Capability    Capability       `json:"capability"`
-	State         State            `json:"state"`
-	PID           *int             `json:"pid"`
-	LocalPort     *int             `json:"localPort"`
-	LocalURL      *string          `json:"localUrl"`
-	PortlessName  string           `json:"portlessName"`
-	PublicPort    *int             `json:"publicPort"`
-	PublicURL     *string          `json:"publicUrl"`
-	TailscaleIPv4 *string          `json:"tailscaleIPv4"`
-	AllowedHosts  []string         `json:"allowedHosts"`
-	StartedAt     *string          `json:"startedAt"`
-	CheckedAt     string           `json:"checkedAt"`
-	LastError     *string          `json:"lastError"`
+	SchemaVersion     int              `json:"schemaVersion"`
+	Operation         string           `json:"operation"`
+	Disposition       ServeDisposition `json:"disposition,omitempty"`
+	Mode              ServeMode        `json:"mode"`
+	APIs              APIsMode         `json:"apis"`
+	Data              DataMode         `json:"data"`
+	Secrets           string           `json:"secrets"`
+	ServerID          string           `json:"serverId"`
+	ServerKey         string           `json:"serverKey"`
+	Script            string           `json:"script"`
+	Directory         string           `json:"directory"`
+	Repository        string           `json:"repository"`
+	TmuxSession       string           `json:"tmuxSession"`
+	WorkspaceID       string           `json:"workspaceId,omitempty"`
+	RuntimeGeneration string           `json:"runtimeGeneration,omitempty"`
+	Capability        Capability       `json:"capability"`
+	State             State            `json:"state"`
+	PID               *int             `json:"pid"`
+	LocalPort         *int             `json:"localPort"`
+	LocalURL          *string          `json:"localUrl"`
+	PortlessName      string           `json:"portlessName"`
+	PublicPort        *int             `json:"publicPort"`
+	PublicURL         *string          `json:"publicUrl"`
+	TailscaleIPv4     *string          `json:"tailscaleIPv4"`
+	AllowedHosts      []string         `json:"allowedHosts"`
+	StartedAt         *string          `json:"startedAt"`
+	CheckedAt         string           `json:"checkedAt"`
+	LastError         *string          `json:"lastError"`
 }
 
 type StartOptions struct {
-	AllowedHosts []string
-	LocalOnly    bool
-	APIs         APIsMode
-	Data         DataMode
+	AllowedHosts      []string
+	LocalOnly         bool
+	APIs              APIsMode
+	Data              DataMode
+	WorkspaceID       string
+	RuntimeGeneration string
+	Environment       []string
+}
+
+type RunOptions struct {
+	Environment []string
+	InheritEnv  bool
 }
 
 type RunResult struct {
@@ -206,6 +216,7 @@ type SetupCollectionResult struct {
 type SetupExpectations struct {
 	Commit            string
 	DeclarationDigest string
+	Environment       []string
 }
 
 type ServerDeclarationResult struct {

@@ -46,6 +46,39 @@ type Result struct {
 	Worktrees string `json:"worktreesRoot"`
 }
 
+// InspectManaged verifies the Project-managed linked-worktree boundary without
+// requiring the caller to own the checkout. Runtime control uses this read-only
+// form on the target host, where the originating Codex thread is not present.
+func InspectManaged(startPath string) (Result, error) {
+	repo, currentPath, err := inspectRepository(startPath)
+	if err != nil {
+		return Result{}, err
+	}
+	branch, err := validateDedicatedWorktree(repo, currentPath)
+	if err != nil {
+		return Result{}, err
+	}
+	managed, _, err := worktreeConfigValue(currentPath, managedConfigKey)
+	if err != nil {
+		return Result{}, err
+	}
+	if managed != "true" {
+		return Result{}, errors.New("worktree is not managed by the Project CLI")
+	}
+	owner, _, err := worktreeConfigValue(currentPath, ownerConfigKey)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := validateThreadID(owner); err != nil {
+		return Result{}, fmt.Errorf("worktree has an invalid Codex owner: %w", err)
+	}
+	return Result{
+		BaseRef: repo.baseRef, Branch: branch, Issue: readIssueNumber(currentPath),
+		Owner: strings.TrimSpace(owner), Path: currentPath, Project: repo.project,
+		Status: "ready", Task: readTaskName(currentPath), Worktrees: repo.worktreesRoot,
+	}, nil
+}
+
 func Prepare(options PrepareOptions) (Result, error) {
 	if err := validateThreadID(options.ThreadID); err != nil {
 		return Result{}, err

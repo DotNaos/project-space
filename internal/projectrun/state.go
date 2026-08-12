@@ -29,6 +29,8 @@ type runtimeState struct {
 	Generation         string    `json:"generation"`
 	TmuxSession        string    `json:"tmuxSession"`
 	TmuxOwnershipToken string    `json:"tmuxOwnershipToken"`
+	WorkspaceID        string    `json:"workspaceId,omitempty"`
+	RuntimeGeneration  string    `json:"runtimeGeneration,omitempty"`
 	PID                int       `json:"pid,omitempty"`
 	ProcessID          string    `json:"processIdentity,omitempty"`
 	LocalPort          int       `json:"localPort,omitempty"`
@@ -243,6 +245,14 @@ func validateRuntimeState(state runtimeState) error {
 	}
 	if state.Mode != ServeModeManaged && state.Mode != ServeModeLocalOnly {
 		return fmt.Errorf("mode %q is invalid", state.Mode)
+	}
+	if (state.WorkspaceID == "") != (state.RuntimeGeneration == "") {
+		return fmt.Errorf("workspace and runtime generation bindings must be present together")
+	}
+	for name, value := range map[string]string{"workspace ID": state.WorkspaceID, "runtime generation": state.RuntimeGeneration} {
+		if value != "" && (strings.TrimSpace(value) != value || len(value) > 128 || strings.ContainsAny(value, "\x00\r\n\t ")) {
+			return fmt.Errorf("%s binding is invalid", name)
+		}
 	}
 	if state.APIs != APIsModeSimulated && state.APIs != APIsModeExternal {
 		return fmt.Errorf("APIs mode %q is invalid", state.APIs)

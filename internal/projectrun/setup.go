@@ -200,7 +200,7 @@ func (manager *Manager) prepareStep(
 		Commit: head, DeclarationDigest: declaration.Digest,
 		StartedAt: startedAt, CheckedAt: startedAt,
 	}
-	command := Command{Argv: append([]string{}, step.Command...), Dir: declaration.Root}
+	command := Command{Argv: append([]string{}, step.Command...), Dir: declaration.Root, Env: append([]string{}, expected.Environment...)}
 	exitCode, runErr := manager.processes.RunForeground(
 		ctx,
 		command,
