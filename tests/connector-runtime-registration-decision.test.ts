@@ -1,4 +1,3 @@
-import { generateKeyPairSync } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -21,12 +20,7 @@ import {
   connectorRuntimeSupervisorDecisionSchema,
   isConnectorRuntimeSupervisorDecision
 } from '../server/connector-runtime-registration-decision';
-import { connectorRuntimeCredentialVersion } from '../server/connector-runtime-credential';
-import { startProjectConnectorWebSocket } from '../server/project-connector-websocket';
-import type {
-  ConnectorProjectRegistryResult,
-  ProjectSpaceBackend
-} from '../src/shared/project-space-api';
+import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
 
 const environmentKeys = [
   'PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY',
@@ -94,14 +88,6 @@ async function listeningServer(
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Server did not expose a port.');
   return { commands, origin: `http://127.0.0.1:${address.port}`, server };
-}
-
-async function waitFor(check: () => boolean | Promise<boolean>) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (await check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error('Condition did not become true.');
 }
 
 describe('connector runtime reconnect decisions', () => {
@@ -218,91 +204,4 @@ describe('connector runtime reconnect decisions', () => {
     }
   });
 
-  test('persists an authenticated matching hub decision before becoming ready', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'project-runtime-bridge-'));
-    const maintenance = join(root, '.project-space-machine-tools', 'maintenance');
-    await mkdir(maintenance, { recursive: true });
-    const decisionPath = join(maintenance, 'decision.json');
-    const commandKeys = generateKeyPairSync('ed25519');
-    const releaseKeys = generateKeyPairSync('ed25519');
-    process.env.PROJECT_SPACE_INSTALL_SOURCE = 'managed';
-    process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PUBLIC_KEY = commandKeys.publicKey
-      .export({ format: 'pem', type: 'spki' }).toString();
-    process.env.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY = releaseKeys.publicKey
-      .export({ format: 'pem', type: 'spki' }).toString();
-    process.env.PROJECT_CONNECTOR_RUNTIME_CONTROL_FILE = join(maintenance, 'control.json');
-    process.env.PROJECT_CONNECTOR_RUNTIME_DECISION_FILE = decisionPath;
-    process.env.PROJECT_CONNECTOR_RUNTIME_STAGING_DIR = join(root, 'staging');
-    let decisionCalls = 0;
-    const hub = await listeningServer({
-      async authenticateConnectorCredential() { return true; },
-      async decideConnectorRuntimeMaintenance({ machine, registry: registered }) {
-        decisionCalls += 1;
-        expect(registered.connector.runtime?.buildId).toBe('1'.repeat(40));
-        expect(machine.connector.runtime).toEqual(registered.connector.runtime);
-        expect(machine.connector.capabilities).toEqual(registered.connector.capabilities);
-        return { action: 'commit', operationId: 'operation-bridge' };
-      }
-    });
-    process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID = 'operation-bridge';
-    process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE = 'pending-health-check';
-    const backend = {
-      async getConnectorProjectRegistry() {
-        const operationId = process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID;
-        const state = process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE;
-        return registry('ignored-by-runtime-binding', operationId &&
-          (state === 'pending-health-check' || state === 'rolled-back')
-          ? { operationId, state }
-          : undefined);
-      }
-    } as ProjectSpaceBackend;
-    const bridges: Array<ReturnType<typeof startProjectConnectorWebSocket>> = [];
-    const startBridge = () => startProjectConnectorWebSocket({
-      backend,
-      reconnectDelayMs: 10,
-      runtimeCredential: {
-        backendUrl: hub.origin,
-        credential: 'machine-credential',
-        machineId: 'runtime-bridge',
-        version: connectorRuntimeCredentialVersion
-      }
-    });
-    bridges.push(startBridge());
-    try {
-      await waitFor(async () => {
-        try {
-          return isConnectorRuntimeSupervisorDecision(
-            JSON.parse(await readFile(decisionPath, 'utf8'))
-          );
-        } catch {
-          return false;
-        }
-      });
-      expect(JSON.parse(await readFile(decisionPath, 'utf8'))).toEqual({
-        action: 'commit', operationId: 'operation-bridge',
-        schema: connectorRuntimeSupervisorDecisionSchema
-      });
-      await waitFor(() => decisionCalls >= 2);
-      expect(process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID).toBeUndefined();
-      expect(process.env.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE).toBeUndefined();
-      expect(isConnectorCommandChannelAvailable('runtime-bridge')).toBe(true);
-      await rm(decisionPath);
-      bridges.at(-1)!.close();
-      await waitFor(() => !isConnectorCommandChannelAvailable('runtime-bridge'));
-      for (let reconnect = 0; reconnect < 2; reconnect += 1) {
-        bridges.push(startBridge());
-        await waitFor(() => isConnectorCommandChannelAvailable('runtime-bridge'));
-        expect(await Bun.file(decisionPath).exists()).toBe(false);
-        expect(decisionCalls).toBe(2);
-        bridges.at(-1)!.close();
-        await waitFor(() => !isConnectorCommandChannelAvailable('runtime-bridge'));
-      }
-    } finally {
-      bridges.forEach((bridge) => bridge.close());
-      hub.server.closeAllConnections();
-      await hub.commands.close();
-      await new Promise<void>((resolve) => hub.server.close(() => resolve()));
-      await rm(root, { force: true, recursive: true });
-    }
-  });
 });

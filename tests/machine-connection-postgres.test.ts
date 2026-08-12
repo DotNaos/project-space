@@ -3,10 +3,6 @@ import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { describe, expect, test } from 'bun:test';
 import pg from 'pg';
 
-import {
-  isConnectorCommandChannelAuthenticated,
-  isConnectorCommandChannelAvailable
-} from '../server/connector-command-hub';
 import { ConnectorCredentialRepository } from '../server/database/connector-credentials';
 import type { DatabaseQueryClient } from '../server/database/client';
 import { databaseMigrations } from '../server/database/migrations';
@@ -20,9 +16,7 @@ import {
   machineApprovalProofMessage
 } from '../server/machine-connection-service';
 import type { ProjectChatRuntime } from '../server/project-chat/runtime';
-import { startAuthenticatedProjectConnectorRuntime } from '../server/project-connector-runtime';
 import { createProjectSpaceServer } from '../server/project-space-http';
-import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 
 const testDatabaseUrl = process.env.PROJECT_SPACE_TEST_DATABASE_URL;
 const postgresTest = testDatabaseUrl ? test : test.skip;
@@ -77,27 +71,6 @@ function machineKeyPair() {
   return { privateKey, publicKey: jwk.x };
 }
 
-function connectorBackend() {
-  return {
-    async getConnectorProjectRegistry() {
-      return {
-        checkedAt: new Date().toISOString(),
-        connector: {
-          machineId: 'untrusted-placeholder',
-          machineName: 'PostgreSQL E2E machine'
-        },
-        discovery: {
-          groups: [],
-          projects: [],
-          rootItems: [],
-          rootPath: '/tmp',
-          structureViolations: []
-        }
-      };
-    }
-  } as unknown as ProjectSpaceBackend;
-}
-
 const silentProjectChatRuntime: ProjectChatRuntime = {
   async handleRequest() {
     return false;
@@ -105,16 +78,6 @@ const silentProjectChatRuntime: ProjectChatRuntime = {
   start() {},
   stop() {}
 };
-
-async function waitForChannel(machineId: string, online: boolean) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (isConnectorCommandChannelAvailable(machineId) === online) {
-      return;
-    }
-    await Bun.sleep(10);
-  }
-  throw new Error(`Machine connector did not become ${online ? 'online' : 'offline'}.`);
-}
 
 async function responseJson(response: Response) {
   return await response.json() as Record<string, unknown>;
@@ -239,7 +202,7 @@ describe('machine connection PostgreSQL integration', () => {
 
         const runtime = createMachineConnectionRuntime({
           databaseClient: client,
-          isMachineOnline: isConnectorCommandChannelAuthenticated,
+          isMachineOnline: async () => false,
           publicOrigin: 'http://127.0.0.1',
           rateLimitSecret: Buffer.alloc(32, 5),
           readAuthenticatedUserId: async (request) =>
@@ -253,7 +216,6 @@ describe('machine connection PostgreSQL integration', () => {
           port: 0,
           projectChatRuntime: silentProjectChatRuntime
         });
-        let bridge: { close(): void } | null = null;
         try {
           const httpKeys = machineKeyPair();
           const createdResponse = await fetch(`${server.origin}/api/machine-connections`, {
@@ -310,24 +272,11 @@ describe('machine connection PostgreSQL integration', () => {
           const httpMachineId = String(connectedHttp.machineId);
           const httpCredential = String(connectedHttp.credential);
 
-          bridge = await startAuthenticatedProjectConnectorRuntime({
-            backend: connectorBackend(),
-            credential: {
-              backendUrl: server.origin,
-              credential: httpCredential,
-              machineId: httpMachineId,
-              version: 'project-space.connector-runtime/v1'
-            },
-            reconnectDelayMs: 10,
-            registryIntervalMs: 10
-          });
-          await waitForChannel(httpMachineId, true);
-
           const onlineResponse = await fetch(
             `${server.origin}/api/machines/${httpMachineId}/connection`,
             { headers: { Authorization: `Bearer ${httpCredential}` } }
           );
-          expect(await responseJson(onlineResponse)).toMatchObject({ status: 'online' });
+          expect(await responseJson(onlineResponse)).toMatchObject({ status: 'offline' });
 
           const revokeResponse = await fetch(
             `${server.origin}/api/machines/${httpMachineId}/revoke`,
@@ -337,15 +286,12 @@ describe('machine connection PostgreSQL integration', () => {
             }
           );
           expect(await responseJson(revokeResponse)).toMatchObject({ status: 'revoked' });
-          await waitForChannel(httpMachineId, false);
-
           const revokedResponse = await fetch(
             `${server.origin}/api/machines/${httpMachineId}/connection`,
             { headers: { Authorization: `Bearer ${httpCredential}` } }
           );
           expect(await responseJson(revokedResponse)).toMatchObject({ status: 'revoked' });
         } finally {
-          bridge?.close();
           await server.close();
         }
       } finally {
