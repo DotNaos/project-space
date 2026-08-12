@@ -14,11 +14,6 @@ type silentApprovalPresenter struct{}
 
 func (silentApprovalPresenter) Present(context.Context, string) error { return nil }
 
-type callerManagedConnector struct{}
-
-func (callerManagedConnector) Start(context.Context) error { return nil }
-func (callerManagedConnector) Stop(context.Context) error  { return nil }
-
 func newMachineStatusCommand() *cobra.Command {
 	return newMachineStatusCommandWithDependencyFactory(defaultMachineConnectionDependencies)
 }
@@ -231,7 +226,6 @@ func newDisconnectCommandWithDependencyFactory(
 			switch connectorMode {
 			case "managed":
 			case "foreground":
-				dependencies.Connector = callerManagedConnector{}
 			default:
 				return errors.New("--connector-mode must be managed or foreground")
 			}

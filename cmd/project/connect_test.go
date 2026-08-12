@@ -85,23 +85,8 @@ func (store *commandStore) Delete() error {
 	return nil
 }
 
-type commandConnector struct {
-	startCalls int
-	stopCalls  int
-}
-
-func (connector *commandConnector) Start(context.Context) error {
-	connector.startCalls++
-	return nil
-}
-
-func (connector *commandConnector) Stop(context.Context) error {
-	connector.stopCalls++
-	return nil
-}
-
 func TestConnectCommandKeepsApprovalOutOfJSONOutput(t *testing.T) {
-	dependencies, backend, store, connector := testCommandDependencies()
+	dependencies, backend, store := testCommandDependencies()
 	opened := 0
 	dependencies.OpenURL = func(context.Context, string) error {
 		opened++
@@ -117,13 +102,13 @@ func TestConnectCommandKeepsApprovalOutOfJSONOutput(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if opened != 1 || connector.startCalls != 1 || store.credential == nil {
-		t.Fatalf("connect side effects mismatch: opened=%d connector=%#v store=%#v", opened, connector, store)
+	if opened != 1 || store.credential == nil {
+		t.Fatalf("connect side effects mismatch: opened=%d store=%#v", opened, store)
 	}
 	if strings.Contains(stdout.String(), "approval.example") || strings.Contains(stdout.String(), "machine-secret") {
 		t.Fatalf("stdout contains interactive or secret data: %s", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), `"status": "online"`) || !strings.Contains(stderr.String(), "https://approval.example/connect") {
+	if !strings.Contains(stdout.String(), `"status": "registered"`) || !strings.Contains(stderr.String(), "https://approval.example/connect") {
 		t.Fatalf("unexpected output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 	if backend.healthCalls != 1 || backend.createCalls != 1 {
@@ -135,7 +120,7 @@ func TestConnectCommandKeepsApprovalOutOfJSONOutput(t *testing.T) {
 }
 
 func TestConnectCommandNoOpenUsesPrintableFallback(t *testing.T) {
-	dependencies, _, _, _ := testCommandDependencies()
+	dependencies, _, _ := testCommandDependencies()
 	dependencies.OpenURL = func(context.Context, string) error {
 		return errors.New("must not be called")
 	}
@@ -149,13 +134,13 @@ func TestConnectCommandNoOpenUsesPrintableFallback(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(stderr.String(), "https://approval.example/connect") || !strings.Contains(stdout.String(), "connected and online") {
+	if !strings.Contains(stderr.String(), "https://approval.example/connect") || !strings.Contains(stdout.String(), "registered for Project Space control") {
 		t.Fatalf("unexpected output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
 func TestConnectCommandDoesNotOpenBrowserOnHeadlessMachine(t *testing.T) {
-	dependencies, _, _, _ := testCommandDependencies()
+	dependencies, _, _ := testCommandDependencies()
 	dependencies.Headless = func() bool { return true }
 	opened := 0
 	dependencies.OpenURL = func(context.Context, string) error {
@@ -175,7 +160,7 @@ func TestConnectCommandDoesNotOpenBrowserOnHeadlessMachine(t *testing.T) {
 }
 
 func TestConnectCommandRejectsRetiredForegroundConnectorBeforeApproval(t *testing.T) {
-	dependencies, backend, _, _ := testCommandDependencies()
+	dependencies, backend, _ := testCommandDependencies()
 	command := newConnectCommandWithDependencies(dependencies)
 	command.SetOut(&bytes.Buffer{})
 	command.SetErr(&bytes.Buffer{})
@@ -191,7 +176,7 @@ func TestConnectCommandRejectsRetiredForegroundConnectorBeforeApproval(t *testin
 }
 
 func TestConnectCommandRejectsUnknownConnectorModeBeforeApproval(t *testing.T) {
-	dependencies, backend, _, _ := testCommandDependencies()
+	dependencies, backend, _ := testCommandDependencies()
 	command := newConnectCommandWithDependencies(dependencies)
 	command.SetOut(&bytes.Buffer{})
 	command.SetErr(&bytes.Buffer{})
@@ -219,17 +204,13 @@ func TestDefaultMachineConnectionDependenciesOnlyEnrollTheMachine(t *testing.T) 
 	if err != nil {
 		t.Fatalf("default dependencies: %v", err)
 	}
-	if !dependencies.Workflow.EnrollmentOnly {
-		t.Fatal("default workflow still starts a permanent Connector service")
-	}
-	if dependencies.Connector != nil {
-		t.Fatalf("default connector = %T, want nil", dependencies.Connector)
+	if dependencies.Backend == nil || dependencies.Store == nil {
+		t.Fatal("default enrollment dependencies are incomplete")
 	}
 }
 
-func TestConnectCommandEnrollmentOnlyRegistersWithoutStartingAService(t *testing.T) {
-	dependencies, backend, store, connector := testCommandDependencies()
-	dependencies.Workflow.EnrollmentOnly = true
+func TestConnectCommandRegistersWithoutStartingAService(t *testing.T) {
+	dependencies, backend, store := testCommandDependencies()
 	backend.state = machineconnect.ConnectionOffline
 	command := newConnectCommandWithDependencies(dependencies)
 	stdout := &bytes.Buffer{}
@@ -239,9 +220,6 @@ func TestConnectCommandEnrollmentOnlyRegistersWithoutStartingAService(t *testing
 
 	if err := command.Execute(); err != nil {
 		t.Fatalf("execute enrollment-only connect: %v", err)
-	}
-	if connector.startCalls != 0 || connector.stopCalls != 0 {
-		t.Fatalf("enrollment started a service: %#v", connector)
 	}
 	if store.credential == nil {
 		t.Fatal("machine credential was not saved")
@@ -302,7 +280,7 @@ func TestMachineConnectionCommandReturnsDependencyErrorWithoutPanicking(t *testi
 }
 
 func TestMachineManagementCommands(t *testing.T) {
-	dependencies, backend, store, connector := testCommandDependencies()
+	dependencies, backend, store := testCommandDependencies()
 	credential := backend.credential
 	store.credential = &credential
 
@@ -336,13 +314,13 @@ func TestMachineManagementCommands(t *testing.T) {
 	if err := disconnect.Execute(); err != nil {
 		t.Fatalf("disconnect: %v", err)
 	}
-	if store.credential != nil || backend.revokeCalls != 1 || connector.stopCalls != 1 {
-		t.Fatalf("disconnect mismatch: store=%#v backend=%#v connector=%#v", store, backend, connector)
+	if store.credential != nil || backend.revokeCalls != 1 {
+		t.Fatalf("disconnect mismatch: store=%#v backend=%#v", store, backend)
 	}
 }
 
 func TestDisconnectForegroundConnectionDoesNotRequireSystemd(t *testing.T) {
-	dependencies, backend, store, managedConnector := testCommandDependencies()
+	dependencies, backend, store := testCommandDependencies()
 	credential := backend.credential
 	store.credential = &credential
 	command := newDisconnectCommandWithDependencies(dependencies)
@@ -352,17 +330,12 @@ func TestDisconnectForegroundConnectionDoesNotRequireSystemd(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatalf("disconnect foreground connection: %v", err)
 	}
-	if store.credential != nil || backend.revokeCalls != 1 || managedConnector.stopCalls != 0 {
-		t.Fatalf(
-			"foreground disconnect mismatch: store=%#v backend=%#v connector=%#v",
-			store,
-			backend,
-			managedConnector,
-		)
+	if store.credential != nil || backend.revokeCalls != 1 {
+		t.Fatalf("foreground disconnect mismatch: store=%#v backend=%#v", store, backend)
 	}
 }
 
-func testCommandDependencies() (machineConnectionCommandDependencies, *commandBackend, *commandStore, *commandConnector) {
+func testCommandDependencies() (machineConnectionCommandDependencies, *commandBackend, *commandStore) {
 	now := time.Now().UTC()
 	credential := machineconnect.Credential{
 		BackendURL: "https://projects.os-home.net", MachineID: "machine-1", MachineName: "OS PC",
@@ -378,10 +351,9 @@ func testCommandDependencies() (machineConnectionCommandDependencies, *commandBa
 		state:      machineconnect.ConnectionOnline,
 	}
 	store := &commandStore{}
-	connector := &commandConnector{}
 	return machineConnectionCommandDependencies{
-		Backend: backend, Store: store, Connector: connector, Clock: machineconnect.RealClock{},
+		Backend: backend, Store: store, Clock: machineconnect.RealClock{},
 		Hostname: func() (string, error) { return "os-pc", nil }, GOOS: "linux", GOARCH: "amd64",
 		Version: "dev",
-	}, backend, store, connector
+	}, backend, store
 }

@@ -13,8 +13,6 @@ import (
 const (
 	defaultApprovalTimeout = 10 * time.Minute
 	defaultCleanupTimeout  = 15 * time.Second
-	defaultOnlineTimeout   = 45 * time.Second
-	defaultOnlineInterval  = time.Second
 	minimumPollInterval    = 250 * time.Millisecond
 	maximumPollInterval    = 10 * time.Second
 )
@@ -22,17 +20,13 @@ const (
 type WorkflowOptions struct {
 	ApprovalTimeout time.Duration
 	CleanupTimeout  time.Duration
-	EnrollmentOnly  bool
 	KeyRandom       io.Reader
-	OnlineTimeout   time.Duration
-	OnlineInterval  time.Duration
 }
 
 type Workflow struct {
 	backend   Backend
 	store     CredentialStore
 	presenter ApprovalPresenter
-	connector Connector
 	clock     Clock
 	keyRandom io.Reader
 	options   WorkflowOptions
@@ -66,12 +60,10 @@ func NewWorkflow(
 	backend Backend,
 	store CredentialStore,
 	presenter ApprovalPresenter,
-	connector Connector,
 	clock Clock,
 	options WorkflowOptions,
 ) (*Workflow, error) {
-	if backend == nil || store == nil || presenter == nil ||
-		(!options.EnrollmentOnly && connector == nil) {
+	if backend == nil || store == nil || presenter == nil {
 		return nil, errors.New("machine connection workflow dependencies are incomplete")
 	}
 	if clock == nil {
@@ -80,24 +72,16 @@ func NewWorkflow(
 	if options.ApprovalTimeout <= 0 {
 		options.ApprovalTimeout = defaultApprovalTimeout
 	}
-	if options.OnlineTimeout <= 0 {
-		options.OnlineTimeout = defaultOnlineTimeout
-	}
 	if options.CleanupTimeout <= 0 {
 		options.CleanupTimeout = defaultCleanupTimeout
-	}
-	if options.OnlineInterval <= 0 {
-		options.OnlineInterval = defaultOnlineInterval
 	}
 	if options.KeyRandom == nil {
 		options.KeyRandom = rand.Reader
 	}
-	options.OnlineInterval = boundedInterval(options.OnlineInterval)
 	return &Workflow{
 		backend:   backend,
 		store:     store,
 		presenter: presenter,
-		connector: connector,
 		clock:     clock,
 		keyRandom: options.KeyRandom,
 		options:   options,
@@ -129,15 +113,7 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 			return ConnectResult{}, connectionErr
 		}
 		if state != ConnectionRevoked {
-			if workflow.options.EnrollmentOnly {
-				return workflow.resume(ctx, credential, state)
-			}
-			if state == ConnectionOffline {
-				if err := workflow.preflightConnector(ctx); err != nil {
-					return ConnectResult{}, err
-				}
-			}
-			return workflow.resume(ctx, credential, state)
+			return workflow.resume(credential)
 		}
 		if deleteErr := workflow.store.Delete(); deleteErr != nil {
 			return ConnectResult{}, deleteErr
@@ -146,11 +122,6 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 	}
 	if !errors.Is(err, ErrCredentialNotFound) {
 		return ConnectResult{}, err
-	}
-	if !workflow.options.EnrollmentOnly {
-		if err := workflow.preflightConnector(ctx); err != nil {
-			return ConnectResult{}, err
-		}
 	}
 	if err := workflow.backend.Health(ctx); err != nil {
 		return ConnectResult{}, fmt.Errorf("Project Space backend is unavailable: %w", err)
@@ -191,56 +162,11 @@ func (workflow *Workflow) Connect(ctx context.Context, machine Machine) (
 		}
 		return ConnectResult{}, err
 	}
-	if workflow.options.EnrollmentOnly {
-		return ConnectResult{
-			MachineID:   credential.MachineID,
-			MachineName: credential.MachineName,
-			ApprovalURL: request.ApprovalURL,
-		}, nil
-	}
-	if err := workflow.connector.Start(ctx); err != nil {
-		return ConnectResult{}, workflow.rollbackFirstConnection(
-			ctx,
-			credential,
-			fmt.Errorf("start machine connector: %w", err),
-		)
-	}
-	if err := workflow.waitUntilOnline(ctx, credential); err != nil {
-		return ConnectResult{}, workflow.rollbackFirstConnection(ctx, credential, err)
-	}
 	return ConnectResult{
 		MachineID:   credential.MachineID,
 		MachineName: credential.MachineName,
 		ApprovalURL: request.ApprovalURL,
 	}, nil
-}
-
-func (workflow *Workflow) preflightConnector(ctx context.Context) error {
-	if preflighter, ok := workflow.connector.(ConnectorPreflighter); ok {
-		return preflighter.Preflight(ctx)
-	}
-	return nil
-}
-
-func (workflow *Workflow) rollbackFirstConnection(
-	ctx context.Context,
-	credential Credential,
-	cause error,
-) error {
-	revokeCtx, cancelRevoke := workflow.cleanupContext(ctx)
-	revokeErr := workflow.backend.Revoke(revokeCtx, credential)
-	cancelRevoke()
-	stopErr := error(nil)
-	if !workflow.options.EnrollmentOnly {
-		stopCtx, cancelStop := workflow.cleanupContext(ctx)
-		stopErr = workflow.connector.Stop(stopCtx)
-		cancelStop()
-	}
-	if revokeErr != nil {
-		return errors.Join(cause, stopErr, fmt.Errorf("revoke incomplete machine connection: %w", revokeErr))
-	}
-	deleteErr := workflow.store.Delete()
-	return errors.Join(cause, stopErr, deleteErr)
 }
 
 func (workflow *Workflow) cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -324,17 +250,8 @@ func (workflow *Workflow) Disconnect(ctx context.Context) (returnErr error) {
 	if err := workflow.backend.Revoke(ctx, credential); err != nil {
 		return err
 	}
-	stopErr := error(nil)
-	if !workflow.options.EnrollmentOnly {
-		cleanupCtx, cancelCleanup := workflow.cleanupContext(ctx)
-		defer cancelCleanup()
-		stopErr = workflow.connector.Stop(cleanupCtx)
-	}
 	deleteErr := workflow.store.Delete()
-	if stopErr != nil || deleteErr != nil {
-		return errors.Join(stopErr, deleteErr)
-	}
-	return nil
+	return deleteErr
 }
 
 // Uninstall performs best-effort backend revocation and complete local removal
@@ -370,15 +287,6 @@ func (workflow *Workflow) Uninstall(ctx context.Context) (
 		result.RevocationPending = true
 	}
 
-	stopErr := error(nil)
-	if !workflow.options.EnrollmentOnly {
-		stopCtx, cancelStop := workflow.cleanupContext(ctx)
-		stopErr = workflow.connector.Stop(stopCtx)
-		cancelStop()
-	}
-	if stopErr != nil {
-		return result, stopErr
-	}
 	purger, ok := workflow.store.(CredentialPurger)
 	if !ok {
 		return result, errors.New("machine credential store does not support complete removal")
@@ -394,26 +302,7 @@ func (workflow *Workflow) lockCredentialMutation(ctx context.Context) (func() er
 	return locker.Lock(ctx)
 }
 
-func (workflow *Workflow) resume(
-	ctx context.Context,
-	credential Credential,
-	state ConnectionState,
-) (ConnectResult, error) {
-	if workflow.options.EnrollmentOnly {
-		return ConnectResult{
-			MachineID:        credential.MachineID,
-			MachineName:      credential.MachineName,
-			AlreadyConnected: true,
-		}, nil
-	}
-	if state == ConnectionOffline {
-		if err := workflow.connector.Start(ctx); err != nil {
-			return ConnectResult{}, fmt.Errorf("start machine connector: %w", err)
-		}
-		if err := workflow.waitUntilOnline(ctx, credential); err != nil {
-			return ConnectResult{}, err
-		}
-	}
+func (workflow *Workflow) resume(credential Credential) (ConnectResult, error) {
 	return ConnectResult{
 		MachineID:        credential.MachineID,
 		MachineName:      credential.MachineName,
@@ -451,31 +340,6 @@ func (workflow *Workflow) waitForApproval(ctx context.Context, request Request) 
 		}
 		if err := workflow.clock.Sleep(ctx, interval); err != nil {
 			return "", err
-		}
-	}
-}
-
-func (workflow *Workflow) waitUntilOnline(ctx context.Context, credential Credential) error {
-	deadline := workflow.clock.Now().Add(workflow.options.OnlineTimeout)
-	for {
-		state, err := workflow.backend.Connection(ctx, credential)
-		if err != nil {
-			return err
-		}
-		switch state {
-		case ConnectionOnline:
-			return nil
-		case ConnectionRevoked:
-			return ErrMachineRevoked
-		case ConnectionOffline:
-		default:
-			return errors.New("backend returned an invalid machine connection state")
-		}
-		if !workflow.clock.Now().Before(deadline) {
-			return errors.New("machine connector did not come online before the timeout")
-		}
-		if err := workflow.clock.Sleep(ctx, workflow.options.OnlineInterval); err != nil {
-			return err
 		}
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -138,49 +137,6 @@ func (presenter *recordingPresenter) Present(_ context.Context, approvalURL stri
 	return nil
 }
 
-type recordingConnector struct {
-	startCalls int
-	startErr   error
-	stopCalls  int
-	stopErr    error
-}
-
-func (connector *recordingConnector) Start(context.Context) error {
-	connector.startCalls++
-	return connector.startErr
-}
-
-func (connector *recordingConnector) Stop(context.Context) error {
-	connector.stopCalls++
-	return connector.stopErr
-}
-
-type preflightConnector struct {
-	recordingConnector
-	preflightCalls int
-	preflightErr   error
-}
-
-func (connector *preflightConnector) Preflight(context.Context) error {
-	connector.preflightCalls++
-	return connector.preflightErr
-}
-
-type contextRecordingConnector struct {
-	startCtxErr error
-	stopCtxErr  error
-}
-
-func (connector *contextRecordingConnector) Start(ctx context.Context) error {
-	connector.startCtxErr = ctx.Err()
-	return ctx.Err()
-}
-
-func (connector *contextRecordingConnector) Stop(ctx context.Context) error {
-	connector.stopCtxErr = ctx.Err()
-	return nil
-}
-
 type fakeClock struct {
 	now    time.Time
 	sleeps []time.Duration
@@ -192,23 +148,6 @@ func (clock *fakeClock) Sleep(_ context.Context, duration time.Duration) error {
 	clock.sleeps = append(clock.sleeps, duration)
 	clock.now = clock.now.Add(duration)
 	return nil
-}
-
-func TestEnrollmentOnlyWorkflowDoesNotRequireAConnector(t *testing.T) {
-	workflow, err := NewWorkflow(
-		&fakeBackend{},
-		&memoryStore{},
-		&recordingPresenter{},
-		nil,
-		&fakeClock{},
-		WorkflowOptions{EnrollmentOnly: true},
-	)
-	if err != nil {
-		t.Fatalf("new enrollment-only workflow: %v", err)
-	}
-	if workflow.connector != nil {
-		t.Fatalf("enrollment-only connector = %T, want nil", workflow.connector)
-	}
 }
 
 func TestWorkflowConnectCompletesBackendMediatedApproval(t *testing.T) {
@@ -227,14 +166,12 @@ func TestWorkflowConnectCompletesBackendMediatedApproval(t *testing.T) {
 			{State: ApprovalPending, RetryAfter: 20 * time.Millisecond},
 			{State: ApprovalApproved, Challenge: "one-time-code"},
 		},
-		credential:  credential,
-		connections: []ConnectionState{ConnectionOffline, ConnectionOnline},
+		credential: credential,
 	}
 	store := &memoryStore{}
 	presenter := &recordingPresenter{}
-	connector := &recordingConnector{}
 	clock := &fakeClock{now: now}
-	workflow := newTestWorkflow(t, backend, store, presenter, connector, clock)
+	workflow := newTestWorkflow(t, backend, store, presenter, clock)
 
 	result, err := workflow.Connect(context.Background(), testMachine())
 	if err != nil {
@@ -252,32 +189,11 @@ func TestWorkflowConnectCompletesBackendMediatedApproval(t *testing.T) {
 	if !reflect.DeepEqual(presenter.urls, []string{request.ApprovalURL}) {
 		t.Fatalf("approval URL mismatch: %#v", presenter.urls)
 	}
-	if store.saveCalls != 1 || store.credential == nil || connector.startCalls != 1 {
-		t.Fatalf("credential was not saved and started exactly once")
+	if store.saveCalls != 1 || store.credential == nil {
+		t.Fatalf("credential was not saved exactly once")
 	}
-	if len(clock.sleeps) != 2 || clock.sleeps[0] != minimumPollInterval || clock.sleeps[1] != minimumPollInterval {
+	if len(clock.sleeps) != 1 || clock.sleeps[0] != minimumPollInterval {
 		t.Fatalf("poll intervals were not bounded: %#v", clock.sleeps)
-	}
-}
-
-func TestWorkflowConnectPreflightsBeforeRequestingApproval(t *testing.T) {
-	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
-	backend := &fakeBackend{}
-	store := &memoryStore{}
-	presenter := &recordingPresenter{}
-	preflightErr := errors.New("connector preflight failed")
-	connector := &preflightConnector{preflightErr: preflightErr}
-	workflow := newTestWorkflow(t, backend, store, presenter, connector, &fakeClock{now: now})
-
-	_, err := workflow.Connect(context.Background(), testMachine())
-	if !errors.Is(err, preflightErr) {
-		t.Fatalf("connect error = %v", err)
-	}
-	if connector.preflightCalls != 1 || backend.healthCalls != 0 || backend.createCalls != 0 {
-		t.Fatalf("preflight did not fail before approval: connector=%#v backend=%#v", connector, backend)
-	}
-	if len(presenter.urls) != 0 || store.credential != nil || store.key != nil {
-		t.Fatalf("preflight changed machine state: presenter=%#v store=%#v", presenter, store)
 	}
 }
 
@@ -286,8 +202,7 @@ func TestWorkflowConnectIsIdempotentForOnlineCredential(t *testing.T) {
 	credential := testCredential(now)
 	backend := &fakeBackend{connections: []ConnectionState{ConnectionOnline}}
 	store := &memoryStore{credential: &credential}
-	connector := &recordingConnector{}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &fakeClock{now: now})
 
 	result, err := workflow.Connect(context.Background(), testMachine())
 	if err != nil {
@@ -296,27 +211,8 @@ func TestWorkflowConnectIsIdempotentForOnlineCredential(t *testing.T) {
 	if !result.AlreadyConnected || backend.createCalls != 0 || backend.healthCalls != 0 {
 		t.Fatalf("existing connection was not reused: %#v", result)
 	}
-	if connector.startCalls != 0 || store.saveCalls != 0 {
-		t.Fatalf("online connector was restarted or credential rewritten")
-	}
-}
-
-func TestWorkflowConnectPreflightsBeforeRestartingOfflineCredential(t *testing.T) {
-	now := time.Now().UTC()
-	credential := testCredential(now)
-	backend := &fakeBackend{connections: []ConnectionState{ConnectionOffline}}
-	store := &memoryStore{credential: &credential}
-	preflightErr := errors.New("connector preflight failed")
-	connector := &preflightConnector{preflightErr: preflightErr}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
-
-	_, err := workflow.Connect(context.Background(), testMachine())
-	if !errors.Is(err, preflightErr) {
-		t.Fatalf("connect error = %v", err)
-	}
-	if connector.preflightCalls != 1 || connector.startCalls != 0 ||
-		backend.connectionCalls != 1 || backend.createCalls != 0 {
-		t.Fatalf("offline preflight mismatch: connector=%#v backend=%#v", connector, backend)
+	if store.saveCalls != 0 {
+		t.Fatalf("existing credential was rewritten")
 	}
 }
 
@@ -332,10 +228,10 @@ func TestWorkflowConnectReauthorizesRevokedCredential(t *testing.T) {
 		},
 		approvals:   []Approval{{State: ApprovalApproved, Challenge: "code-2"}},
 		credential:  newCredential,
-		connections: []ConnectionState{ConnectionRevoked, ConnectionOnline},
+		connections: []ConnectionState{ConnectionRevoked},
 	}
 	store := &memoryStore{credential: &oldCredential}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &recordingConnector{}, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &fakeClock{now: now})
 
 	result, err := workflow.Connect(context.Background(), testMachine())
 	if err != nil {
@@ -356,41 +252,14 @@ func TestWorkflowDoesNotPersistDeniedApproval(t *testing.T) {
 		approvals: []Approval{{State: ApprovalDenied}},
 	}
 	store := &memoryStore{}
-	connector := &recordingConnector{}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &fakeClock{now: now})
 
 	_, err := workflow.Connect(context.Background(), testMachine())
 	if !errors.Is(err, ErrApprovalDenied) {
 		t.Fatalf("expected approval denied, got %v", err)
 	}
-	if store.saveCalls != 0 || connector.startCalls != 0 || backend.exchangeCalls != 0 {
+	if store.saveCalls != 0 || backend.exchangeCalls != 0 {
 		t.Fatalf("denied approval produced local state")
-	}
-}
-
-func TestWorkflowRollsBackFirstConnectionWhenConnectorCannotStart(t *testing.T) {
-	now := time.Now().UTC()
-	backend := &fakeBackend{
-		request: Request{
-			ID: "request-start-failure", PollToken: "poll-secret",
-			ApprovalURL: "https://projects.os-home.net/connect/request-start-failure",
-			ExpiresAt:   now.Add(time.Minute), PollInterval: time.Second,
-		},
-		approvals:  []Approval{{State: ApprovalApproved, Challenge: "challenge"}},
-		credential: testCredential(now),
-	}
-	store := &memoryStore{}
-	connector := &recordingConnector{startErr: errors.New("start failed")}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
-
-	if _, err := workflow.Connect(context.Background(), testMachine()); err == nil {
-		t.Fatal("expected connector startup to fail")
-	}
-	if backend.revokeCalls != 1 || store.credential != nil || connector.stopCalls != 1 {
-		t.Fatalf("first connection was not rolled back: backend=%#v store=%#v connector=%#v", backend, store, connector)
-	}
-	if store.key == nil {
-		t.Fatal("rollback removed the stable machine identity key")
 	}
 }
 
@@ -406,14 +275,13 @@ func TestWorkflowRevokesCredentialThatCannotBeSaved(t *testing.T) {
 		credential: testCredential(now),
 	}
 	store := &memoryStore{saveErr: errors.New("secure storage unavailable")}
-	connector := &recordingConnector{}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &fakeClock{now: now})
 
 	if _, err := workflow.Connect(context.Background(), testMachine()); err == nil {
 		t.Fatal("expected secure storage failure")
 	}
-	if backend.revokeCalls != 1 || store.credential != nil || connector.startCalls != 0 {
-		t.Fatalf("unsaved credential was not revoked: backend=%#v store=%#v connector=%#v", backend, store, connector)
+	if backend.revokeCalls != 1 || store.credential != nil {
+		t.Fatalf("unsaved credential was not revoked: backend=%#v store=%#v", backend, store)
 	}
 }
 
@@ -431,59 +299,13 @@ func TestWorkflowCleanupSurvivesCancellationAfterExchange(t *testing.T) {
 		exchangeHook: cancel,
 	}
 	store := &memoryStore{}
-	connector := &contextRecordingConnector{}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &fakeClock{now: now})
 
-	if _, err := workflow.Connect(ctx, testMachine()); !errors.Is(err, context.Canceled) {
-		t.Fatalf("connect error = %v, want context cancellation", err)
+	if _, err := workflow.Connect(ctx, testMachine()); err != nil {
+		t.Fatalf("connect after exchange: %v", err)
 	}
-	if connector.startCtxErr != context.Canceled {
-		t.Fatalf("start context error = %v, want cancellation", connector.startCtxErr)
-	}
-	if connector.stopCtxErr != nil || backend.revokeCtxErr != nil {
-		t.Fatalf("cleanup inherited cancellation: stop=%v revoke=%v", connector.stopCtxErr, backend.revokeCtxErr)
-	}
-	if backend.revokeCalls != 1 || store.credential != nil || store.deleteCalls != 1 {
-		t.Fatalf("cancelled connection was not rolled back: backend=%#v store=%#v", backend, store)
-	}
-}
-
-func TestWorkflowKeepsCredentialWhenRollbackCannotRevokeIt(t *testing.T) {
-	now := time.Now().UTC()
-	backend := &fakeBackend{
-		request: Request{
-			ID: "request-revoke-failure", PollToken: "poll-secret",
-			ApprovalURL: "https://projects.os-home.net/connect/request-revoke-failure",
-			ExpiresAt:   now.Add(time.Minute), PollInterval: time.Second,
-		},
-		approvals:  []Approval{{State: ApprovalApproved, Challenge: "challenge"}},
-		credential: testCredential(now),
-		revokeErr:  errors.New("backend unavailable"),
-	}
-	store := &memoryStore{}
-	connector := &recordingConnector{startErr: errors.New("start failed")}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
-
-	if _, err := workflow.Connect(context.Background(), testMachine()); err == nil ||
-		!strings.Contains(err.Error(), "revoke incomplete") {
-		t.Fatalf("rollback error = %v, want incomplete revocation", err)
-	}
-	if store.credential == nil {
-		t.Fatal("rollback deleted a credential that the backend could not revoke")
-	}
-}
-
-func TestWorkflowDisconnectDeletesCredentialEvenWhenStopFails(t *testing.T) {
-	now := time.Now().UTC()
-	credential := testCredential(now)
-	store := &memoryStore{credential: &credential}
-	connector := &recordingConnector{stopErr: errors.New("stop failed")}
-	backend := &fakeBackend{}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
-
-	err := workflow.Disconnect(context.Background())
-	if err == nil || store.credential != nil || backend.revokeCalls != 1 || connector.stopCalls != 1 {
-		t.Fatalf("disconnect cleanup mismatch: err=%v store=%#v backend=%#v connector=%#v", err, store, backend, connector)
+	if backend.revokeCalls != 0 || store.credential == nil || store.deleteCalls != 0 {
+		t.Fatalf("issued credential was not preserved: backend=%#v store=%#v", backend, store)
 	}
 }
 
@@ -492,15 +314,14 @@ func TestWorkflowDisconnectFinishesLocalCleanupAfterRevocation(t *testing.T) {
 	credential := testCredential(now)
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &memoryStore{credential: &credential}
-	connector := &contextRecordingConnector{}
 	backend := &fakeBackend{revokeHook: cancel}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &fakeClock{now: now})
 
 	if err := workflow.Disconnect(ctx); err != nil {
 		t.Fatalf("disconnect: %v", err)
 	}
-	if connector.stopCtxErr != nil || store.credential != nil {
-		t.Fatalf("disconnect inherited cancellation: stop=%v store=%#v", connector.stopCtxErr, store)
+	if store.credential != nil {
+		t.Fatalf("disconnect did not delete the credential: store=%#v", store)
 	}
 }
 
@@ -509,9 +330,8 @@ func TestWorkflowUninstallPurgesIdentityWhenBackendIsOffline(t *testing.T) {
 	credential := testCredential(now)
 	key := testMachineKey(t)
 	store := &memoryStore{credential: &credential, key: &key}
-	connector := &recordingConnector{}
 	backend := &fakeBackend{revokeErr: errors.New("backend unavailable")}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, &fakeClock{now: now})
 
 	result, err := workflow.Uninstall(context.Background())
 	if err != nil {
@@ -523,27 +343,8 @@ func TestWorkflowUninstallPurgesIdentityWhenBackendIsOffline(t *testing.T) {
 	if store.credential != nil || store.key != nil || store.purgeCalls != 1 {
 		t.Fatalf("offline uninstall did not purge identity: %#v", store)
 	}
-	if backend.revokeCalls != 1 || connector.stopCalls != 1 {
-		t.Fatalf("offline uninstall lifecycle = backend %#v connector %#v", backend, connector)
-	}
-}
-
-func TestWorkflowUninstallPreservesIdentityWhenServiceStopFails(t *testing.T) {
-	now := time.Now().UTC()
-	credential := testCredential(now)
-	key := testMachineKey(t)
-	store := &memoryStore{credential: &credential, key: &key}
-	stopErr := errors.New("service stop failed")
-	connector := &recordingConnector{stopErr: stopErr}
-	backend := &fakeBackend{revokeErr: errors.New("backend unavailable")}
-	workflow := newTestWorkflow(t, backend, store, &recordingPresenter{}, connector, &fakeClock{now: now})
-
-	result, err := workflow.Uninstall(context.Background())
-	if !errors.Is(err, stopErr) || !result.RevocationPending {
-		t.Fatalf("failed uninstall = result %#v error %v", result, err)
-	}
-	if store.credential == nil || store.key == nil || store.purgeCalls != 0 {
-		t.Fatalf("failed service stop destroyed retryable identity: %#v", store)
+	if backend.revokeCalls != 1 {
+		t.Fatalf("offline uninstall lifecycle = backend %#v", backend)
 	}
 }
 
@@ -552,9 +353,8 @@ func TestWorkflowUninstallPurgesUnreadableStateWithoutDecoding(t *testing.T) {
 	loadErr := errors.New("protected state is corrupt")
 	store := &memoryStore{purgeErr: nil}
 	storeWithLoadError := &loadErrorCredentialStore{memoryStore: store, loadErr: loadErr}
-	connector := &recordingConnector{}
 	backend := &fakeBackend{}
-	workflow := newTestWorkflow(t, backend, storeWithLoadError, &recordingPresenter{}, connector, &fakeClock{now: now})
+	workflow := newTestWorkflow(t, backend, storeWithLoadError, &recordingPresenter{}, &fakeClock{now: now})
 
 	result, err := workflow.Uninstall(context.Background())
 	if err != nil {
@@ -579,14 +379,11 @@ func newTestWorkflow(
 	backend Backend,
 	store CredentialStore,
 	presenter ApprovalPresenter,
-	connector Connector,
 	clock Clock,
 ) *Workflow {
 	t.Helper()
-	workflow, err := NewWorkflow(backend, store, presenter, connector, clock, WorkflowOptions{
+	workflow, err := NewWorkflow(backend, store, presenter, clock, WorkflowOptions{
 		ApprovalTimeout: time.Minute,
-		OnlineTimeout:   time.Minute,
-		OnlineInterval:  time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("new workflow: %v", err)
