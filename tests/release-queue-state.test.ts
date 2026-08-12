@@ -5,6 +5,8 @@ import {
   type PublishedRelease,
   type QueuedMerge,
 } from '../scripts/release-queue-state';
+import type { UnpublishedReleaseTombstone } from
+  '../scripts/release-tombstone';
 
 const published: PublishedRelease = {
   commit: 'a'.repeat(40),
@@ -88,6 +90,125 @@ describe('serial release queue decisions', () => {
       published,
       reservations: [{ commit: item.commit, tag: 'v1.2.4' }],
     }).kind).toBe('release');
+  });
+
+  test('preserves a failed tag and creates one exact catch-up release', () => {
+    const failed = merge('minor', 20);
+    const repair = merge('patch', 21);
+    const policy = merge('patch', 22);
+    const tombstone: UnpublishedReleaseTombstone = {
+      exhaustedRunId: 100,
+      reason: 'windows-x64-source-incompatible',
+      schema: 'project-space.unpublished-release-tombstone/v1',
+      sourceCommit: failed.commit,
+      tag: 'v1.3.0',
+      verificationRunId: 101,
+      workflowSha256: 'f'.repeat(64),
+    };
+    expect(releaseQueueDecision({
+      currentMain: policy.commit,
+      merges: [failed, repair, policy],
+      published,
+      reservations: [{ commit: failed.commit, tag: 'v1.3.0' }],
+      tombstones: [tombstone],
+    })).toEqual({
+      bump: 'patch',
+      item: policy,
+      kind: 'release',
+      tag: 'v1.3.1',
+      version: '1.3.1',
+    });
+    expect(releaseQueueDecision({
+      currentMain: policy.commit,
+      merges: [failed, repair, policy],
+      published,
+      reservations: [
+        { commit: failed.commit, tag: 'v1.3.0' },
+        { commit: policy.commit, tag: 'v1.3.1' },
+      ],
+      tombstones: [tombstone],
+    }).kind).toBe('release');
+  });
+
+  test('uses the strongest queued catch-up bump once', () => {
+    const failed = merge('minor', 23);
+    const patch = merge('patch', 24);
+    const major = merge('major', 25);
+    const tombstone: UnpublishedReleaseTombstone = {
+      exhaustedRunId: 100,
+      reason: 'windows-x64-source-incompatible',
+      schema: 'project-space.unpublished-release-tombstone/v1',
+      sourceCommit: failed.commit,
+      tag: 'v1.3.0',
+      verificationRunId: 101,
+      workflowSha256: 'f'.repeat(64),
+    };
+    const decision = releaseQueueDecision({
+      currentMain: major.commit,
+      merges: [failed, patch, major],
+      published,
+      reservations: [{ commit: failed.commit, tag: 'v1.3.0' }],
+      tombstones: [tombstone],
+    });
+    expect(decision.kind).toBe('release');
+    if (decision.kind === 'release') {
+      expect(decision.tag).toBe('v2.0.0');
+      expect(decision.item).toEqual(major);
+    }
+  });
+
+  test('fails closed for incomplete or conflicting tombstone recovery', () => {
+    const failed = merge('minor', 26);
+    const repair = merge('patch', 27);
+    const tombstone: UnpublishedReleaseTombstone = {
+      exhaustedRunId: 100,
+      reason: 'windows-x64-source-incompatible',
+      schema: 'project-space.unpublished-release-tombstone/v1',
+      sourceCommit: failed.commit,
+      tag: 'v1.3.0',
+      verificationRunId: 101,
+      workflowSha256: 'f'.repeat(64),
+    };
+    for (const input of [
+      {
+        currentMain: repair.commit,
+        merges: [],
+        reservations: [],
+        tombstones: [tombstone],
+      },
+      {
+        currentMain: failed.commit,
+        merges: [failed],
+        reservations: [{ commit: failed.commit, tag: 'v1.3.0' }],
+        tombstones: [tombstone],
+      },
+      {
+        currentMain: repair.commit,
+        merges: [failed, repair],
+        reservations: [],
+        tombstones: [tombstone],
+      },
+      {
+        currentMain: repair.commit,
+        merges: [failed, repair],
+        reservations: [
+          { commit: failed.commit, tag: 'v1.3.0' },
+          { commit: failed.commit, tag: 'v1.3.1' },
+        ],
+        tombstones: [tombstone],
+      },
+      {
+        currentMain: repair.commit,
+        merges: [failed, repair],
+        reservations: [{ commit: failed.commit, tag: 'v1.3.0' }],
+        tombstones: [
+          tombstone,
+          { ...tombstone, tag: 'v1.3.1' },
+        ],
+      },
+    ]) {
+      expect(() => releaseQueueDecision({ ...input, published })).toThrow();
+    }
   });
 
   test.each([

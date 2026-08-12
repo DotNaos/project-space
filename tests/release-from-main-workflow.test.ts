@@ -89,6 +89,7 @@ test('processes merged intents through one exact-tag release queue', () => {
   expect(publisher).toContain('connectorReleaseSensitivePaths');
   expect(publisher).toContain('changes package version before queue assignment');
   expect(publisher).toContain('tagReservations');
+  expect(publisher).toContain('activeReleaseTombstones');
   expect(publisher).toContain(
     "await workflowRuns('release.yml', undefined, 'main')",
   );
