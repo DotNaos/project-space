@@ -31,6 +31,10 @@ import {
   workspaceRuntimeControlMigrationId,
   workspaceRuntimeControlMigrationSql
 } from '../server/database/workspace-runtime-control-migration';
+import {
+  workspaceRuntimeSessionMigrationId,
+  workspaceRuntimeSessionMigrationSql
+} from '../server/database/workspace-runtime-session-migration';
 
 interface QueryCall {
   sql: string;
@@ -168,7 +172,29 @@ describe('database migrations', () => {
       'ssh_gateway_operations_safe_result_v2_check'
     );
     expect(workspaceRuntimeControlMigrationSql).toContain('workspace-runtime.start.v1');
-    expect(databaseMigrations.at(-1)?.id).toBe(workspaceRuntimeControlMigrationId);
+    expect(databaseMigrations.find((migration) => migration.id === sshControlGatewayMigrationId)?.id)
+      .toBe(sshControlGatewayMigrationId);
+  });
+
+  test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
+    expect(databaseMigrations.at(-1)?.id).toBe(workspaceRuntimeSessionMigrationId);
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'create unique index workspace_runtime_generations_current_idx'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'where superseded_at is null'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'foreign key (environment_id, owner_user_id)'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain('token_hash text not null unique');
+    expect(workspaceRuntimeSessionMigrationSql).not.toContain(' token text');
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'unique (owner_user_id, workspace_id, generation, sequence)'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'pg_column_size(safe_payload) <= 65536'
+    );
   });
 
   test('preserves the original machine-task migration and backfills durability conservatively', () => {
@@ -226,7 +252,8 @@ describe('database migrations', () => {
       '0039_environment_catalog',
       '0040_private_network_access_routes',
       '0041_ssh_control_gateway_operations',
-      '0042_workspace_runtime_control'
+      '0042_workspace_runtime_control',
+      '0043_workspace_runtime_sessions'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

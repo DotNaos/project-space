@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -64,7 +65,8 @@ func executeWorkspaceRuntimeControl(
 ) error {
 	operation, ok := workspaceControlOperations[request.Operation]
 	directory, workspaceExists := identity.Workspaces[request.WorkspaceID]
-	if !ok || !workspaceExists || !validWorkspaceControlRequest(request, operation) {
+	if !ok || !workspaceExists || request.EnvironmentID != identity.EnvironmentID ||
+		!validWorkspaceControlRequest(request, operation) {
 		return fmt.Errorf("invalid control operation")
 	}
 	manager, err := factory()
@@ -75,6 +77,14 @@ func executeWorkspaceRuntimeControl(
 		Mode: workspacerun.Mode(request.Mode), ExpectedWorkspaceID: request.WorkspaceID, ExpectedCommit: request.ExpectedCommit,
 		ExpectedDigest: request.ExpectedManifestDigest, ExpectedGeneration: request.ExpectedGeneration,
 		TrustedGateway: true,
+	}
+	if request.RuntimeSessionEndpoint != "" {
+		options.RuntimeSession = &workspacerun.RuntimeSessionBootstrap{
+			Endpoint: request.RuntimeSessionEndpoint, Token: request.RuntimeSessionToken,
+			EnvironmentID: request.EnvironmentID, ExpiresAt: request.RuntimeSessionExpiresAt,
+			RuntimeVersion: request.RuntimeSessionVersion,
+			Capabilities:   append([]string{}, request.RuntimeSessionCapabilities...),
+		}
 	}
 	streams := workspacerun.Streams{Out: io.Discard, Err: io.Discard}
 	operationContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -103,7 +113,7 @@ func executeWorkspaceRuntimeControl(
 		result.SourceHead != request.ExpectedCommit || result.Mode != workspacerun.Mode(request.Mode) {
 		return fmt.Errorf("Workspace runtime result binding changed")
 	}
-	if operation == "start" {
+	if request.ExpectedGeneration == "" {
 		if !controlGenerationPattern.MatchString(result.Generation) {
 			return fmt.Errorf("Workspace runtime result generation is invalid")
 		}
@@ -127,9 +137,47 @@ func validWorkspaceControlRequest(request controlGatewayOperationRequest, operat
 		return false
 	}
 	if operation == "start" {
+		if runtimeSessionValuesPresent(request) {
+			return controlGenerationPattern.MatchString(request.ExpectedGeneration) && validRuntimeSessionBootstrap(request)
+		}
 		return request.ExpectedGeneration == ""
 	}
-	return controlGenerationPattern.MatchString(request.ExpectedGeneration)
+	return controlGenerationPattern.MatchString(request.ExpectedGeneration) && !runtimeSessionValuesPresent(request)
+}
+
+func validRuntimeSessionBootstrap(request controlGatewayOperationRequest) bool {
+	if !runtimeSessionValuesPresent(request) {
+		return true
+	}
+	endpoint, err := url.Parse(request.RuntimeSessionEndpoint)
+	if err != nil || endpoint.Scheme != "wss" || endpoint.Host == "" || endpoint.User != nil ||
+		endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.Path != "/api/workspace-runtimes/socket" ||
+		!regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`).MatchString(request.RuntimeSessionToken) ||
+		!regexp.MustCompile(`^[A-Za-z0-9._+-]{1,64}$`).MatchString(request.RuntimeSessionVersion) {
+		return false
+	}
+	expiresAt, err := time.Parse(time.RFC3339, request.RuntimeSessionExpiresAt)
+	if err != nil || !expiresAt.After(time.Now()) || expiresAt.After(time.Now().Add(time.Hour)) {
+		return false
+	}
+	allowed := map[string]bool{"runtime.lifecycle": true, "runtime.heartbeat": true, "runtime.dev-servers": true, "runtime.telemetry": true, "runtime.log-pointers": true}
+	seen := map[string]bool{}
+	if len(request.RuntimeSessionCapabilities) == 0 || len(request.RuntimeSessionCapabilities) > len(allowed) {
+		return false
+	}
+	for _, capability := range request.RuntimeSessionCapabilities {
+		if !allowed[capability] || seen[capability] {
+			return false
+		}
+		seen[capability] = true
+	}
+	return seen["runtime.lifecycle"] && seen["runtime.heartbeat"]
+}
+
+func runtimeSessionValuesPresent(request controlGatewayOperationRequest) bool {
+	return request.RuntimeSessionEndpoint != "" || request.RuntimeSessionToken != "" ||
+		request.RuntimeSessionExpiresAt != "" || request.RuntimeSessionVersion != "" ||
+		len(request.RuntimeSessionCapabilities) > 0
 }
 
 func validWorkspaceBindings(bindings map[string]string) bool {

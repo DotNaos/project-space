@@ -118,6 +118,23 @@ func TestExpectedWorkspaceIDFailsBeforeRuntimeMutation(t *testing.T) {
 	}
 }
 
+func TestTrustedControlPlaneCanPreallocateRuntimeGeneration(t *testing.T) {
+	directory := t.TempDir()
+	writeRuntimeFixture(t, directory, ModeProcess)
+	provider := newFakeProvider(ModeProcess)
+	manager := newTestManager(t, directory, provider)
+	const generation = "123e4567-e89b-42d3-a456-426614174000"
+	result, err := manager.Start(context.Background(), directory, OperationOptions{
+		ExpectedGeneration: generation,
+	}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Generation != generation {
+		t.Fatalf("preallocated generation = %#v", result)
+	}
+}
+
 type fakeIdentityResolver struct{ identity WorkspaceIdentity }
 
 func (resolver fakeIdentityResolver) Resolve(context.Context, string) (WorkspaceIdentity, error) {

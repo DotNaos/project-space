@@ -172,6 +172,92 @@ func TestControlGatewayRunsWorkspaceLifecycleThroughTheSharedManager(t *testing.
 	}
 }
 
+func TestWorkspaceControlPassesAnAuthenticatedRuntimeSessionWithoutExposingItsToken(t *testing.T) {
+	const workspaceID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const generation = "123e4567-e89b-42d3-a456-426614174000"
+	const sessionToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	identity := controlTestIdentity()
+	identity.Workspaces = map[string]string{workspaceID: "/private/owned/worktree"}
+	manager := &fakeWorkspaceRuntimeManager{result: workspacerun.Result{
+		Operation: "start", WorkspaceID: workspaceID, Generation: generation,
+		ManifestDigest: digest, SourceHead: commit, Mode: workspacerun.ModeProcess,
+		State: workspacerun.StateRunning, CheckedAt: "2026-08-12T10:00:00Z",
+	}}
+	request := controlGatewayOperationRequest{
+		EnvironmentID: identity.EnvironmentID,
+		Operation:     "workspace-runtime.start.v1", OperationID: "runtime-session-start",
+		WorkspaceID: workspaceID, ExpectedCommit: commit, ExpectedManifestDigest: digest,
+		ExpectedGeneration: generation, Mode: string(workspacerun.ModeProcess),
+		RuntimeSessionEndpoint: "wss://projects.os-home.net/api/workspace-runtimes/socket",
+		RuntimeSessionToken:    sessionToken, RuntimeSessionExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
+		RuntimeSessionVersion:      "0.5.0-test",
+		RuntimeSessionCapabilities: []string{"runtime.lifecycle", "runtime.heartbeat", "runtime.dev-servers"},
+	}
+	output := &bytes.Buffer{}
+	if err := executeWorkspaceRuntimeControl(output, identity, request, func() (workspaceRuntimeManager, error) {
+		return manager, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if manager.options.RuntimeSession == nil || manager.options.RuntimeSession.Token != sessionToken ||
+		manager.options.RuntimeSession.EnvironmentID != identity.EnvironmentID ||
+		manager.options.RuntimeSession.Endpoint != request.RuntimeSessionEndpoint {
+		t.Fatalf("runtime session bootstrap = %#v", manager.options.RuntimeSession)
+	}
+	if strings.Contains(output.String(), sessionToken) || strings.Contains(output.String(), "runtimeSessionToken") {
+		t.Fatalf("control result exposed runtime credential: %s", output.String())
+	}
+}
+
+func TestWorkspaceControlRejectsMalformedRuntimeSessionBeforeStartingTheManager(t *testing.T) {
+	const workspaceID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	identity := controlTestIdentity()
+	identity.Workspaces = map[string]string{workspaceID: "/private/owned/worktree"}
+	base := controlGatewayOperationRequest{
+		Operation: "workspace-runtime.start.v1", OperationID: "runtime-session-start",
+		WorkspaceID: workspaceID, ExpectedCommit: "0123456789abcdef0123456789abcdef01234567",
+		ExpectedManifestDigest: strings.Repeat("a", 64), ExpectedGeneration: "123e4567-e89b-42d3-a456-426614174000",
+		Mode: string(workspacerun.ModeProcess), RuntimeSessionEndpoint: "wss://projects.os-home.net/api/workspace-runtimes/socket",
+		RuntimeSessionToken: strings.Repeat("A", 43), RuntimeSessionExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
+		RuntimeSessionVersion: "0.5.0-test", RuntimeSessionCapabilities: []string{"runtime.lifecycle"},
+	}
+	invalid := []controlGatewayOperationRequest{
+		func() controlGatewayOperationRequest {
+			value := base
+			value.RuntimeSessionEndpoint = "wss://projects.os-home.net/other"
+			return value
+		}(),
+		func() controlGatewayOperationRequest {
+			value := base
+			value.RuntimeSessionToken = "short"
+			return value
+		}(),
+		func() controlGatewayOperationRequest {
+			value := base
+			value.RuntimeSessionCapabilities = []string{"runtime.shell"}
+			return value
+		}(),
+		func() controlGatewayOperationRequest {
+			value := base
+			value.RuntimeSessionExpiresAt = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+			return value
+		}(),
+		func() controlGatewayOperationRequest { value := base; value.RuntimeSessionToken = ""; return value }(),
+	}
+	for _, request := range invalid {
+		called := false
+		err := executeWorkspaceRuntimeControl(&bytes.Buffer{}, identity, request, func() (workspaceRuntimeManager, error) {
+			called = true
+			return &fakeWorkspaceRuntimeManager{}, nil
+		})
+		if err == nil || called {
+			t.Fatalf("invalid runtime session reached manager: %#v error=%v called=%v", request, err, called)
+		}
+	}
+}
+
 func TestControlGatewayRejectsUnregisteredWorkspaceAndRemotePathInjection(t *testing.T) {
 	previous := projectMachineClientVersion
 	projectMachineClientVersion = "0.5.0-test"
@@ -209,7 +295,8 @@ func TestWorkspaceControlDispatchesEveryTypedLifecycleOperation(t *testing.T) {
 				CheckedAt: "2026-08-12T10:00:00Z",
 			}}
 			request := controlGatewayOperationRequest{
-				Operation: remoteOperation, OperationID: "operation-fixture", WorkspaceID: workspaceID,
+				EnvironmentID: identity.EnvironmentID, Operation: remoteOperation,
+				OperationID: "operation-fixture", WorkspaceID: workspaceID,
 				ExpectedCommit: commit, ExpectedManifestDigest: digest,
 				ExpectedGeneration: expectedGeneration, Mode: string(workspacerun.ModeProcess),
 			}

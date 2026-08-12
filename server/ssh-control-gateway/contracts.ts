@@ -35,6 +35,11 @@ export interface SshGatewayRequest {
   expectedGeneration?: string;
   expectedManifestDigest?: string;
   mode?: 'process' | 'devcontainer';
+  runtimeSessionCapabilities?: string[];
+  runtimeSessionEndpoint?: string;
+  runtimeSessionExpiresAt?: string;
+  runtimeSessionToken?: string;
+  runtimeSessionVersion?: string;
   workspaceId?: string;
 }
 

@@ -70,5 +70,6 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newWorktreeCommand())
 	root.AddCommand(newWorkspaceCommand())
 	root.AddCommand(newWorkspaceRuntimeIdleCommand())
+	root.AddCommand(newWorkspaceRuntimeSessionCommand())
 	return root
 }

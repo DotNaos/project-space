@@ -99,6 +99,10 @@ import {
   workspaceRuntimeControlMigrationId,
   workspaceRuntimeControlMigrationSql
 } from './workspace-runtime-control-migration';
+import {
+  workspaceRuntimeSessionMigrationId,
+  workspaceRuntimeSessionMigrationSql
+} from './workspace-runtime-session-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -779,6 +783,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: workspaceRuntimeControlMigrationId,
     sql: workspaceRuntimeControlMigrationSql
+  },
+  {
+    id: workspaceRuntimeSessionMigrationId,
+    sql: workspaceRuntimeSessionMigrationSql
   }
 ];
 

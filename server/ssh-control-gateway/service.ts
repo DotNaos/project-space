@@ -260,16 +260,50 @@ function validOperationRequest(request: SshGatewayRequest) {
   if (request.operation === 'status.v1') {
     return request.workspaceId === undefined && request.expectedCommit === undefined &&
       request.expectedManifestDigest === undefined && request.expectedGeneration === undefined &&
-      request.mode === undefined;
+      request.mode === undefined && !runtimeSessionValuesPresent(request);
   }
   const workspaceOperation = /^workspace-runtime\.(start|inspect|suspend|resume|stop|clean|reconcile)\.v1$/
     .test(request.operation);
-  const generationRequired = request.operation !== 'workspace-runtime.start.v1';
+  const start = request.operation === 'workspace-runtime.start.v1';
+  const runtimeSession = runtimeSessionValuesPresent(request);
   return workspaceOperation && isUuid(request.workspaceId) &&
     /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(request.expectedCommit ?? '') &&
     /^[0-9a-f]{64}$/.test(request.expectedManifestDigest ?? '') &&
     (request.mode === 'process' || request.mode === 'devcontainer') &&
-    (generationRequired ? isUuid(request.expectedGeneration) : request.expectedGeneration === undefined);
+    (start
+      ? runtimeSession
+        ? isUuid(request.expectedGeneration) && validRuntimeSessionRequest(request)
+        : request.expectedGeneration === undefined
+      : isUuid(request.expectedGeneration) && !runtimeSession);
+}
+
+function runtimeSessionValuesPresent(request: SshGatewayRequest) {
+  return request.runtimeSessionEndpoint !== undefined || request.runtimeSessionToken !== undefined ||
+    request.runtimeSessionExpiresAt !== undefined || request.runtimeSessionVersion !== undefined ||
+    request.runtimeSessionCapabilities !== undefined;
+}
+
+function validRuntimeSessionRequest(request: SshGatewayRequest) {
+  let endpoint: URL;
+  try {
+    endpoint = new URL(request.runtimeSessionEndpoint ?? '');
+  } catch {
+    return false;
+  }
+  const expiresAt = Date.parse(request.runtimeSessionExpiresAt ?? '');
+  const capabilities = request.runtimeSessionCapabilities;
+  const allowed = new Set([
+    'runtime.lifecycle', 'runtime.heartbeat', 'runtime.dev-servers',
+    'runtime.telemetry', 'runtime.log-pointers'
+  ]);
+  return endpoint.protocol === 'wss:' && endpoint.pathname === '/api/workspace-runtimes/socket' &&
+    endpoint.username === '' && endpoint.password === '' && endpoint.search === '' && endpoint.hash === '' &&
+    /^[A-Za-z0-9_-]{43}$/.test(request.runtimeSessionToken ?? '') &&
+    /^[A-Za-z0-9._+-]{1,64}$/.test(request.runtimeSessionVersion ?? '') &&
+    Number.isFinite(expiresAt) && expiresAt > Date.now() && expiresAt <= Date.now() + 60 * 60_000 &&
+    Array.isArray(capabilities) && capabilities.length >= 2 && capabilities.length <= allowed.size &&
+    new Set(capabilities).size === capabilities.length && capabilities.every((value) => allowed.has(value)) &&
+    capabilities.includes('runtime.lifecycle') && capabilities.includes('runtime.heartbeat');
 }
 
 function isUuid(value: unknown): value is string {
@@ -414,6 +448,15 @@ function requestFingerprint(
     expectedManifestDigest: request.expectedManifestDigest,
     mode: request.mode,
     ownerUserId: actor.ownerUserId,
+    ...(runtimeSessionValuesPresent(request) ? {
+      runtimeSession: {
+        capabilities: request.runtimeSessionCapabilities,
+        endpoint: request.runtimeSessionEndpoint,
+        expiresAt: request.runtimeSessionExpiresAt,
+        tokenSha256: createHash('sha256').update(request.runtimeSessionToken ?? '').digest('hex'),
+        version: request.runtimeSessionVersion
+      }
+    } : {}),
     targetIdentityRevision: authorization.target.identityRevision,
     workspaceId: request.workspaceId
   })).digest('hex');

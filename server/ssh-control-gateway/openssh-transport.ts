@@ -311,6 +311,19 @@ function operationFrame(
     ...(request.mode ? { mode: request.mode } : {}),
     operation: request.operation,
     operationId: request.operationId,
+    ...(request.runtimeSessionCapabilities
+      ? { runtimeSessionCapabilities: request.runtimeSessionCapabilities }
+      : {}),
+    ...(request.runtimeSessionEndpoint
+      ? { runtimeSessionEndpoint: request.runtimeSessionEndpoint }
+      : {}),
+    ...(request.runtimeSessionExpiresAt
+      ? { runtimeSessionExpiresAt: request.runtimeSessionExpiresAt }
+      : {}),
+    ...(request.runtimeSessionToken ? { runtimeSessionToken: request.runtimeSessionToken } : {}),
+    ...(request.runtimeSessionVersion
+      ? { runtimeSessionVersion: request.runtimeSessionVersion }
+      : {}),
     schemaVersion: 1,
     targetIdentityRevision,
     type: 'operation',

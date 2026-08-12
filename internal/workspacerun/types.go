@@ -174,7 +174,17 @@ type LaunchRequest struct {
 	GenerationHome string
 	ProjectBinary  string
 	CodexBinary    string
+	RuntimeSession *RuntimeSessionBootstrap
 	Commit         func(RuntimeHandle) error
+}
+
+type RuntimeSessionBootstrap struct {
+	Endpoint       string
+	Token          string
+	EnvironmentID  string
+	ExpiresAt      string
+	RuntimeVersion string
+	Capabilities   []string
 }
 
 type RuntimeProvider interface {
@@ -215,6 +225,7 @@ type OperationOptions struct {
 	ExpectedCommit      string
 	ExpectedDigest      string
 	ExpectedGeneration  string
+	RuntimeSession      *RuntimeSessionBootstrap
 	ThreadID            string
 	TrustedGateway      bool
 }

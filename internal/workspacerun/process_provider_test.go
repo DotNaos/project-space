@@ -2,6 +2,7 @@ package workspacerun
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,54 @@ import (
 
 	"github.com/DotNaos/project-space/internal/projectrun"
 )
+
+func TestProcessProviderPassesRuntimeCredentialOnlyThroughProtectedBootstrap(t *testing.T) {
+	runner := &runtimeProcessRunner{process: projectrun.ProcessRef{PID: 4242, Identity: strings.Repeat("a", 64)}, alive: true}
+	generationHome := filepath.Join(t.TempDir(), "generation")
+	token := strings.Repeat("A", 43)
+	provider := ProcessProvider{Runner: runner}
+	logFile, err := os.CreateTemp(t.TempDir(), "runtime-*.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logFile.Close()
+	_, err = provider.Start(context.Background(), LaunchRequest{
+		Workspace: WorkspaceIdentity{WorkspaceID: testRuntimeBinding().WorkspaceID, Branch: "issue-625", Head: strings.Repeat("d", 40)},
+		Binding:   testRuntimeBinding(), Directory: t.TempDir(), Manifest: Manifest{},
+		LogFile: logFile, GenerationHome: generationHome,
+		ProjectBinary: "/verified/project", RuntimeSession: &RuntimeSessionBootstrap{
+			Endpoint: "wss://projects.example/api/workspace-runtimes/socket", Token: token,
+			EnvironmentID: "33333333-3333-4333-8333-333333333333", ExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
+			RuntimeVersion: "0.4.66", Capabilities: []string{"runtime.lifecycle", "runtime.heartbeat"},
+		}, CodexBinary: "/verified/codex", Commit: func(RuntimeHandle) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := strings.Join(runner.command.Argv, " ")
+	if strings.Contains(argv, token) || argv != "/verified/project __workspace-runtime-session --bootstrap "+filepath.Join(generationHome, "runtime-session-bootstrap.json") {
+		t.Fatalf("unsafe runtime argv = %q", argv)
+	}
+	bootstrapPath := filepath.Join(generationHome, "runtime-session-bootstrap.json")
+	info, err := os.Stat(bootstrapPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("bootstrap protection = %#v, error=%v", info, err)
+	}
+	var bootstrap map[string]interface{}
+	encoded, _ := os.ReadFile(bootstrapPath)
+	if json.Unmarshal(encoded, &bootstrap) != nil || bootstrap["token"] != token {
+		t.Fatal("protected bootstrap did not contain the scoped credential")
+	}
+	if bootstrap["codexBinary"] != "/verified/codex" ||
+		bootstrap["appServerSocket"] != appServerSocketPath(testRuntimeBinding()) {
+		t.Fatalf("runtime launch binding = %#v", bootstrap)
+	}
+	readyPath := filepath.Join(generationHome, "runtime-session-ready")
+	ready, err := os.ReadFile(readyPath)
+	if err != nil || string(ready) != "ready\n" {
+		t.Fatalf("runtime readiness marker = %q, error=%v", ready, err)
+	}
+}
 
 func TestProcessProviderUsesGenerationScopedEnvironmentWithoutInheritance(t *testing.T) {
 	runner := &runtimeProcessRunner{
@@ -114,7 +163,7 @@ func TestProcessProviderFailsClosedWhenProcessIdentityChanges(t *testing.T) {
 
 func testRuntimeBinding() RuntimeBinding {
 	return RuntimeBinding{
-		WorkspaceID:    "ws_0123456789abcdef01234567",
+		WorkspaceID:    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 		Generation:     "11111111-1111-4111-8111-111111111111",
 		ManifestDigest: strings.Repeat("c", 64),
 		OwnershipToken: "22222222-2222-4222-8222-222222222222",

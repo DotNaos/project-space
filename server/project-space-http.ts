@@ -73,6 +73,11 @@ import {
   recordObservedError,
   type ProjectSpaceLogger
 } from './observability';
+import { MemoryRuntimeSessionStore } from './workspace-runtime-session/memory-store';
+import { WorkspaceRuntimeSessionService } from './workspace-runtime-session/service';
+import { createWorkspaceRuntimeSessionUpgradeHandler } from './workspace-runtime-session/upgrade-handler';
+import { PostgresRuntimeSessionStore } from './workspace-runtime-session/postgres-store';
+import { getMachineConnectionDatabaseClient, isDatabaseConfigured } from './local-database-store';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -85,6 +90,7 @@ export interface ProjectSpaceHttpOptions {
   projectChatRuntime?: ProjectChatRuntime;
   previewDocsProxy?: PreviewDocsProxyDependencies;
   staticRoot?: string;
+  workspaceRuntimeSessions?: WorkspaceRuntimeSessionService;
 }
 
 function resolveProjectChatRuntime(
@@ -360,11 +366,22 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     }
   });
   const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);
+  const workspaceRuntimeSessionService = options.workspaceRuntimeSessions ??
+    new WorkspaceRuntimeSessionService(isDatabaseConfigured()
+      ? new PostgresRuntimeSessionStore(await getMachineConnectionDatabaseClient())
+      : new MemoryRuntimeSessionStore());
+  const workspaceRuntimeSessions = createWorkspaceRuntimeSessionUpgradeHandler(
+    workspaceRuntimeSessionService
+  );
+  const staleRuntimeSessions = setInterval(() => {
+    void workspaceRuntimeSessionService.expireStale();
+  }, 15_000);
 
   server.on('upgrade', (request, socket, head) => {
     try {
       if (
         !codexAttach.handleUpgrade(request, socket, head) &&
+        !workspaceRuntimeSessions.handleUpgrade(request, socket, head) &&
         !connectorCommands.handleUpgrade(request, socket, head) &&
         !handleMachineTerminalUpgrade(request, socket, head) &&
         !handleProjectTerminalUpgrade(request, socket, head)
@@ -394,6 +411,8 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     projectChatRuntime.stop();
     await machineConnectionRuntime?.stop();
     codexAttach.close();
+    clearInterval(staleRuntimeSessions);
+    await workspaceRuntimeSessions.close();
     await connectorCommands.close();
     throw error;
   }
@@ -408,6 +427,8 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       projectChatRuntime.stop();
       await machineConnectionRuntime?.stop();
       codexAttach.close();
+      clearInterval(staleRuntimeSessions);
+      await workspaceRuntimeSessions.close();
       await connectorCommands.close();
       await new Promise<void>((resolveClose, rejectClose) => {
         let settled = false;

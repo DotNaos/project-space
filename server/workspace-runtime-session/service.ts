@@ -1,0 +1,128 @@
+import { randomUUID } from 'node:crypto';
+
+import {
+  workspaceRuntimeSessionSchemaVersion,
+  type WorkspaceRuntimeEvent,
+  type WorkspaceRuntimeRegistration,
+  type WorkspaceRuntimeServerMessage,
+  type WorkspaceRuntimeSessionSnapshot
+} from '../../src/shared/workspace-runtime-session-api';
+import type {
+  RuntimeCredentialScope,
+  RuntimeSessionConnection,
+  RuntimeSessionStore
+} from './contracts';
+import { RuntimeSessionError } from './contracts';
+
+const heartbeatIntervalSeconds = 15;
+const staleAfterSeconds = 45;
+
+interface ActiveConnection {
+  connection: RuntimeSessionConnection;
+  scope: RuntimeCredentialScope;
+  sessionId: string;
+}
+
+export class WorkspaceRuntimeSessionService {
+  private readonly connections = new Map<string, ActiveConnection>();
+
+  constructor(
+    private readonly store: RuntimeSessionStore,
+    private readonly now = () => new Date(),
+    private readonly createSessionId = randomUUID
+  ) {}
+
+  authenticate(token: string) {
+    return this.store.authenticate(token);
+  }
+
+  async register(
+    connection: RuntimeSessionConnection,
+    scope: RuntimeCredentialScope,
+    registration: WorkspaceRuntimeRegistration
+  ) {
+    const sessionId = this.createSessionId();
+    const receivedAt = this.now().toISOString();
+    const result = await this.store.register(scope, sessionId, receivedAt, registration);
+    const key = workspaceKey(scope.ownerUserId, scope.workspaceId);
+    const previous = this.connections.get(key);
+    this.connections.set(key, { connection, scope, sessionId });
+    if (previous && previous.connection !== connection) {
+      previous.connection.close(1012, 'Workspace Runtime session replaced.');
+    }
+    const response: WorkspaceRuntimeServerMessage = {
+      acceptedSequence: result.snapshot.lastSequence,
+      heartbeatIntervalSeconds,
+      replayed: false,
+      schemaVersion: workspaceRuntimeSessionSchemaVersion,
+      sessionId,
+      snapshot: result.snapshot,
+      staleAfterSeconds,
+      type: 'runtime.registered'
+    };
+    connection.send(JSON.stringify(response));
+    return { scope, sessionId };
+  }
+
+  async append(active: { scope: RuntimeCredentialScope; sessionId: string }, event: WorkspaceRuntimeEvent) {
+    const receivedAt = this.now().toISOString();
+    const result = await this.store.append(active.scope, active.sessionId, receivedAt, event);
+    const response: WorkspaceRuntimeServerMessage = {
+      acceptedSequence: result.snapshot.lastSequence,
+      heartbeatIntervalSeconds,
+      replayed: result.replayed,
+      schemaVersion: workspaceRuntimeSessionSchemaVersion,
+      sessionId: active.sessionId,
+      staleAfterSeconds,
+      type: 'runtime.accepted'
+    };
+    return { response, stopped: result.snapshot.lifecycleState === 'stopped' };
+  }
+
+  async disconnect(active: { scope: RuntimeCredentialScope; sessionId: string }) {
+    const key = workspaceKey(active.scope.ownerUserId, active.scope.workspaceId);
+    const registered = this.connections.get(key);
+    if (registered?.sessionId === active.sessionId) this.connections.delete(key);
+    await this.store.disconnect(active.scope, active.sessionId, this.now().toISOString());
+  }
+
+  async expireStale() {
+    const checkedAt = this.now();
+    const staleBefore = new Date(checkedAt.getTime() - staleAfterSeconds * 1_000).toISOString();
+    const stale = await this.store.markStale(staleBefore, checkedAt.toISOString());
+    for (const snapshot of stale) this.closeSnapshot(snapshot, 1008, 'Workspace Runtime heartbeat expired.');
+    return stale;
+  }
+
+  close() {
+    for (const active of this.connections.values()) {
+      active.connection.close(1001, 'Project Space is shutting down.');
+    }
+    this.connections.clear();
+  }
+
+  closeExpired(scope: RuntimeCredentialScope, connection: RuntimeSessionConnection) {
+    const delay = Math.max(0, Date.parse(scope.expiresAt) - this.now().getTime());
+    return setTimeout(() => connection.close(1008, 'Workspace Runtime credential expired.'), delay);
+  }
+
+  private closeSnapshot(snapshot: WorkspaceRuntimeSessionSnapshot, code: number, reason: string) {
+    const active = [...this.connections.values()].find((entry) =>
+      entry.scope.workspaceId === snapshot.workspaceId && entry.scope.generation === snapshot.generation);
+    if (active) {
+      this.connections.delete(workspaceKey(active.scope.ownerUserId, active.scope.workspaceId));
+      active.connection.close(code, reason);
+    }
+  }
+}
+
+export function runtimeSessionFailure(error: unknown) {
+  if (error instanceof RuntimeSessionError) {
+    return { code: 1008, reason: error.message };
+  }
+  return { code: 1011, reason: 'Workspace Runtime session failed.' };
+}
+
+function workspaceKey(ownerUserId: string, workspaceId: string) {
+  return `${ownerUserId}\0${workspaceId}`;
+}

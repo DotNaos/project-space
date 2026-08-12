@@ -154,10 +154,16 @@ describe('SSH control gateway cross-language contract', () => {
     const request = {
       environmentId,
       expectedCommit: '0123456789abcdef0123456789abcdef01234567',
+      expectedGeneration: '123e4567-e89b-42d3-a456-426614174000',
       expectedManifestDigest: 'a'.repeat(64),
       mode: 'process' as const,
       operation: 'workspace-runtime.start.v1' as const,
       operationId: 'workspace-contract-operation-one',
+      runtimeSessionCapabilities: ['runtime.lifecycle', 'runtime.heartbeat'],
+      runtimeSessionEndpoint: 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      runtimeSessionExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      runtimeSessionToken: 'A'.repeat(43),
+      runtimeSessionVersion: '0.5.0-test',
       workspaceId: '123e4567-e89b-42d3-a456-426614174001'
     };
     const first = await service.execute(
@@ -171,6 +177,7 @@ describe('SSH control gateway cross-language contract', () => {
     });
     expect(replay.replayed).toBe(true);
     expect(replay.result).toEqual(first.result);
+    expect(JSON.stringify(first)).not.toContain(request.runtimeSessionToken);
   });
 });
 

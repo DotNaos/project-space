@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
+	github.com/coder/websocket v1.8.15
 	github.com/gofrs/flock v0.13.0
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/spf13/cobra v1.10.2

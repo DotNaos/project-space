@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/DotNaos/project-space/internal/projectrun"
+	"github.com/DotNaos/project-space/internal/workspacesession"
 )
 
 type processRunner interface {
@@ -70,8 +72,60 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 	} else if !os.IsNotExist(err) {
 		return RuntimeHandle{}, fmt.Errorf("inspect private Codex app-server socket: %w", err)
 	}
+	argv := []string{request.CodexBinary, "app-server", "--listen", "unix://" + appServerSocket, "--strict-config"}
+	runtimeSessionReadyPath := ""
+	if request.RuntimeSession != nil {
+		bootstrapPath := filepath.Join(request.GenerationHome, "runtime-session-bootstrap.json")
+		statePath := filepath.Join(request.GenerationHome, "runtime-session-dev-servers.json")
+		runtimeSessionReadyPath = filepath.Join(request.GenerationHome, "runtime-session-ready")
+		bootstrap := workspacesession.Bootstrap{
+			AppServerSocket: appServerSocket,
+			Endpoint:        request.RuntimeSession.Endpoint, Token: request.RuntimeSession.Token,
+			CodexBinary: request.CodexBinary,
+			WorkspaceID: request.Binding.WorkspaceID, EnvironmentID: request.RuntimeSession.EnvironmentID,
+			Generation: request.Binding.Generation, Branch: request.Workspace.Branch, Commit: request.Workspace.Head,
+			ManifestDigest: request.Binding.ManifestDigest, RuntimeVersion: request.RuntimeSession.RuntimeVersion,
+			Capabilities: append([]string{}, request.RuntimeSession.Capabilities...),
+			JournalPath:  filepath.Join(request.GenerationHome, "runtime-session-journal.json"), StatePath: statePath,
+			ReadyPath: runtimeSessionReadyPath,
+			ExpiresAt: request.RuntimeSession.ExpiresAt,
+		}
+		if err := workspacesession.ValidateBootstrap(bootstrap, time.Now()); err != nil {
+			return RuntimeHandle{}, err
+		}
+		encoded, err := json.Marshal(bootstrap)
+		if err != nil {
+			return RuntimeHandle{}, fmt.Errorf("encode Runtime Session bootstrap: %w", err)
+		}
+		bootstrapFile, err := os.OpenFile(bootstrapPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return RuntimeHandle{}, fmt.Errorf("write Runtime Session bootstrap: %w", err)
+		}
+		if _, err := bootstrapFile.Write(encoded); err != nil {
+			bootstrapFile.Close()
+			return RuntimeHandle{}, fmt.Errorf("write Runtime Session bootstrap: %w", err)
+		}
+		if err := bootstrapFile.Close(); err != nil {
+			return RuntimeHandle{}, fmt.Errorf("write Runtime Session bootstrap: %w", err)
+		}
+		if err := os.Chmod(bootstrapPath, 0o600); err != nil {
+			return RuntimeHandle{}, fmt.Errorf("protect Runtime Session bootstrap: %w", err)
+		}
+		stateFile, err := os.OpenFile(statePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return RuntimeHandle{}, fmt.Errorf("initialize Runtime Session state: %w", err)
+		}
+		if _, err := stateFile.Write([]byte("[]")); err != nil {
+			stateFile.Close()
+			return RuntimeHandle{}, fmt.Errorf("initialize Runtime Session state: %w", err)
+		}
+		if err := stateFile.Close(); err != nil {
+			return RuntimeHandle{}, fmt.Errorf("initialize Runtime Session state: %w", err)
+		}
+		argv = []string{request.ProjectBinary, "__workspace-runtime-session", "--bootstrap", bootstrapPath}
+	}
 	command := projectrun.Command{
-		Argv:       []string{request.CodexBinary, "app-server", "--listen", "unix://" + appServerSocket, "--strict-config"},
+		Argv:       argv,
 		Dir:        request.Directory,
 		Env:        generationEnvironment(request.GenerationHome, request.Binding),
 		InheritEnv: false,
@@ -99,7 +153,32 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+	if runtimeSessionReadyPath != "" {
+		if err := publishRuntimeSessionReady(runtimeSessionReadyPath); err != nil {
+			_ = runner.StopGroup(process, time.Second)
+			return RuntimeHandle{}, err
+		}
+	}
 	return RuntimeHandle{Kind: ResourceProcess, Process: processHandle(process, request.Binding, appServerSocket)}, nil
+}
+
+func publishRuntimeSessionReady(path string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
+	}
+	if _, err := file.WriteString("ready\n"); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
+	}
+	return nil
 }
 
 func appServerSocketPath(binding RuntimeBinding) string {

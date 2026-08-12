@@ -33,6 +33,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"__runtime-supervisor",
 		"__runtime-tmux",
 		"__workspace-runtime-idle",
+		"__workspace-runtime-session",
 		"adopt",
 		"agent",
 		"chat",

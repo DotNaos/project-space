@@ -77,9 +77,14 @@ func (manager *Manager) Start(
 		if err != nil {
 			return err
 		}
-		generation, err := manager.token()
-		if err != nil {
-			return err
+		generation := options.ExpectedGeneration
+		if generation == "" {
+			generation, err = manager.token()
+			if err != nil {
+				return err
+			}
+		} else if !uuidPattern.MatchString(generation) {
+			return fmt.Errorf("requested Workspace runtime generation is invalid")
 		}
 		ownershipToken, err := manager.token()
 		if err != nil {
@@ -130,6 +135,7 @@ func (manager *Manager) Start(
 			Manifest: plan.Resolution.Manifest, ProjectBinary: verified.ProjectBinary,
 			CodexBinary:    verified.CodexBinary,
 			LogFile:        logFile,
+			RuntimeSession: options.RuntimeSession,
 			GenerationHome: manager.store.generationHome(record.WorkspaceID, record.Generation),
 			Commit: func(handle RuntimeHandle) error {
 				record.Handle = handle
@@ -147,6 +153,11 @@ func (manager *Manager) Start(
 		}
 		if _, err := manager.startServers(ctx, &record); err != nil {
 			return manager.failStart(ctx, provider, &record, err, &result)
+		}
+		if options.RuntimeSession != nil {
+			if err := manager.writeRuntimeSessionState(record); err != nil {
+				return manager.failStart(ctx, provider, &record, err, &result)
+			}
 		}
 		if err := manager.inspectResources(ctx, provider, record); err != nil {
 			return manager.failStart(ctx, provider, &record, err, &result)
