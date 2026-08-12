@@ -15,6 +15,21 @@ import (
 const maximumResponseBytes int64 = 4 << 20
 const inventoryV2MediaType = "application/vnd.project-space.compute-inventory+json; version=2"
 const inventoryV3MediaType = "application/vnd.project-space.compute-inventory+json; version=3"
+const compatibilitySurfaceHeader = "X-Project-Compatibility-Surface"
+
+type compatibilitySurfaceContextKey struct{}
+
+const (
+	MachineListCompatibilitySurface = "connector.machine-list.cli.v1"
+	MachineShowCompatibilitySurface = "connector.machine-show.cli.v1"
+)
+
+func WithCompatibilitySurface(ctx context.Context, surface string) context.Context {
+	if surface != MachineListCompatibilitySurface && surface != MachineShowCompatibilitySurface {
+		return ctx
+	}
+	return context.WithValue(ctx, compatibilitySurfaceContextKey{}, surface)
+}
 
 var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
@@ -92,6 +107,9 @@ func (client *Client) listVersion(
 	request.Header.Set("Accept", mediaType)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("X-Project-Machine-ID", client.callerMachineID)
+	if surface, ok := ctx.Value(compatibilitySurfaceContextKey{}).(string); ok {
+		request.Header.Set(compatibilitySurfaceHeader, surface)
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return Inventory{}, 0, ErrUnavailable

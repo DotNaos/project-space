@@ -404,6 +404,7 @@ async function start(handler: ReturnType<typeof createComputeInventoryCliHttpApi
 describe('compute inventory CLI HTTP boundary', () => {
   test('is private, read-only, and rejects unsupported requests before dispatch', async () => {
     let calls = 0;
+    const recorded: unknown[] = [];
     const versions: number[] = [];
     const service: ComputeInventoryCliHttpService = {
       async list(_actor, schemaVersion) {
@@ -419,7 +420,8 @@ describe('compute inventory CLI HTTP boundary', () => {
     };
     const origin = await start(createComputeInventoryCliHttpApi(
       service,
-      async () => ({ callerMachineId: 'caller', userId: 'owner' })
+      async () => ({ callerMachineId: 'caller', userId: 'owner' }),
+      { recordCompatibilityUse: async (...input) => recorded.push(input) }
     ));
     const response = await fetch(`${origin}/api/compute/inventory`);
     expect(response.status).toBe(200);
@@ -441,6 +443,18 @@ describe('compute inventory CLI HTTP boundary', () => {
     expect(versions).toEqual([1, 2, 3]);
     expect(calls).toBe(3);
 
+    const compatibility = await fetch(`${origin}/api/compute/inventory`, {
+      headers: { 'X-Project-Compatibility-Surface': 'connector.machine-list.cli.v1' }
+    });
+    expect(compatibility.status).toBe(200);
+    expect(recorded).toEqual([['owner', 'connector.machine-list.cli.v1']]);
+
+    const unknown = await fetch(`${origin}/api/compute/inventory`, {
+      headers: { 'X-Project-Compatibility-Surface': 'unknown-secret-surface' }
+    });
+    expect(unknown.status).toBe(200);
+    expect(recorded).toHaveLength(1);
+
     const unsupported = await fetch(`${origin}/api/compute/inventory`, {
       headers: { Accept: 'application/vnd.project-space.compute-inventory+json; version=99' }
     });
@@ -454,7 +468,7 @@ describe('compute inventory CLI HTTP boundary', () => {
       expect(rejected.status).toBe(400);
       expect(await rejected.json()).toMatchObject({ error: { code: 'invalid_request' } });
     }
-    expect(calls).toBe(3);
+    expect(calls).toBe(5);
   });
 
   test('binds machine credentials to their owner and rejects a different credential', async () => {

@@ -32,6 +32,7 @@ import {
   connectorSessionGeneration,
   connectorSocket
 } from './connector-command-session-registry';
+import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
 
 export interface ConnectorRuntimeCommandBinding {
   generation: number;
@@ -182,6 +183,7 @@ type PendingRuntimeCommand = {
   binding: ConnectorRuntimeCommandBinding;
   machineId: string;
   onProgress?: (progress: ConnectorRuntimeCommandProgress) => void;
+  ownerUserId: string;
   reject(error: Error): void;
   resolve(result: ConnectorRuntimeCommandResult): void;
   timeout: ReturnType<typeof setTimeout>;
@@ -244,6 +246,7 @@ export function requestConnectorRuntimeCommand(
       binding,
       machineId: plan.machineId,
       onProgress: options.onProgress,
+      ownerUserId: userId,
       reject,
       resolve,
       timeout
@@ -268,7 +271,10 @@ export async function requestConnectorRuntimeMaintenance(input: {
 
 export function handleConnectorRuntimeCommandMessage(
   machineId: string,
-  message: ConnectorRuntimeHubCommandMessage
+  message: ConnectorRuntimeHubCommandMessage,
+  options: {
+    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+  } = {}
 ) {
   const current = pending.get(message.id);
   if (!current) return true;
@@ -290,6 +296,12 @@ export function handleConnectorRuntimeCommandMessage(
     return true;
   }
   finishPending(message.id, undefined, message.payload);
+  if (message.payload.status === 'accepted') {
+    void (options.recordCompatibilityUse ?? recordSuccessfulConnectorCompatibilityUse)(
+      current.ownerUserId,
+      'connector.runtime-maintenance.websocket.v2'
+    );
+  }
   return true;
 }
 

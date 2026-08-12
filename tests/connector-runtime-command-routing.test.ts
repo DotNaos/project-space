@@ -7,6 +7,7 @@ import { WebSocket } from 'ws';
 
 import {
   createConnectorCommandUpgradeHandler,
+  requestConnectorProjectWorktrees,
   requestConnectorRuntimeMaintenance
 } from '../server/connector-command-hub';
 import {
@@ -87,9 +88,14 @@ function restartPlan(machineId: string, operationId: string): ConnectorRuntimeRe
   };
 }
 
-async function openConnector(machineId: string, capabilities?: string[]) {
+async function openConnector(
+  machineId: string,
+  capabilities?: string[],
+  recordCompatibilityUse?: (...input: never[]) => Promise<boolean>
+) {
   const commands = createConnectorCommandUpgradeHandler({
-    async authenticateConnectorCredential() { return true; }
+    async authenticateConnectorCredential() { return { machineId, userId: 'user_test' }; },
+    recordCompatibilityUse
   });
   const server = createServer();
   server.on('upgrade', (request, socket, head) => {
@@ -134,10 +140,14 @@ describe('connector runtime command routing', () => {
   });
 
   test('relays a signed generation-bound operation with bounded progress', async () => {
+    const recorded: unknown[] = [];
     const keys = generateKeyPairSync('ed25519');
     process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY = keys.privateKey
       .export({ format: 'pem', type: 'pkcs8' }).toString();
-    const opened = await openConnector('runtime-routing');
+    const opened = await openConnector('runtime-routing', undefined, async (...input) => {
+      recorded.push(input);
+      return true;
+    });
     const incoming = once(opened.socket, 'message');
     const stages: string[] = [];
     const result = requestConnectorRuntimeMaintenance({
@@ -170,6 +180,42 @@ describe('connector runtime command routing', () => {
       }));
       await result;
       expect(stages).toEqual(['verifying']);
+      await Promise.resolve();
+      expect(recorded).toContainEqual([
+        'user_test', 'connector.runtime-maintenance.websocket.v2'
+      ]);
+    } finally {
+      await closeConnector(opened);
+    }
+  });
+
+  test('records one bound legacy worktree result and ignores its duplicate', async () => {
+    const recorded: unknown[] = [];
+    const opened = await openConnector(
+      'legacy-worktrees',
+      ['worktrees.list.v2'],
+      async (...input) => {
+        recorded.push(input);
+        return true;
+      }
+    );
+    recorded.length = 0;
+    const incoming = once(opened.socket, 'message');
+    const result = requestConnectorProjectWorktrees({
+      machineId: 'legacy-worktrees',
+      projectPath: '/tmp/project'
+    });
+    try {
+      const [raw] = await incoming as [Buffer];
+      const request = JSON.parse(raw.toString());
+      const response = { id: request.id, payload: [], type: 'worktrees.result' };
+      opened.socket.send(JSON.stringify(response));
+      await expect(result).resolves.toEqual([]);
+      opened.socket.send(JSON.stringify(response));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(recorded.filter((entry) => JSON.stringify(entry) === JSON.stringify([
+        'user_test', 'connector.project-registry.websocket.v2'
+      ]))).toHaveLength(1);
     } finally {
       await closeConnector(opened);
     }

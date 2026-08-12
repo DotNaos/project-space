@@ -35,6 +35,31 @@ func TestClientLoadsAuthenticatedInventoryAndSortsIt(t *testing.T) {
 	}
 }
 
+func TestClientLabelsOnlyAnExplicitDeprecatedMachineAlias(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		want := ""
+		if requests == 2 {
+			want = MachineListCompatibilitySurface
+		}
+		if got := request.Header.Get(compatibilitySurfaceHeader); got != want {
+			t.Fatalf("compatibility surface = %q, want %q", got, want)
+		}
+		_ = json.NewEncoder(response).Encode(testInventoryV3())
+	}))
+	defer server.Close()
+
+	client := testClient(t, server.URL)
+	if _, err := client.List(context.Background()); err != nil {
+		t.Fatalf("canonical list: %v", err)
+	}
+	ctx := WithCompatibilitySurface(context.Background(), MachineListCompatibilitySurface)
+	if _, err := client.List(ctx); err != nil {
+		t.Fatalf("compatibility list: %v", err)
+	}
+}
+
 func TestClientAcceptsSafeVersionTwoRoutes(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {

@@ -84,6 +84,10 @@ import {
   createConfiguredProjectHostdRuntime
 } from './project-hostd/configured-runtime';
 import { createConfiguredHostControlHandler } from './host-control/configured-runtime';
+import {
+  closeConfiguredConnectorRetirementService,
+  configuredConnectorRetirementService
+} from './connector-retirement/configured-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -437,6 +441,9 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   });
 
   try {
+    // Start the durable observation heartbeat with the server, even when no
+    // compatibility request or report is made during this process lifetime.
+    await configuredConnectorRetirementService();
     projectChatRuntime.start();
     machineConnectionRuntime?.start();
     await new Promise<void>((resolveListen, rejectListen) => {
@@ -454,6 +461,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     clearInterval(staleProjectHostd);
     await workspaceRuntimeSessions.close();
     await connectorCommands.close();
+    await closeConfiguredConnectorRetirementService();
     throw error;
   }
 
@@ -471,6 +479,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       clearInterval(staleProjectHostd);
       await workspaceRuntimeSessions.close();
       await connectorCommands.close();
+      await closeConfiguredConnectorRetirementService();
       await new Promise<void>((resolveClose, rejectClose) => {
         let settled = false;
         const finish = (error?: Error | null) => {

@@ -123,6 +123,10 @@ import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from './workspace-runtime-capability-promotion-migration';
+import {
+  connectorCompatibilityUsageMigrationId,
+  connectorCompatibilityUsageMigrationSql
+} from './connector-compatibility-usage-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -827,6 +831,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: hostControlHardeningMigrationId,
     sql: hostControlHardeningMigrationSql
+  },
+  {
+    id: connectorCompatibilityUsageMigrationId,
+    sql: connectorCompatibilityUsageMigrationSql
   }
 ];
 
