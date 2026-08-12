@@ -94,10 +94,6 @@ import {
   restoreProjectTrashEntry
 } from './project-structure-violations';
 import { getScopeDevboxOverview, startScopeDevboxJob } from './local-scope-devbox-jobs';
-import {
-  createConfiguredConnectorRuntime,
-  type ConfiguredConnectorRuntime
-} from './configured-connector-runtime';
 import type {
   AppMeta,
   ProjectDirectorySelection,
@@ -169,8 +165,7 @@ function scopeDiscoveryToMachine<
 
 export type LocalProjectSpaceBackend = ProjectSpaceBackend &
   ConnectorDevServerAdapter &
-  ConnectorWorktreeActionAdapter &
-  Pick<ConfiguredConnectorRuntime, 'decideReconnect'>;
+  ConnectorWorktreeActionAdapter;
 export { isWebHubMachine };
 const baseConnectorCommandCapabilities = [
   'filesystem.directory',
@@ -241,7 +236,6 @@ export function createLocalProjectSpaceBackend(
   const worktreeActionAdapter = createLocalWorktreeActionAdapter();
   const workspaceCommandAdapter = createLocalWorkspaceCommandAdapter();
   const loadConnectorOverview = () => loadConnectorOverviewForMachine(options.connectorMachineId);
-  const connectorRuntime = createConfiguredConnectorRuntime({ loadOverview: loadConnectorOverview });
   const registeredLocalMachines = new Set<string>();
 
   function registerLocalDevServer(machineId: string) {
@@ -276,17 +270,19 @@ export function createLocalProjectSpaceBackend(
     async getConnectorOverview() {
       return loadConnectorOverview();
     },
-    decideReconnect(machine) {
-      return connectorRuntime.decideReconnect(machine);
+    async getMachineRuntime(machineId) {
+      return {
+        capabilities: [],
+        machineId,
+        online: false,
+        update: { state: 'unsupported' as const }
+      };
     },
-    getMachineRuntime(machineId) {
-      return connectorRuntime.getMachineRuntime(machineId);
+    async startMachineRuntimeOperation() {
+      throw new Error('Connector runtime maintenance has been retired.');
     },
-    startMachineRuntimeOperation(machineId, request) {
-      return connectorRuntime.startMachineRuntimeOperation(machineId, request);
-    },
-    stopMachineRuntime(machineId) {
-      return connectorRuntime.stopMachineRuntime(machineId);
+    async stopMachineRuntime() {
+      throw new Error('Connector runtime stop has been retired.');
     },
     async getConnectorProjectRegistry() {
       const [identity, rawDiscovery, daemon] = await Promise.all([
