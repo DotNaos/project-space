@@ -38,7 +38,7 @@ beforeAll(async () => {
   });
   const exitCode = await build.exited;
   if (exitCode !== 0) throw new Error(await new Response(build.stderr).text());
-}, 30_000);
+}, 120_000);
 
 afterAll(async () => {
   if (directory) await rm(directory, { force: true, recursive: true });

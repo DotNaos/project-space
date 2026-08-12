@@ -34,7 +34,7 @@ beforeAll(async () => {
     cmd: ['go', 'build', '-o', project, './cmd/project'], stderr: 'pipe', stdout: 'pipe'
   });
   if (await build.exited !== 0) throw new Error(await new Response(build.stderr).text());
-}, 30_000);
+}, 120_000);
 
 afterAll(async () => {
   if (root) await rm(root, { force: true, recursive: true });
