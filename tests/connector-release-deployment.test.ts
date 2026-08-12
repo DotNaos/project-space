@@ -210,6 +210,15 @@ describe('connector release and production deployment contract', () => {
     const packageJob = jobBlock(workflow, 'package');
 
     expect(runtime).toContain('runs-on: macos-15');
+    expect(runtime.indexOf('Capture the protected release test harness')).toBeLessThan(
+      runtime.indexOf('Check out exact source')
+    );
+    expect(runtime.indexOf('Check out exact source')).toBeLessThan(
+      runtime.indexOf('Use the protected recovery-compatible test harness')
+    );
+    expect(runtime).toContain(
+      'install -m 0755 "$RUNNER_TEMP/test-release-packaging.sh" packaging/macos/test-release-packaging.sh'
+    );
     expect(runtime).toContain('project-space-connector');
     expect(runtime).not.toContain('project-approval-signer');
     expect(workflow).not.toContain('environment: release-signing');
