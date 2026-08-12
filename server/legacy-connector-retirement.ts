@@ -14,7 +14,8 @@ const retiredApiPaths = new Set([
   '/api/connectors/install-command',
   '/api/connectors/overview',
   '/api/connectors/project-registry',
-  '/api/connectors/socket'
+  '/api/connectors/socket',
+  '/api/connector-retirement/report'
 ]);
 
 const retiredPullRequestDevServerPrefix = '/api/pull-request-previews/dev-server/';

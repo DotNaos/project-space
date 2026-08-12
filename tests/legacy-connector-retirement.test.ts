@@ -54,6 +54,10 @@ describe('legacy Connector retirement boundary', () => {
       expect(registry.status).toBe(410);
       expect(await registry.json()).toEqual(legacyConnectorRetirement);
 
+      const report = await fetch(`${server.origin}/api/connector-retirement/report`);
+      expect(report.status).toBe(410);
+      expect(await report.json()).toEqual(legacyConnectorRetirement);
+
     } finally {
       await server.close();
     }

@@ -75,18 +75,12 @@ import { createLocalPhysicalMachineStore } from './local-physical-machine-store'
 import { createPullRequestTestSurfacesTrustedRoute } from './pr-test-surfaces/trusted-http';
 import { createPullRequestPrototypeIterationRoute } from './pr-prototype-iteration-http';
 import { createPreviewHubService } from './preview-hub-service';
-import {
-  configuredConnectorRetirementService,
-  recordSuccessfulConnectorCompatibilityUse
-} from './connector-retirement/configured-runtime';
-import { createConnectorRetirementHttpApi } from './connector-retirement/http';
-import type { ConnectorRetirementService } from './connector-retirement/service';
+import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
 import { createConnectorOwnerCompatibilityRoutes } from './connector-retirement/owner-compatibility-routes';
 
 export function createProjectSpaceCoreApiRoutes(
   backend: ProjectSpaceBackend,
   options: {
-    connectorRetirementService?: ConnectorRetirementService;
     loadPullRequestPreviewStatus?: typeof getPullRequestPreviewStatus;
     recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
   } = {}
@@ -113,12 +107,6 @@ export function createProjectSpaceCoreApiRoutes(
     if (!isProjectSpaceAuthRequired()) return 'local-development-user';
     throw new Error('Login required.');
   };
-  const handleConnectorRetirement = createConnectorRetirementHttpApi({
-    loadService: async () => options.connectorRetirementService ??
-      configuredConnectorRetirementService(),
-    resolveOwnerUserId: async (_request, authenticatedOwnerUserId) =>
-      authenticatedOwnerUserId
-  });
   const devServers = createDevServerService({
     backend,
     connector: {
@@ -152,7 +140,6 @@ export function createProjectSpaceCoreApiRoutes(
     url: URL,
     userId: string
   ) {
-    if (await handleConnectorRetirement(request, response, url, userId)) return true;
     if (await handleConnectorOwnerCompatibility(request, response, url, userId)) return true;
     if (await handleConnectorRuntime(request, response, url)) return true;
     if (await handlePullRequestTestSurfaces(request, response, url, userId)) return true;
