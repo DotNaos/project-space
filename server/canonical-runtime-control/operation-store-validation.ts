@@ -1,7 +1,10 @@
 import {
+  canonicalRuntimeControlAccessMode,
   canonicalRuntimeControlApiVersion,
+  canonicalRuntimeControlOperations,
   type CanonicalRuntimeControlOperation,
-  type CanonicalRuntimeControlResult
+  type CanonicalRuntimeControlResult,
+  type CanonicalRuntimeControlSafeInput
 } from '../../src/shared/canonical-runtime-control-api';
 import type {
   CanonicalRuntimeControlFailureCode,
@@ -12,9 +15,9 @@ const idPattern = /^[A-Za-z0-9:._-]{1,256}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const revisionPattern = /^[1-9][0-9]*:[A-Za-z0-9:_-]{8,256}$/;
 const actorKinds = new Set(['agent', 'human', 'orchestrator', 'system']);
-const operations = new Set(['git.status', 'git.diff', 'worktree.list', 'dev-server.inspect']);
+const operations = new Set<string>(canonicalRuntimeControlOperations);
 const failureCodes = new Set<CanonicalRuntimeControlFailureCode>([
-  'authorization_denied', 'dispatch_outcome_unknown', 'invalid_request', 'runtime_failed',
+  'authorization_denied', 'blocked_dependency', 'dispatch_outcome_unknown', 'invalid_request', 'runtime_failed',
   'runtime_stopping', 'target_changed', 'target_unavailable', 'unavailable'
 ]);
 
@@ -25,10 +28,44 @@ export function validateOperationIdentity(identity: CanonicalRuntimeControlOpera
     !uuidPattern.test(identity.environmentId) || !uuidPattern.test(identity.workspaceId) ||
     !uuidPattern.test(identity.generation) || !uuidPattern.test(identity.sessionId) ||
     !revisionPattern.test(identity.targetIdentityRevision) ||
-    (identity.operation === 'git.diff') !== (typeof identity.diffStaged === 'boolean') ||
+    identity.accessMode !== canonicalRuntimeControlAccessMode(identity.operation) ||
+    !sameJson(identity.safeInput, validateSafeInput(identity.safeInput)) ||
+    identity.safeInput.operation !== identity.operation ||
     typeof identity.compatibilityAlias !== 'boolean') {
     throw new Error('Canonical Runtime control operation identity is invalid.');
   }
+}
+
+export function validateSafeInput(input: CanonicalRuntimeControlSafeInput) {
+  if (!isRecord(input) || !operations.has(String(input.operation))) throw invalidInput();
+  if (input.operation === 'git.status' || input.operation === 'worktree.list' ||
+      input.operation === 'dev-server.inspect') {
+    exactInputKeys(input, ['operation']);
+  } else if (input.operation === 'git.diff') {
+    exactInputKeys(input, ['operation', 'staged']);
+    if (typeof input.staged !== 'boolean') throw invalidInput();
+  } else if (input.operation === 'git.stage' || input.operation === 'git.unstage') {
+    exactInputKeys(input, ['expectedHead', 'operation', 'scope']);
+    if (input.scope !== 'all' || !gitSha(input.expectedHead)) throw invalidInput();
+  } else if (input.operation === 'git.commit') {
+    exactInputKeys(input, ['expectedHead', 'message', 'operation']);
+    if (!gitSha(input.expectedHead) || !safeCommitMessage(input.message)) throw invalidInput();
+  } else if (input.operation === 'task.start') {
+    exactInputKeys(input, ['operation', 'taskExecutionId', 'workspaceLeaseId']);
+    if (!uuidPattern.test(input.taskExecutionId) || !uuidPattern.test(input.workspaceLeaseId)) {
+      throw invalidInput();
+    }
+  } else if (input.operation === 'dev-server.start') {
+    exactInputKeys(input, ['operation', 'serverId']);
+    if (!serverId(input.serverId)) throw invalidInput();
+  } else {
+    exactInputKeys(input, ['expectedServerGeneration', 'operation', 'serverId']);
+    if (!serverId(input.serverId) || !resourceGeneration(input.expectedServerGeneration)) {
+      throw invalidInput();
+    }
+  }
+  if (new TextEncoder().encode(JSON.stringify(input)).byteLength > 65_536) throw invalidInput();
+  return input;
 }
 
 export function validateFingerprint(value: string) {
@@ -50,11 +87,13 @@ export function validatePositiveSequence(value: number, label = 'sequence') {
 }
 
 export function validateFailureCode(
-  state: 'completed' | 'failed' | 'uncertain',
+  state: 'blocked_dependency' | 'completed' | 'failed' | 'uncertain',
   failureCode: CanonicalRuntimeControlFailureCode | undefined
 ) {
   const valid = state === 'completed'
     ? failureCode === undefined
+    : state === 'blocked_dependency'
+      ? failureCode === 'blocked_dependency'
     : state === 'uncertain'
       ? failureCode === 'dispatch_outcome_unknown'
       : failureCode !== undefined && failureCode !== 'dispatch_outcome_unknown' &&
@@ -73,7 +112,13 @@ export function validateSafeResult(
     result.operation !== identity.operation || result.operationId !== identity.operationId ||
     result.replayed !== false || result.targetIdentityRevision !== identity.targetIdentityRevision ||
     result.workspaceId !== identity.workspaceId ||
-    (result.state !== 'completed' && result.state !== 'failed')) throw invalidResult();
+    (result.state !== 'completed' && result.state !== 'failed' &&
+      result.state !== 'blocked_dependency') ||
+    (result.state === 'blocked_dependency') !==
+      (identity.operation === 'task.start' && failureCode === 'blocked_dependency') ||
+    (failureCode === 'blocked_dependency' && result.state !== 'blocked_dependency')) {
+    throw invalidResult();
+  }
   validateFailureCode(result.state, failureCode);
   exactKeys(result, result.state === 'completed'
     ? ['apiVersion', 'compatibilityAlias', 'environmentId', 'generation', 'operation',
@@ -105,7 +150,31 @@ function validateOutput(
     ]);
     if (!['addedLines', 'binaryFiles', 'changedFiles', 'deletedLines']
       .every((key) => safeCount(value[key])) || typeof value.truncated !== 'boolean' ||
-      value.staged !== identity.diffStaged) {
+      identity.safeInput.operation !== 'git.diff' ||
+      value.staged !== identity.safeInput.staged) {
+      throw invalidResult();
+    }
+    return;
+  }
+  if (operation === 'git.stage' || operation === 'git.unstage') {
+    exactKeys(value, [
+      'changed', 'clean', 'conflicted', 'head', 'staged', 'truncated', 'unstaged', 'untracked'
+    ]);
+    if (typeof value.changed !== 'boolean' || typeof value.clean !== 'boolean' ||
+        typeof value.truncated !== 'boolean' || !gitSha(value.head) ||
+        (identity.safeInput.operation !== 'git.stage' &&
+          identity.safeInput.operation !== 'git.unstage') ||
+        value.head !== identity.safeInput.expectedHead ||
+        !['conflicted', 'staged', 'unstaged', 'untracked'].every((key) => safeCount(value[key]))) {
+      throw invalidResult();
+    }
+    return;
+  }
+  if (operation === 'git.commit') {
+    exactKeys(value, ['commit', 'parent']);
+    if (!gitSha(value.commit) || !gitSha(value.parent) || value.commit === value.parent ||
+        identity.safeInput.operation !== 'git.commit' ||
+        value.parent !== identity.safeInput.expectedHead) {
       throw invalidResult();
     }
     return;
@@ -118,11 +187,37 @@ function validateOutput(
         .some((key) => Number(value[key]) > Number(value.total))) throw invalidResult();
     return;
   }
-  exactKeys(value, ['failed', 'ready', 'starting', 'stopped', 'total']);
-  if (!['failed', 'ready', 'starting', 'stopped', 'total']
-    .every((key) => safeCount(value[key])) ||
-    Number(value.failed) + Number(value.ready) + Number(value.starting) + Number(value.stopped) !==
-      Number(value.total)) throw invalidResult();
+  if (operation === 'task.start') {
+    exactKeys(value, ['state', 'taskExecutionId']);
+    if (value.state !== 'ready_for_agent' || !uuidPattern.test(String(value.taskExecutionId)) ||
+        identity.safeInput.operation !== 'task.start' ||
+        value.taskExecutionId !== identity.safeInput.taskExecutionId) throw invalidResult();
+    return;
+  }
+  if (operation === 'dev-server.inspect') {
+    exactKeys(value, ['failed', 'ready', 'starting', 'stopped', 'total']);
+    if (!['failed', 'ready', 'starting', 'stopped', 'total']
+      .every((key) => safeCount(value[key])) ||
+      Number(value.failed) + Number(value.ready) + Number(value.starting) + Number(value.stopped) !==
+        Number(value.total)) throw invalidResult();
+    return;
+  }
+  exactKeys(value, ['serverGeneration', 'serverId', 'state']);
+  const expectedState = operation === 'dev-server.start'
+    ? 'ready'
+    : operation === 'dev-server.publish' ? 'published' : 'stopped';
+  if (!resourceGeneration(value.serverGeneration) ||
+      !serverId(value.serverId) || value.state !== expectedState ||
+      !identity.safeInput.operation.startsWith('dev-server.') ||
+      !('serverId' in identity.safeInput) || value.serverId !== identity.safeInput.serverId ||
+      (operation === 'dev-server.publish' &&
+        (!('expectedServerGeneration' in identity.safeInput) ||
+          value.serverGeneration === identity.safeInput.expectedServerGeneration)) ||
+      (operation === 'dev-server.stop' &&
+        (!('expectedServerGeneration' in identity.safeInput) ||
+          value.serverGeneration !== identity.safeInput.expectedServerGeneration))) {
+    throw invalidResult();
+  }
 }
 
 function exactKeys(value: Record<string, unknown>, keys: string[]) {
@@ -130,6 +225,14 @@ function exactKeys(value: Record<string, unknown>, keys: string[]) {
   const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     throw invalidResult();
+  }
+}
+
+function exactInputKeys(value: Record<string, unknown>, keys: string[]) {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw invalidInput();
   }
 }
 
@@ -143,4 +246,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function invalidResult() {
   return new Error('Canonical Runtime control safe result is invalid.');
+}
+
+function invalidInput() {
+  return new Error('Canonical Runtime control safe input is invalid.');
+}
+
+function gitSha(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
+}
+
+function safeCommitMessage(value: unknown): value is string {
+  return typeof value === 'string' && value === value.trim() && value.length > 0 &&
+    !/[\u0000-\u001f\u007f]/.test(value) &&
+    new TextEncoder().encode(value).byteLength <= 256;
+}
+
+function serverId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
+}
+
+function resourceGeneration(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9:._-]{1,256}$/.test(value);
+}
+
+function sameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

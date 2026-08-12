@@ -55,6 +55,10 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 		request.RuntimeSession.OwnerUserID == "" {
 		return RuntimeHandle{}, fmt.Errorf("verified Workspace Runtime control binding is required")
 	}
+	if request.RuntimeSession != nil && containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.mutation.v1") &&
+		(request.RuntimeSession.OwnerUserID == "" || request.RuntimeSession.WorktreeOwnerThreadID == "") {
+		return RuntimeHandle{}, fmt.Errorf("verified Workspace Runtime mutation binding is required")
+	}
 	for _, directory := range []string{
 		request.GenerationHome,
 		filepath.Join(request.GenerationHome, "home"),
@@ -98,11 +102,13 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 			Capabilities:          append([]string{}, request.RuntimeSession.Capabilities...),
 			RequestedCapabilities: append([]string{}, request.RuntimeSession.RequestedCapabilities...),
 			JournalPath:           filepath.Join(request.GenerationHome, "runtime-session-journal.json"), StatePath: statePath,
-			LogPointer: "runtime-log:/" + request.Binding.WorkspaceID + "/" + request.Binding.Generation,
-			ReadyPath:  runtimeSessionReadyPath,
-			ExpiresAt:  request.RuntimeSession.ExpiresAt,
+			LogPointer:            "runtime-log:/" + request.Binding.WorkspaceID + "/" + request.Binding.Generation,
+			ReadyPath:             runtimeSessionReadyPath,
+			ExpiresAt:             request.RuntimeSession.ExpiresAt,
+			WorktreeOwnerThreadID: request.RuntimeSession.WorktreeOwnerThreadID,
 		}
-		if containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.control.v1") {
+		if containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.control.v1") ||
+			containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.mutation.v1") {
 			bootstrap.OwnerUserID = request.RuntimeSession.OwnerUserID
 			bootstrap.WorkspacePath = request.Directory
 		}

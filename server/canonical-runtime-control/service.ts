@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import {
   canonicalRuntimeControlApiVersion,
+  canonicalRuntimeControlSafeInput,
   canonicalRuntimeControlOperations,
   type CanonicalRuntimeControlRequest,
   type CanonicalRuntimeControlResult
@@ -26,8 +27,9 @@ export function createCanonicalRuntimeControlService(dependencies: {
     _compatibilityAlias = false
   ): Promise<CanonicalRuntimeControlResult> {
     const request = validate(raw);
+    const safeInput = canonicalRuntimeControlSafeInput(request);
     if (!await dependencies.authorizer.authorize({
-      actor, operation: request.operation, phase: 'coarse'
+      actor, operation: request.operation, phase: 'coarse', safeInput
     })) denied();
     const fingerprint = sha(stableJson({ actor, request }));
     const replay = await dependencies.dispatcher.replay({ actor, fingerprint, request });
@@ -48,7 +50,7 @@ export function createCanonicalRuntimeControlService(dependencies: {
       request
     );
     if (!await dependencies.authorizer.authorize({
-      actor, operation: request.operation, phase: 'exact', target: authorizedTarget
+      actor, operation: request.operation, phase: 'exact', safeInput, target: authorizedTarget
     })) denied();
     const target = await resolveCanonicalRuntimeControlTarget(
       dependencies.inventory,
@@ -57,7 +59,7 @@ export function createCanonicalRuntimeControlService(dependencies: {
     );
     if (!sameTarget(authorizedTarget, target)) unavailable();
     if (!await dependencies.authorizer.authorize({
-      actor, operation: request.operation, phase: 'exact', target
+      actor, operation: request.operation, phase: 'exact', safeInput, target
     })) denied();
     return dependencies.dispatcher.dispatch({
       actor,
@@ -69,7 +71,7 @@ export function createCanonicalRuntimeControlService(dependencies: {
           request
         );
         if (!sameTarget(target, fresh) || !await dependencies.authorizer.authorize({
-          actor, operation: request.operation, phase: 'exact', target: fresh
+          actor, operation: request.operation, phase: 'exact', safeInput, target: fresh
         })) denied();
         return fresh;
       },
@@ -91,9 +93,32 @@ function validate(request: CanonicalRuntimeControlRequest) {
       !safeId(request.environmentId) || !safeId(request.workspaceId) ||
       !safeId(request.expectedGeneration) || !safeId(request.operationId) ||
       !/^[1-9][0-9]*:[A-Za-z0-9:_-]{8,256}$/.test(request.expectedTargetIdentityRevision) ||
-      request.operation === 'git.diff' && typeof request.staged !== 'boolean' ||
+      !validOperationInput(request) ||
       !exactRequestKeys(request)) invalid();
   return request;
+}
+
+function validOperationInput(request: CanonicalRuntimeControlRequest) {
+  switch (request.operation) {
+    case 'git.status':
+    case 'worktree.list':
+    case 'dev-server.inspect':
+      return true;
+    case 'git.diff':
+      return typeof request.staged === 'boolean';
+    case 'git.stage':
+    case 'git.unstage':
+      return request.scope === 'all' && gitHead(request.expectedHead);
+    case 'git.commit':
+      return gitHead(request.expectedHead) && boundedCommitMessage(request.message);
+    case 'task.start':
+      return uuid(request.taskExecutionId) && uuid(request.workspaceLeaseId);
+    case 'dev-server.start':
+      return resourceId(request.serverId);
+    case 'dev-server.publish':
+    case 'dev-server.stop':
+      return resourceId(request.serverId) && resourceGeneration(request.expectedServerGeneration);
+  }
 }
 
 function safeId(value: unknown) {
@@ -101,11 +126,56 @@ function safeId(value: unknown) {
 }
 
 function exactRequestKeys(request: CanonicalRuntimeControlRequest) {
-  const keys = [
+  const common = [
     'apiVersion', 'environmentId', 'expectedGeneration', 'expectedTargetIdentityRevision',
-    'operation', 'operationId', 'workspaceId', ...(request.operation === 'git.diff' ? ['staged'] : [])
+    'operation', 'operationId', 'workspaceId'
   ];
-  return sameKeys(request, keys);
+  const input = (() => {
+    switch (request.operation) {
+      case 'git.status':
+      case 'worktree.list':
+      case 'dev-server.inspect':
+        return [];
+      case 'git.diff':
+        return ['staged'];
+      case 'git.stage':
+      case 'git.unstage':
+        return ['expectedHead', 'scope'];
+      case 'git.commit':
+        return ['expectedHead', 'message'];
+      case 'task.start':
+        return ['taskExecutionId', 'workspaceLeaseId'];
+      case 'dev-server.start':
+        return ['serverId'];
+      case 'dev-server.publish':
+      case 'dev-server.stop':
+        return ['expectedServerGeneration', 'serverId'];
+    }
+  })();
+  return sameKeys(request, [...common, ...input]);
+}
+
+function gitHead(value: unknown) {
+  return typeof value === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value);
+}
+
+function boundedCommitMessage(value: unknown) {
+  return typeof value === 'string' && value === value.trim() &&
+    Buffer.byteLength(value, 'utf8') >= 1 && Buffer.byteLength(value, 'utf8') <= 256 &&
+    !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function uuid(value: unknown) {
+  return typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+}
+
+function resourceId(value: unknown) {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value);
+}
+
+function resourceGeneration(value: unknown) {
+  return typeof value === 'string' && /^[A-Za-z0-9:._-]{1,256}$/.test(value);
 }
 
 function sameKeys(value: object, expected: string[]) {

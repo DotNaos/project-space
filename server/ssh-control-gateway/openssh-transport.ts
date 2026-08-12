@@ -300,6 +300,8 @@ function operationFrame(
   handshake: Parameters<SshControlTransport['execute']>[0]['handshake']
 ) {
   return `${JSON.stringify({
+    ...(request.branch ? { branch: request.branch } : {}),
+    ...(request.commit ? { commit: request.commit } : {}),
     environmentId: request.environmentId,
     ...(request.expectedBranch ? { expectedBranch: request.expectedBranch } : {}),
     expectedCliVersion: handshake.cliVersion,
@@ -315,6 +317,7 @@ function operationFrame(
     ...(request.mode ? { mode: request.mode } : {}),
     operation: request.operation,
     operationId: request.operationId,
+    ...(request.repository ? { repository: request.repository } : {}),
     ...(request.runtimeSessionCapabilities
       ? { runtimeSessionCapabilities: request.runtimeSessionCapabilities }
       : {}),
@@ -337,6 +340,9 @@ function operationFrame(
     schemaVersion: 1,
     targetIdentityRevision,
     type: 'operation',
+    ...(request.worktreeOwnerThreadId
+      ? { worktreeOwnerThreadId: request.worktreeOwnerThreadId }
+      : {}),
     ...(request.workspaceId ? { workspaceId: request.workspaceId } : {})
   })}\n`;
 }

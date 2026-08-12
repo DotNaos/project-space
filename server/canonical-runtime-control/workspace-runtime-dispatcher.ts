@@ -4,6 +4,10 @@ import type {
   CanonicalRuntimeControlResult
 } from '../../src/shared/canonical-runtime-control-api';
 import {
+  canonicalRuntimeControlAccessMode,
+  canonicalRuntimeControlSafeInput
+} from '../../src/shared/canonical-runtime-control-api';
+import {
   runtimeControlInput,
   type WorkspaceRuntimeControlCommand,
   type WorkspaceRuntimeControlMessage
@@ -102,13 +106,18 @@ export function createWorkspaceRuntimeControlDispatcher(
       });
       result = publicResult(record.identity, 'uncertain');
     } else {
-      result = publicResult(record.identity, 'failed');
+      result = publicResult(
+        record.identity,
+        message.code === 'blocked_dependency' ? 'blocked_dependency' : 'failed'
+      );
       const terminal = {
         command,
         completedAt: observedAt,
         failureCode: message.code === 'runtime_stopping'
           ? 'runtime_stopping' as const
-          : message.code === 'unavailable'
+          : message.code === 'blocked_dependency'
+            ? 'blocked_dependency' as const
+            : message.code === 'unavailable'
             ? 'unavailable' as const
             : 'invalid_request' as const,
         fingerprint: record.fingerprint,
@@ -140,7 +149,8 @@ export function createWorkspaceRuntimeControlDispatcher(
           record.identity.actorKind !== actor.actorKind ||
           record.identity.actorUserId !== actor.ownerUserId ||
           record.identity.operation !== request.operation ||
-          record.identity.diffStaged !== (request.operation === 'git.diff' ? request.staged : undefined)) {
+          JSON.stringify(record.identity.safeInput) !==
+            JSON.stringify(canonicalRuntimeControlSafeInput(request))) {
         return 'conflict';
       }
       return record.result ? { ...record.result, replayed: true } : 'in_progress';
@@ -150,13 +160,14 @@ export function createWorkspaceRuntimeControlDispatcher(
         actorId: actor.actorId,
         actorKind: actor.actorKind,
         actorUserId: actor.ownerUserId,
+        accessMode: canonicalRuntimeControlAccessMode(request.operation),
         compatibilityAlias: false,
-        ...(request.operation === 'git.diff' ? { diffStaged: request.staged } : {}),
         environmentId: target.environmentId,
         generation: target.generation,
         operation: request.operation,
         operationId: request.operationId,
         ownerUserId: actor.ownerUserId,
+        safeInput: canonicalRuntimeControlSafeInput(request),
         sessionId: target.sessionId,
         targetIdentityRevision: target.targetIdentityRevision,
         workspaceId: target.workspaceId
@@ -273,9 +284,6 @@ function createStoredCommand(
   identity: CanonicalRuntimeControlOperationIdentity,
   commandSequence: number
 ): WorkspaceRuntimeControlCommand {
-  const input = identity.operation === 'git.diff'
-    ? { operation: identity.operation, staged: identity.diffStaged! }
-    : { operation: identity.operation };
   return {
     actorId: identity.actorId,
     actorKind: identity.actorKind,
@@ -285,7 +293,7 @@ function createStoredCommand(
     environmentId: identity.environmentId,
     generation: identity.generation,
     operationId: identity.operationId,
-    ...input,
+    ...identity.safeInput,
     schemaVersion: 1,
     sessionId: identity.sessionId,
     targetIdentityRevision: identity.targetIdentityRevision,
@@ -296,7 +304,7 @@ function createStoredCommand(
 
 function publicResult(
   identity: CanonicalRuntimeControlOperationIdentity,
-  state: 'completed' | 'failed' | 'uncertain',
+  state: 'blocked_dependency' | 'completed' | 'failed' | 'uncertain',
   output?: CanonicalRuntimeControlOutput
 ): CanonicalRuntimeControlResult {
   const binding = {
@@ -328,9 +336,42 @@ function matchesRecord(
     message.sessionId === identity.sessionId &&
     message.targetIdentityRevision === identity.targetIdentityRevision &&
     message.workspaceId === identity.workspaceId &&
-    (identity.operation !== 'git.diff' || message.type !== 'runtime.control.result' ||
-      message.state !== 'completed' || message.operation !== 'git.diff' ||
-      message.output.staged === identity.diffStaged);
+    (message.type !== 'runtime.control.error' || message.code !== 'blocked_dependency' ||
+      identity.operation === 'task.start') &&
+    matchesCompletedOutput(identity, message);
+}
+
+function matchesCompletedOutput(
+  identity: CanonicalRuntimeControlOperationIdentity,
+  message: WorkspaceRuntimeControlMessage
+) {
+  if (message.type !== 'runtime.control.result' || message.state !== 'completed') return true;
+  const input = identity.safeInput;
+  if (message.operation === 'git.diff') {
+    return input.operation === 'git.diff' && message.output.staged === input.staged;
+  }
+  if (message.operation === 'git.stage' || message.operation === 'git.unstage') {
+    return input.operation === message.operation && message.output.head === input.expectedHead;
+  }
+  if (message.operation === 'git.commit') {
+    return input.operation === message.operation && message.output.parent === input.expectedHead;
+  }
+  if (message.operation === 'task.start') {
+    return input.operation === message.operation &&
+      message.output.taskExecutionId === input.taskExecutionId;
+  }
+  if (message.operation === 'dev-server.start') {
+    return input.operation === message.operation && message.output.serverId === input.serverId;
+  }
+  if (message.operation === 'dev-server.publish') {
+    return input.operation === message.operation && message.output.serverId === input.serverId &&
+      message.output.serverGeneration !== input.expectedServerGeneration;
+  }
+  if (message.operation === 'dev-server.stop') {
+    return input.operation === message.operation && message.output.serverId === input.serverId &&
+      message.output.serverGeneration === input.expectedServerGeneration;
+  }
+  return true;
 }
 
 function key(ownerUserId: string, operationId: string) {

@@ -233,7 +233,9 @@ func sameActivePlan(record runtimeRecord, plan resolvedPlan) bool {
 
 func exactServer(record runtimeRecord, observed projectrun.ServeResult, expected ManagedDevServer) error {
 	if observed.WorkspaceID != record.WorkspaceID || observed.RuntimeGeneration != record.Generation ||
-		observed.ServerID != expected.ServerID || observed.TmuxSession != expected.TmuxSession ||
+		observed.ServerID != expected.ServerID ||
+		(expected.ServerGeneration != "" && observed.ServerGeneration != expected.ServerGeneration) ||
+		observed.TmuxSession != expected.TmuxSession ||
 		(observed.State != projectrun.StateRunning && observed.State != projectrun.StateLocalOnly) ||
 		observed.LastError != nil {
 		return fmt.Errorf("dev server %q ownership no longer matches Workspace generation", expected.Name)
@@ -243,8 +245,9 @@ func exactServer(record runtimeRecord, observed projectrun.ServeResult, expected
 
 func serverFromResult(name string, result projectrun.ServeResult) ManagedDevServer {
 	return ManagedDevServer{
-		Name: name, ServerID: result.ServerID, TmuxSession: result.TmuxSession,
-		State: string(result.State), LocalPort: result.LocalPort, LocalURL: result.LocalURL,
+		Name: name, ServerID: result.ServerID, ServerGeneration: result.ServerGeneration,
+		TmuxSession: result.TmuxSession,
+		State:       string(result.State), LocalPort: result.LocalPort, LocalURL: result.LocalURL,
 	}
 }
 

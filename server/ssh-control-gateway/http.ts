@@ -11,6 +11,7 @@ import { SshGatewayError } from './contracts';
 
 const statusRoute = '/api/compute/control/status';
 const workspaceRuntimeRoute = '/api/compute/control/workspace-runtime';
+const worktreePrepareRoute = '/api/compute/control/worktree/prepare';
 const maximumBodyBytes = 16 * 1024;
 
 export interface SshControlHttpActor {
@@ -23,7 +24,8 @@ export function createSshControlGatewayHttpApi(
   resolveActor: (request: IncomingMessage) => Promise<SshControlHttpActor>
 ) {
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
-    if (url.pathname !== statusRoute && url.pathname !== workspaceRuntimeRoute) return false;
+    if (url.pathname !== statusRoute && url.pathname !== workspaceRuntimeRoute &&
+      url.pathname !== worktreePrepareRoute) return false;
     response.setHeader('Cache-Control', 'private, no-store');
     try {
       if (request.method !== 'POST' || [...url.searchParams.keys()].length > 0) {
@@ -33,9 +35,12 @@ export function createSshControlGatewayHttpApi(
       if (!actor.callerMachineId) {
         throw new SshGatewayError('authorization_denied', 'Machine authentication is required.');
       }
+      const body = await readBody(request);
       const input = url.pathname === statusRoute
-        ? statusRequest(await readBody(request))
-        : workspaceRuntimeRequest(await readBody(request));
+        ? statusRequest(body)
+        : url.pathname === worktreePrepareRoute
+          ? worktreePrepareRequest(body)
+          : workspaceRuntimeRequest(body);
       if (request.headers['idempotency-key'] !== input.operationId) {
         throw invalid('Idempotency-Key must match operationId.');
       }
@@ -61,6 +66,25 @@ export function createSshControlGatewayHttpApi(
     }
     return true;
   };
+}
+
+function worktreePrepareRequest(body: Record<string, unknown>): SshGatewayRequest {
+  const expected = [
+    'branch', 'commit', 'environmentId', 'operationId', 'repository',
+    'workspaceId', 'worktreeOwnerThreadId'
+  ].sort().join('\0');
+  if (Object.keys(body).sort().join('\0') !== expected ||
+    typeof body.environmentId !== 'string' || !isUuid(body.environmentId) ||
+    typeof body.operationId !== 'string' || !/^[A-Za-z0-9:._-]{1,256}$/.test(body.operationId) ||
+    typeof body.repository !== 'string' ||
+      !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(body.repository) ||
+    typeof body.branch !== 'string' || !/^[^\u0000-\u001f\u007f]{1,255}$/.test(body.branch) ||
+    typeof body.commit !== 'string' || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(body.commit) ||
+    typeof body.workspaceId !== 'string' || !isUuid(body.workspaceId) ||
+    typeof body.worktreeOwnerThreadId !== 'string' || !isUuid(body.worktreeOwnerThreadId)) {
+    throw invalid('SSH Worktree prepare request is invalid.');
+  }
+  return { ...body, operation: 'worktree.prepare.v1' } as SshGatewayRequest;
 }
 
 function workspaceRuntimeRequest(body: Record<string, unknown>): SshGatewayRequest {

@@ -55,6 +55,8 @@ describe('SSH control gateway service', () => {
       expectedGeneration: '55555555-5555-4555-8555-555555555555',
       expectedManifestDigest: 'b'.repeat(64), expectedRuntimeVersion: '0.4.66', mode: 'process' as const,
       operation: 'workspace-runtime.start.v1' as const, operationId: 'workspace-start-1',
+      runtimeSessionOwnerUserId: actor.ownerUserId,
+      runtimeSessionRequestedCapabilities: ['runtime.control.v1'],
       workspaceId: '66666666-6666-4666-8666-666666666666'
     };
     await service.execute(actor, {

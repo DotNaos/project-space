@@ -131,6 +131,10 @@ import {
   canonicalRuntimeControlMigrationId,
   canonicalRuntimeControlMigrationSql
 } from './canonical-runtime-control-migration';
+import {
+  canonicalRuntimeMutationMigrationId,
+  canonicalRuntimeMutationMigrationSql
+} from './canonical-runtime-mutation-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -843,6 +847,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: canonicalRuntimeControlMigrationId,
     sql: canonicalRuntimeControlMigrationSql
+  },
+  {
+    id: canonicalRuntimeMutationMigrationId,
+    sql: canonicalRuntimeMutationMigrationSql
   }
 ];
 

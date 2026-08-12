@@ -12,6 +12,8 @@ import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { writeJson } from '../project-space-http-response';
 import { requestPublicOrigin } from '../connector-installation';
 import type { RuntimeSessionStore } from '../workspace-runtime-session/contracts';
+import { PostgresTaskExecutionStore } from '../task-execution/execution-store';
+import { createWorkspaceRuntimeMutationLaunchAuthorizer } from '../workspace-runtime-session/mutation-launch-authorizer';
 import {
   createWorkspaceRuntimeLaunchHttpApi,
   workspaceRuntimeLaunchRoute
@@ -24,10 +26,12 @@ import { OpenSshControlTransport } from './openssh-transport';
 import { PostgresSshGatewayOperationStore } from './postgres-store';
 import { SshControlGatewayService } from './service';
 import { InventorySshGatewayTargetResolver } from './target-resolver';
+import { createSshWorktreeAuthorizer } from './worktree-authorizer';
 
 const routes = new Set([
   '/api/compute/control/status',
   '/api/compute/control/workspace-runtime',
+  '/api/compute/control/worktree/prepare',
   workspaceRuntimeLaunchRoute
 ]);
 
@@ -66,6 +70,7 @@ async function createHandler(options: {
   runtimeSessions?: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
 }) {
   const database = await getMachineConnectionDatabaseClient();
+  const taskExecutions = new PostgresTaskExecutionStore(database);
   const routeStore = await getPrivateNetworkStore();
   const gatewayId = configuredGatewayId();
   if (!routeStore || !gatewayId) throw new Error('SSH control is not configured.');
@@ -98,7 +103,8 @@ async function createHandler(options: {
     operations: new PostgresSshGatewayOperationStore(database),
     routes: { load: (ownerUserId) => routeStore.list(ownerUserId) },
     targets,
-    transport: new OpenSshControlTransport()
+    transport: new OpenSshControlTransport(),
+    worktrees: createSshWorktreeAuthorizer(taskExecutions)
   });
   const resolveActor = createCodexMachineTasksAuthResolver({
     authenticateMachine: async ({ machineId, token }) => (
@@ -112,6 +118,7 @@ async function createHandler(options: {
   });
   const control = createSshControlGatewayHttpApi(service, resolveActor);
   const launch = options.runtimeSessions && createWorkspaceRuntimeLaunchHttpApi({
+    authorizeMutation: createWorkspaceRuntimeMutationLaunchAuthorizer(taskExecutions),
     endpoint(request) {
       const endpoint = new URL('/api/workspace-runtimes/socket', requestPublicOrigin(request));
       endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';

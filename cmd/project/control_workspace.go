@@ -31,6 +31,7 @@ var workspaceControlOperations = map[string]string{
 func controlOperations() []string {
 	return []string{
 		"status.v1",
+		"worktree.prepare.v1",
 		"workspace-runtime.clean.v1",
 		"workspace-runtime.inspect.v1",
 		"workspace-runtime.reconcile.v1",
@@ -94,6 +95,7 @@ func executeWorkspaceRuntimeControl(
 			Capabilities:          append([]string{}, request.RuntimeSessionCapabilities...),
 			RequestedCapabilities: append([]string{}, request.RuntimeSessionRequestedCapabilities...),
 			OwnerUserID:           request.RuntimeSessionOwnerUserID,
+			WorktreeOwnerThreadID: request.WorktreeOwnerThreadID,
 			ControllerBinary:      controllerBinary,
 		}
 	}
@@ -194,13 +196,16 @@ func validRuntimeSessionBootstrap(request controlGatewayOperationRequest) bool {
 	}
 	requested := map[string]bool{}
 	for _, capability := range request.RuntimeSessionRequestedCapabilities {
-		if (capability != "runtime.codex.v1" && capability != "runtime.control.v1") || requested[capability] {
+		if (capability != "runtime.codex.v1" && capability != "runtime.control.v1" && capability != "runtime.mutation.v1") || requested[capability] {
 			return false
 		}
 		requested[capability] = true
 	}
-	if len(requested) > 2 || (requested["runtime.codex.v1"] || requested["runtime.control.v1"]) &&
+	if len(requested) > 3 || (requested["runtime.codex.v1"] || requested["runtime.control.v1"] || requested["runtime.mutation.v1"]) &&
 		(request.RuntimeSessionOwnerUserID == "" || len(request.RuntimeSessionOwnerUserID) > 256 || strings.ContainsAny(request.RuntimeSessionOwnerUserID, "\x00\r\n")) {
+		return false
+	}
+	if requested["runtime.mutation.v1"] && !controlWorkspaceIDPattern.MatchString(request.WorktreeOwnerThreadID) {
 		return false
 	}
 	return true
@@ -210,7 +215,7 @@ func runtimeSessionValuesPresent(request controlGatewayOperationRequest) bool {
 	return request.RuntimeSessionEndpoint != "" || request.RuntimeSessionToken != "" ||
 		request.RuntimeSessionExpiresAt != "" || request.RuntimeSessionVersion != "" ||
 		len(request.RuntimeSessionCapabilities) > 0 || len(request.RuntimeSessionRequestedCapabilities) > 0 ||
-		request.RuntimeSessionOwnerUserID != ""
+		request.RuntimeSessionOwnerUserID != "" || request.WorktreeOwnerThreadID != ""
 }
 
 func containsRuntimeCapability(values []string, expected string) bool {

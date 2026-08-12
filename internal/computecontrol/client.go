@@ -202,7 +202,8 @@ func validLaunchRequest(value WorkspaceRuntimeLaunchRequest) bool {
 		regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(value.ManifestDigest) &&
 		regexp.MustCompile(`^[A-Za-z0-9._+-]{1,64}$`).MatchString(value.RuntimeVersion) &&
 		(value.Mode == "process" || value.Mode == "devcontainer") &&
-		(value.Profile == "codex" || value.Profile == "inspection") &&
+		(value.Profile == "codex" || value.Profile == "inspection" || value.Profile == "mutation") &&
+		(value.Profile == "mutation") == uuidPattern.MatchString(value.WorktreeOwnerThreadID) &&
 		value.Branch != "" && len(value.Branch) <= 256 && !strings.ContainsAny(value.Branch, "\x00\r\n")
 }
 

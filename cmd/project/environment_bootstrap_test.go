@@ -81,4 +81,24 @@ func TestEnvironmentBootstrapUsesCanonicalTypedBoundary(t *testing.T) {
 	if err := command.Execute(); err != nil || api.request.Profile != "inspection" {
 		t.Fatalf("inspection request = %#v, err = %v", api.request, err)
 	}
+
+	command = newEnvironmentBootstrapCommand(environmentBootstrapDependencies{
+		Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
+			return &fakeComputeInventoryAPI{value: inventory}, nil
+		}},
+		LoadControl:    func(context.Context) (computecontrol.WorkspaceRuntimeAPI, error) { return api, nil },
+		NewOperationID: func(string) (string, error) { return "mutation-operation", nil },
+	})
+	command.SetOut(&bytes.Buffer{})
+	command.SetArgs([]string{
+		"11111111-1111-4111-8111-111111111111", "--workspace", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		"--branch", "issue-648", "--commit", strings.Repeat("a", 40),
+		"--generation", "22222222-2222-4222-8222-222222222222",
+		"--manifest-digest", strings.Repeat("b", 64), "--runtime-version", "0.5.0",
+		"--profile", "mutation", "--worktree-owner-thread", "33333333-3333-4333-8333-333333333333",
+	})
+	if err := command.Execute(); err != nil || api.request.Profile != "mutation" ||
+		api.request.WorktreeOwnerThreadID != "33333333-3333-4333-8333-333333333333" {
+		t.Fatalf("mutation request = %#v, err = %v", api.request, err)
+	}
 }

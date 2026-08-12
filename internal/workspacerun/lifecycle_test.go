@@ -83,6 +83,114 @@ func TestRuntimeLifecycleReusesOnlyExactGenerationAndPreservesCheckout(t *testin
 	}
 }
 
+func TestRemoteDevServerIntentCannotBeAdoptedByDifferentOperationID(t *testing.T) {
+	manager, _, workspace := newRuntimeTestManager(t)
+	manager.project = newUncertainLifecycleProject()
+	writeDevServerRuntimeFixture(t, workspace, []string{"docs"})
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := manager.identity.Resolve(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, exists, err := manager.store.load(identity)
+	if err != nil || !exists || len(record.DevServers) != 1 {
+		t.Fatalf("runtime record = %#v exists=%v err=%v", record, exists, err)
+	}
+	serverGeneration := record.DevServers[0].ServerGeneration
+	record.DevServerOperation = &devServerOperation{
+		Name: "docs", Action: devServerPublishing, OperationID: "operation-one",
+		ServerGeneration: serverGeneration,
+	}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.MutateDevServer(context.Background(), workspace, "publish", "operation-two", "docs",
+		serverGeneration, OperationOptions{
+			ExpectedWorkspaceID: identity.WorkspaceID, ExpectedCommit: identity.Head,
+			ExpectedDigest: started.ManifestDigest, ExpectedGeneration: started.Generation,
+		})
+	if err == nil || !strings.Contains(err.Error(), "unresolved") {
+		t.Fatalf("changed operation ID adopted intent: %v", err)
+	}
+	stored, _, err := manager.store.load(identity)
+	if err != nil || stored.DevServerOperation == nil || stored.DevServerOperation.OperationID != "operation-one" {
+		t.Fatalf("persisted intent changed: %#v err=%v", stored.DevServerOperation, err)
+	}
+	recovered, err := manager.MutateDevServer(context.Background(), workspace, "publish", "operation-one", "docs",
+		serverGeneration, OperationOptions{
+			ExpectedWorkspaceID: identity.WorkspaceID, ExpectedCommit: identity.Head,
+			ExpectedDigest: started.ManifestDigest, ExpectedGeneration: started.Generation,
+		})
+	if err != nil || recovered.State != "published" || recovered.ServerGeneration == serverGeneration {
+		t.Fatalf("same-operation recovery = %#v err=%v", recovered, err)
+	}
+	replayed, err := manager.MutateDevServer(context.Background(), workspace, "publish", "operation-one", "docs",
+		serverGeneration, OperationOptions{
+			ExpectedWorkspaceID: identity.WorkspaceID, ExpectedCommit: identity.Head,
+			ExpectedDigest: started.ManifestDigest, ExpectedGeneration: started.Generation,
+		})
+	if err != nil || replayed != recovered {
+		t.Fatalf("completed publish replay = %#v want=%#v err=%v", replayed, recovered, err)
+	}
+	_, err = manager.MutateDevServer(context.Background(), workspace, "publish", "operation-three", "docs",
+		recovered.ServerGeneration, OperationOptions{
+			ExpectedWorkspaceID: identity.WorkspaceID, ExpectedCommit: identity.Head,
+			ExpectedDigest: started.ManifestDigest, ExpectedGeneration: started.Generation,
+		})
+	if err == nil || !strings.Contains(err.Error(), "already published") {
+		t.Fatalf("new operation adopted an already published server: %v", err)
+	}
+}
+
+func TestRemoteDevServerStartAndStopUseOwnedRuntimeLedger(t *testing.T) {
+	manager, _, workspace := newRuntimeTestManager(t)
+	project := newUncertainLifecycleProject()
+	manager.project = project
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := manager.identity.Resolve(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, exists, err := manager.store.load(identity)
+	if err != nil || !exists {
+		t.Fatalf("runtime record missing: exists=%v err=%v", exists, err)
+	}
+	record.ExpectedDevServers = []string{"docs"}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	options := OperationOptions{
+		ExpectedWorkspaceID: identity.WorkspaceID, ExpectedCommit: identity.Head,
+		ExpectedDigest: started.ManifestDigest, ExpectedGeneration: started.Generation,
+	}
+	created, err := manager.MutateDevServer(context.Background(), workspace, "start", "operation-start", "docs", "", options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.State != "ready" || created.ServerGeneration == "" {
+		t.Fatalf("start result = %#v", created)
+	}
+	stored, _, err := manager.store.load(identity)
+	if err != nil || stored.DevServerOperation != nil || len(stored.DevServers) != 1 ||
+		stored.DevServers[0].ServerGeneration != created.ServerGeneration {
+		t.Fatalf("start evidence = %#v err=%v", stored, err)
+	}
+	stopped, err := manager.MutateDevServer(context.Background(), workspace, "stop", "operation-stop", "docs",
+		created.ServerGeneration, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.State != "stopped" || stopped.ServerGeneration != created.ServerGeneration || len(project.sessions) != 0 {
+		t.Fatalf("stop result = %#v sessions=%#v", stopped, project.sessions)
+	}
+}
+
 func TestReconcileMarksCrashedOwnedRuntimeFailedWithoutGuessing(t *testing.T) {
 	manager, provider, workspace := newRuntimeTestManager(t)
 	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})

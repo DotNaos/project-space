@@ -17,7 +17,14 @@ import type {
   WorkspaceRuntimeControlCommand,
   WorkspaceRuntimeControlMessage
 } from '../../src/shared/workspace-runtime-control-api';
-import { workspaceRuntimeControlCapability } from '../../src/shared/workspace-runtime-session-api';
+import {
+  canonicalRuntimeControlAccessMode,
+  type CanonicalRuntimeControlOperation
+} from '../../src/shared/canonical-runtime-control-api';
+import {
+  workspaceRuntimeControlCapability,
+  workspaceRuntimeMutationCapability
+} from '../../src/shared/workspace-runtime-session-api';
 import { RuntimeSessionError } from './contracts';
 
 const heartbeatIntervalSeconds = 15;
@@ -90,7 +97,10 @@ export class WorkspaceRuntimeSessionService {
   ) {
     const readyCapabilities = registration.readyCapabilities ?? [];
     const codexReady = readyCapabilities.includes('runtime.codex.v1');
-    const controlReady = readyCapabilities.includes(workspaceRuntimeControlCapability);
+    const controlReady = readyCapabilities.some((capability) =>
+      capability === workspaceRuntimeControlCapability ||
+      capability === workspaceRuntimeMutationCapability
+    );
     if (scope.capabilities.includes('runtime.codex.v1') ||
         readyCapabilities.some((capability) => !scope.requestedCapabilities.includes(capability)) ||
         codexReady !== (registration.resumeAfterCodexCommandSequence !== undefined) ||
@@ -181,7 +191,7 @@ export class WorkspaceRuntimeSessionService {
     active: { scope: RuntimeCredentialScope; sessionId: string },
     message: WorkspaceRuntimeControlMessage
   ) {
-    if (!active.scope.capabilities.includes(workspaceRuntimeControlCapability)) {
+    if (!active.scope.capabilities.includes(controlCapability(message.operation))) {
       throw new RuntimeSessionError('invalid_message', 'Workspace Runtime control authority is unavailable.');
     }
     for (const listener of this.controlListeners) await listener(message);
@@ -217,7 +227,7 @@ export class WorkspaceRuntimeSessionService {
 
   dispatchControl(ownerUserId: string, command: WorkspaceRuntimeControlCommand) {
     const active = this.connections.get(workspaceKey(ownerUserId, command.workspaceId));
-    if (!active || !active.scope.capabilities.includes(workspaceRuntimeControlCapability) ||
+    if (!active || !active.scope.capabilities.includes(controlCapability(command.operation)) ||
         active.scope.ownerUserId !== ownerUserId || command.actorUserId !== ownerUserId ||
         command.environmentId !== active.scope.environmentId ||
         command.generation !== active.scope.generation || command.sessionId !== active.sessionId) {
@@ -288,6 +298,12 @@ export class WorkspaceRuntimeSessionService {
       active.connection.close(code, reason);
     }
   }
+}
+
+function controlCapability(operation: CanonicalRuntimeControlOperation) {
+  return canonicalRuntimeControlAccessMode(operation) === 'mutation'
+    ? workspaceRuntimeMutationCapability
+    : workspaceRuntimeControlCapability;
 }
 
 export function runtimeSessionFailure(error: unknown) {

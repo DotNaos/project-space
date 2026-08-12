@@ -16,7 +16,8 @@ import type { ComputeInventorySnapshot } from '../src/shared/compute-environment
 import type { WorkspaceRuntimeSessionSnapshot } from '../src/shared/workspace-runtime-session-api';
 import {
   workspaceRuntimeBaseCapabilities,
-  workspaceRuntimeControlCapability
+  workspaceRuntimeControlCapability,
+  workspaceRuntimeMutationCapability
 } from '../src/shared/workspace-runtime-session-api';
 import { parseRuntimeControlMessage } from '../server/workspace-runtime-session/validation';
 
@@ -50,7 +51,10 @@ function fixture(options: {
     violations: []
   } satisfies ComputeInventorySnapshot;
   const runtime = {
-    branch: 'issue-647', capabilities: ['runtime.control.v1' as never], commit: 'a'.repeat(40),
+    branch: 'issue-647', capabilities: [
+      workspaceRuntimeControlCapability,
+      workspaceRuntimeMutationCapability
+    ], commit: 'a'.repeat(40),
     connectionState: 'online', devServers: [], environmentId, expiresAt: '2026-08-13T00:00:00.000Z',
     generation, lastEventAt: '2026-08-12T00:00:00.000Z', lastHeartbeatAt: '2026-08-12T00:00:00.000Z',
     lastSequence: 1, lifecycleState: 'running', manifestDigest: 'b'.repeat(64), runtimeVersion: '1.0.0',
@@ -59,7 +63,12 @@ function fixture(options: {
   const service = createCanonicalRuntimeControlService({
     authorizer: {
       async authorize(input) {
-        calls.push({ phase: input.phase, operation: input.operation });
+        calls.push({
+          phase: input.phase,
+          operation: input.operation,
+          safeInput: input.safeInput,
+          ...(input.phase === 'exact' ? { target: input.target } : {})
+        });
         return options.authorized !== false && input.phase !== options.deniedPhase;
       }
     },
@@ -110,6 +119,22 @@ function fixture(options: {
 }
 
 function request(operation: CanonicalRuntimeControlOperation, operationId = `operation:${operation}`) {
+  const input = (() => {
+    switch (operation) {
+      case 'git.diff': return { staged: false };
+      case 'git.stage':
+      case 'git.unstage': return { expectedHead: 'a'.repeat(40), scope: 'all' as const };
+      case 'git.commit': return { expectedHead: 'a'.repeat(40), message: 'Canonical commit' };
+      case 'task.start': return {
+        taskExecutionId: '33333333-3333-4333-8333-333333333333',
+        workspaceLeaseId: '44444444-4444-4444-8444-444444444444'
+      };
+      case 'dev-server.start': return { serverId: 'dev' };
+      case 'dev-server.publish':
+      case 'dev-server.stop': return { expectedServerGeneration: 'server-generation:3', serverId: 'dev' };
+      default: return {};
+    }
+  })();
   return {
     apiVersion: canonicalRuntimeControlApiVersion,
     environmentId,
@@ -117,7 +142,7 @@ function request(operation: CanonicalRuntimeControlOperation, operationId = `ope
     expectedTargetIdentityRevision: '7:environment:canonical',
     operation,
     operationId,
-    ...(operation === 'git.diff' ? { staged: false } : {}),
+    ...input,
     workspaceId
   } as Parameters<ReturnType<typeof createCanonicalRuntimeControlService>['execute']>[1];
 }
@@ -133,7 +158,19 @@ function output(operation: CanonicalRuntimeControlOperation): CanonicalRuntimeCo
     case 'worktree.list': return {
       current: 1, detached: 0, locked: 0, prunable: 0, total: 1, truncated: false
     };
+    case 'git.stage':
+    case 'git.unstage': return {
+      changed: true, clean: false, conflicted: 0, head: 'a'.repeat(40), staged: 1,
+      truncated: false, unstaged: 0, untracked: 0
+    };
+    case 'git.commit': return { commit: 'b'.repeat(40), parent: 'a'.repeat(40) };
+    case 'task.start': return {
+      state: 'ready_for_agent', taskExecutionId: '33333333-3333-4333-8333-333333333333'
+    };
     case 'dev-server.inspect': return { failed: 0, ready: 1, starting: 0, stopped: 0, total: 1 };
+    case 'dev-server.start': return { serverGeneration: 'server-generation:1', serverId: 'dev', state: 'ready' };
+    case 'dev-server.publish': return { serverGeneration: 'server-generation:3', serverId: 'dev', state: 'published' };
+    case 'dev-server.stop': return { serverGeneration: 'server-generation:3', serverId: 'dev', state: 'stopped' };
   }
 }
 
@@ -204,6 +241,61 @@ describe('canonical runtime control', () => {
     } as never)).rejects.toMatchObject({ code: 'invalid_request' });
   });
 
+  test('rejects every caller-controlled mutation escape hatch and malformed bounded input', async () => {
+    const runtime = fixture();
+    for (const unsafe of [
+      { ...request('git.stage', 'unsafe:path'), paths: ['secret.txt'] },
+      { ...request('git.unstage', 'unsafe:cwd'), cwd: '/tmp/repository' },
+      { ...request('git.commit', 'unsafe:message'), message: 'line one\nline two' },
+      { ...request('task.start', 'unsafe:command'), command: 'rm -rf project' },
+      { ...request('dev-server.start', 'unsafe:connector'), connectorId: 'legacy' },
+      { ...request('dev-server.publish', 'unsafe:url'), url: 'https://public.example' },
+      { ...request('dev-server.stop', 'unsafe:generation'), expectedServerGeneration: '' }
+    ]) {
+      await expect(runtime.service.execute(actor, unsafe as never))
+        .rejects.toMatchObject({ code: 'invalid_request' });
+    }
+    expect(runtime.calls.some(({ inventory }) => inventory)).toBe(false);
+  });
+
+  test('requires mutation Runtime authority independently from inspection authority', async () => {
+    const runtime = fixture({ runtime: { capabilities: [workspaceRuntimeControlCapability] } });
+    await expect(runtime.service.execute(actor, request('git.stage', 'mutation:capability')))
+      .rejects.toMatchObject({ code: 'target_unavailable' });
+    await expect(runtime.service.execute(actor, request('git.status', 'read:capability')))
+      .resolves.toMatchObject({ state: 'completed' });
+  });
+
+  test('authorizes bounded mutation input before lookup and the complete target before dispatch', async () => {
+    const runtime = fixture();
+    await runtime.service.execute(actor, request('git.commit', 'mutation:auth-order'));
+    expect(runtime.calls[0]).toMatchObject({
+      operation: 'git.commit',
+      phase: 'coarse',
+      safeInput: {
+        expectedHead: 'a'.repeat(40),
+        message: 'Canonical commit',
+        operation: 'git.commit'
+      }
+    });
+    const exact = runtime.calls.filter(({ phase }) => phase === 'exact');
+    expect(exact).toHaveLength(2);
+    expect(exact.every((entry) => JSON.stringify(entry.target) === JSON.stringify({
+      branch: 'issue-647',
+      commit: 'a'.repeat(40),
+      environmentId,
+      generation,
+      manifestDigest: 'b'.repeat(64),
+      platformId: 'platform',
+      sessionId: 'session-runtime',
+      targetIdentityRevision: '7:environment:canonical',
+      workspaceId
+    }))).toBe(true);
+    const firstInventory = runtime.calls.findIndex(({ inventory }) => Boolean(inventory));
+    const coarse = runtime.calls.findIndex(({ phase }) => phase === 'coarse');
+    expect(coarse).toBeLessThan(firstInventory);
+  });
+
   test('dispatches through the authenticated outbound Runtime socket with no Connector process', async () => {
     const base = fixture();
     const store = new MemoryRuntimeSessionStore();
@@ -218,7 +310,10 @@ describe('canonical runtime control', () => {
       branch: 'issue-647', capabilities: [...workspaceRuntimeBaseCapabilities],
       commit: 'a'.repeat(40), environmentId, generation, manifestDigest: 'b'.repeat(64),
       operationId: 'runtime-control-credential', ownerUserId: actor.ownerUserId,
-      requestedCapabilities: [workspaceRuntimeControlCapability], runtimeVersion: '1.0.0',
+      requestedCapabilities: [
+        workspaceRuntimeControlCapability,
+        workspaceRuntimeMutationCapability
+      ], runtimeVersion: '1.0.0',
       workspaceId
     });
     const scope = await store.authenticate(issued.credential.token);
@@ -230,7 +325,10 @@ describe('canonical runtime control', () => {
     };
     const active = await sessions.register(socket, scope!, {
       branch: 'issue-647', commit: 'a'.repeat(40), environmentId, generation,
-      manifestDigest: 'b'.repeat(64), readyCapabilities: [workspaceRuntimeControlCapability],
+      manifestDigest: 'b'.repeat(64), readyCapabilities: [
+        workspaceRuntimeControlCapability,
+        workspaceRuntimeMutationCapability
+      ],
       resumeAfterControlCommandSequence: 0, resumeAfterControlEventSequence: 0,
       resumeAfterSequence: 0, runtimeVersion: '1.0.0', schemaVersion: 1,
       type: 'runtime.register', workspaceId
@@ -294,6 +392,56 @@ describe('canonical runtime control', () => {
       output: { failed: 0, ready: 1, starting: 0, stopped: 0, total: 1 },
       state: 'completed'
     });
+
+    const mutation = service.execute(actor, request('dev-server.stop', 'runtime:dev-server-stop'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const mutationCommand = JSON.parse(socket.messages.at(-1)!) as Record<string, unknown>;
+    expect(mutationCommand).toMatchObject({
+      environmentId,
+      expectedServerGeneration: 'server-generation:3',
+      generation,
+      operation: 'dev-server.stop',
+      serverId: 'dev',
+      type: 'runtime.control.command',
+      workspaceId
+    });
+    expect(mutationCommand).not.toHaveProperty('path');
+    expect(mutationCommand).not.toHaveProperty('command');
+    expect(mutationCommand).not.toHaveProperty('connectorId');
+    await sessions.acceptControl(active, {
+      ...mutationCommand,
+      acceptedCommandSequence: mutationCommand.commandSequence,
+      eventSequence: 3,
+      replayed: false,
+      type: 'runtime.control.command-accepted'
+    } as never);
+    await expect(sessions.acceptControl(active, {
+      ...mutationCommand,
+      eventSequence: 4,
+      output: { serverGeneration: 'server-generation:other', serverId: 'dev', state: 'stopped' },
+      state: 'completed',
+      type: 'runtime.control.result'
+    } as never)).rejects.toThrow('binding changed');
+    await sessions.acceptControl(active, {
+      ...mutationCommand,
+      eventSequence: 4,
+      output: { serverGeneration: 'server-generation:3', serverId: 'dev', state: 'stopped' },
+      state: 'completed',
+      type: 'runtime.control.result'
+    } as never);
+    await expect(mutation).resolves.toMatchObject({
+      output: { serverGeneration: 'server-generation:3', serverId: 'dev', state: 'stopped' },
+      state: 'completed'
+    });
+    expect((await operations.read(actor.ownerUserId, 'runtime:dev-server-stop'))?.identity)
+      .toMatchObject({
+        accessMode: 'mutation',
+        safeInput: {
+          expectedServerGeneration: 'server-generation:3',
+          operation: 'dev-server.stop',
+          serverId: 'dev'
+        }
+      });
     dispatcher.close();
     sessions.close();
   });
@@ -309,8 +457,10 @@ describe('canonical runtime control', () => {
     );
     const identity = {
       actorId: actor.actorId, actorKind: actor.actorKind, actorUserId: actor.ownerUserId,
-      compatibilityAlias: false, environmentId, generation, operation: 'git.status' as const,
+      accessMode: 'read' as const, compatibilityAlias: false, environmentId, generation,
+      operation: 'git.status' as const,
       operationId: 'runtime:crash-after-accept', ownerUserId: actor.ownerUserId,
+      safeInput: { operation: 'git.status' as const },
       sessionId: 'session-before-crash', targetIdentityRevision: '7:environment:canonical', workspaceId
     };
     const reservedAt = new Date().toISOString();
@@ -374,7 +524,8 @@ describe('canonical runtime control', () => {
       },
       request: controlRequest,
       target: {
-        environmentId, generation, sessionId: 'session-before-change',
+        branch: 'issue-657', commit: 'a'.repeat(40), environmentId, generation,
+        manifestDigest: 'b'.repeat(64), platformId: 'platform', sessionId: 'session-before-change',
         targetIdentityRevision: controlRequest.expectedTargetIdentityRevision, workspaceId
       }
     })).resolves.toMatchObject({ state: 'failed' });
@@ -405,7 +556,11 @@ describe('canonical runtime control', () => {
       sessionId: 'session-runtime', targetIdentityRevision: '7:environment:canonical', workspaceId
     };
     const activeScope = {
-      ...scope!, capabilities: [...scope!.capabilities, workspaceRuntimeControlCapability]
+      ...scope!, capabilities: [
+        ...scope!.capabilities,
+        workspaceRuntimeControlCapability,
+        workspaceRuntimeMutationCapability
+      ]
     };
     for (const operation of canonicalRuntimeControlOperations) {
       expect(parseRuntimeControlMessage({
@@ -421,5 +576,21 @@ describe('canonical runtime control', () => {
       state: 'completed', type: 'runtime.control.result'
     }, activeScope, binding.sessionId))
       .toThrow();
+    expect(() => parseRuntimeControlMessage({
+      ...binding,
+      code: 'blocked_dependency',
+      message: 'Dependency unavailable.',
+      operation: 'git.stage',
+      type: 'runtime.control.error'
+    }, activeScope, binding.sessionId)).toThrow();
+    expect(parseRuntimeControlMessage({
+      ...binding,
+      code: 'blocked_dependency',
+      message: 'Codex host controller unavailable.',
+      operation: 'task.start',
+      type: 'runtime.control.error'
+    }, activeScope, binding.sessionId)).toMatchObject({
+      code: 'blocked_dependency', operation: 'task.start'
+    });
   });
 });

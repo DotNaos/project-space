@@ -17,7 +17,8 @@ import {
   type SshGatewayAuthorizationProvider,
   type SshGatewayOperationStore,
   type SshGatewayRouteSource,
-  type SshGatewayTargetResolver
+  type SshGatewayTargetResolver,
+  type SshGatewayWorktreeAuthorizer
 } from './contracts';
 import { isUuid, validateReplayRequest, validateRequest } from './request-validation';
 
@@ -31,6 +32,7 @@ export class SshControlGatewayService {
     routes: SshGatewayRouteSource;
     targets: SshGatewayTargetResolver;
     transport: SshControlTransport;
+    worktrees?: SshGatewayWorktreeAuthorizer;
   }) {}
 
   async replaySucceeded(
@@ -50,6 +52,7 @@ export class SshControlGatewayService {
       target.targetIdentityRevision !== authorization.target.identityRevision) {
       throw new SshGatewayError('route_unavailable', 'The Environment identity is unresolved.');
     }
+    await this.authorizeWorktree(actor, request);
     const selected = await selectAuthorizedAccessRoute({
       authorization,
       loadCandidates: () => this.dependencies.routes.load(actor.ownerUserId)
@@ -95,6 +98,7 @@ export class SshControlGatewayService {
       target.targetIdentityRevision !== firstAuthorization.target.identityRevision) {
       throw new SshGatewayError('route_unavailable', 'The Environment identity is unresolved.');
     }
+    await this.authorizeWorktree(actor, request);
     const selected = await selectAuthorizedAccessRoute({
       authorization: firstAuthorization,
       loadCandidates: () => this.dependencies.routes.load(actor.ownerUserId)
@@ -179,6 +183,7 @@ export class SshControlGatewayService {
       if (!sameTargetBinding(finalTarget, target)) {
         throw new SshGatewayError('route_unavailable', 'The Environment identity changed.');
       }
+      await this.authorizeWorktree(actor, request);
       const finalRoute = await selectAuthorizedAccessRoute({
         authorization: finalAuthorization,
         explicitRouteId: selected.route.routeId,
@@ -247,6 +252,17 @@ export class SshControlGatewayService {
       return credential;
     } catch {
       throw new SshGatewayError('credential_unavailable', 'SSH credential is unavailable.');
+    }
+  }
+
+  private async authorizeWorktree(actor: SshGatewayActor, request: SshGatewayRequest) {
+    if (request.operation !== 'worktree.prepare.v1') return;
+    if (!this.dependencies.worktrees ||
+      !await this.dependencies.worktrees.authorize(actor, request)) {
+      throw new SshGatewayError(
+        'authorization_denied',
+        'Worktree preparation is not authorized for this Task Execution.'
+      );
     }
   }
 
@@ -323,7 +339,33 @@ function validateControlResponse(
   if (request.operation === 'status.v1') {
     return validateStatusResponse(value, request, targetIdentityRevision, startedAt);
   }
+  if (request.operation === 'worktree.prepare.v1') {
+    return validateWorktreePrepareResponse(value, request, targetIdentityRevision, startedAt);
+  }
   return validateWorkspaceRuntimeResponse(value, request, targetIdentityRevision, startedAt);
+}
+
+function validateWorktreePrepareResponse(
+  value: string,
+  request: SshGatewayRequest,
+  targetIdentityRevision: string,
+  startedAt: number
+): SshGatewaySafeResult {
+  const lines = value.trim().split('\n');
+  if (lines.length !== 1) throw incompatible();
+  const parsed = strictObject(lines[0]!, [
+    'branch', 'checkedAt', 'commit', 'operation', 'operationId', 'schemaVersion',
+    'state', 'targetIdentityRevision', 'type', 'workspaceId'
+  ]);
+  const checkedAt = typeof parsed.checkedAt === 'string' ? Date.parse(parsed.checkedAt) : NaN;
+  if (parsed.schemaVersion !== 1 || parsed.type !== 'result' ||
+    parsed.operation !== request.operation || parsed.operationId !== request.operationId ||
+    parsed.targetIdentityRevision !== targetIdentityRevision || parsed.workspaceId !== request.workspaceId ||
+    parsed.branch !== request.branch || parsed.commit !== request.commit || parsed.state !== 'ready' ||
+    !Number.isFinite(checkedAt) || checkedAt < startedAt - 30_000 || checkedAt > Date.now() + 30_000) {
+    throw incompatible();
+  }
+  return parsed as unknown as SshGatewaySafeResult;
 }
 
 function validateStatusResponse(
@@ -425,6 +467,8 @@ function requestFingerprint(
     environmentId: request.environmentId,
     gatewayId: authorization.gatewayId,
     operation: request.operation,
+    branch: request.branch,
+    commit: request.commit,
     expectedBranch: request.expectedBranch,
     expectedCommit: request.expectedCommit,
     expectedGeneration: request.expectedGeneration,
@@ -432,9 +476,11 @@ function requestFingerprint(
     expectedRuntimeVersion: request.expectedRuntimeVersion,
     mode: request.mode,
     ownerUserId: actor.ownerUserId,
+    repository: request.repository,
     runtimeSessionOwnerUserId: request.runtimeSessionOwnerUserId,
     runtimeSessionRequestedCapabilities: request.runtimeSessionRequestedCapabilities,
     targetIdentityRevision: authorization.target.identityRevision,
+    worktreeOwnerThreadId: request.worktreeOwnerThreadId,
     workspaceId: request.workspaceId
   })).digest('hex');
 }

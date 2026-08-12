@@ -13,11 +13,13 @@ export const workspaceRuntimeReadyCapabilities = [
 ] as const;
 
 export const workspaceRuntimeControlCapability = 'runtime.control.v1' as const;
+export const workspaceRuntimeMutationCapability = 'runtime.mutation.v1' as const;
 
 export type WorkspaceRuntimeBaseCapability = typeof workspaceRuntimeBaseCapabilities[number];
 export type WorkspaceRuntimeReadyCapability =
   | typeof workspaceRuntimeReadyCapabilities[number]
-  | typeof workspaceRuntimeControlCapability;
+  | typeof workspaceRuntimeControlCapability
+  | typeof workspaceRuntimeMutationCapability;
 export type WorkspaceRuntimeCapability =
   | WorkspaceRuntimeBaseCapability
   | WorkspaceRuntimeReadyCapability;

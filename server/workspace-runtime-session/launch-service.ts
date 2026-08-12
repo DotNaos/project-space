@@ -1,6 +1,7 @@
 import {
   workspaceRuntimeBaseCapabilities,
   workspaceRuntimeControlCapability,
+  workspaceRuntimeMutationCapability,
   workspaceRuntimeReadyCapabilities
 } from '../../src/shared/workspace-runtime-session-api';
 import type {
@@ -19,9 +20,10 @@ export interface WorkspaceRuntimeStartAuthority {
   mode: 'process' | 'devcontainer';
   operationId: string;
   ownerUserId: string;
-  profile: 'codex' | 'inspection';
+  profile: 'codex' | 'inspection' | 'mutation';
   runtimeVersion: string;
   workspaceId: string;
+  worktreeOwnerThreadId?: string;
 }
 
 export interface WorkspaceRuntimeStartDispatch {
@@ -43,6 +45,7 @@ export interface WorkspaceRuntimeStartDispatch {
   runtimeSessionToken: string;
   runtimeSessionVersion: string;
   workspaceId: string;
+  worktreeOwnerThreadId?: string;
 }
 
 export interface WorkspaceRuntimeStartResult {
@@ -88,7 +91,10 @@ export class WorkspaceRuntimeSshStartDispatcher implements WorkspaceRuntimeStart
       runtimeSessionOwnerUserId: input.ownerUserId,
       runtimeSessionRequestedCapabilities: requestedCapabilities(input.profile),
       expectedRuntimeVersion: input.runtimeVersion,
-      workspaceId: input.workspaceId
+      workspaceId: input.workspaceId,
+      ...(input.worktreeOwnerThreadId
+        ? { worktreeOwnerThreadId: input.worktreeOwnerThreadId }
+        : {})
     });
     return execution ? startResult(execution) : undefined;
   }
@@ -122,6 +128,7 @@ function startResult(execution: SshGatewayExecutionResult): WorkspaceRuntimeStar
 
 export class WorkspaceRuntimeLaunchService {
   constructor(private readonly dependencies: {
+    authorizeMutation?(input: WorkspaceRuntimeStartAuthority): Promise<boolean>;
     dispatcher: WorkspaceRuntimeStartDispatcher;
     endpoint: string;
     sessions: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
@@ -140,6 +147,7 @@ export class WorkspaceRuntimeLaunchService {
     if (!/^[A-Za-z0-9:._-]{1,256}$/.test(input.operationId)) {
       throw new Error('Workspace Runtime operation identity is invalid.');
     }
+    await this.authorizeMutation(input);
     const replayed = await this.dependencies.dispatcher.replay(input);
     if (replayed) {
       this.validateResult(input, replayed);
@@ -161,6 +169,7 @@ export class WorkspaceRuntimeLaunchService {
       workspaceId: input.workspaceId
     });
     try {
+      await this.authorizeMutation(input);
       const result = await this.dependencies.dispatcher.start({
         environmentId: input.environmentId,
         expectedBranch: input.branch,
@@ -179,7 +188,10 @@ export class WorkspaceRuntimeLaunchService {
         runtimeSessionExpiresAt: issued.credential.expiresAt,
         runtimeSessionToken: issued.credential.token,
         runtimeSessionVersion: input.runtimeVersion,
-        workspaceId: input.workspaceId
+        workspaceId: input.workspaceId,
+        ...(input.worktreeOwnerThreadId
+          ? { worktreeOwnerThreadId: input.worktreeOwnerThreadId }
+          : {})
       });
       this.validateResult(input, result);
       return { replayed: false, result };
@@ -188,6 +200,14 @@ export class WorkspaceRuntimeLaunchService {
         input.ownerUserId, input.workspaceId, issued.credential.credentialId
       );
       throw error;
+    }
+  }
+
+  private async authorizeMutation(input: WorkspaceRuntimeStartAuthority) {
+    if (input.profile !== 'mutation') return;
+    if (!this.dependencies.authorizeMutation ||
+      !await this.dependencies.authorizeMutation(input)) {
+      throw new Error('Workspace Runtime mutation launch is not authorized.');
     }
   }
 
@@ -202,7 +222,9 @@ export class WorkspaceRuntimeLaunchService {
 }
 
 function requestedCapabilities(profile: WorkspaceRuntimeStartAuthority['profile']) {
-  return profile === 'inspection'
-    ? [workspaceRuntimeControlCapability]
-    : [...workspaceRuntimeReadyCapabilities, workspaceRuntimeControlCapability];
+  if (profile === 'inspection') return [workspaceRuntimeControlCapability];
+  if (profile === 'mutation') {
+    return [workspaceRuntimeControlCapability, workspaceRuntimeMutationCapability];
+  }
+  return [...workspaceRuntimeReadyCapabilities, workspaceRuntimeControlCapability];
 }

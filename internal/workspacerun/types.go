@@ -187,6 +187,7 @@ type RuntimeSessionBootstrap struct {
 	Capabilities          []string
 	RequestedCapabilities []string
 	OwnerUserID           string
+	WorktreeOwnerThreadID string
 	ControllerBinary      string
 }
 
@@ -243,24 +244,42 @@ type Streams struct {
 }
 
 type ManagedDevServer struct {
-	Name        string  `json:"name"`
-	ServerID    string  `json:"serverId"`
-	TmuxSession string  `json:"tmuxSession"`
-	State       string  `json:"state"`
-	LocalPort   *int    `json:"localPort"`
-	LocalURL    *string `json:"localUrl"`
+	Name             string  `json:"name"`
+	ServerID         string  `json:"serverId"`
+	ServerGeneration string  `json:"serverGeneration"`
+	TmuxSession      string  `json:"tmuxSession"`
+	State            string  `json:"state"`
+	LocalPort        *int    `json:"localPort"`
+	LocalURL         *string `json:"localUrl"`
 }
 
 type devServerAction string
 
 const (
-	devServerStarting devServerAction = "starting"
-	devServerStopping devServerAction = "stopping"
+	devServerStarting   devServerAction = "starting"
+	devServerPublishing devServerAction = "publishing"
+	devServerStopping   devServerAction = "stopping"
 )
 
 type devServerOperation struct {
-	Name   string          `json:"name"`
-	Action devServerAction `json:"action"`
+	Name             string          `json:"name"`
+	Action           devServerAction `json:"action"`
+	OperationID      string          `json:"operationId,omitempty"`
+	ServerGeneration string          `json:"serverGeneration,omitempty"`
+}
+
+type completedDevServerMutation struct {
+	Name                     string          `json:"name"`
+	Action                   devServerAction `json:"action"`
+	OperationID              string          `json:"operationId"`
+	ExpectedServerGeneration string          `json:"expectedServerGeneration"`
+	ResultServerGeneration   string          `json:"resultServerGeneration"`
+}
+
+type DevServerMutationResult struct {
+	ServerID         string `json:"serverId"`
+	ServerGeneration string `json:"serverGeneration"`
+	State            string `json:"state"`
 }
 
 type Result struct {

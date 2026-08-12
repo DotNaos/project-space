@@ -397,9 +397,10 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   });
   const canonicalRuntimeControl = runtimeControlOperations
     ? createCanonicalRuntimeControlRuntime({
-        machineConnection: options.machineConnectionRuntime,
-        operations: runtimeControlOperations,
-        runtimeSessions: workspaceRuntimeSessionService
+      machineConnection: options.machineConnectionRuntime,
+      operations: runtimeControlOperations,
+      runtimeSessions: workspaceRuntimeSessionService,
+      taskExecutions: database
       })
     : undefined;
   const server = createServer(

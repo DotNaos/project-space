@@ -11,6 +11,84 @@ type ClaimOptions struct {
 	ThreadID  string
 }
 
+type ExactClaimOptions struct {
+	StartPath   string
+	TaskName    string
+	ThreadID    string
+	WorkspaceID string
+}
+
+// ClaimExact finishes ownership for one server-materialized worktree using the
+// server-issued immutable Workspace identity. It never creates or removes a
+// checkout and refuses any conflicting ownership evidence.
+func ClaimExact(options ExactClaimOptions) (Result, error) {
+	if err := validateThreadID(options.ThreadID); err != nil {
+		return Result{}, err
+	}
+	if !threadIDPattern.MatchString(strings.TrimSpace(options.WorkspaceID)) ||
+		strings.TrimSpace(options.TaskName) == "" || strings.ContainsAny(options.TaskName, "\x00\r\n") {
+		return Result{}, errors.New("exact worktree ownership is invalid")
+	}
+	options.ThreadID = strings.TrimSpace(options.ThreadID)
+	options.WorkspaceID = strings.TrimSpace(options.WorkspaceID)
+	result := Result{}
+	err := withOwnershipLock(options.StartPath, func() error {
+		repo, path, err := inspectRepository(options.StartPath)
+		if err != nil {
+			return err
+		}
+		branch, err := validateDedicatedWorktree(repo, path)
+		if err != nil {
+			return err
+		}
+		owner, _, err := worktreeConfigValue(path, ownerConfigKey)
+		if err != nil {
+			return err
+		}
+		workspaceID, _, err := worktreeConfigValue(path, workspaceConfigKey)
+		if err != nil {
+			return err
+		}
+		managed, _, err := worktreeConfigValue(path, managedConfigKey)
+		if err != nil {
+			return err
+		}
+		task, _, err := worktreeConfigValue(path, taskConfigKey)
+		if err != nil {
+			return err
+		}
+		if owner != "" && owner != options.ThreadID ||
+			workspaceID != "" && workspaceID != options.WorkspaceID ||
+			managed != "" && managed != "true" ||
+			task != "" && task != strings.TrimSpace(options.TaskName) ||
+			managed == "true" && (owner == "" || workspaceID == "") {
+			return errors.New("materialized worktree ownership changed")
+		}
+		if owner == options.ThreadID && workspaceID == options.WorkspaceID && managed == "true" {
+			result = claimedResult(repo, path, branch, owner, "ready")
+			result.WorkspaceID = workspaceID
+			return nil
+		}
+		if err := ensureUnownedWorktreeClaimable(path, repo.baseRef, branch); err != nil {
+			return err
+		}
+		if _, err := git(path, "config", "extensions.worktreeConfig", "true"); err != nil {
+			return fmt.Errorf("enable worktree-specific configuration: %w", err)
+		}
+		values := [][2]string{{taskConfigKey, strings.TrimSpace(options.TaskName)},
+			{workspaceConfigKey, options.WorkspaceID}, {ownerConfigKey, options.ThreadID}, {managedConfigKey, "true"}}
+		for _, value := range values {
+			if _, err := git(path, "config", "--worktree", value[0], value[1]); err != nil {
+				return fmt.Errorf("record exact worktree ownership: %w", err)
+			}
+		}
+		result = claimedResult(repo, path, branch, options.ThreadID, "claimed")
+		result.WorkspaceID = options.WorkspaceID
+		return nil
+	})
+	return result, err
+}
+
 func Claim(options ClaimOptions) (Result, error) {
 	if err := validateThreadID(options.ThreadID); err != nil {
 		return Result{}, err

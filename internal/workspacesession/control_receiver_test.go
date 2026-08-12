@@ -3,6 +3,7 @@ package workspacesession
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +132,168 @@ func TestControlReceiverReplaysCompletedCommandWithoutExecution(t *testing.T) {
 	conflict.ActorID = "different-actor"
 	if err := receiver.handle(context.Background(), mustJSON(t, conflict), func(controlResponse) error { return nil }); err == nil {
 		t.Fatal("conflicting replay was accepted")
+	}
+}
+
+func TestMutationReceiverMutatesRealManagedGitAndFencesAfterCommit(t *testing.T) {
+	workspace, private, bootstrap := mutationGitFixture(t)
+	receiver, err := newControlReceiver(bootstrap, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := receiver.bind("session-mutation", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "new.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stage := mutationTestCommand(receiver, 1, "git.stage")
+	stage.Scope, stage.ExpectedHead = "all", bootstrap.Commit
+	stageResult := mutationResponse(t, receiver, stage)
+	staged, ok := stageResult.Output.(gitMutationSummary)
+	if !ok || !staged.Changed || staged.Staged != 2 || staged.Unstaged != 0 || staged.Untracked != 0 ||
+		staged.Clean || staged.Truncated || staged.Head != bootstrap.Commit {
+		t.Fatalf("stage result = %#v", stageResult)
+	}
+	assertOutputKeys(t, stageResult.Output,
+		"changed", "clean", "conflicted", "head", "staged", "truncated", "unstaged", "untracked")
+	unstage := mutationTestCommand(receiver, 2, "git.unstage")
+	unstage.Scope, unstage.ExpectedHead = "all", bootstrap.Commit
+	unstageResult := mutationResponse(t, receiver, unstage)
+	unstaged, ok := unstageResult.Output.(gitMutationSummary)
+	if !ok || !unstaged.Changed || unstaged.Staged != 0 || unstaged.Unstaged != 1 || unstaged.Untracked != 1 ||
+		unstaged.Clean || unstaged.Truncated {
+		t.Fatalf("unstage result = %#v", unstageResult)
+	}
+	stage.CommandSequence, stage.CommandID, stage.OperationID = 3, "operation-stage-two", "operation-stage-two"
+	mutationResponse(t, receiver, stage)
+	hookMarker := filepath.Join(private, "hook-ran")
+	indexHookMarker := filepath.Join(private, "index-hook-ran")
+	referenceHookMarker := filepath.Join(private, "reference-hook-ran")
+	hooks := filepath.Join(workspace, ".git-hooks")
+	if err := os.MkdirAll(hooks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte("#!/bin/sh\ntouch '"+hookMarker+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runGitTestCommand(t, workspace, "config", "core.hooksPath", hooks)
+	if err := os.WriteFile(filepath.Join(hooks, "post-index-change"), []byte("#!/bin/sh\ntouch '"+indexHookMarker+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "reference-transaction"), []byte("#!/bin/sh\ntouch '"+referenceHookMarker+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stage.CommandSequence, stage.CommandID, stage.OperationID = 4, "operation-stage-hooks", "operation-stage-hooks"
+	mutationResponse(t, receiver, stage)
+	commit := mutationTestCommand(receiver, 5, "git.commit")
+	commit.Message, commit.ExpectedHead = "Canonical mutation", bootstrap.Commit
+	commitResult := mutationResponse(t, receiver, commit)
+	committed, ok := commitResult.Output.(gitCommitSummary)
+	if !ok || committed.Parent != bootstrap.Commit || committed.Commit == bootstrap.Commit {
+		t.Fatalf("commit result = %#v", commitResult)
+	}
+	for _, marker := range []string{hookMarker, indexHookMarker, referenceHookMarker} {
+		if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+			t.Fatalf("repository hook ran at %s: %v", marker, err)
+		}
+	}
+	blocked := mutationTestCommand(receiver, 6, "git.stage")
+	blocked.Scope, blocked.ExpectedHead = "all", bootstrap.Commit
+	response := mutationResponse(t, receiver, blocked)
+	if response.Type != "runtime.control.error" || response.Code != "unavailable" {
+		t.Fatalf("post-commit mutation was not fenced: %#v", response)
+	}
+	encoded := string(mustJSON(t, commitResult))
+	for _, forbidden := range []string{workspace, "Canonical mutation", "tracked.txt", "new.txt"} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("mutation result leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestMutationReceiverRejectsGitFiltersBeforeChangingIndex(t *testing.T) {
+	workspace, _, bootstrap := mutationGitFixture(t)
+	runGitTestCommand(t, workspace, "config", "filter.danger.clean", "false")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := newControlReceiver(bootstrap, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := receiver.bind("session-filter", 0); err != nil {
+		t.Fatal(err)
+	}
+	command := mutationTestCommand(receiver, 1, "git.stage")
+	command.Scope, command.ExpectedHead = "all", bootstrap.Commit
+	response := mutationResponse(t, receiver, command)
+	if response.Type != "runtime.control.error" || response.Code != "unavailable" {
+		t.Fatalf("Git filter was accepted: %#v", response)
+	}
+	if count := strings.TrimSpace(runGitTestCommand(t, workspace, "diff", "--cached", "--name-only")); count != "" {
+		t.Fatalf("index changed despite filter rejection: %q", count)
+	}
+}
+
+func TestMutationReceiverPersistsTaskActivationAndRejectsLeaseConflict(t *testing.T) {
+	_, _, bootstrap := mutationGitFixture(t)
+	receiver, err := newControlReceiver(bootstrap, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := receiver.bind("session-task", 0); err != nil {
+		t.Fatal(err)
+	}
+	command := mutationTestCommand(receiver, 1, "task.start")
+	command.TaskExecutionID = "11111111-1111-4111-8111-111111111111"
+	command.WorkspaceLeaseID = bootstrap.WorkspaceID
+	result := mutationResponse(t, receiver, command)
+	output, ok := result.Output.(taskActivationSummary)
+	if !ok || output.State != "ready_for_agent" {
+		t.Fatalf("task activation = %#v", result)
+	}
+	assertOutputKeys(t, result.Output, "state", "taskExecutionId")
+	info, err := os.Stat(receiver.taskActivationPath())
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("task activation protection = %#v, %v", info, err)
+	}
+	conflict := mutationTestCommand(receiver, 2, "task.start")
+	conflict.TaskExecutionID = "33333333-3333-4333-8333-333333333333"
+	conflict.WorkspaceLeaseID = "44444444-4444-4444-8444-444444444444"
+	if err := receiver.handle(context.Background(), mustJSON(t, conflict), func(controlResponse) error {
+		return nil
+	}); err == nil {
+		t.Fatal("foreign Workspace lease was accepted")
+	}
+}
+
+func TestMutationReceiverEmitsClosedDevServerWireOutput(t *testing.T) {
+	_, _, bootstrap := mutationGitFixture(t)
+	executor := &devServerWireExecutor{}
+	receiver, err := newControlReceiver(bootstrap, nil, executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := receiver.bind("session-dev-server", 0); err != nil {
+		t.Fatal(err)
+	}
+	command := mutationTestCommand(receiver, 1, "dev-server.start")
+	command.ServerID = "docs"
+	response := mutationResponse(t, receiver, command)
+	encoded := mustJSON(t, response.Output)
+	var output map[string]interface{}
+	if json.Unmarshal(encoded, &output) != nil || !reflect.DeepEqual(output, map[string]interface{}{
+		"serverGeneration": "server-generation:1", "serverId": "docs", "state": "ready",
+	}) {
+		t.Fatalf("dev-server wire output = %s", encoded)
+	}
+	if executor.request.Operation != "start" || executor.request.OperationID != command.OperationID ||
+		executor.request.ServerID != "docs" {
+		t.Fatalf("dev-server request binding = %#v", executor.request)
 	}
 }
 
@@ -382,6 +545,95 @@ func controlTestCommand(receiver *controlReceiver, sequence int64, operation str
 	}
 }
 
+func mutationTestCommand(receiver *controlReceiver, sequence int64, operation string) controlCommand {
+	command := controlTestCommand(receiver, sequence, operation, nil)
+	command.CommandID = fmt.Sprintf("mutation-%d", sequence)
+	command.OperationID = command.CommandID
+	return command
+}
+
+type devServerWireExecutor struct {
+	request DevServerMutationRequest
+}
+
+func (executor *devServerWireExecutor) MutateDevServer(
+	_ context.Context,
+	request DevServerMutationRequest,
+) (DevServerMutationOutput, error) {
+	executor.request = request
+	return DevServerMutationOutput{
+		ServerID: request.ServerID, ServerGeneration: "server-generation:1", State: "ready",
+	}, nil
+}
+
+func mutationResponse(t *testing.T, receiver *controlReceiver, command controlCommand) controlResponse {
+	t.Helper()
+	var responses []controlResponse
+	if err := receiver.handle(context.Background(), mustJSON(t, command), func(response controlResponse) error {
+		responses = append(responses, response)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(responses) != 2 {
+		t.Fatalf("mutation responses = %#v", responses)
+	}
+	return responses[1]
+}
+
+func mutationGitFixture(t *testing.T) (string, string, Bootstrap) {
+	t.Helper()
+	projectsRoot := t.TempDir()
+	mainPath := filepath.Join(projectsRoot, "fixture")
+	workspace := filepath.Join(projectsRoot, ".worktrees", "fixture", "issue-658")
+	private := t.TempDir()
+	if err := os.Chmod(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspaceID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	ownerThreadID := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	if err := os.MkdirAll(mainPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runGitTestCommand(t, mainPath, "init", "-b", "main")
+	runGitTestCommand(t, mainPath, "config", "user.name", "Project Test")
+	runGitTestCommand(t, mainPath, "config", "user.email", "project@example.invalid")
+	if err := os.WriteFile(filepath.Join(mainPath, "tracked.txt"), []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitTestCommand(t, mainPath, "add", "tracked.txt")
+	runGitTestCommand(t, mainPath, "commit", "-m", "fixture")
+	runGitTestCommand(t, mainPath, "config", "extensions.worktreeConfig", "true")
+	if err := os.MkdirAll(filepath.Dir(workspace), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runGitTestCommand(t, mainPath, "worktree", "add", "-b", "issue-658", workspace)
+	runGitTestCommand(t, workspace, "config", "--worktree", "project.workspaceId", workspaceID)
+	runGitTestCommand(t, workspace, "config", "--worktree", "project.codexThreadId", ownerThreadID)
+	runGitTestCommand(t, workspace, "config", "--worktree", "project.worktreeManaged", "true")
+	commit := strings.TrimSpace(runGitTestCommand(t, workspace, "rev-parse", "HEAD"))
+	statePath := filepath.Join(private, "state.json")
+	if err := os.WriteFile(statePath, []byte(`{"lifecycleState":"running","devServers":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	return workspace, private, Bootstrap{
+		WorkspaceID: workspaceID, EnvironmentID: "11111111-1111-4111-8111-111111111111",
+		Generation: "22222222-2222-4222-8222-222222222222", Branch: "issue-658", Commit: commit,
+		ManifestDigest: strings.Repeat("b", 64), OwnerUserID: "owner", WorkspacePath: workspace,
+		WorktreeOwnerThreadID: ownerThreadID,
+		JournalPath:           filepath.Join(private, "session.json"), StatePath: statePath,
+		RequestedCapabilities: []string{mutationCapability}, ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+	}
+}
+
 func boolPointer(value bool) *bool { return &value }
 
 func mustJSON(t *testing.T, value interface{}) json.RawMessage {
@@ -391,4 +643,17 @@ func mustJSON(t *testing.T, value interface{}) json.RawMessage {
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func assertOutputKeys(t *testing.T, value interface{}, expected ...string) {
+	t.Helper()
+	var output map[string]interface{}
+	if json.Unmarshal(mustJSON(t, value), &output) != nil || len(output) != len(expected) {
+		t.Fatalf("output schema = %#v", output)
+	}
+	for _, key := range expected {
+		if _, exists := output[key]; !exists {
+			t.Fatalf("output schema is missing %q: %#v", key, output)
+		}
+	}
 }

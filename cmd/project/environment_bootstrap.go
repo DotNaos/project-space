@@ -16,16 +16,17 @@ type environmentBootstrapDependencies struct {
 }
 
 type environmentBootstrapOptions struct {
-	branch         string
-	commit         string
-	format         string
-	generation     string
-	manifestDigest string
-	mode           string
-	operationID    string
-	profile        string
-	runtimeVersion string
-	workspaceID    string
+	branch                string
+	commit                string
+	format                string
+	generation            string
+	manifestDigest        string
+	mode                  string
+	operationID           string
+	profile               string
+	runtimeVersion        string
+	workspaceID           string
+	worktreeOwnerThreadID string
 }
 
 func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencies) *cobra.Command {
@@ -69,6 +70,7 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 				Mode: options.mode, OperationID: operationID,
 				Profile:        options.profile,
 				RuntimeVersion: options.runtimeVersion, WorkspaceID: options.workspaceID,
+				WorktreeOwnerThreadID: options.worktreeOwnerThreadID,
 			})
 			if err != nil {
 				return fmt.Errorf("environment bootstrap %s: %w", operationID, err)
@@ -92,7 +94,8 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 	flags.StringVar(&options.manifestDigest, "manifest-digest", "", "pinned Runtime manifest SHA-256")
 	flags.StringVar(&options.runtimeVersion, "runtime-version", "", "pinned Project Runtime version")
 	flags.StringVar(&options.mode, "mode", options.mode, "Runtime isolation: process or devcontainer")
-	flags.StringVar(&options.profile, "profile", options.profile, "Runtime profile: codex or inspection")
+	flags.StringVar(&options.profile, "profile", options.profile, "Runtime profile: codex, inspection, or mutation")
+	flags.StringVar(&options.worktreeOwnerThreadID, "worktree-owner-thread", "", "exact managed Worktree owner task UUID (mutation profile only)")
 	flags.StringVar(&options.operationID, "operation-id", "", "stable idempotency identity")
 	flags.StringVar(&options.format, "format", options.format, "output format: text or json")
 	for _, name := range []string{

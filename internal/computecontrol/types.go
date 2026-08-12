@@ -39,16 +39,17 @@ type ExecutionResult struct {
 }
 
 type WorkspaceRuntimeLaunchRequest struct {
-	Branch         string `json:"branch"`
-	Commit         string `json:"commit"`
-	EnvironmentID  string `json:"environmentId"`
-	Generation     string `json:"generation"`
-	ManifestDigest string `json:"manifestDigest"`
-	Mode           string `json:"mode"`
-	OperationID    string `json:"operationId"`
-	Profile        string `json:"profile"`
-	RuntimeVersion string `json:"runtimeVersion"`
-	WorkspaceID    string `json:"workspaceId"`
+	Branch                string `json:"branch"`
+	Commit                string `json:"commit"`
+	EnvironmentID         string `json:"environmentId"`
+	Generation            string `json:"generation"`
+	ManifestDigest        string `json:"manifestDigest"`
+	Mode                  string `json:"mode"`
+	OperationID           string `json:"operationId"`
+	Profile               string `json:"profile"`
+	RuntimeVersion        string `json:"runtimeVersion"`
+	WorkspaceID           string `json:"workspaceId"`
+	WorktreeOwnerThreadID string `json:"worktreeOwnerThreadId,omitempty"`
 }
 
 type WorkspaceRuntimeLaunchResult struct {

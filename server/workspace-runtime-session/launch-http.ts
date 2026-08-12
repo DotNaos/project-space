@@ -17,6 +17,7 @@ export const workspaceRuntimeLaunchRoute = '/api/compute/control/workspace-runti
 const maximumBodyBytes = 16 * 1024;
 
 export function createWorkspaceRuntimeLaunchHttpApi(options: {
+  authorizeMutation?(input: WorkspaceRuntimeStartAuthority): Promise<boolean>;
   endpoint(request: IncomingMessage): string;
   gateway: WorkspaceRuntimeSshGateway;
   resolveActor(request: IncomingMessage): Promise<{ callerMachineId?: string; userId: string }>;
@@ -43,6 +44,7 @@ export function createWorkspaceRuntimeLaunchHttpApi(options: {
         ownerUserId: identity.userId
       };
       const service = new WorkspaceRuntimeLaunchService({
+        authorizeMutation: options.authorizeMutation,
         dispatcher: new WorkspaceRuntimeSshStartDispatcher(options.gateway, actor),
         endpoint: options.endpoint(request),
         sessions: options.sessions
@@ -70,15 +72,17 @@ export function createWorkspaceRuntimeLaunchHttpApi(options: {
 function parseLaunch(body: Record<string, unknown>, ownerUserId: string): WorkspaceRuntimeStartAuthority {
   const keys = [
     'branch', 'commit', 'environmentId', 'generation', 'manifestDigest',
-    'mode', 'operationId', 'profile', 'runtimeVersion', 'workspaceId'
+    'mode', 'operationId', 'profile', 'runtimeVersion', 'workspaceId',
+    ...(body.profile === 'mutation' ? ['worktreeOwnerThreadId'] : [])
   ];
   if (Object.keys(body).sort().join('\0') !== keys.sort().join('\0') ||
     !text(body.branch, 256) || !commit(body.commit) || !uuid(body.environmentId) ||
     !uuid(body.generation) || !digest(body.manifestDigest) ||
     body.mode !== 'process' && body.mode !== 'devcontainer' ||
-    body.profile !== 'codex' && body.profile !== 'inspection' ||
+    body.profile !== 'codex' && body.profile !== 'inspection' && body.profile !== 'mutation' ||
     !text(body.operationId, 256, /^[A-Za-z0-9:._-]+$/) ||
-    !text(body.runtimeVersion, 64, /^[A-Za-z0-9._+-]+$/) || !uuid(body.workspaceId)) {
+    !text(body.runtimeVersion, 64, /^[A-Za-z0-9._+-]+$/) || !uuid(body.workspaceId) ||
+    (body.profile === 'mutation') !== uuid(body.worktreeOwnerThreadId)) {
     throw invalid('Workspace Runtime launch request is invalid.');
   }
   return { ...body, ownerUserId } as WorkspaceRuntimeStartAuthority;
