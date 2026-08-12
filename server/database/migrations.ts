@@ -127,6 +127,10 @@ import {
   connectorCompatibilityUsageMigrationId,
   connectorCompatibilityUsageMigrationSql
 } from './connector-compatibility-usage-migration';
+import {
+  canonicalRuntimeControlMigrationId,
+  canonicalRuntimeControlMigrationSql
+} from './canonical-runtime-control-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -835,6 +839,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: connectorCompatibilityUsageMigrationId,
     sql: connectorCompatibilityUsageMigrationSql
+  },
+  {
+    id: canonicalRuntimeControlMigrationId,
+    sql: canonicalRuntimeControlMigrationSql
   }
 ];
 

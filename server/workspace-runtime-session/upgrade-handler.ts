@@ -55,7 +55,7 @@ export function createWorkspaceRuntimeSessionUpgradeHandler(
           if (typeof type === 'string' && type.startsWith('runtime.codex.')) {
             service.acceptCodex(active, parseRuntimeCodexMessage(parsed, active.scope, active.sessionId));
           } else if (typeof type === 'string' && type.startsWith('runtime.control.')) {
-            service.acceptControl(
+            await service.acceptControl(
               active,
               parseRuntimeControlMessage(parsed, active.scope, active.sessionId)
             );

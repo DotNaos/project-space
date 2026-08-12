@@ -26,42 +26,28 @@ export interface CanonicalRuntimeControlInventory {
 }
 
 export interface CanonicalRuntimeControlAuthorizer {
-  authorize(input: {
-    actor: CanonicalRuntimeControlActor;
-    operation: CanonicalRuntimeControlOperation;
-    phase: 'target_resolution' | 'execution';
-    target: Pick<CanonicalRuntimeControlTarget, 'environmentId' | 'workspaceId'>;
-  }): Promise<boolean>;
+  authorize(input:
+    | {
+        actor: CanonicalRuntimeControlActor;
+        operation: CanonicalRuntimeControlOperation;
+        phase: 'coarse';
+      }
+    | {
+        actor: CanonicalRuntimeControlActor;
+        operation: CanonicalRuntimeControlOperation;
+        phase: 'exact';
+        target: CanonicalRuntimeControlTarget;
+      }
+  ): Promise<boolean>;
 }
 
 export interface CanonicalRuntimeControlDispatcher {
   dispatch(input: {
     actor: CanonicalRuntimeControlActor;
+    fingerprint: string;
     request: CanonicalRuntimeControlRequest;
     target: CanonicalRuntimeControlTarget;
-  }): Promise<{
-    output?: CanonicalRuntimeControlResult['output'];
-    state: 'completed' | 'failed';
-  }>;
-}
-
-export interface CanonicalRuntimeControlOperationRecord {
-  fingerprint: string;
-  result?: CanonicalRuntimeControlResult;
-  state: 'dispatching' | 'finished' | 'uncertain';
-}
-
-export interface CanonicalRuntimeControlOperationStore {
-  complete(ownerUserId: string, operationId: string, input: {
-    fingerprint: string;
-    result: CanonicalRuntimeControlResult;
-  }): Promise<void>;
-  markUncertain(ownerUserId: string, operationId: string, fingerprint: string): Promise<void>;
-  reserve(ownerUserId: string, operationId: string, fingerprint: string): Promise<
-    | { kind: 'conflict' }
-    | { kind: 'new' }
-    | { kind: 'replayed'; record: CanonicalRuntimeControlOperationRecord }
-  >;
+  }): Promise<CanonicalRuntimeControlResult>;
 }
 
 export class CanonicalRuntimeControlError extends Error {

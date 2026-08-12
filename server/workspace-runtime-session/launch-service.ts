@@ -1,5 +1,6 @@
 import {
   workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeControlCapability,
   workspaceRuntimeReadyCapabilities
 } from '../../src/shared/workspace-runtime-session-api';
 import type {
@@ -151,7 +152,10 @@ export class WorkspaceRuntimeLaunchService {
       manifestDigest: input.manifestDigest,
       ownerUserId: input.ownerUserId,
       operationId: input.operationId,
-      requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+      requestedCapabilities: [
+        ...workspaceRuntimeReadyCapabilities,
+        workspaceRuntimeControlCapability
+      ],
       runtimeVersion: input.runtimeVersion,
       workspaceId: input.workspaceId
     });
@@ -168,7 +172,10 @@ export class WorkspaceRuntimeLaunchService {
         ownerUserId: input.ownerUserId,
         expectedRuntimeVersion: input.runtimeVersion,
         runtimeSessionCapabilities: [...issued.credential.capabilities],
-        runtimeSessionRequestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+        runtimeSessionRequestedCapabilities: [
+          ...workspaceRuntimeReadyCapabilities,
+          workspaceRuntimeControlCapability
+        ],
         runtimeSessionOwnerUserId: input.ownerUserId,
         runtimeSessionEndpoint: this.dependencies.endpoint,
         runtimeSessionExpiresAt: issued.credential.expiresAt,

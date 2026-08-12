@@ -7,6 +7,7 @@ import {
   type WorkspaceRuntimeStartDispatch
 } from '../server/workspace-runtime-session/launch-service';
 import { workspaceRuntimeCodexCapability } from '../src/shared/workspace-runtime-codex-api';
+import { workspaceRuntimeControlCapability } from '../src/shared/workspace-runtime-session-api';
 
 const authority = {
   branch: 'issue-625', commit: 'a'.repeat(40),
@@ -42,12 +43,15 @@ describe('Workspace Runtime trusted launch boundary', () => {
       runtimeSessionToken: 'A'.repeat(43), workspaceId: authority.workspaceId
     });
     expect(dispatched?.runtimeSessionCapabilities).not.toContain(workspaceRuntimeCodexCapability);
-    expect(dispatched?.runtimeSessionRequestedCapabilities).toEqual([workspaceRuntimeCodexCapability]);
+    expect(dispatched?.runtimeSessionRequestedCapabilities).toEqual([
+      workspaceRuntimeCodexCapability,
+      workspaceRuntimeControlCapability
+    ]);
     expect(JSON.stringify(result)).not.toContain('A'.repeat(43));
     const scope = await sessions.authenticate('A'.repeat(43));
     expect(scope).toMatchObject({
       environmentId: authority.environmentId, generation: authority.generation,
-      requestedCapabilities: [workspaceRuntimeCodexCapability],
+      requestedCapabilities: [workspaceRuntimeCodexCapability, workspaceRuntimeControlCapability],
       workspaceId: authority.workspaceId
     });
     expect(scope?.capabilities).not.toContain(workspaceRuntimeCodexCapability);

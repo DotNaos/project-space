@@ -88,6 +88,8 @@ import {
   closeConfiguredConnectorRetirementService,
   configuredConnectorRetirementService
 } from './connector-retirement/configured-runtime';
+import { createConfiguredCanonicalRuntimeControlHandler } from './canonical-runtime-control/configured-runtime';
+import { PostgresCanonicalRuntimeControlOperationStore } from './canonical-runtime-control/postgres-operation-store';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -258,6 +260,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const canonicalRuntimeControl = createConfiguredCanonicalRuntimeControlHandler({
+    machineConnection: options.machineConnectionRuntime,
+    runtimeSessions: options.workspaceRuntimeSessions
+  });
   const roadmapCli = createConfiguredRoadmapCliHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
@@ -281,6 +287,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   );
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
+      canonicalRuntimeControl,
       codexAuthorization,
       codexSessions,
       codexMachineTasks,
@@ -360,12 +367,21 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const projectChatRuntime = await resolveProjectChatRuntime(options, backend);
   const machineConnectionRuntime = options.machineConnectionRuntime;
   const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
+  const database = isDatabaseConfigured()
+    ? await getMachineConnectionDatabaseClient()
+    : undefined;
+  const runtimeControlOperations = database
+    ? new PostgresCanonicalRuntimeControlOperationStore(database)
+    : undefined;
   const workspaceRuntimeSessionService = options.workspaceRuntimeSessions ??
-    new WorkspaceRuntimeSessionService(isDatabaseConfigured()
-      ? new PostgresRuntimeSessionStore(await getMachineConnectionDatabaseClient())
-      : new MemoryRuntimeSessionStore());
-  const projectHostdStore = isDatabaseConfigured()
-    ? new PostgresProjectHostdStore(await getMachineConnectionDatabaseClient())
+    new WorkspaceRuntimeSessionService(
+      database ? new PostgresRuntimeSessionStore(database) : new MemoryRuntimeSessionStore(),
+      undefined,
+      undefined,
+      runtimeControlOperations ? { read: (...args) => runtimeControlOperations.watermarks(...args) } : undefined
+    );
+  const projectHostdStore = database
+    ? new PostgresProjectHostdStore(database)
     : new MemoryProjectHostdStore();
   const projectHostd = createConfiguredProjectHostdRuntime({
     backend,

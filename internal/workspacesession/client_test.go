@@ -220,7 +220,7 @@ func TestClientControllerStartupFailureNeverDials(t *testing.T) {
 func TestReadAcceptedFailsWhenInboundChannelCloses(t *testing.T) {
 	inbound := make(chan inboundFrame)
 	close(inbound)
-	if _, err := readAccepted(context.Background(), inbound, "runtime.registered", nil); err == nil {
+	if _, err := readAccepted(context.Background(), inbound, "runtime.registered", nil, nil, nil); err == nil {
 		t.Fatal("closed inbound channel was accepted")
 	}
 }

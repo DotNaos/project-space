@@ -93,7 +93,8 @@ func executeWorkspaceRuntimeControl(
 			RuntimeVersion:        request.RuntimeSessionVersion,
 			Capabilities:          append([]string{}, request.RuntimeSessionCapabilities...),
 			RequestedCapabilities: append([]string{}, request.RuntimeSessionRequestedCapabilities...),
-			OwnerUserID:           request.RuntimeSessionOwnerUserID, ControllerBinary: controllerBinary,
+			OwnerUserID:           request.RuntimeSessionOwnerUserID,
+			ControllerBinary:      controllerBinary,
 		}
 	}
 	streams := workspacerun.Streams{Out: io.Discard, Err: io.Discard}
@@ -193,12 +194,12 @@ func validRuntimeSessionBootstrap(request controlGatewayOperationRequest) bool {
 	}
 	requested := map[string]bool{}
 	for _, capability := range request.RuntimeSessionRequestedCapabilities {
-		if capability != "runtime.codex.v1" || requested[capability] {
+		if (capability != "runtime.codex.v1" && capability != "runtime.control.v1") || requested[capability] {
 			return false
 		}
 		requested[capability] = true
 	}
-	if len(requested) > 1 || requested["runtime.codex.v1"] &&
+	if len(requested) > 2 || (requested["runtime.codex.v1"] || requested["runtime.control.v1"]) &&
 		(request.RuntimeSessionOwnerUserID == "" || len(request.RuntimeSessionOwnerUserID) > 256 || strings.ContainsAny(request.RuntimeSessionOwnerUserID, "\x00\r\n")) {
 		return false
 	}

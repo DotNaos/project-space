@@ -31,12 +31,27 @@ interface ActiveConnection {
 
 export class WorkspaceRuntimeSessionService {
   private readonly connections = new Map<string, ActiveConnection>();
-  private readonly controlListeners = new Set<(message: WorkspaceRuntimeControlMessage) => void>();
+  private readonly controlListeners = new Set<(
+    message: WorkspaceRuntimeControlMessage
+  ) => Promise<void> | void>();
+  private readonly controlRegistrationListeners = new Set<(input: {
+    generation: string;
+    ownerUserId: string;
+    resumeAfterCommandSequence: number;
+    sessionId: string;
+    workspaceId: string;
+  }) => Promise<void> | void>();
 
   constructor(
     private readonly store: RuntimeSessionStore,
     private readonly now = () => new Date(),
-    private readonly createSessionId = randomUUID
+    private readonly createSessionId = randomUUID,
+    private readonly controlWatermarks?: {
+      read(ownerUserId: string, workspaceId: string, generation: string): Promise<{
+        eventSequence: number;
+        commandSequence: number;
+      } | undefined>;
+    }
   ) {}
 
   authenticate(token: string) {
@@ -87,6 +102,17 @@ export class WorkspaceRuntimeSessionService {
         'Workspace Runtime ready authority was not requested by this credential.'
       );
     }
+    const controlWatermark = controlReady
+      ? await this.controlWatermarks?.read(scope.ownerUserId, scope.workspaceId, scope.generation)
+      : undefined;
+    if (controlReady && (!controlWatermark ||
+      registration.resumeAfterControlCommandSequence! > controlWatermark.commandSequence ||
+      registration.resumeAfterControlEventSequence! < controlWatermark.eventSequence)) {
+      throw new RuntimeSessionError(
+        'sequence_conflict',
+        'Workspace Runtime control resume evidence changed.'
+      );
+    }
     const sessionId = this.createSessionId();
     const receivedAt = this.now().toISOString();
     const result = await this.store.register(scope, sessionId, receivedAt, registration);
@@ -101,6 +127,9 @@ export class WorkspaceRuntimeSessionService {
       previous.connection.close(1012, 'Workspace Runtime session replaced.');
     }
     const response: WorkspaceRuntimeServerMessage = {
+      ...(controlWatermark ? {
+        acceptedControlEventSequence: controlWatermark.eventSequence
+      } : {}),
       acceptedSequence: result.snapshot.lastSequence,
       heartbeatIntervalSeconds,
       replayed: false,
@@ -111,6 +140,15 @@ export class WorkspaceRuntimeSessionService {
       type: 'runtime.registered'
     };
     connection.send(JSON.stringify(response));
+    if (controlReady) {
+      for (const listener of this.controlRegistrationListeners) await listener({
+        generation: scope.generation,
+        ownerUserId: scope.ownerUserId,
+        resumeAfterCommandSequence: registration.resumeAfterControlCommandSequence!,
+        sessionId,
+        workspaceId: scope.workspaceId
+      });
+    }
     return { scope: activeScope, sessionId };
   }
 
@@ -139,20 +177,31 @@ export class WorkspaceRuntimeSessionService {
     return message;
   }
 
-  acceptControl(
+  async acceptControl(
     active: { scope: RuntimeCredentialScope; sessionId: string },
     message: WorkspaceRuntimeControlMessage
   ) {
     if (!active.scope.capabilities.includes(workspaceRuntimeControlCapability)) {
       throw new RuntimeSessionError('invalid_message', 'Workspace Runtime control authority is unavailable.');
     }
-    for (const listener of this.controlListeners) listener(message);
+    for (const listener of this.controlListeners) await listener(message);
     return message;
   }
 
-  onControlMessage(listener: (message: WorkspaceRuntimeControlMessage) => void) {
+  onControlMessage(listener: (message: WorkspaceRuntimeControlMessage) => Promise<void> | void) {
     this.controlListeners.add(listener);
     return () => this.controlListeners.delete(listener);
+  }
+
+  onControlRegistration(listener: (input: {
+    generation: string;
+    ownerUserId: string;
+    resumeAfterCommandSequence: number;
+    sessionId: string;
+    workspaceId: string;
+  }) => Promise<void> | void) {
+    this.controlRegistrationListeners.add(listener);
+    return () => this.controlRegistrationListeners.delete(listener);
   }
 
   dispatchCodex(ownerUserId: string, command: WorkspaceRuntimeCodexCommand) {
@@ -180,6 +229,21 @@ export class WorkspaceRuntimeSessionService {
     active.connection.send(JSON.stringify(command));
   }
 
+  acknowledgeControl(ownerUserId: string, message: WorkspaceRuntimeControlMessage) {
+    const active = this.connections.get(workspaceKey(ownerUserId, message.workspaceId));
+    if (!active || active.scope.ownerUserId !== ownerUserId ||
+        message.actorUserId !== ownerUserId || message.environmentId !== active.scope.environmentId ||
+        message.generation !== active.scope.generation || message.sessionId !== active.sessionId) {
+      throw new RuntimeSessionError(
+        'generation_replaced', 'Workspace Runtime control acknowledgement target changed.'
+      );
+    }
+    active.connection.send(JSON.stringify({
+      acceptedControlEventSequence: message.eventSequence,
+      type: 'runtime.control.accepted'
+    }));
+  }
+
   async disconnect(active: { scope: RuntimeCredentialScope; sessionId: string }) {
     const key = workspaceKey(active.scope.ownerUserId, active.scope.workspaceId);
     const registered = this.connections.get(key);
@@ -203,6 +267,7 @@ export class WorkspaceRuntimeSessionService {
     }
     this.connections.clear();
     this.controlListeners.clear();
+    this.controlRegistrationListeners.clear();
   }
 
   closeExpired(scope: RuntimeCredentialScope, connection: RuntimeSessionConnection) {

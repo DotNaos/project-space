@@ -14,6 +14,7 @@ import type { IssueRuntimeCredentialInput } from './contracts';
 import type { RuntimeCredentialScope } from './contracts';
 import type { WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
 import type { WorkspaceRuntimeControlMessage } from '../../src/shared/workspace-runtime-control-api';
+import { canonicalRuntimeControlOperations } from '../../src/shared/canonical-runtime-control-api';
 import { RuntimeSessionError } from './contracts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -185,6 +186,11 @@ export function parseRuntimeControlMessage(
 ): WorkspaceRuntimeControlMessage {
   if (!scope.capabilities.includes(workspaceRuntimeControlCapability)) invalid();
   const input = object(value);
+  const baseKeys = [
+    'actorId', 'actorKind', 'actorUserId', 'commandId', 'commandSequence', 'environmentId',
+    'eventSequence', 'generation', 'operation', 'operationId', 'schemaVersion', 'sessionId',
+    'targetIdentityRevision', 'type', 'workspaceId'
+  ];
   if (![
     'runtime.control.command-accepted', 'runtime.control.result', 'runtime.control.error'
   ].includes(string(input.type)) || input.schemaVersion !== 1 ||
@@ -192,13 +198,69 @@ export function parseRuntimeControlMessage(
       input.generation !== scope.generation || input.sessionId !== sessionId ||
       input.actorUserId !== scope.ownerUserId || !eventId.test(string(input.actorId)) ||
       !eventId.test(string(input.commandId)) || !eventId.test(string(input.operationId)) ||
-      !Number.isSafeInteger(input.commandSequence) || Number(input.commandSequence) < 1) invalid();
-  if (input.type === 'runtime.control.command-accepted' &&
+      !['agent', 'human', 'orchestrator', 'system'].includes(string(input.actorKind)) ||
+      !canonicalRuntimeControlOperations.includes(input.operation as never) ||
+      !/^[1-9][0-9]*:[A-Za-z0-9:_-]{8,256}$/.test(string(input.targetIdentityRevision)) ||
+      !Number.isSafeInteger(input.commandSequence) || Number(input.commandSequence) < 1 ||
+      !Number.isSafeInteger(input.eventSequence) || Number(input.eventSequence) < 1) invalid();
+  if (input.type === 'runtime.control.command-accepted') {
+    exactKeys(input, [...baseKeys, 'acceptedCommandSequence', 'replayed']);
+    if (typeof input.replayed !== 'boolean' ||
       (!Number.isSafeInteger(input.acceptedCommandSequence) ||
-       Number(input.acceptedCommandSequence) < Number(input.commandSequence))) invalid();
-  if (input.type === 'runtime.control.result' &&
-      !['completed', 'failed'].includes(string(input.state))) invalid();
+       Number(input.acceptedCommandSequence) !== Number(input.commandSequence))) invalid();
+  }
+  if (input.type === 'runtime.control.result') {
+    const completed = input.state === 'completed';
+    exactKeys(input, [...baseKeys, 'state', ...(completed ? ['output'] : [])]);
+    if (!['completed', 'failed'].includes(string(input.state)) ||
+        completed !== (input.output !== undefined)) invalid();
+    if (completed) parseRuntimeControlOutput(string(input.operation), input.output);
+  }
+  if (input.type === 'runtime.control.error') {
+    exactKeys(input, [...baseKeys, 'code', 'message']);
+    if (!['invalid_command', 'runtime_stopping', 'unavailable', 'uncertain'].includes(string(input.code))) invalid();
+    safeText(input.message, 512);
+  }
   return input as unknown as WorkspaceRuntimeControlMessage;
+}
+
+function parseRuntimeControlOutput(operation: string, value: unknown) {
+  const input = object(value);
+  if (operation === 'git.status') {
+    exactKeys(input, ['clean', 'conflicted', 'staged', 'truncated', 'unstaged', 'untracked']);
+    if (typeof input.clean !== 'boolean' || typeof input.truncated !== 'boolean') invalid();
+    nonNegativeCounts(input, ['conflicted', 'staged', 'unstaged', 'untracked']);
+    if (input.clean !== ['conflicted', 'staged', 'unstaged', 'untracked']
+      .every((key) => input[key] === 0)) invalid();
+    return;
+  }
+  if (operation === 'git.diff') {
+    exactKeys(input, ['addedLines', 'binaryFiles', 'changedFiles', 'deletedLines', 'staged', 'truncated']);
+    if (typeof input.staged !== 'boolean' || typeof input.truncated !== 'boolean') invalid();
+    nonNegativeCounts(input, ['addedLines', 'binaryFiles', 'changedFiles', 'deletedLines']);
+    if (Number(input.binaryFiles) > Number(input.changedFiles)) invalid();
+    return;
+  }
+  if (operation === 'worktree.list') {
+    exactKeys(input, ['current', 'detached', 'locked', 'prunable', 'total', 'truncated']);
+    if (typeof input.truncated !== 'boolean') invalid();
+    nonNegativeCounts(input, ['current', 'detached', 'locked', 'prunable', 'total']);
+    if (Number(input.current) > 1 || ['current', 'detached', 'locked', 'prunable']
+      .some((key) => Number(input[key]) > Number(input.total))) invalid();
+    return;
+  }
+  if (operation === 'dev-server.inspect') {
+    exactKeys(input, ['failed', 'ready', 'starting', 'stopped', 'total']);
+    nonNegativeCounts(input, ['failed', 'ready', 'starting', 'stopped', 'total']);
+    if (['failed', 'ready', 'starting', 'stopped']
+      .reduce((total, key) => total + Number(input[key]), 0) !== input.total) invalid();
+    return;
+  }
+  invalid();
+}
+
+function nonNegativeCounts(input: Record<string, unknown>, keys: string[]) {
+  if (keys.some((key) => !Number.isSafeInteger(input[key]) || Number(input[key]) < 0)) invalid();
 }
 
 function parseDevServers(value: unknown): WorkspaceRuntimeDevServer[] {

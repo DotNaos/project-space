@@ -39,8 +39,10 @@ import type {
 } from './ssh-control-gateway/configured-runtime';
 import type { createConfiguredProjectHostdRuntime } from './project-hostd/configured-runtime';
 import type { createHostControlHttpApi } from './host-control/http';
+import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
 
 interface ProjectSpaceApiHandlerOptions {
+  canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
@@ -109,6 +111,11 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.hostControl && await options.hostControl(request, response, url)) {
+        return true;
+      }
+
+      if (options.canonicalRuntimeControl &&
+          await options.canonicalRuntimeControl(request, response, url)) {
         return true;
       }
 

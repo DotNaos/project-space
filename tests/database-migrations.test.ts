@@ -59,6 +59,10 @@ import {
   connectorCompatibilityUsageMigrationId,
   connectorCompatibilityUsageMigrationSql
 } from '../server/database/connector-compatibility-usage-migration';
+import {
+  canonicalRuntimeControlMigrationId,
+  canonicalRuntimeControlMigrationSql
+} from '../server/database/canonical-runtime-control-migration';
 
 interface QueryCall {
   sql: string;
@@ -245,7 +249,8 @@ describe('database migrations', () => {
       "state in ('failed', 'uncertain') and result_code = 'provider_unavailable'"
     );
     expect(hostControlHardeningMigrationSql).not.toContain('result jsonb');
-    expect(databaseMigrations.at(-2)?.id).toBe(hostControlHardeningMigrationId);
+    expect(databaseMigrations.find(({ id }) => id === hostControlHardeningMigrationId)?.id)
+      .toBe(hostControlHardeningMigrationId);
   });
 
   test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
@@ -283,6 +288,36 @@ describe('database migrations', () => {
     expect(workspaceRuntimeSessionMigrationSql).toContain(
       'pg_column_size(safe_payload) <= 65536'
     );
+  });
+
+  test('durably binds canonical Runtime control to one owner and exact Runtime session', () => {
+    expect(canonicalRuntimeControlMigrationId).toBe('0050_canonical_runtime_control_operations');
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'add column last_control_command_sequence bigint not null default 0'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'add column last_control_event_sequence bigint not null default 0'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'create table canonical_runtime_control_operations'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'primary key (owner_user_id, operation_id)'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'foreign key (owner_user_id, workspace_id, environment_id, generation)'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      "state in ('reserved', 'dispatching', 'completed', 'failed', 'uncertain')"
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'canonical_runtime_control_command_sequence_idx'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain('pg_column_size(safe_result) <= 262144');
+    expect(canonicalRuntimeControlMigrationSql).not.toMatch(
+      /password|credential_reference|private_key|request_body|stdout|stderr/i
+    );
+    expect(databaseMigrations.at(-1)?.id).toBe(canonicalRuntimeControlMigrationId);
   });
 
   test('persists explicit Codex message delivery and durable queue state', () => {
@@ -361,7 +396,8 @@ describe('database migrations', () => {
       '0046_project_hostd_telemetry',
       '0047_host_control_operations',
       '0048_host_control_hardening',
-      '0049_connector_compatibility_usage'
+      '0049_connector_compatibility_usage',
+      '0050_canonical_runtime_control_operations'
     ]);
 
     expect(connectorCompatibilityUsageMigrationId).toBe('0049_connector_compatibility_usage');

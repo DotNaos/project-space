@@ -1,7 +1,4 @@
-import type {
-  CanonicalRuntimeControlRequest,
-  LegacyConnectorControlAliasRequest
-} from '../../src/shared/canonical-runtime-control-api';
+import type { CanonicalRuntimeControlRequest } from '../../src/shared/canonical-runtime-control-api';
 import type {
   CanonicalRuntimeControlInventory,
   CanonicalRuntimeControlTarget
@@ -42,32 +39,6 @@ export async function resolveCanonicalRuntimeControlTarget(
     generation: runtime.generation,
     sessionId: runtime.sessionId,
     targetIdentityRevision,
-    workspaceId: request.workspaceId
-  };
-}
-
-export async function canonicalRequestFromLegacyAlias(
-  inventory: CanonicalRuntimeControlInventory,
-  ownerUserId: string,
-  request: LegacyConnectorControlAliasRequest
-): Promise<CanonicalRuntimeControlRequest> {
-  const compute = await inventory.compute(ownerUserId);
-  const associations = compute.connectors.filter(({ connectorId }) =>
-    connectorId === request.connectorId
-  );
-  if (associations.length !== 1) unavailable();
-  const environmentId = associations[0]!.environmentId;
-  const environments = compute.environments.filter(({ id }) => id === environmentId);
-  if (environments.length !== 1) unavailable();
-  const environment = environments[0]!;
-  return {
-    apiVersion: request.apiVersion,
-    environmentId,
-    expectedGeneration: request.expectedGeneration,
-    expectedTargetIdentityRevision: `${environment.identity.version}:${environment.identity.key}`,
-    operation: request.operation,
-    operationId: request.operationId,
-    ...(request.payload ? { payload: request.payload } : {}),
     workspaceId: request.workspaceId
   };
 }
