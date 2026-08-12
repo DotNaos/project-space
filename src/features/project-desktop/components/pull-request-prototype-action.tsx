@@ -8,6 +8,7 @@ import {
   type PrototypeLaunchState
 } from '@/shared/prototype-launch';
 import type { GitHubPullRequestRecord } from '@/shared/project-space-api';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 import { usePullRequestPrototypeLaunch } from '../hooks/use-pull-request-prototype-launch';
 
 const stateTone: Record<PrototypeLaunchState, string> = {
@@ -22,12 +23,14 @@ const stateTone: Record<PrototypeLaunchState, string> = {
 export function PullRequestPrototypeAction({
   connectorId,
   issueNumber,
+  onOpenCodex,
   projectId,
   pullRequest,
   repositoryFullName
 }: {
   connectorId?: string;
   issueNumber?: number;
+  onOpenCodex(target: CodexSessionTarget): void;
   projectId: string;
   pullRequest: GitHubPullRequestRecord;
   repositoryFullName: string;
@@ -124,7 +127,10 @@ export function PullRequestPrototypeAction({
           if (status.state === 'ready' && href) {
             window.location.assign(href);
           } else if (task) {
-            window.location.assign(task.canonicalTaskUrl);
+            onOpenCodex({
+              machineId: task.connector.id,
+              threadId: task.threadId
+            });
           } else {
             void query.startOrReuseTask();
           }

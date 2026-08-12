@@ -572,13 +572,26 @@ export function useProjectDesktop() {
       writeRoute('settings');
     },
     selectProjectTab(nextTab: ProjectDetailTab) {
+      if (!selectedProjectId) {
+        return;
+      }
+
       setProjectTab(nextTab);
       setSelectedIssueNumber(undefined);
       setSelectedWorkflowRunId(undefined);
-
-      if (mainView === 'project' && selectedProjectId) {
-        writeRoute('project', selectedProjectId, true, nextTab);
+      setMainView('project');
+      writeRoute('project', selectedProjectId, mainView === 'project', nextTab);
+    },
+    openNewTask() {
+      if (!selectedProjectId) {
+        return;
       }
+
+      setProjectTab('issues');
+      setSelectedIssueNumber(undefined);
+      setSelectedWorkflowRunId(undefined);
+      setMainView('project');
+      writeRoute('project', selectedProjectId, false, 'issues');
     },
     openProjectHistory(focus: Omit<GitHistoryFocus, 'requestId'>) {
       setHistoryFocus({

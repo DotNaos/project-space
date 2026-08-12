@@ -10,6 +10,7 @@ import type {
   GitHubPullRequestRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 import { IssueDevelopmentSession } from './issue-development-session';
 import { IssueMarkdown } from './issue-markdown';
 
@@ -24,6 +25,7 @@ interface IssueActionPanelProps {
   issue: GitHubIssueRecord;
   onBranchCreated(branch: GitHubBranchRecord): void;
   onIssueUpdated(issue: GitHubIssueRecord): void;
+  onOpenCodex(target: CodexSessionTarget): void;
   onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
   onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
@@ -40,6 +42,7 @@ export function IssueActionPanel({
   issue,
   onBranchCreated,
   onIssueUpdated,
+  onOpenCodex,
   onOpenHistory,
   onPullRequestCreated,
   project,
@@ -147,6 +150,7 @@ export function IssueActionPanel({
         connectorOverview={connectorOverview}
         issue={issue}
         onBranchCreated={onBranchCreated}
+        onOpenCodex={onOpenCodex}
         onOpenHistory={onOpenHistory}
         onPullRequestCreated={onPullRequestCreated}
         project={project}

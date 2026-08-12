@@ -18,7 +18,7 @@ import { PullRequestChangelogDialog } from '@/features/pr-preview-changelog/pull
 import { ReleaseChangelogDialog } from '@/features/release-changelog/release-changelog-dialog';
 import { useReleaseChangelog } from '@/features/release-changelog/use-release-changelog';
 import { useProjectDesktop } from '../hooks/use-project-desktop';
-import { routeForView } from '../hooks/use-project-desktop';
+import { requestIssueCreation } from './issue-creation-history';
 import type { RailAccount } from './account-menu';
 import { ProjectMainPanel } from './project-main-panel';
 import { ProjectWorkspaceSidebar } from './project-workspace-sidebar';
@@ -134,6 +134,11 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
   const [isCompact, setIsCompact] = useState(isCompactViewport);
   const [isProjectSidebarCollapsed, setIsProjectSidebarCollapsed] = useState(false);
   const [isProjectSidebarOpen, setIsProjectSidebarOpen] = useState(false);
+  const newTaskRequestSequence = useRef(0);
+  const [pendingNewTaskRequest, setPendingNewTaskRequest] = useState<{
+    id: number;
+    projectId: string;
+  } | null>(null);
 
   useEffect(() => {
     function updateViewportMode() {
@@ -147,6 +152,38 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
       window.removeEventListener('resize', updateViewportMode);
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      !pendingNewTaskRequest
+      || desktop.mainView !== 'project'
+      || desktop.projectTab !== 'issues'
+      || desktop.project?.id !== pendingNewTaskRequest.projectId
+    ) {
+      return;
+    }
+
+    requestIssueCreation(pendingNewTaskRequest.projectId);
+    setPendingNewTaskRequest((current) => (
+      current?.id === pendingNewTaskRequest.id ? null : current
+    ));
+  }, [
+    desktop.mainView,
+    desktop.project?.id,
+    desktop.projectTab,
+    pendingNewTaskRequest
+  ]);
+
+  const openNewTask = () => {
+    if (!desktop.project) return;
+
+    desktop.openNewTask();
+    newTaskRequestSequence.current += 1;
+    setPendingNewTaskRequest({
+      id: newTaskRequestSequence.current,
+      projectId: desktop.project.id
+    });
+  };
 
   const layout = projectShellLayout(
     desktop.mainView,
@@ -239,11 +276,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             mainView={desktop.mainView}
             onClose={() => setIsProjectSidebarOpen(false)}
             onCollapsedChange={setIsProjectSidebarCollapsed}
-            onNewTask={() => {
-              if (desktop.project) {
-                window.location.assign(`${routeForView('project', desktop.project.id, 'issues')}/new`);
-              }
-            }}
+            onNewTask={openNewTask}
             onDismissRelease={releaseChangelog.dismissCurrent}
             onOpenChat={desktop.openChat}
             onOpenDocumentation={openDocumentation}
@@ -253,14 +286,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
             onOpenReleaseChangelog={() => releaseChangelog.open()}
             onOpenSettings={desktop.openSettings}
             onSelectProject={desktop.selectProject}
-            onSelectTab={(tab) => {
-              if (!desktop.project) return;
-              if (desktop.mainView === 'project') {
-                desktop.selectProjectTab(tab);
-                return;
-              }
-              window.location.assign(routeForView('project', desktop.project.id, tab));
-            }}
+            onSelectTab={desktop.selectProjectTab}
             projectTab={desktop.projectTab}
             projects={desktop.projects}
             release={releaseChangelog.currentRelease}
@@ -307,9 +333,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
                 size="sm"
                 variant="ghost"
                 className="size-9 min-w-9 rounded-xl text-neutral-300"
-                onPress={() => {
-                  window.location.assign(`${routeForView('project', desktop.project!.id, 'issues')}/new`);
-                }}
+                onPress={openNewTask}
               >
                 <PencilLine className="size-4" />
               </Button>

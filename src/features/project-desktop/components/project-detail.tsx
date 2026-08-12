@@ -22,6 +22,7 @@ import type {
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
 import type { MachineDetailTab, ProjectDetailTab } from '../hooks/use-project-desktop';
+import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { GitWorkbenchPanel } from './git-workbench-panel';
 import { ProjectCliCommandPanel } from './project-cli-command-panel';
 import { ProjectTasksExperience } from '@/features/project-tasks/project-tasks-experience';
@@ -264,6 +265,7 @@ export interface ProjectDetailProps {
   historyFocus?: GitHistoryFocus;
   launcherError: string;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
+  onOpenCodex(target: CodexSessionTarget): void;
   onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   onOpenIssue(issueNumber: number): void;
   onOpenHistory(focus: Omit<GitHistoryFocus, 'requestId'>): void;
@@ -295,6 +297,7 @@ export function ProjectDetail({
   historyFocus,
   launcherError,
   onOpenMachine,
+  onOpenCodex,
   onOpenWorktreeBranch,
   onOpenIssue,
   onOpenHistory,
@@ -436,6 +439,7 @@ export function ProjectDetail({
         {tab === 'issues' || tab === 'roadmap' ? (
           <ProjectTasksExperience
             connectorOverview={connectorOverview}
+            onOpenCodex={onOpenCodex}
             onOpenHistory={onOpenHistory}
             onOpenTask={onOpenIssue}
             onShowTasks={() => onSelectTab('issues')}
@@ -481,6 +485,7 @@ export function ProjectDetail({
         {tab === 'deployments' ? (
           <ProjectDeploymentsPanel
             onCloseWorkflowRun={onCloseWorkflowRun}
+            onOpenCodex={onOpenCodex}
             onOpenWorkflowRun={onOpenWorkflowRun}
             projectId={project.id}
             projectName={project.name}

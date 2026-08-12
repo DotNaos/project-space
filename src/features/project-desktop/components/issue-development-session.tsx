@@ -13,9 +13,9 @@ import type {
   GitHubPullRequestRecord,
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 import { usePullRequestPreviewStatus } from '../hooks/use-pull-request-preview-status';
 import { useBranchHeadComparison } from '../hooks/use-branch-head-comparison';
-import { codexSessionRoute } from '../../codex-sessions/codex-session-route';
 import { BranchHeadGraphPreview } from './branch-head-graph-preview';
 import {
   canRunMachineCommand,
@@ -55,6 +55,7 @@ interface IssueDevelopmentSessionProps {
   connectorOverview: ConnectorOverviewResult;
   issue: GitHubIssueRecord;
   onBranchCreated(branch: GitHubBranchRecord): void;
+  onOpenCodex(target: CodexSessionTarget): void;
   onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
@@ -70,6 +71,7 @@ export function IssueDevelopmentSession({
   connectorOverview,
   issue,
   onBranchCreated,
+  onOpenCodex,
   onPullRequestCreated,
   project,
   projects,
@@ -221,10 +223,10 @@ export function IssueDevelopmentSession({
       const result = await projectSpaceClient.startCodexMachineTask(attempt);
       if (result.state === 'confirmed') {
         clearCodexTaskStartAttempt(attempt);
-        window.location.assign(codexSessionRoute({
+        onOpenCodex({
           machineId: result.task.connector.id,
           threadId: result.task.threadId
-        }));
+        });
         return;
       }
       if (result.state === 'ready') {
@@ -369,7 +371,7 @@ export function IssueDevelopmentSession({
               >
                 Approve PR <ExternalLink className="size-3.5" />
               </a>
-              <PullRequestPrototypeAction connectorId={prototypeMachine?.machineId} issueNumber={issue.number} projectId={project.id} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
+              <PullRequestPrototypeAction connectorId={prototypeMachine?.machineId} issueNumber={issue.number} onOpenCodex={onOpenCodex} projectId={project.id} pullRequest={selectedPullRequest} repositoryFullName={repoFullName} />
             </div>
           ) : null}
         </section>

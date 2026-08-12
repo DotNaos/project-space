@@ -10,6 +10,7 @@ import type {
   GitHubWorkflowRunDetailResult,
   GitHubWorkflowRunSummary
 } from '@/shared/project-space-api';
+import type { CodexSessionTarget } from '../../codex-sessions/codex-session-route';
 import { DeploymentEnvironmentList, EmptyLine } from './deployment-environment-list';
 import {
   deploymentRuns,
@@ -29,6 +30,7 @@ import { usePullRequestPreviewStatus } from '../hooks/use-pull-request-preview-s
 interface ProjectDeploymentsPanelProps {
   loadedCommitShas?: ReadonlySet<string>;
   onCloseWorkflowRun?(): void;
+  onOpenCodex(target: CodexSessionTarget): void;
   onOpenWorkflowRun?(runId: number): void;
   projectId: string;
   projectName: string;
@@ -48,7 +50,7 @@ export function ProjectDeploymentsPanel(props: ProjectDeploymentsPanelProps) {
   return <DeploymentsOverview {...props} />;
 }
 
-function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, projectId, repository }: ProjectDeploymentsPanelProps) {
+function DeploymentsOverview({ loadedCommitShas, onOpenCodex, onOpenWorkflowRun, projectId, repository }: ProjectDeploymentsPanelProps) {
   const repositoryFullName = repository?.fullName;
   const data = useDeploymentOverview(repositoryFullName, true);
   const previews = usePullRequestPreviewStatus({
@@ -99,6 +101,7 @@ function DeploymentsOverview({ loadedCommitShas, onOpenWorkflowRun, projectId, r
       <SectionTitle icon={<GitPullRequest className="size-4" />} title="Pull request previews" />
       <PullRequestPreviewsSection
         inventory={previews.inventory}
+        onOpenCodex={onOpenCodex}
         projectId={projectId}
         repositoryFullName={repositoryFullName}
       />

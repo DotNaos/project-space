@@ -63,4 +63,26 @@ describe('Project desktop canonical shell', () => {
     expect(sidebarSource).toContain('<AccountMenu');
     expect(sidebarSource).not.toContain('app-rail');
   });
+
+  test('keeps task creation and confirmed Codex task navigation inside the SPA', () => {
+    const shellSource = readFileSync(
+      join(import.meta.dir, '../src/features/project-desktop/components/project-desktop-shell.tsx'),
+      'utf8'
+    );
+    const developmentSource = readFileSync(
+      join(import.meta.dir, '../src/features/project-desktop/components/issue-development-session.tsx'),
+      'utf8'
+    );
+    const prototypeSource = readFileSync(
+      join(import.meta.dir, '../src/features/project-desktop/components/pull-request-prototype-action.tsx'),
+      'utf8'
+    );
+
+    expect(shellSource).toContain('requestIssueCreation');
+    expect(shellSource).not.toContain("window.location.assign(`${routeForView('project'");
+    expect(developmentSource).toContain('onOpenCodex({');
+    expect(developmentSource).not.toContain('window.location.assign(codexSessionRoute');
+    expect(prototypeSource).toContain('onOpenCodex({');
+    expect(prototypeSource).not.toContain('window.location.assign(task.canonicalTaskUrl)');
+  });
 });
