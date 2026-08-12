@@ -236,6 +236,12 @@ describe('authenticated connector companion runtime', () => {
       }));
 
       await waitFor(() => events.includes('shutdown'), 'the source runtime shutdown');
+      await waitFor(
+        () => hub.messages.some(
+          (message) => (message as { type: string }).type === 'runtime.stop.result'
+        ),
+        'the source runtime stop acknowledgement'
+      );
       const result = hub.messages.find(
         (message) => (message as { type: string }).type === 'runtime.stop.result'
       ) as unknown as {
