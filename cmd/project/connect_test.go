@@ -214,13 +214,40 @@ func TestWSLCanUseTheWindowsBrowserEvenOverSSH(t *testing.T) {
 	}
 }
 
-func TestDefaultMachineConnectionDependenciesUsePlatformService(t *testing.T) {
+func TestDefaultMachineConnectionDependenciesOnlyEnrollTheMachine(t *testing.T) {
 	dependencies, err := defaultMachineConnectionDependencies()
 	if err != nil {
 		t.Fatalf("default dependencies: %v", err)
 	}
-	if _, ok := dependencies.Connector.(*machineconnect.ServiceConnector); !ok {
-		t.Fatalf("default connector = %T, want *machineconnect.ServiceConnector", dependencies.Connector)
+	if !dependencies.Workflow.EnrollmentOnly {
+		t.Fatal("default workflow still starts a permanent Connector service")
+	}
+	if dependencies.Connector != nil {
+		t.Fatalf("default connector = %T, want nil", dependencies.Connector)
+	}
+}
+
+func TestConnectCommandEnrollmentOnlyRegistersWithoutStartingAService(t *testing.T) {
+	dependencies, backend, store, connector := testCommandDependencies()
+	dependencies.Workflow.EnrollmentOnly = true
+	backend.state = machineconnect.ConnectionOffline
+	command := newConnectCommandWithDependencies(dependencies)
+	stdout := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(&bytes.Buffer{})
+	command.SetArgs([]string{"--json"})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("execute enrollment-only connect: %v", err)
+	}
+	if connector.startCalls != 0 || connector.stopCalls != 0 {
+		t.Fatalf("enrollment started a service: %#v", connector)
+	}
+	if store.credential == nil {
+		t.Fatal("machine credential was not saved")
+	}
+	if !strings.Contains(stdout.String(), `"status": "registered"`) {
+		t.Fatalf("unexpected enrollment output: %s", stdout.String())
 	}
 }
 

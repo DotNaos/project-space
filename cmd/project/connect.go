@@ -108,15 +108,23 @@ func newConnectCommandWithDependencyFactory(
 			if err != nil {
 				return err
 			}
+			status := "online"
+			if dependencies.Workflow.EnrollmentOnly {
+				status = "registered"
+			}
 			if options.JSON {
 				if err := writeMachineConnectionJSON(command.OutOrStdout(), map[string]any{
 					"alreadyConnected": result.AlreadyConnected,
 					"machineId":        result.MachineID,
 					"machineName":      result.MachineName,
-					"status":           "online",
+					"status":           status,
 				}); err != nil {
 					return err
 				}
+			} else if dependencies.Workflow.EnrollmentOnly && result.AlreadyConnected {
+				fmt.Fprintf(command.OutOrStdout(), "Machine %s is already registered for Project Space control.\n", result.MachineName)
+			} else if dependencies.Workflow.EnrollmentOnly {
+				fmt.Fprintf(command.OutOrStdout(), "Machine %s is registered for Project Space control.\n", result.MachineName)
 			} else if result.AlreadyConnected {
 				fmt.Fprintf(command.OutOrStdout(), "Machine %s is already connected and online.\n", result.MachineName)
 			} else {
@@ -181,21 +189,17 @@ func defaultMachineConnectionDependencies() (machineConnectionCommandDependencie
 	if err != nil {
 		return machineConnectionCommandDependencies{}, fmt.Errorf("configure machine credential store: %w", err)
 	}
-	connector, err := machineconnect.NewServiceConnector(machineconnect.ServiceConnectorOptions{})
-	if err != nil {
-		return machineConnectionCommandDependencies{}, fmt.Errorf("configure machine connector service: %w", err)
-	}
 	return machineConnectionCommandDependencies{
-		Backend:   backend,
-		Store:     store,
-		Connector: connector,
-		Clock:     machineconnect.RealClock{},
-		Hostname:  os.Hostname,
-		Headless:  isHeadlessMachine,
-		GOOS:      runtime.GOOS,
-		GOARCH:    runtime.GOARCH,
-		Version:   projectMachineClientVersion,
-		OpenURL:   openMachineApprovalURL,
+		Backend:  backend,
+		Store:    store,
+		Clock:    machineconnect.RealClock{},
+		Hostname: os.Hostname,
+		Headless: isHeadlessMachine,
+		GOOS:     runtime.GOOS,
+		GOARCH:   runtime.GOARCH,
+		Version:  projectMachineClientVersion,
+		OpenURL:  openMachineApprovalURL,
+		Workflow: machineconnect.WorkflowOptions{EnrollmentOnly: true},
 	}, nil
 }
 

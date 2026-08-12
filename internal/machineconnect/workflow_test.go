@@ -194,6 +194,23 @@ func (clock *fakeClock) Sleep(_ context.Context, duration time.Duration) error {
 	return nil
 }
 
+func TestEnrollmentOnlyWorkflowDoesNotRequireAConnector(t *testing.T) {
+	workflow, err := NewWorkflow(
+		&fakeBackend{},
+		&memoryStore{},
+		&recordingPresenter{},
+		nil,
+		&fakeClock{},
+		WorkflowOptions{EnrollmentOnly: true},
+	)
+	if err != nil {
+		t.Fatalf("new enrollment-only workflow: %v", err)
+	}
+	if workflow.connector != nil {
+		t.Fatalf("enrollment-only connector = %T, want nil", workflow.connector)
+	}
+}
+
 func TestWorkflowConnectCompletesBackendMediatedApproval(t *testing.T) {
 	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
 	request := Request{
