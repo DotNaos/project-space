@@ -4067,6 +4067,133 @@
                 "commands": []
               },
               {
+                "path": "project workspace runtime retention",
+                "name": "retention",
+                "usage": "retention",
+                "short": "Inspect or reclaim proof-bound retained Runtime archives",
+                "aliases": [],
+                "runnable": false,
+                "flags": [
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for retention",
+                    "inherited": false
+                  }
+                ],
+                "commands": [
+                  {
+                    "path": "project workspace runtime retention collect",
+                    "name": "collect",
+                    "usage": "collect",
+                    "short": "Reclaim eligible archives inside an exclusive collector boundary",
+                    "aliases": [],
+                    "runnable": true,
+                    "flags": [
+                      {
+                        "name": "collector-root",
+                        "type": "string",
+                        "description": "existing private collector-owned root on the same filesystem",
+                        "inherited": false
+                      },
+                      {
+                        "name": "format",
+                        "type": "string",
+                        "description": "output format: pretty or json",
+                        "inherited": false
+                      },
+                      {
+                        "name": "help",
+                        "shorthand": "h",
+                        "type": "bool",
+                        "description": "help for collect",
+                        "inherited": false
+                      },
+                      {
+                        "name": "json",
+                        "type": "bool",
+                        "description": "print machine-readable JSON output",
+                        "inherited": false
+                      },
+                      {
+                        "name": "maximum-bytes",
+                        "type": "int64",
+                        "description": "maximum archive bytes reclaimed in one run",
+                        "inherited": false
+                      },
+                      {
+                        "name": "minimum-age",
+                        "type": "duration",
+                        "description": "minimum age of terminal evidence and retained archive",
+                        "inherited": false
+                      },
+                      {
+                        "name": "source-root",
+                        "type": "string",
+                        "description": "exact Workspace Runtime state root owned by the Workspace user",
+                        "inherited": false
+                      }
+                    ],
+                    "commands": []
+                  },
+                  {
+                    "path": "project workspace runtime retention status",
+                    "name": "status",
+                    "usage": "status",
+                    "short": "Inspect retained Runtime archives without deleting them",
+                    "aliases": [],
+                    "runnable": true,
+                    "flags": [
+                      {
+                        "name": "collector-root",
+                        "type": "string",
+                        "description": "existing private collector-owned root on the same filesystem",
+                        "inherited": false
+                      },
+                      {
+                        "name": "format",
+                        "type": "string",
+                        "description": "output format: pretty or json",
+                        "inherited": false
+                      },
+                      {
+                        "name": "help",
+                        "shorthand": "h",
+                        "type": "bool",
+                        "description": "help for status",
+                        "inherited": false
+                      },
+                      {
+                        "name": "json",
+                        "type": "bool",
+                        "description": "print machine-readable JSON output",
+                        "inherited": false
+                      },
+                      {
+                        "name": "maximum-bytes",
+                        "type": "int64",
+                        "description": "maximum archive bytes reclaimed in one run",
+                        "inherited": false
+                      },
+                      {
+                        "name": "minimum-age",
+                        "type": "duration",
+                        "description": "minimum age of terminal evidence and retained archive",
+                        "inherited": false
+                      },
+                      {
+                        "name": "source-root",
+                        "type": "string",
+                        "description": "exact Workspace Runtime state root owned by the Workspace user",
+                        "inherited": false
+                      }
+                    ],
+                    "commands": []
+                  }
+                ]
+              },
+              {
                 "path": "project workspace runtime start",
                 "name": "start",
                 "usage": "start [directory]",

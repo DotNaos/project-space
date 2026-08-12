@@ -28,7 +28,7 @@ func TestWorkspaceRuntimeExposesEveryLifecycleOperation(t *testing.T) {
 	for _, child := range runtimeCommand.Commands() {
 		got = append(got, child.Name())
 	}
-	want := []string{"clean", "inspect", "reconcile", "resume", "start", "stop", "suspend"}
+	want := []string{"clean", "inspect", "reconcile", "resume", "retention", "start", "stop", "suspend"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("workspace runtime commands = %q, want %q", got, want)
 	}

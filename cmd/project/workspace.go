@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/DotNaos/project-space/internal/workspacerun"
 	"github.com/spf13/cobra"
@@ -50,8 +51,81 @@ func newWorkspaceCommandWithManager(factory func() (workspaceRuntimeManager, err
 	runtimeCommand.AddCommand(newWorkspaceRuntimeOperation("stop", factory))
 	runtimeCommand.AddCommand(newWorkspaceRuntimeOperation("clean", factory))
 	runtimeCommand.AddCommand(newWorkspaceRuntimeOperation("reconcile", factory))
+	runtimeCommand.AddCommand(newWorkspaceRuntimeRetentionCommand())
 	workspace.AddCommand(runtimeCommand)
 	return workspace
+}
+
+type workspaceRuntimeRetentionOptions struct {
+	SourceRoot    string
+	CollectorRoot string
+	MinimumAge    time.Duration
+	MaximumBytes  int64
+	Format        string
+	JSON          bool
+}
+
+func newWorkspaceRuntimeRetentionCommand() *cobra.Command {
+	options := workspaceRuntimeRetentionOptions{MinimumAge: 24 * time.Hour, MaximumBytes: 1 << 30, Format: "pretty"}
+	command := &cobra.Command{Use: "retention", Short: "Inspect or reclaim proof-bound retained Runtime archives", Args: cobra.NoArgs}
+	for _, operation := range []string{"status", "collect"} {
+		operation := operation
+		child := &cobra.Command{
+			Use: operation, Short: map[string]string{"status": "Inspect retained Runtime archives without deleting them", "collect": "Reclaim eligible archives inside an exclusive collector boundary"}[operation], Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				format, err := resolvedProjectRunFormat(options.Format, options.JSON)
+				if err != nil {
+					return err
+				}
+				collector, err := workspacerun.NewRetentionCollector(workspacerun.RetentionOptions{
+					SourceRoot: options.SourceRoot, CollectorRoot: options.CollectorRoot,
+					MinimumAge: options.MinimumAge, MaximumBytes: options.MaximumBytes,
+				})
+				if err != nil {
+					return err
+				}
+				var report workspacerun.RetentionReport
+				if operation == "collect" {
+					report, err = collector.Collect()
+				} else {
+					report, err = collector.Status()
+				}
+				if printErr := printWorkspaceRetentionReport(cmd, report, format); printErr != nil {
+					return printErr
+				}
+				return err
+			},
+		}
+		child.Flags().StringVar(&options.SourceRoot, "source-root", "", "exact Workspace Runtime state root owned by the Workspace user")
+		child.Flags().StringVar(&options.CollectorRoot, "collector-root", "", "existing private collector-owned root on the same filesystem")
+		child.Flags().DurationVar(&options.MinimumAge, "minimum-age", 24*time.Hour, "minimum age of terminal evidence and retained archive")
+		child.Flags().Int64Var(&options.MaximumBytes, "maximum-bytes", 1<<30, "maximum archive bytes reclaimed in one run")
+		child.Flags().StringVar(&options.Format, "format", "pretty", "output format: pretty or json")
+		child.Flags().BoolVar(&options.JSON, "json", false, "print machine-readable JSON output")
+		must(child.MarkFlagRequired("source-root"))
+		must(child.MarkFlagRequired("collector-root"))
+		must(child.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "json")))
+		command.AddCommand(child)
+	}
+	return command
+}
+
+func printWorkspaceRetentionReport(command *cobra.Command, report workspacerun.RetentionReport, format string) error {
+	if format == "json" {
+		encoder := json.NewEncoder(command.OutOrStdout())
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(report)
+	}
+	fmt.Fprintf(command.OutOrStdout(), "Checked: %s\n", report.CheckedAt)
+	fmt.Fprintf(command.OutOrStdout(), "Reclaimed bytes: %d\n", report.ReclaimedBytes)
+	for _, entry := range report.Entries {
+		fmt.Fprintf(command.OutOrStdout(), "%s %s %s", entry.WorkspaceID, entry.Generation, entry.Status)
+		if entry.Reason != "" {
+			fmt.Fprintf(command.OutOrStdout(), " (%s)", entry.Reason)
+		}
+		fmt.Fprintln(command.OutOrStdout())
+	}
+	return nil
 }
 
 func newWorkspaceRuntimeOperation(operation string, factory func() (workspaceRuntimeManager, error)) *cobra.Command {
