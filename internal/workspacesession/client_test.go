@@ -187,6 +187,65 @@ func TestProcessGroupTelemetryFiltersPortableLinuxProcessListing(t *testing.T) {
 	}
 }
 
+func TestClientControllerStartupFailureNeverDials(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	bootstrap := Bootstrap{
+		Endpoint: "wss://projects.os-home.net/api/workspace-runtimes/socket", Token: strings.Repeat("A", 43),
+		WorkspaceID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", EnvironmentID: "11111111-1111-4111-8111-111111111111",
+		Generation: "22222222-2222-4222-8222-222222222222", Branch: "issue-637", Commit: strings.Repeat("a", 40),
+		ManifestDigest: strings.Repeat("b", 64), RuntimeVersion: "0.5.0-test",
+		Capabilities: []string{"runtime.lifecycle", "runtime.heartbeat"}, RequestedCapabilities: []string{"runtime.codex.v1"},
+		JournalPath: filepath.Join(directory, "journal.json"), StatePath: filepath.Join(directory, "state.json"),
+		ExpiresAt:                now.Add(30 * time.Minute).Format(time.RFC3339),
+		CodexControllerBinary:    filepath.Join(directory, "missing-controller"),
+		CodexControllerBootstrap: filepath.Join(directory, "missing-bootstrap.json"),
+	}
+	dialed := false
+	client := Client{
+		Now: func() time.Time { return now },
+		Dial: func(context.Context, string, *websocket.DialOptions) (*websocket.Conn, *http.Response, error) {
+			dialed = true
+			return nil, nil, context.Canceled
+		},
+	}
+	if err := client.Run(context.Background(), bootstrap); err == nil || dialed {
+		t.Fatalf("controller startup failure reached network: error=%v dialed=%v", err, dialed)
+	}
+}
+
+func TestReadAcceptedFailsWhenInboundChannelCloses(t *testing.T) {
+	inbound := make(chan inboundFrame)
+	close(inbound)
+	if _, err := readAccepted(context.Background(), inbound, "runtime.registered", nil); err == nil {
+		t.Fatal("closed inbound channel was accepted")
+	}
+}
+
+func TestRegistrationKeepsZeroReadyWatermarks(t *testing.T) {
+	zero := int64(0)
+	encoded, err := json.Marshal(Registration{
+		ReadyCapabilities:               []string{"runtime.codex.v1"},
+		ResumeAfterCodexCommandSequence: &zero,
+		ResumeAfterCodexEventSequence:   &zero,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		`"readyCapabilities":["runtime.codex.v1"]`,
+		`"resumeAfterCodexCommandSequence":0`,
+		`"resumeAfterCodexEventSequence":0`,
+	} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("registration omitted ready proof %s: %s", field, encoded)
+		}
+	}
+}
+
 func TestClientRejectsUnboundOrOverprivilegedBootstrapBeforeDial(t *testing.T) {
 	directory := t.TempDir()
 	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)

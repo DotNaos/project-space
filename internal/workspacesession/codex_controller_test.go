@@ -30,7 +30,8 @@ done
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	controller, err := startCodexController(ctx, Bootstrap{
-		Capabilities:          []string{"runtime.lifecycle", "runtime.heartbeat", "runtime.codex.v1"},
+		Capabilities:          []string{"runtime.lifecycle", "runtime.heartbeat"},
+		RequestedCapabilities: []string{"runtime.codex.v1"},
 		CodexControllerBinary: controllerPath, CodexControllerBootstrap: bootstrapPath,
 	})
 	if err != nil {
@@ -50,12 +51,19 @@ done
 	case <-ctx.Done():
 		t.Fatal("controller did not return a typed response")
 	}
+	controller.observeMessage([]byte(`{"message":{"commandSequence":8,"type":"runtime.codex.command-accepted"},"type":"controller.message"}`))
+	controller.observeMessage([]byte(`{"message":{"commandSequence":8,"eventSequence":12,"type":"runtime.codex.event"},"type":"controller.message"}`))
+	commandSequence, eventSequence := controller.watermarks()
+	if commandSequence != 8 || eventSequence != 12 {
+		t.Fatalf("controller watermarks = %d, %d", commandSequence, eventSequence)
+	}
 	controller.stop()
 }
 
 func TestCodexControllerCapabilityCannotStartWithoutControllerFiles(t *testing.T) {
 	_, err := startCodexController(context.Background(), Bootstrap{
-		Capabilities:             []string{"runtime.lifecycle", "runtime.heartbeat", "runtime.codex.v1"},
+		Capabilities:             []string{"runtime.lifecycle", "runtime.heartbeat"},
+		RequestedCapabilities:    []string{"runtime.codex.v1"},
 		CodexControllerBinary:    filepath.Join(t.TempDir(), "missing"),
 		CodexControllerBootstrap: filepath.Join(t.TempDir(), "missing.json"),
 	})

@@ -6,6 +6,7 @@ import {
   WorkspaceRuntimeSshStartDispatcher,
   type WorkspaceRuntimeStartDispatch
 } from '../server/workspace-runtime-session/launch-service';
+import { workspaceRuntimeCodexCapability } from '../src/shared/workspace-runtime-codex-api';
 
 const authority = {
   branch: 'issue-625', commit: 'a'.repeat(40),
@@ -40,11 +41,16 @@ describe('Workspace Runtime trusted launch boundary', () => {
       runtimeSessionEndpoint: 'wss://projects.os-home.net/api/workspace-runtimes/socket',
       runtimeSessionToken: 'A'.repeat(43), workspaceId: authority.workspaceId
     });
+    expect(dispatched?.runtimeSessionCapabilities).not.toContain(workspaceRuntimeCodexCapability);
+    expect(dispatched?.runtimeSessionRequestedCapabilities).toEqual([workspaceRuntimeCodexCapability]);
     expect(JSON.stringify(result)).not.toContain('A'.repeat(43));
-    expect(await sessions.authenticate('A'.repeat(43))).toMatchObject({
+    const scope = await sessions.authenticate('A'.repeat(43));
+    expect(scope).toMatchObject({
       environmentId: authority.environmentId, generation: authority.generation,
+      requestedCapabilities: [workspaceRuntimeCodexCapability],
       workspaceId: authority.workspaceId
     });
+    expect(scope?.capabilities).not.toContain(workspaceRuntimeCodexCapability);
   });
 
   test('revokes the short-lived credential when dispatch is rejected or returns changed authority', async () => {

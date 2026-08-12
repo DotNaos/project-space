@@ -1,4 +1,7 @@
-import { workspaceRuntimeCapabilities } from '../../src/shared/workspace-runtime-session-api';
+import {
+  workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeReadyCapabilities
+} from '../../src/shared/workspace-runtime-session-api';
 import type {
   SshGatewayActor,
   SshGatewayExecutionResult,
@@ -31,6 +34,7 @@ export interface WorkspaceRuntimeStartDispatch {
   operationId: string;
   ownerUserId: string;
   runtimeSessionCapabilities: string[];
+  runtimeSessionRequestedCapabilities: string[];
   runtimeSessionOwnerUserId: string;
   runtimeSessionEndpoint: string;
   runtimeSessionExpiresAt: string;
@@ -139,7 +143,7 @@ export class WorkspaceRuntimeLaunchService {
     }
     const issued = await this.dependencies.sessions.issue({
       branch: input.branch,
-      capabilities: [...workspaceRuntimeCapabilities],
+      capabilities: [...workspaceRuntimeBaseCapabilities],
       commit: input.commit,
       environmentId: input.environmentId,
       expiresInSeconds: 300,
@@ -147,6 +151,7 @@ export class WorkspaceRuntimeLaunchService {
       manifestDigest: input.manifestDigest,
       ownerUserId: input.ownerUserId,
       operationId: input.operationId,
+      requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
       runtimeVersion: input.runtimeVersion,
       workspaceId: input.workspaceId
     });
@@ -163,6 +168,7 @@ export class WorkspaceRuntimeLaunchService {
         ownerUserId: input.ownerUserId,
         expectedRuntimeVersion: input.runtimeVersion,
         runtimeSessionCapabilities: [...issued.credential.capabilities],
+        runtimeSessionRequestedCapabilities: [...workspaceRuntimeReadyCapabilities],
         runtimeSessionOwnerUserId: input.ownerUserId,
         runtimeSessionEndpoint: this.dependencies.endpoint,
         runtimeSessionExpiresAt: issued.credential.expiresAt,

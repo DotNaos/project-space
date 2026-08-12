@@ -1,9 +1,11 @@
 import type {
   WorkspaceRuntimeCapability,
+  WorkspaceRuntimeBaseCapability,
   WorkspaceRuntimeCredential,
   WorkspaceRuntimeDevServer,
   WorkspaceRuntimeEvent,
   WorkspaceRuntimeRegistration,
+  WorkspaceRuntimeReadyCapability,
   WorkspaceRuntimeSessionSnapshot
 } from '../../src/shared/workspace-runtime-session-api';
 
@@ -32,13 +34,14 @@ export interface RuntimeCredentialScope {
   generation: string;
   manifestDigest: string;
   ownerUserId: string;
+  requestedCapabilities: WorkspaceRuntimeReadyCapability[];
   runtimeVersion: string;
   workspaceId: string;
 }
 
 export interface IssueRuntimeCredentialInput {
   branch: string;
-  capabilities: WorkspaceRuntimeCapability[];
+  capabilities: WorkspaceRuntimeBaseCapability[];
   commit: string;
   environmentId: string;
   expiresInSeconds?: number;
@@ -46,6 +49,7 @@ export interface IssueRuntimeCredentialInput {
   manifestDigest: string;
   operationId: string;
   ownerUserId: string;
+  requestedCapabilities: WorkspaceRuntimeReadyCapability[];
   runtimeVersion: string;
   workspaceId: string;
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -44,8 +43,7 @@ func newWorkspaceRuntimeSessionCommand() *cobra.Command {
 			if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 				return fmt.Errorf("decode Workspace Runtime bootstrap")
 			}
-			if err := workspacesession.ValidateBootstrap(bootstrap, time.Now()); err != nil ||
-				bootstrap.CodexBinary == "" || bootstrap.AppServerSocket == "" || bootstrap.ReadyPath == "" {
+			if err := workspacesession.ValidateBootstrap(bootstrap, time.Now()); err != nil || bootstrap.ReadyPath == "" {
 				return fmt.Errorf("Workspace Runtime launch bootstrap is invalid")
 			}
 			return runWorkspaceRuntimeSession(command.Context(), command, bootstrap)
@@ -66,105 +64,9 @@ func runWorkspaceRuntimeSession(
 
 func runWorkspaceRuntimeSessionWithClient(
 	ctx context.Context,
-	command *cobra.Command,
+	_ *cobra.Command,
 	bootstrap workspacesession.Bootstrap,
 	runSession func(context.Context, workspacesession.Bootstrap) error,
 ) error {
-	codex := exec.CommandContext(
-		ctx,
-		bootstrap.CodexBinary,
-		"app-server",
-		"--listen",
-		"unix://"+bootstrap.AppServerSocket,
-		"--strict-config",
-	)
-	codex.Stdin = nil
-	codex.Stdout = command.OutOrStdout()
-	codex.Stderr = command.ErrOrStderr()
-	codex.Env = os.Environ()
-	if err := codex.Start(); err != nil {
-		return fmt.Errorf("start pinned Codex app-server: %w", err)
-	}
-	codexDone := make(chan error, 1)
-	go func() { codexDone <- codex.Wait() }()
-	if err := waitForRuntimeReady(ctx, bootstrap.ReadyPath, codexDone); err != nil {
-		return err
-	}
-	sessionCtx, cancelSession := context.WithCancel(context.Background())
-	defer cancelSession()
-	sessionDone := make(chan error, 1)
-	go func() { sessionDone <- runSession(sessionCtx, bootstrap) }()
-	select {
-	case err := <-codexDone:
-		if runtimeStopRequested(ctx) {
-			waitForRuntimeSessionShutdown(cancelSession, sessionDone)
-			return ctx.Err()
-		}
-		if err == nil {
-			return fmt.Errorf("pinned Codex app-server exited")
-		}
-		return fmt.Errorf("pinned Codex app-server exited: %w", err)
-	case sessionErr := <-sessionDone:
-		// Session expiry or loss makes telemetry unavailable, but must not stop
-		// the generation-owned Codex runtime. SSH remains the recovery path.
-		select {
-		case codexErr := <-codexDone:
-			return errors.Join(sessionErr, codexErr)
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	case <-ctx.Done():
-		waitForRuntimeSessionShutdown(cancelSession, sessionDone)
-		return ctx.Err()
-	}
-}
-
-func runtimeStopRequested(ctx context.Context) bool {
-	if ctx.Err() != nil {
-		return true
-	}
-	timer := time.NewTimer(100 * time.Millisecond)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return true
-	case <-timer.C:
-		return false
-	}
-}
-
-func waitForRuntimeSessionShutdown(cancel context.CancelFunc, sessionDone <-chan error) {
-	cancel()
-	timer := time.NewTimer(2500 * time.Millisecond)
-	defer timer.Stop()
-	select {
-	case <-sessionDone:
-	case <-timer.C:
-	}
-}
-
-func waitForRuntimeReady(ctx context.Context, path string, codexDone <-chan error) error {
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		encoded, err := os.ReadFile(path)
-		if err == nil {
-			info, statErr := os.Lstat(path)
-			if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 ||
-				string(encoded) != "ready\n" {
-				return fmt.Errorf("Workspace Runtime readiness marker is invalid")
-			}
-			return nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("read Workspace Runtime readiness marker")
-		}
-		select {
-		case err := <-codexDone:
-			return fmt.Errorf("pinned Codex app-server exited before readiness: %w", err)
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
+	return runSession(ctx, bootstrap)
 }

@@ -141,7 +141,7 @@ type ProcessHandle struct {
 	PID             int    `json:"pid"`
 	Identity        string `json:"processIdentity"`
 	BindingDigest   string `json:"bindingDigest"`
-	AppServerSocket string `json:"appServerSocket"`
+	AppServerSocket string `json:"appServerSocket,omitempty"`
 }
 
 type ContainerHandle struct {
@@ -179,14 +179,15 @@ type LaunchRequest struct {
 }
 
 type RuntimeSessionBootstrap struct {
-	Endpoint         string
-	Token            string
-	EnvironmentID    string
-	ExpiresAt        string
-	RuntimeVersion   string
-	Capabilities     []string
-	OwnerUserID      string
-	ControllerBinary string
+	Endpoint              string
+	Token                 string
+	EnvironmentID         string
+	ExpiresAt             string
+	RuntimeVersion        string
+	Capabilities          []string
+	RequestedCapabilities []string
+	OwnerUserID           string
+	ControllerBinary      string
 }
 
 type RuntimeProvider interface {

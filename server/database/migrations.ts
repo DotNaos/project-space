@@ -107,6 +107,10 @@ import {
   workspaceRuntimeSessionMigrationId,
   workspaceRuntimeSessionMigrationSql
 } from './workspace-runtime-session-migration';
+import {
+  workspaceRuntimeCapabilityPromotionMigrationId,
+  workspaceRuntimeCapabilityPromotionMigrationSql
+} from './workspace-runtime-capability-promotion-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -795,6 +799,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: codexMachineTaskMessageDeliveryMigrationId,
     sql: codexMachineTaskMessageDeliveryMigrationSql
+  },
+  {
+    id: workspaceRuntimeCapabilityPromotionMigrationId,
+    sql: workspaceRuntimeCapabilityPromotionMigrationSql
   }
 ];
 

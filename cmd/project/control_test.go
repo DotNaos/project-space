@@ -224,7 +224,7 @@ func TestWorkspaceControlRejectsMalformedRuntimeSessionBeforeStartingTheManager(
 		ExpectedBranch: "issue-625", ExpectedRuntimeVersion: "0.5.0-test",
 		Mode: string(workspacerun.ModeProcess), RuntimeSessionEndpoint: "wss://projects.os-home.net/api/workspace-runtimes/socket",
 		RuntimeSessionToken: strings.Repeat("A", 43), RuntimeSessionExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
-		RuntimeSessionVersion: "0.5.0-test", RuntimeSessionCapabilities: []string{"runtime.lifecycle"},
+		RuntimeSessionVersion: "0.5.0-test", RuntimeSessionCapabilities: []string{"runtime.lifecycle", "runtime.heartbeat"},
 	}
 	invalid := []controlGatewayOperationRequest{
 		func() controlGatewayOperationRequest {
@@ -244,6 +244,22 @@ func TestWorkspaceControlRejectsMalformedRuntimeSessionBeforeStartingTheManager(
 		}(),
 		func() controlGatewayOperationRequest {
 			value := base
+			value.RuntimeSessionCapabilities = []string{"runtime.codex.v1"}
+			return value
+		}(),
+		func() controlGatewayOperationRequest {
+			value := base
+			value.RuntimeSessionRequestedCapabilities = []string{"runtime.codex.v1"}
+			return value
+		}(),
+		func() controlGatewayOperationRequest {
+			value := base
+			value.RuntimeSessionRequestedCapabilities = []string{"runtime.shell"}
+			value.RuntimeSessionOwnerUserID = "owner"
+			return value
+		}(),
+		func() controlGatewayOperationRequest {
+			value := base
 			value.RuntimeSessionExpiresAt = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 			return value
 		}(),
@@ -258,6 +274,12 @@ func TestWorkspaceControlRejectsMalformedRuntimeSessionBeforeStartingTheManager(
 		if err == nil || called {
 			t.Fatalf("invalid runtime session reached manager: %#v error=%v called=%v", request, err, called)
 		}
+	}
+	requested := base
+	requested.RuntimeSessionRequestedCapabilities = []string{"runtime.codex.v1"}
+	requested.RuntimeSessionOwnerUserID = "owner"
+	if !validRuntimeSessionBootstrap(requested) {
+		t.Fatal("bounded Codex promotion intent was rejected")
 	}
 }
 

@@ -7,7 +7,10 @@ import { WebSocket } from 'ws';
 import { MemoryRuntimeSessionStore } from '../server/workspace-runtime-session/memory-store';
 import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import { createWorkspaceRuntimeSessionUpgradeHandler } from '../server/workspace-runtime-session/upgrade-handler';
-import { workspaceRuntimeCapabilities } from '../src/shared/workspace-runtime-session-api';
+import {
+  workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeReadyCapabilities
+} from '../src/shared/workspace-runtime-session-api';
 
 const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const environmentId = '11111111-1111-4111-8111-111111111111';
@@ -24,9 +27,10 @@ describe('Workspace Runtime WebSocket gateway', () => {
   test('authenticates before upgrade and carries registration, heartbeat, and graceful stop', async () => {
     const store = new MemoryRuntimeSessionStore();
     const issued = await store.issue({
-      branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+      branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      operationId: 'start:websocket', runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:websocket', requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+      runtimeVersion: '0.4.66', workspaceId
     });
     const runtime = await startGateway(store);
     cleanups.push(runtime.close);
@@ -36,7 +40,8 @@ describe('Workspace Runtime WebSocket gateway', () => {
     socket.on('error', () => {});
     await opened(socket);
     socket.send(JSON.stringify({
-      branch: 'issue-625', codexControllerState: 'ready', commit, environmentId, generation, manifestDigest,
+      branch: 'issue-625', commit, environmentId, generation, manifestDigest,
+      readyCapabilities: [...workspaceRuntimeReadyCapabilities],
       resumeAfterCodexCommandSequence: 0, resumeAfterCodexEventSequence: 0,
       resumeAfterSequence: 0, runtimeVersion: '0.4.66', schemaVersion: 1,
       type: 'runtime.register', workspaceId
@@ -66,9 +71,10 @@ describe('Workspace Runtime WebSocket gateway', () => {
   test('rejects missing credentials, query credentials, binary frames, and unknown fields', async () => {
     const store = new MemoryRuntimeSessionStore();
     const issued = await store.issue({
-      branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+      branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      operationId: 'start:websocket-invalid', runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:websocket-invalid', requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+      runtimeVersion: '0.4.66', workspaceId
     });
     const runtime = await startGateway(store);
     cleanups.push(runtime.close);

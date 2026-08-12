@@ -56,21 +56,27 @@ export class WorkspaceRuntimeSessionService {
     scope: RuntimeCredentialScope,
     registration: WorkspaceRuntimeRegistration
   ) {
-    const codexAuthority = scope.capabilities.includes('runtime.codex.v1');
-    if (codexAuthority !== (registration.codexControllerState === 'ready') ||
-        codexAuthority !== (registration.resumeAfterCodexCommandSequence !== undefined) ||
-        codexAuthority !== (registration.resumeAfterCodexEventSequence !== undefined)) {
+    const readyCapabilities = registration.readyCapabilities ?? [];
+    const codexReady = readyCapabilities.includes('runtime.codex.v1');
+    if (scope.capabilities.includes('runtime.codex.v1') ||
+        readyCapabilities.some((capability) => !scope.requestedCapabilities.includes(capability)) ||
+        codexReady !== (registration.resumeAfterCodexCommandSequence !== undefined) ||
+        codexReady !== (registration.resumeAfterCodexEventSequence !== undefined)) {
       throw new RuntimeSessionError(
         'invalid_message',
-        'Workspace Runtime Codex authority requires a ready host controller.'
+        'Workspace Runtime ready authority was not requested by this credential.'
       );
     }
     const sessionId = this.createSessionId();
     const receivedAt = this.now().toISOString();
     const result = await this.store.register(scope, sessionId, receivedAt, registration);
+    const activeScope: RuntimeCredentialScope = {
+      ...scope,
+      capabilities: [...new Set([...scope.capabilities, ...readyCapabilities])].sort()
+    };
     const key = workspaceKey(scope.ownerUserId, scope.workspaceId);
     const previous = this.connections.get(key);
-    this.connections.set(key, { connection, scope, sessionId });
+    this.connections.set(key, { connection, scope: activeScope, sessionId });
     if (previous && previous.connection !== connection) {
       previous.connection.close(1012, 'Workspace Runtime session replaced.');
     }
@@ -80,12 +86,12 @@ export class WorkspaceRuntimeSessionService {
       replayed: false,
       schemaVersion: workspaceRuntimeSessionSchemaVersion,
       sessionId,
-      snapshot: result.snapshot,
+      snapshot: { ...result.snapshot, capabilities: [...activeScope.capabilities] },
       staleAfterSeconds,
       type: 'runtime.registered'
     };
     connection.send(JSON.stringify(response));
-    return { scope, sessionId };
+    return { scope: activeScope, sessionId };
   }
 
   async append(active: { scope: RuntimeCredentialScope; sessionId: string }, event: WorkspaceRuntimeEvent) {

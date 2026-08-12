@@ -35,6 +35,7 @@ export interface WorkspaceRuntimeCodexHostOptions {
   workspaceId: string;
   createManager?: (options: ConstructorParameters<typeof CodexSessionManager>[0]) => CodexSessionManager;
   emit(message: WorkspaceRuntimeCodexMessage): void;
+  stopTimeoutMs?: number;
 }
 
 export interface WorkspaceRuntimeCodexHostReady {
@@ -51,6 +52,7 @@ export class WorkspaceRuntimeCodexHostController {
   private readonly machineId: string;
   private sessionId = '';
   private state: 'starting' | 'ready' | 'stopping' | 'stopped' = 'starting';
+  private stopPromise?: Promise<void>;
   private readonly streams = new Map<string, () => void>();
 
   constructor(private readonly options: WorkspaceRuntimeCodexHostOptions) {
@@ -162,13 +164,22 @@ export class WorkspaceRuntimeCodexHostController {
   }
 
   async stop() {
-    if (this.state === 'stopped' || this.state === 'stopping') return;
+    if (this.state === 'stopped') return;
+    if (this.stopPromise) return this.stopPromise;
     this.state = 'stopping';
-    for (const unsubscribe of this.streams.values()) unsubscribe();
-    this.streams.clear();
-    this.executor.close();
-    await this.manager.close();
-    this.state = 'stopped';
+    this.stopPromise = this.stopBounded();
+    return this.stopPromise;
+  }
+
+  private async stopBounded() {
+    try {
+      for (const unsubscribe of this.streams.values()) unsubscribe();
+      this.streams.clear();
+      this.executor.close();
+      await settleWithin(this.manager.close(), this.options.stopTimeoutMs ?? 4_000);
+    } finally {
+      this.state = 'stopped';
+    }
   }
 
   private async execute(command: WorkspaceRuntimeCodexCommand): Promise<WorkspaceRuntimeCodexResult> {
@@ -242,6 +253,15 @@ export class WorkspaceRuntimeCodexHostController {
     const { kind: _kind, request: _request, type: _type, ...binding } = command;
     return { ...binding, ...value } as WorkspaceRuntimeCodexMessage & T;
   }
+}
+
+async function settleWithin(operation: Promise<unknown>, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    operation.catch(() => undefined),
+    new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs); })
+  ]);
+  if (timer) clearTimeout(timer);
 }
 
 function runtimeMachineId(options: WorkspaceRuntimeCodexHostOptions) {

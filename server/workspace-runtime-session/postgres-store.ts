@@ -35,6 +35,7 @@ interface RuntimeRow {
   manifest_digest: string;
   owner_user_id: string;
   revoked_at: Date | string | null;
+  requested_capabilities: string[];
   runtime_version: string;
   telemetry: WorkspaceRuntimeSessionSnapshot['telemetry'] | null;
   workspace_id: string;
@@ -62,7 +63,7 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
       await lockLaunchOperation(client, input.ownerUserId, input.operationId);
       await lockWorkspace(client, input.ownerUserId, input.workspaceId);
       const operation = await client.query<IssuedOperationRow>(
-        `select c.workspace_id, c.environment_id::text, c.generation::text, c.capabilities,
+        `select c.workspace_id, c.environment_id::text, c.generation::text, c.capabilities, c.requested_capabilities,
                 g.branch, g.commit, g.manifest_digest, g.runtime_version
          from workspace_runtime_credentials c join workspace_runtime_generations g
            on g.owner_user_id = c.owner_user_id and g.workspace_id = c.workspace_id and
@@ -122,11 +123,11 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
       const issued = await client.query<{ expires_at: Date | string }>(
         `insert into workspace_runtime_credentials (
            owner_user_id, workspace_id, environment_id, generation, credential_id,
-           operation_id, token_hash, capabilities, expires_at
-         ) values ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, now() + ($9 * interval '1 second'))
+           operation_id, token_hash, capabilities, requested_capabilities, expires_at
+         ) values ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, $9, now() + ($10 * interval '1 second'))
          returning expires_at`,
         [input.ownerUserId, input.workspaceId, input.environmentId, input.generation,
-          credentialId, input.operationId, hash(token), input.capabilities, ttl]
+          credentialId, input.operationId, hash(token), input.capabilities, input.requestedCapabilities, ttl]
       );
       await client.query(
         `update workspace_runtime_generations set current_credential_id = $4::uuid, updated_at = now()
@@ -327,6 +328,7 @@ function scope(row: RuntimeRow): RuntimeCredentialScope {
   return { branch: row.branch, capabilities: row.capabilities as RuntimeCredentialScope['capabilities'], commit: row.commit,
     credentialId: row.current_credential_id, environmentId: row.environment_id, expiresAt: iso(row.expires_at),
     generation: row.generation, manifestDigest: row.manifest_digest, ownerUserId: row.owner_user_id,
+    requestedCapabilities: row.requested_capabilities as RuntimeCredentialScope['requestedCapabilities'],
     runtimeVersion: row.runtime_version, workspaceId: row.workspace_id };
 }
 
@@ -355,6 +357,7 @@ interface IssuedOperationRow {
   environment_id: string;
   generation: string;
   manifest_digest: string;
+  requested_capabilities: string[];
   runtime_version: string;
   workspace_id: string;
 }
@@ -363,7 +366,8 @@ function sameIssue(left: IssuedOperationRow, right: IssueRuntimeCredentialInput)
   return left.workspace_id === right.workspaceId && left.environment_id === right.environmentId &&
     left.generation === right.generation && left.branch === right.branch && left.commit === right.commit &&
     left.manifest_digest === right.manifestDigest && left.runtime_version === right.runtimeVersion &&
-    [...left.capabilities].sort().join('\0') === [...right.capabilities].sort().join('\0');
+    [...left.capabilities].sort().join('\0') === [...right.capabilities].sort().join('\0') &&
+    [...left.requested_capabilities].sort().join('\0') === [...right.requestedCapabilities].sort().join('\0');
 }
 
 function hash(value: string) { return createHash('sha256').update(value).digest('hex'); }
@@ -372,7 +376,7 @@ function iso(value: Date | string) { return value instanceof Date ? value.toISOS
 const selectRuntime = `select g.owner_user_id, g.workspace_id, g.environment_id::text, g.generation::text, g.branch, g.commit,
   g.manifest_digest, g.runtime_version, g.lifecycle_state, g.connection_state, g.current_session_id::text,
   g.current_credential_id::text, g.last_sequence, g.last_event_at, g.last_heartbeat_at, g.dev_servers, g.telemetry,
-  g.log_pointer, c.capabilities, c.expires_at, c.operation_id, c.revoked_at from workspace_runtime_generations g join workspace_runtime_credentials c
+  g.log_pointer, c.capabilities, c.requested_capabilities, c.expires_at, c.operation_id, c.revoked_at from workspace_runtime_generations g join workspace_runtime_credentials c
   on c.owner_user_id = g.owner_user_id and c.workspace_id = g.workspace_id and
      c.environment_id = g.environment_id and c.generation = g.generation and
      c.credential_id = g.current_credential_id`;
@@ -383,6 +387,9 @@ const returningRuntime = `g.owner_user_id, g.workspace_id, g.environment_id::tex
   g.log_pointer, (select capabilities from workspace_runtime_credentials c where c.owner_user_id = g.owner_user_id and
     c.workspace_id = g.workspace_id and c.environment_id = g.environment_id and c.generation = g.generation and
     c.credential_id = g.current_credential_id) capabilities,
+  (select requested_capabilities from workspace_runtime_credentials c where c.owner_user_id = g.owner_user_id and
+    c.workspace_id = g.workspace_id and c.environment_id = g.environment_id and c.generation = g.generation and
+    c.credential_id = g.current_credential_id) requested_capabilities,
   (select expires_at from workspace_runtime_credentials c where c.owner_user_id = g.owner_user_id and
     c.workspace_id = g.workspace_id and c.environment_id = g.environment_id and c.generation = g.generation and
     c.credential_id = g.current_credential_id) expires_at`;

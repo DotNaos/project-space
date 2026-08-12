@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import {
   workspaceRuntimeSessionSchemaVersion,
+  type WorkspaceRuntimeBaseCapability,
   type WorkspaceRuntimeCredential,
   type WorkspaceRuntimeEvent,
   type WorkspaceRuntimeRegistration,
@@ -17,7 +18,8 @@ import type {
 import { RuntimeSessionError } from './contracts';
 import { validateCredentialIssue } from './validation';
 
-interface StoredCredential extends RuntimeCredentialScope {
+interface StoredCredential extends Omit<RuntimeCredentialScope, 'capabilities'> {
+  capabilities: WorkspaceRuntimeBaseCapability[];
   operationId: string;
   revokedAt?: string;
   tokenHash: string;
@@ -74,8 +76,10 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
     }
     const scope: StoredCredential = {
       ...input,
+      capabilities: [...input.capabilities],
       credentialId,
       expiresAt,
+      requestedCapabilities: [...input.requestedCapabilities],
       tokenHash: tokenHash(token)
     };
     this.credentials.set(scope.tokenHash, scope);
@@ -259,7 +263,7 @@ function applyEvent(snapshot: WorkspaceRuntimeSessionSnapshot, receivedAt: strin
   return next;
 }
 
-function publicCredential(scope: RuntimeCredentialScope, token: string): WorkspaceRuntimeCredential {
+function publicCredential(scope: StoredCredential, token: string): WorkspaceRuntimeCredential {
   return {
     capabilities: [...scope.capabilities], credentialId: scope.credentialId,
     environmentId: scope.environmentId, expiresAt: scope.expiresAt, generation: scope.generation,
@@ -273,6 +277,7 @@ function safeScope(scope: StoredCredential): RuntimeCredentialScope {
     credentialId: scope.credentialId,
     environmentId: scope.environmentId, expiresAt: scope.expiresAt, generation: scope.generation,
     manifestDigest: scope.manifestDigest, ownerUserId: scope.ownerUserId,
+    requestedCapabilities: [...scope.requestedCapabilities],
     runtimeVersion: scope.runtimeVersion, workspaceId: scope.workspaceId
   };
 }

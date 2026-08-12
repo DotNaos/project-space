@@ -27,11 +27,13 @@ func TestProcessProviderPassesRuntimeCredentialOnlyThroughProtectedBootstrap(t *
 		Workspace: WorkspaceIdentity{WorkspaceID: testRuntimeBinding().WorkspaceID, Branch: "issue-625", Head: strings.Repeat("d", 40)},
 		Binding:   testRuntimeBinding(), Directory: t.TempDir(), Manifest: Manifest{},
 		LogFile: logFile, GenerationHome: generationHome,
-		ProjectBinary: "/verified/project", RuntimeSession: &RuntimeSessionBootstrap{
+		ProjectBinary: "/verified/project", CodexBinary: "/verified/codex", RuntimeSession: &RuntimeSessionBootstrap{
 			Endpoint: "wss://projects.example/api/workspace-runtimes/socket", Token: token,
 			EnvironmentID: "33333333-3333-4333-8333-333333333333", ExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 			RuntimeVersion: "0.4.66", Capabilities: []string{"runtime.lifecycle", "runtime.heartbeat"},
-		}, CodexBinary: "/verified/codex", Commit: func(RuntimeHandle) error { return nil },
+			RequestedCapabilities: []string{"runtime.codex.v1"}, OwnerUserID: "owner",
+			ControllerBinary: "/verified/project-space-connector",
+		}, Commit: func(RuntimeHandle) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -50,15 +52,30 @@ func TestProcessProviderPassesRuntimeCredentialOnlyThroughProtectedBootstrap(t *
 	if json.Unmarshal(encoded, &bootstrap) != nil || bootstrap["token"] != token {
 		t.Fatal("protected bootstrap did not contain the scoped credential")
 	}
-	if bootstrap["codexBinary"] != "/verified/codex" ||
-		bootstrap["appServerSocket"] != appServerSocketPath(testRuntimeBinding()) ||
-		bootstrap["logPointer"] != "runtime-log:/"+testRuntimeBinding().WorkspaceID+"/"+testRuntimeBinding().Generation {
+	if bootstrap["logPointer"] != "runtime-log:/"+testRuntimeBinding().WorkspaceID+"/"+testRuntimeBinding().Generation {
 		t.Fatalf("runtime launch binding = %#v", bootstrap)
 	}
 	readyPath := filepath.Join(generationHome, "runtime-session-ready")
 	if _, err := os.Lstat(readyPath); !os.IsNotExist(err) {
 		t.Fatalf("provider published readiness before the full Manager start completed: %v", err)
 	}
+	if capabilities, ok := bootstrap["capabilities"].([]interface{}); !ok ||
+		containsInterface(capabilities, "runtime.codex.v1") {
+		t.Fatalf("initial effective capabilities = %#v", bootstrap["capabilities"])
+	}
+	if requested, ok := bootstrap["requestedCapabilities"].([]interface{}); !ok ||
+		!reflect.DeepEqual(requested, []interface{}{"runtime.codex.v1"}) {
+		t.Fatalf("requested promotion capabilities = %#v", bootstrap["requestedCapabilities"])
+	}
+}
+
+func containsInterface(values []interface{}, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProcessProviderUsesGenerationScopedEnvironmentWithoutInheritance(t *testing.T) {

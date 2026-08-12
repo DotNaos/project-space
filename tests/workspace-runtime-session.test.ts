@@ -4,7 +4,10 @@ import { MemoryRuntimeSessionStore } from '../server/workspace-runtime-session/m
 import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import { RuntimeSessionError } from '../server/workspace-runtime-session/contracts';
 import { parseRegistration, parseRuntimeEvent } from '../server/workspace-runtime-session/validation';
-import { workspaceRuntimeCapabilities } from '../src/shared/workspace-runtime-session-api';
+import {
+  workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeReadyCapabilities
+} from '../src/shared/workspace-runtime-session-api';
 import { workspaceRuntimeCodexCapability } from '../src/shared/workspace-runtime-codex-api';
 
 const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -26,9 +29,10 @@ function fixture() {
   const service = new WorkspaceRuntimeSessionService(store, () => now,
     () => `44444444-4444-4444-8444-44444444444${session++}`);
   const issue = (nextGeneration = generation, nextEnvironment = environmentId) => store.issue({
-    branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+    branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
     environmentId: nextEnvironment, generation: nextGeneration, manifestDigest,
     operationId: `start:${nextGeneration}:${nextEnvironment}`, ownerUserId: 'owner',
+    requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
     runtimeVersion: '0.4.66', workspaceId
   });
   const registration = (
@@ -41,7 +45,7 @@ function fixture() {
     manifestDigest, resumeAfterSequence, runtimeVersion: '0.4.66', schemaVersion: 1 as const,
     type: 'runtime.register' as const, workspaceId,
     ...(codex ? {
-      codexControllerState: 'ready' as const,
+      readyCapabilities: [...workspaceRuntimeReadyCapabilities],
       resumeAfterCodexCommandSequence: 0,
       resumeAfterCodexEventSequence: 0
     } : {})
@@ -109,9 +113,10 @@ describe('Workspace Runtime outbound sessions', () => {
     const runtime = fixture();
     const issued = await runtime.issue();
     await expect(runtime.store.issue({
-      branch: 'other-source', capabilities: [...workspaceRuntimeCapabilities], commit,
+      branch: 'other-source', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      operationId: 'start:changed-source', runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:changed-source', requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+      runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'generation_replaced' });
     expect(await runtime.store.authenticate(issued.credential.token)).not.toBeNull();
     runtime.setNow('2026-08-12T10:05:01.000Z');
@@ -122,9 +127,9 @@ describe('Workspace Runtime outbound sessions', () => {
     const runtime = fixture();
     const issued = await runtime.issue();
     await expect(runtime.store.issue({
-      branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+      branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
       environmentId, generation, manifestDigest, operationId: 'start:new-operation',
-      ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+      ownerUserId: 'owner', requestedCapabilities: [...workspaceRuntimeReadyCapabilities], runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'generation_replaced' });
     expect(await runtime.store.authenticate(issued.credential.token)).not.toBeNull();
   });
@@ -134,17 +139,18 @@ describe('Workspace Runtime outbound sessions', () => {
     await expect(runtime.store.issue({
       branch: 'issue-625', capabilities: ['runtime.shell' as never], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      operationId: 'start:invalid-capability', runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:invalid-capability', requestedCapabilities: [], runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
     await expect(runtime.store.issue({
       branch: 'issue-625', capabilities: [workspaceRuntimeCodexCapability as never], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:effective-codex', requestedCapabilities: [], runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
     await expect(runtime.store.issue({
-      branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+      branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
       environmentId, expiresInSeconds: 3_601, generation, manifestDigest,
-      operationId: 'start:invalid-expiry', ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:invalid-expiry', ownerUserId: 'owner', requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+      runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
   });
 
@@ -167,9 +173,31 @@ describe('Workspace Runtime outbound sessions', () => {
     const runtime = fixture();
     const issued = await runtime.issue();
     const scope = await runtime.store.authenticate(issued.credential.token);
-    await expect(runtime.service.register(connection(), scope!, {
-      ...runtime.registration(0, generation, environmentId, false)
-    })).rejects.toMatchObject({ code: 'invalid_message' });
+    const active = await runtime.service.register(connection(), scope!,
+      runtime.registration(0, generation, environmentId, false));
+    expect(active.scope.capabilities).not.toContain(workspaceRuntimeCodexCapability);
+    expect(() => runtime.service.dispatchCodex('owner', {
+      actorId: 'actor-owner', actorKind: 'human', actorUserId: 'owner', commandId: 'command-start',
+      commandSequence: 1, environmentId, generation, kind: 'runtime-start', operationId: 'operation.start',
+      request: { operationId: 'operation.start' }, schemaVersion: 1, sessionId: active.sessionId,
+      type: 'runtime.codex.command', workspaceId
+    })).toThrowError(RuntimeSessionError);
+  });
+
+  test('rejects forged or unrequested ready promotion', async () => {
+    const runtime = fixture();
+    const unrequested = await runtime.store.issue({
+      branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:unrequested',
+      ownerUserId: 'owner', requestedCapabilities: [],
+      runtimeVersion: '0.4.66', workspaceId
+    });
+    const scope = await runtime.store.authenticate(unrequested.credential.token);
+    await expect(runtime.service.register(connection(), scope!, runtime.registration()))
+      .rejects.toMatchObject({ code: 'invalid_message' });
+    expect(() => parseRegistration({
+      ...runtime.registration(), readyCapabilities: ['runtime.shell']
+    })).toThrow();
   });
 
   test('dispatches Codex commands only to the exact owner, generation, and socket binding', async () => {
@@ -178,6 +206,8 @@ describe('Workspace Runtime outbound sessions', () => {
     const scope = await runtime.store.authenticate(issued.credential.token);
     const socket = connection();
     const active = await runtime.service.register(socket, scope!, runtime.registration());
+    expect(scope?.capabilities).not.toContain(workspaceRuntimeCodexCapability);
+    expect(active.scope.capabilities).toContain(workspaceRuntimeCodexCapability);
     const command = {
       actorId: 'actor-owner', actorKind: 'human' as const, actorUserId: 'owner',
       commandId: 'command-start', commandSequence: 1, environmentId, generation,
@@ -192,6 +222,14 @@ describe('Workspace Runtime outbound sessions', () => {
     expect(() => runtime.service.dispatchCodex('owner', {
       ...command,
       generation: '55555555-5555-4555-8555-555555555555'
+    })).toThrowError(RuntimeSessionError);
+    const telemetryReconnect = await runtime.service.register(
+      connection(), scope!, runtime.registration(0, generation, environmentId, false)
+    );
+    expect(telemetryReconnect.scope.capabilities).not.toContain(workspaceRuntimeCodexCapability);
+    expect(() => runtime.service.dispatchCodex('owner', {
+      ...command,
+      sessionId: telemetryReconnect.sessionId
     })).toThrowError(RuntimeSessionError);
   });
 
@@ -238,9 +276,9 @@ describe('Workspace Runtime outbound sessions', () => {
     const service = new WorkspaceRuntimeSessionService(store, () => now,
       () => `44444444-4444-4444-8444-44444444449${nextSession++}`);
     const issued = await store.issue({
-      branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+      branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
       environmentId, generation, manifestDigest, operationId: 'start:stale-race',
-      ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+      ownerUserId: 'owner', requestedCapabilities: [], runtimeVersion: '0.4.66', workspaceId
     });
     const scope = (await store.authenticate(issued.credential.token))!;
     const oldSocket = connection();
@@ -291,9 +329,9 @@ describe('Workspace Runtime outbound sessions', () => {
     const sockets = { first: connection(), second: connection() };
     for (const [ownerUserId, socket] of [['first-owner', sockets.first], ['second-owner', sockets.second]] as const) {
       const issued = await store.issue({
-        branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit, environmentId,
+        branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit, environmentId,
         generation, manifestDigest, operationId: `start:${ownerUserId}`, ownerUserId,
-        runtimeVersion: '0.4.66', workspaceId
+        requestedCapabilities: [], runtimeVersion: '0.4.66', workspaceId
       });
       const scope = await store.authenticate(issued.credential.token);
       await service.register(socket, scope!, {
@@ -326,6 +364,7 @@ describe('Workspace Runtime outbound sessions', () => {
     const limited = await runtime.store.issue({
       branch: 'issue-625', capabilities: ['runtime.lifecycle'], commit, environmentId,
       generation, manifestDigest, operationId: 'start:limited', ownerUserId: 'owner',
+      requestedCapabilities: [],
       runtimeVersion: '0.4.66', workspaceId
     });
     const scope = await runtime.store.authenticate(limited.credential.token);

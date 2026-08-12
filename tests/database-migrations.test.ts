@@ -39,6 +39,10 @@ import {
   workspaceRuntimeSessionMigrationId,
   workspaceRuntimeSessionMigrationSql
 } from '../server/database/workspace-runtime-session-migration';
+import {
+  workspaceRuntimeCapabilityPromotionMigrationId,
+  workspaceRuntimeCapabilityPromotionMigrationSql
+} from '../server/database/workspace-runtime-capability-promotion-migration';
 
 interface QueryCall {
   sql: string;
@@ -202,6 +206,11 @@ describe('database migrations', () => {
     expect(workspaceRuntimeSessionMigrationSql).toContain('operation_id text not null');
     expect(workspaceRuntimeSessionMigrationSql).toContain('unique (owner_user_id, operation_id)');
     expect(workspaceRuntimeSessionMigrationSql).not.toContain(' token text');
+    expect(workspaceRuntimeSessionMigrationSql).not.toContain('runtime.codex.v1');
+    expect(workspaceRuntimeCapabilityPromotionMigrationSql).toContain(
+      "requested_capabilities <@ array['runtime.codex.v1']::text[]"
+    );
+    expect(databaseMigrations.at(-1)?.id).toBe(workspaceRuntimeCapabilityPromotionMigrationId);
     expect(workspaceRuntimeSessionMigrationSql).toContain(
       'unique (owner_user_id, workspace_id, generation, sequence)'
     );
@@ -211,7 +220,9 @@ describe('database migrations', () => {
   });
 
   test('persists explicit Codex message delivery and durable queue state', () => {
-    expect(databaseMigrations.at(-1)?.id).toBe(codexMachineTaskMessageDeliveryMigrationId);
+    expect(databaseMigrations.find((migration) => (
+      migration.id === codexMachineTaskMessageDeliveryMigrationId
+    ))?.id).toBe(codexMachineTaskMessageDeliveryMigrationId);
     expect(codexMachineTaskMessageDeliveryMigrationSql).toContain(
       "state in ('pending', 'queued', 'completed', 'uncertain')"
     );
@@ -279,7 +290,8 @@ describe('database migrations', () => {
       '0041_ssh_control_gateway_operations',
       '0042_workspace_runtime_control',
       '0043_workspace_runtime_sessions',
-      '0044_codex_machine_task_message_delivery'
+      '0044_codex_machine_task_message_delivery',
+      '0045_workspace_runtime_capability_promotions'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

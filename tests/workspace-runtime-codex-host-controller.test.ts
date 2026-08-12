@@ -127,13 +127,24 @@ describe('Workspace Runtime Codex host controller', () => {
     });
     await restarted.stop();
   });
+
+  test('bounds controller shutdown when the shared manager does not close', async () => {
+    const fixture = await createFixture();
+    const controller = fixture.controller(() => fakeManager({
+      close: () => new Promise<void>(() => {})
+    }), 10);
+    await controller.start();
+    const startedAt = performance.now();
+    await controller.stop();
+    expect(performance.now() - startedAt).toBeLessThan(250);
+  });
 });
 
 async function createFixture() {
   const directory = await mkdtemp(join(tmpdir(), 'project-runtime-codex-host-'));
   const messages: WorkspaceRuntimeCodexMessage[] = [];
   return {
-    controller(createManager: () => CodexSessionManager) {
+    controller(createManager: () => CodexSessionManager, stopTimeoutMs?: number) {
       return new WorkspaceRuntimeCodexHostController({
         binaryPath: '/verified/codex',
         codexHome: join(directory, 'codex-home'),
@@ -144,6 +155,7 @@ async function createFixture() {
         journalPath: join(directory, 'host-journal.json'),
         operationSnapshotPath: join(directory, 'codex-operations.json'),
         ownerUserId,
+        ...(stopTimeoutMs === undefined ? {} : { stopTimeoutMs }),
         workspaceId
       });
     },

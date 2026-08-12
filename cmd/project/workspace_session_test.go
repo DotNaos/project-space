@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,20 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestWorkspaceRuntimeWrapperWaitsForGracefulSessionFlushWhenCodexExitsWithItsContext(t *testing.T) {
-	directory := t.TempDir()
-	if err := os.Chmod(directory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	codex := filepath.Join(directory, "fake-codex")
-	if err := os.WriteFile(codex, []byte("#!/bin/sh\nexec /bin/sleep 60\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	ready := filepath.Join(directory, "ready")
-	if err := os.WriteFile(ready, []byte("ready\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	bootstrap := workspacesession.Bootstrap{ReadyPath: ready}
+func TestWorkspaceRuntimeWrapperDelegatesLifecycleToTheSessionClient(t *testing.T) {
+	bootstrap := workspacesession.Bootstrap{}
 	command := &cobra.Command{}
 	command.SetOut(io.Discard)
 	command.SetErr(io.Discard)
@@ -42,7 +28,7 @@ func TestWorkspaceRuntimeWrapperWaitsForGracefulSessionFlushWhenCodexExitsWithIt
 				<-sessionContext.Done()
 				time.Sleep(50 * time.Millisecond)
 				flushed.Store(true)
-				return nil
+				return sessionContext.Err()
 			})
 	}()
 	select {

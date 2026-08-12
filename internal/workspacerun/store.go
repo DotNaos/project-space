@@ -457,7 +457,8 @@ func validateHandle(record runtimeRecord) error {
 	}
 	switch record.Handle.Kind {
 	case ResourceProcess:
-		if record.Handle.Process == nil || record.Handle.Container != nil || record.Handle.Process.PID <= 0 || !sha256Pattern.MatchString(record.Handle.Process.Identity) || record.Handle.Process.BindingDigest != bindingDigest(record.binding()) || !filepath.IsAbs(record.Handle.Process.AppServerSocket) || filepath.Clean(record.Handle.Process.AppServerSocket) != record.Handle.Process.AppServerSocket || len(record.Handle.Process.AppServerSocket) > 4096 {
+		if record.Handle.Process == nil || record.Handle.Container != nil || record.Handle.Process.PID <= 0 || !sha256Pattern.MatchString(record.Handle.Process.Identity) || record.Handle.Process.BindingDigest != bindingDigest(record.binding()) ||
+			(record.Handle.Process.AppServerSocket != "" && (!filepath.IsAbs(record.Handle.Process.AppServerSocket) || filepath.Clean(record.Handle.Process.AppServerSocket) != record.Handle.Process.AppServerSocket || len(record.Handle.Process.AppServerSocket) > 4096)) {
 			return fmt.Errorf("process handle is invalid")
 		}
 		if record.Mode != ModeProcess || !record.Resources.Empty() {

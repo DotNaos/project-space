@@ -80,11 +80,20 @@ func executeWorkspaceRuntimeControl(
 		TrustedGateway: true,
 	}
 	if request.RuntimeSessionEndpoint != "" {
+		controllerBinary := ""
+		if containsRuntimeCapability(request.RuntimeSessionRequestedCapabilities, "runtime.codex.v1") {
+			controllerBinary, err = resolveConnectorBinary()
+			if err != nil {
+				return fmt.Errorf("Workspace Runtime Codex controller is unavailable")
+			}
+		}
 		options.RuntimeSession = &workspacerun.RuntimeSessionBootstrap{
 			Endpoint: request.RuntimeSessionEndpoint, Token: request.RuntimeSessionToken,
 			EnvironmentID: request.EnvironmentID, ExpiresAt: request.RuntimeSessionExpiresAt,
-			RuntimeVersion: request.RuntimeSessionVersion,
-			Capabilities:   append([]string{}, request.RuntimeSessionCapabilities...),
+			RuntimeVersion:        request.RuntimeSessionVersion,
+			Capabilities:          append([]string{}, request.RuntimeSessionCapabilities...),
+			RequestedCapabilities: append([]string{}, request.RuntimeSessionRequestedCapabilities...),
+			OwnerUserID:           request.RuntimeSessionOwnerUserID, ControllerBinary: controllerBinary,
 		}
 	}
 	streams := workspacerun.Streams{Out: io.Discard, Err: io.Discard}
@@ -179,13 +188,37 @@ func validRuntimeSessionBootstrap(request controlGatewayOperationRequest) bool {
 		}
 		seen[capability] = true
 	}
-	return seen["runtime.lifecycle"] && seen["runtime.heartbeat"]
+	if !seen["runtime.lifecycle"] || !seen["runtime.heartbeat"] {
+		return false
+	}
+	requested := map[string]bool{}
+	for _, capability := range request.RuntimeSessionRequestedCapabilities {
+		if capability != "runtime.codex.v1" || requested[capability] {
+			return false
+		}
+		requested[capability] = true
+	}
+	if len(requested) > 1 || requested["runtime.codex.v1"] &&
+		(request.RuntimeSessionOwnerUserID == "" || len(request.RuntimeSessionOwnerUserID) > 256 || strings.ContainsAny(request.RuntimeSessionOwnerUserID, "\x00\r\n")) {
+		return false
+	}
+	return true
 }
 
 func runtimeSessionValuesPresent(request controlGatewayOperationRequest) bool {
 	return request.RuntimeSessionEndpoint != "" || request.RuntimeSessionToken != "" ||
 		request.RuntimeSessionExpiresAt != "" || request.RuntimeSessionVersion != "" ||
-		len(request.RuntimeSessionCapabilities) > 0
+		len(request.RuntimeSessionCapabilities) > 0 || len(request.RuntimeSessionRequestedCapabilities) > 0 ||
+		request.RuntimeSessionOwnerUserID != ""
+}
+
+func containsRuntimeCapability(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func validWorkspaceBindings(bindings map[string]string) bool {

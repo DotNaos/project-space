@@ -52,27 +52,28 @@ type controlGatewayHandshakeRequest struct {
 }
 
 type controlGatewayOperationRequest struct {
-	EnvironmentID              string   `json:"environmentId"`
-	ExpectedCLIVersion         string   `json:"expectedCliVersion"`
-	ExpectedProtocolVersion    int      `json:"expectedProtocolVersion"`
-	Operation                  string   `json:"operation"`
-	OperationID                string   `json:"operationId"`
-	SchemaVersion              int      `json:"schemaVersion"`
-	TargetIdentityRevision     string   `json:"targetIdentityRevision"`
-	Type                       string   `json:"type"`
-	WorkspaceID                string   `json:"workspaceId,omitempty"`
-	ExpectedBranch             string   `json:"expectedBranch,omitempty"`
-	ExpectedCommit             string   `json:"expectedCommit,omitempty"`
-	ExpectedManifestDigest     string   `json:"expectedManifestDigest,omitempty"`
-	ExpectedGeneration         string   `json:"expectedGeneration,omitempty"`
-	ExpectedRuntimeVersion     string   `json:"expectedRuntimeVersion,omitempty"`
-	Mode                       string   `json:"mode,omitempty"`
-	RuntimeSessionEndpoint     string   `json:"runtimeSessionEndpoint,omitempty"`
-	RuntimeSessionToken        string   `json:"runtimeSessionToken,omitempty"`
-	RuntimeSessionExpiresAt    string   `json:"runtimeSessionExpiresAt,omitempty"`
-	RuntimeSessionVersion      string   `json:"runtimeSessionVersion,omitempty"`
-	RuntimeSessionCapabilities []string `json:"runtimeSessionCapabilities,omitempty"`
-	RuntimeSessionOwnerUserID  string   `json:"runtimeSessionOwnerUserId,omitempty"`
+	EnvironmentID                       string   `json:"environmentId"`
+	ExpectedCLIVersion                  string   `json:"expectedCliVersion"`
+	ExpectedProtocolVersion             int      `json:"expectedProtocolVersion"`
+	Operation                           string   `json:"operation"`
+	OperationID                         string   `json:"operationId"`
+	SchemaVersion                       int      `json:"schemaVersion"`
+	TargetIdentityRevision              string   `json:"targetIdentityRevision"`
+	Type                                string   `json:"type"`
+	WorkspaceID                         string   `json:"workspaceId,omitempty"`
+	ExpectedBranch                      string   `json:"expectedBranch,omitempty"`
+	ExpectedCommit                      string   `json:"expectedCommit,omitempty"`
+	ExpectedManifestDigest              string   `json:"expectedManifestDigest,omitempty"`
+	ExpectedGeneration                  string   `json:"expectedGeneration,omitempty"`
+	ExpectedRuntimeVersion              string   `json:"expectedRuntimeVersion,omitempty"`
+	Mode                                string   `json:"mode,omitempty"`
+	RuntimeSessionEndpoint              string   `json:"runtimeSessionEndpoint,omitempty"`
+	RuntimeSessionToken                 string   `json:"runtimeSessionToken,omitempty"`
+	RuntimeSessionExpiresAt             string   `json:"runtimeSessionExpiresAt,omitempty"`
+	RuntimeSessionVersion               string   `json:"runtimeSessionVersion,omitempty"`
+	RuntimeSessionCapabilities          []string `json:"runtimeSessionCapabilities,omitempty"`
+	RuntimeSessionRequestedCapabilities []string `json:"runtimeSessionRequestedCapabilities,omitempty"`
+	RuntimeSessionOwnerUserID           string   `json:"runtimeSessionOwnerUserId,omitempty"`
 }
 
 type controlGatewayIdentity struct {

@@ -1,15 +1,22 @@
 export const workspaceRuntimeSessionSchemaVersion = 1 as const;
 
-export const workspaceRuntimeCapabilities = [
+export const workspaceRuntimeBaseCapabilities = [
   'runtime.lifecycle',
   'runtime.heartbeat',
   'runtime.dev-servers',
   'runtime.telemetry',
-  'runtime.log-pointers',
+  'runtime.log-pointers'
+] as const;
+
+export const workspaceRuntimeReadyCapabilities = [
   'runtime.codex.v1'
 ] as const;
 
-export type WorkspaceRuntimeCapability = typeof workspaceRuntimeCapabilities[number];
+export type WorkspaceRuntimeBaseCapability = typeof workspaceRuntimeBaseCapabilities[number];
+export type WorkspaceRuntimeReadyCapability = typeof workspaceRuntimeReadyCapabilities[number];
+export type WorkspaceRuntimeCapability =
+  | WorkspaceRuntimeBaseCapability
+  | WorkspaceRuntimeReadyCapability;
 export type WorkspaceRuntimeConnectionState =
   | 'connecting'
   | 'online'
@@ -25,7 +32,7 @@ export type WorkspaceRuntimeLifecycleState =
   | 'failed';
 
 export interface WorkspaceRuntimeCredentialRequest {
-  capabilities: WorkspaceRuntimeCapability[];
+  capabilities: WorkspaceRuntimeBaseCapability[];
   environmentId: string;
   expiresInSeconds?: number;
   generation: string;
@@ -33,7 +40,7 @@ export interface WorkspaceRuntimeCredentialRequest {
 }
 
 export interface WorkspaceRuntimeCredential {
-  capabilities: WorkspaceRuntimeCapability[];
+  capabilities: WorkspaceRuntimeBaseCapability[];
   credentialId: string;
   environmentId: string;
   expiresAt: string;
@@ -46,10 +53,10 @@ export interface WorkspaceRuntimeCredential {
 export interface WorkspaceRuntimeRegistration {
   branch: string;
   commit: string;
-  codexControllerState?: 'ready';
   environmentId: string;
   generation: string;
   manifestDigest: string;
+  readyCapabilities?: WorkspaceRuntimeReadyCapability[];
   resumeAfterSequence: number;
   resumeAfterCodexCommandSequence?: number;
   resumeAfterCodexEventSequence?: number;

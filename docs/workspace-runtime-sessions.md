@@ -9,17 +9,21 @@ The trusted control plane allocates the runtime generation before dispatch. It t
 - the owner and canonical UUID Workspace ID;
 - the exact Environment Instance and runtime generation;
 - branch, commit, manifest digest, and runtime version;
-- an explicit capability set and expiry of at most one hour.
+- an effective telemetry capability set, a separate bounded Codex promotion intent, and expiry of at most one hour.
+
+The issued credential never contains or advertises `runtime.codex.v1`. That capability exists only as
+trusted requested intent attached to this exact credential and generation.
 
 The credential is passed through the typed SSH start request into a `0600` bootstrap file in the generation directory. It is never placed in process arguments, command output, runtime events, or a public API result. A failed or mismatched start revokes it.
 
 ```mermaid
 flowchart LR
-  CP[Trusted control plane] -->|preallocate generation + issue credential| SSH[Typed SSH start]
-  SSH -->|0600 bootstrap file| RT[Workspace Runtime]
-  RT -->|start and supervise over private pipes| CH[Generation-local Codex host]
+  CP[Trusted control plane] -->|base credential + requested Codex intent| SSH[Typed SSH start]
+  SSH -->|0600 bootstrap, Codex not effective| RT[Workspace Runtime]
+  RT -->|start from requested intent| CH[Generation-local Codex host]
   CH -->|typed Codex App Server protocol| CA[Codex App Server]
-  RT -->|Bearer-authenticated WSS after controller ready| WS[Project Space session gateway]
+  RT -->|exact ready capability + durable watermarks| WS[Project Space session gateway]
+  WS -->|promote this socket only| AC[Active connection authority]
   WS --> DB[(Generation and replay ledger)]
   SSH -. explicit recovery only .-> RT
 ```
@@ -40,8 +44,11 @@ Subsequent frames have a strictly increasing sequence number and one bounded typ
 
 The capability `runtime.codex.v1` enables the bidirectional Codex command channel only after the
 generation-local host controller has started the shared Codex executor and successfully initialized
-the App Server. Registration must include that ready state plus durable command and event watermarks;
-a telemetry-only registration cannot activate Codex authority.
+the App Server. Registration must repeat `runtime.codex.v1` as an exact ready capability plus durable
+command and event watermarks. The server verifies that this promotion was requested by the same
+credential and generation, then adds it only to that active socket. A telemetry-only registration
+remains connected without Codex authority, forged or unrequested readiness is rejected, and every
+reconnect must present the proof again.
 
 When enabled, server commands and runtime Codex events use independent durable sequences. Every
 command remains bound to the authenticated owner, Workspace, Environment, generation, socket

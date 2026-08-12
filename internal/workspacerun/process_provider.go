@@ -47,6 +47,10 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 	if request.LogFile == nil {
 		return RuntimeHandle{}, fmt.Errorf("anchored Workspace runtime log is required")
 	}
+	if request.RuntimeSession != nil && containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.codex.v1") &&
+		(request.RuntimeSession.ControllerBinary == "" || request.RuntimeSession.OwnerUserID == "") {
+		return RuntimeHandle{}, fmt.Errorf("verified Workspace Runtime Codex controller is required")
+	}
 	for _, directory := range []string{
 		request.GenerationHome,
 		filepath.Join(request.GenerationHome, "home"),
@@ -66,30 +70,48 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 	if runner == nil {
 		runner = projectrun.OSProcessRunner{SupervisorExecutable: request.ProjectBinary}
 	}
-	appServerSocket := appServerSocketPath(request.Binding)
-	if _, err := os.Lstat(appServerSocket); err == nil {
-		return RuntimeHandle{}, fmt.Errorf("private Codex app-server socket path is already occupied")
-	} else if !os.IsNotExist(err) {
-		return RuntimeHandle{}, fmt.Errorf("inspect private Codex app-server socket: %w", err)
+	appServerSocket := ""
+	argv := []string{request.ProjectBinary, "__workspace-runtime-idle"}
+	if request.RuntimeSession == nil {
+		appServerSocket = appServerSocketPath(request.Binding)
+		if _, err := os.Lstat(appServerSocket); err == nil {
+			return RuntimeHandle{}, fmt.Errorf("private Codex app-server socket path is already occupied")
+		} else if !os.IsNotExist(err) {
+			return RuntimeHandle{}, fmt.Errorf("inspect private Codex app-server socket: %w", err)
+		}
+		argv = []string{request.CodexBinary, "app-server", "--listen", "unix://" + appServerSocket, "--strict-config"}
 	}
-	argv := []string{request.CodexBinary, "app-server", "--listen", "unix://" + appServerSocket, "--strict-config"}
 	runtimeSessionReadyPath := ""
 	if request.RuntimeSession != nil {
 		bootstrapPath := filepath.Join(request.GenerationHome, "runtime-session-bootstrap.json")
 		statePath := filepath.Join(request.GenerationHome, "runtime-session-dev-servers.json")
 		runtimeSessionReadyPath = filepath.Join(request.GenerationHome, "runtime-session-ready")
 		bootstrap := workspacesession.Bootstrap{
-			AppServerSocket: appServerSocket,
-			Endpoint:        request.RuntimeSession.Endpoint, Token: request.RuntimeSession.Token,
-			CodexBinary: request.CodexBinary,
+			Endpoint: request.RuntimeSession.Endpoint, Token: request.RuntimeSession.Token,
 			WorkspaceID: request.Binding.WorkspaceID, EnvironmentID: request.RuntimeSession.EnvironmentID,
 			Generation: request.Binding.Generation, Branch: request.Workspace.Branch, Commit: request.Workspace.Head,
 			ManifestDigest: request.Binding.ManifestDigest, RuntimeVersion: request.RuntimeSession.RuntimeVersion,
-			LogPointer:   "runtime-log:/" + request.Binding.WorkspaceID + "/" + request.Binding.Generation,
-			Capabilities: append([]string{}, request.RuntimeSession.Capabilities...),
-			JournalPath:  filepath.Join(request.GenerationHome, "runtime-session-journal.json"), StatePath: statePath,
-			ReadyPath: runtimeSessionReadyPath,
-			ExpiresAt: request.RuntimeSession.ExpiresAt,
+			Capabilities:          append([]string{}, request.RuntimeSession.Capabilities...),
+			RequestedCapabilities: append([]string{}, request.RuntimeSession.RequestedCapabilities...),
+			JournalPath:           filepath.Join(request.GenerationHome, "runtime-session-journal.json"), StatePath: statePath,
+			LogPointer: "runtime-log:/" + request.Binding.WorkspaceID + "/" + request.Binding.Generation,
+			ReadyPath:  runtimeSessionReadyPath,
+			ExpiresAt:  request.RuntimeSession.ExpiresAt,
+		}
+		if containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.codex.v1") {
+			controllerPath := filepath.Join(request.GenerationHome, "runtime-codex-host-bootstrap.json")
+			controllerBootstrap := map[string]string{
+				"binaryPath": request.CodexBinary, "codexHome": filepath.Join(request.GenerationHome, "codex"),
+				"environmentId": request.RuntimeSession.EnvironmentID, "generation": request.Binding.Generation,
+				"journalPath":           filepath.Join(request.GenerationHome, "runtime-codex-host-journal.json"),
+				"operationSnapshotPath": filepath.Join(request.GenerationHome, "codex-operations.json"),
+				"ownerUserId":           request.RuntimeSession.OwnerUserID, "workspaceId": request.Binding.WorkspaceID,
+			}
+			if err := writeProtectedJSON(controllerPath, controllerBootstrap); err != nil {
+				return RuntimeHandle{}, fmt.Errorf("write Codex host bootstrap: %w", err)
+			}
+			bootstrap.CodexControllerBinary = request.RuntimeSession.ControllerBinary
+			bootstrap.CodexControllerBootstrap = controllerPath
 		}
 		if err := workspacesession.ValidateBootstrap(bootstrap, time.Now()); err != nil {
 			return RuntimeHandle{}, err
@@ -138,21 +160,23 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 	if err != nil {
 		return RuntimeHandle{}, err
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		owned, inspectErr := runner.OwnsUnixSocket(process, appServerSocket)
-		if inspectErr != nil {
-			_ = runner.StopGroup(process, time.Second)
-			return RuntimeHandle{}, inspectErr
+	if appServerSocket != "" {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			owned, inspectErr := runner.OwnsUnixSocket(process, appServerSocket)
+			if inspectErr != nil {
+				_ = runner.StopGroup(process, time.Second)
+				return RuntimeHandle{}, inspectErr
+			}
+			if owned {
+				break
+			}
+			if !runner.Alive(process) || time.Now().After(deadline) {
+				_ = runner.StopGroup(process, time.Second)
+				return RuntimeHandle{}, fmt.Errorf("pinned Codex app-server did not acquire its private socket")
+			}
+			time.Sleep(25 * time.Millisecond)
 		}
-		if owned {
-			break
-		}
-		if !runner.Alive(process) || time.Now().After(deadline) {
-			_ = runner.StopGroup(process, time.Second)
-			return RuntimeHandle{}, fmt.Errorf("pinned Codex app-server did not acquire its private socket")
-		}
-		time.Sleep(25 * time.Millisecond)
 	}
 	return RuntimeHandle{Kind: ResourceProcess, Process: processHandle(process, request.Binding, appServerSocket)}, nil
 }
@@ -160,6 +184,34 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 func appServerSocketPath(binding RuntimeBinding) string {
 	digest := sha256.Sum256([]byte("project-codex-app-server\x00" + bindingDigest(binding)))
 	return filepath.Join(os.TempDir(), "project-codex-"+hex.EncodeToString(digest[:12])+".sock")
+}
+
+func writeProtectedJSON(path string, value interface{}) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err = file.Write(encoded); err != nil {
+		file.Close()
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func containsCapability(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func processHandle(process projectrun.ProcessRef, binding RuntimeBinding, appServerSocket string) *ProcessHandle {
@@ -205,12 +257,14 @@ func (provider ProcessProvider) Inspect(_ context.Context, handle RuntimeHandle,
 	if !exists {
 		return ProviderObservation{Exists: runner.PIDExists(process.PID), Owned: false, Handle: handle}, nil
 	}
-	ownedSocket, err := runner.OwnsUnixSocket(process, handle.Process.AppServerSocket)
-	if err != nil {
-		return ProviderObservation{}, err
-	}
-	if !ownedSocket {
-		return ProviderObservation{Exists: true, Owned: false, Handle: handle}, nil
+	if handle.Process.AppServerSocket != "" {
+		ownedSocket, err := runner.OwnsUnixSocket(process, handle.Process.AppServerSocket)
+		if err != nil {
+			return ProviderObservation{}, err
+		}
+		if !ownedSocket {
+			return ProviderObservation{Exists: true, Owned: false, Handle: handle}, nil
+		}
 	}
 	suspended, err := runner.Suspended(process)
 	if err != nil {
@@ -282,10 +336,12 @@ func (provider ProcessProvider) Clean(_ context.Context, handle RuntimeHandle, b
 	if runner.PIDExists(process.PID) {
 		return fmt.Errorf("refusing to clean after the recorded PID changed ownership")
 	}
-	if _, err := os.Lstat(handle.Process.AppServerSocket); err == nil {
-		return fmt.Errorf("refusing to clean while the recorded Codex app-server socket still exists")
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect recorded Codex app-server socket: %w", err)
+	if handle.Process.AppServerSocket != "" {
+		if _, err := os.Lstat(handle.Process.AppServerSocket); err == nil {
+			return fmt.Errorf("refusing to clean while the recorded Codex app-server socket still exists")
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect recorded Codex app-server socket: %w", err)
+		}
 	}
 	return nil
 }

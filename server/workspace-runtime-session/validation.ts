@@ -1,7 +1,8 @@
 import {
-  workspaceRuntimeCapabilities,
+  workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeReadyCapabilities,
   workspaceRuntimeSessionSchemaVersion,
-  type WorkspaceRuntimeCapability,
+  type WorkspaceRuntimeBaseCapability,
   type WorkspaceRuntimeCredentialRequest,
   type WorkspaceRuntimeDevServer,
   type WorkspaceRuntimeEvent,
@@ -17,7 +18,8 @@ const workspace = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 const digest = /^[a-f0-9]{64}$/;
 const commit = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const eventId = /^[A-Za-z0-9:._-]{1,128}$/;
-const capabilitySet = new Set<string>(workspaceRuntimeCapabilities);
+const baseCapabilitySet = new Set<string>(workspaceRuntimeBaseCapabilities);
+const readyCapabilitySet = new Set<string>(workspaceRuntimeReadyCapabilities);
 
 export function validateCredentialIssue(input: IssueRuntimeCredentialInput) {
   const expiresInSeconds = input.expiresInSeconds ?? 300;
@@ -29,6 +31,7 @@ export function validateCredentialIssue(input: IssueRuntimeCredentialInput) {
   safeText(input.branch, 256);
   safeText(input.runtimeVersion, 64);
   parseCapabilities(input.capabilities);
+  parseRequestedCapabilities(input.requestedCapabilities);
   return expiresInSeconds;
 }
 
@@ -52,10 +55,10 @@ export function parseCredentialRequest(value: unknown): WorkspaceRuntimeCredenti
 export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration {
   const input = object(value);
   exactKeys(input, [
-    'branch', 'codexControllerState', 'commit', 'environmentId', 'generation', 'manifestDigest',
+    'branch', 'commit', 'environmentId', 'generation', 'manifestDigest', 'readyCapabilities',
     'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence', 'resumeAfterSequence',
     'runtimeVersion', 'schemaVersion', 'type', 'workspaceId'
-  ], ['codexControllerState', 'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence']);
+  ], ['readyCapabilities', 'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence']);
   if (input.type !== 'runtime.register' || input.schemaVersion !== workspaceRuntimeSessionSchemaVersion ||
     !Number.isSafeInteger(input.resumeAfterSequence) || Number(input.resumeAfterSequence) < 0 ||
     !optionalSequence(input.resumeAfterCodexCommandSequence) ||
@@ -63,14 +66,18 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
     !uuid.test(string(input.environmentId)) ||
     !uuid.test(string(input.generation)) || !workspace.test(string(input.workspaceId)) ||
     !digest.test(string(input.manifestDigest)) || !commit.test(string(input.commit))) invalid();
+  const readyCapabilities = input.readyCapabilities === undefined
+    ? undefined
+    : parseRequestedCapabilities(input.readyCapabilities, false);
+  const codexReady = readyCapabilities?.includes('runtime.codex.v1') ?? false;
+  if (codexReady !== (input.resumeAfterCodexCommandSequence !== undefined) ||
+      codexReady !== (input.resumeAfterCodexEventSequence !== undefined)) invalid();
   return {
     branch: safeText(input.branch, 256),
-    ...(input.codexControllerState === undefined ? {} : {
-      codexControllerState: input.codexControllerState === 'ready' ? 'ready' as const : invalid()
-    }),
     commit: string(input.commit),
     environmentId: string(input.environmentId),
     generation: string(input.generation), manifestDigest: string(input.manifestDigest),
+    ...(readyCapabilities === undefined ? {} : { readyCapabilities }),
     ...(input.resumeAfterCodexCommandSequence === undefined ? {} : {
       resumeAfterCodexCommandSequence: Number(input.resumeAfterCodexCommandSequence)
     }),
@@ -168,13 +175,20 @@ function parseDevServers(value: unknown): WorkspaceRuntimeDevServer[] {
   });
 }
 
-export function parseCapabilities(value: unknown): WorkspaceRuntimeCapability[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > workspaceRuntimeCapabilities.length) invalid();
+export function parseCapabilities(value: unknown): WorkspaceRuntimeBaseCapability[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > workspaceRuntimeBaseCapabilities.length) invalid();
   const capabilities = value.map(string);
-  if (new Set(capabilities).size !== capabilities.length || capabilities.some((entry) => !capabilitySet.has(entry))) invalid();
-  if (capabilities.includes('runtime.codex.v1') &&
-      (!capabilities.includes('runtime.lifecycle') || !capabilities.includes('runtime.heartbeat'))) invalid();
-  return capabilities.sort() as WorkspaceRuntimeCapability[];
+  if (new Set(capabilities).size !== capabilities.length || capabilities.some((entry) => !baseCapabilitySet.has(entry))) invalid();
+  return capabilities.sort() as WorkspaceRuntimeBaseCapability[];
+}
+
+export function parseRequestedCapabilities(value: unknown, allowEmpty = true) {
+  if (!Array.isArray(value) || value.length > workspaceRuntimeReadyCapabilities.length ||
+      !allowEmpty && value.length === 0) invalid();
+  const capabilities = value.map(string);
+  if (new Set(capabilities).size !== capabilities.length ||
+      capabilities.some((entry) => !readyCapabilitySet.has(entry))) invalid();
+  return capabilities.sort() as typeof workspaceRuntimeReadyCapabilities[number][];
 }
 
 function safeUrl(value: unknown) {
