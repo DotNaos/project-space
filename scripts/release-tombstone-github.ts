@@ -13,8 +13,8 @@ export async function verifyReleaseTombstoneFromGitHub(
   githubFetch: TombstoneGitHubFetch,
 ) {
   const [exhausted, verification, releaseState, tagCommit] = await Promise.all([
-    workflowRunEvidence(tombstone.exhaustedRunId, githubFetch),
-    workflowRunEvidence(tombstone.verificationRunId, githubFetch),
+    workflowRunEvidence(tombstone.exhaustedRunId, 2, githubFetch),
+    workflowRunEvidence(tombstone.verificationRunId, 1, githubFetch),
     githubReleaseState(tombstone.tag, githubFetch),
     githubTagCommit(tombstone.tag, githubFetch),
   ]);
@@ -31,11 +31,12 @@ export async function verifyReleaseTombstoneFromGitHub(
 
 async function workflowRunEvidence(
   id: number,
+  attempt: number,
   githubFetch: TombstoneGitHubFetch,
 ): Promise<{ jobs: TombstoneWorkflowJob[]; run: TombstoneWorkflowRun }> {
   const [runResponse, jobsResponse] = await Promise.all([
-    githubFetch(`/actions/runs/${id}`),
-    githubFetch(`/actions/runs/${id}/jobs?per_page=100`),
+    githubFetch(`/actions/runs/${id}/attempts/${attempt}`),
+    githubFetch(`/actions/runs/${id}/attempts/${attempt}/jobs?per_page=100`),
   ]);
   if (!runResponse.ok || !jobsResponse.ok) {
     throw new Error(`Could not load release tombstone workflow run ${id}.`);
@@ -50,7 +51,7 @@ async function workflowRunEvidence(
     typeof runBody.path !== 'string' ||
     typeof runBody.status !== 'string' ||
     !(typeof runBody.conclusion === 'string' || runBody.conclusion === null) ||
-    typeof runBody.run_attempt !== 'number' ||
+    runBody.run_attempt !== attempt ||
     !isRecord(jobsBody) || typeof jobsBody.total_count !== 'number' ||
     !Number.isSafeInteger(jobsBody.total_count) || jobsBody.total_count > 100 ||
     !Array.isArray(jobsBody.jobs) || jobsBody.jobs.length !== jobsBody.total_count
