@@ -3,7 +3,8 @@ import type {
   SshGatewayOperationRecord,
   SshGatewayOperationState,
   SshGatewayOperationStore,
-  SshGatewayStatusResult
+  SshGatewaySafeResult,
+  SshControlOperation
 } from './contracts';
 import { SshGatewayError } from './contracts';
 import { validateReservation } from './store-validation';
@@ -16,7 +17,7 @@ interface OperationRow {
   dispatch_lease_until: Date | string | null;
   fingerprint_sha256: string;
   gateway_id: string;
-  operation: 'status.v1';
+  operation: SshControlOperation;
   operation_id: string;
   reserved_until: Date | string | null;
   route_id: string;
@@ -167,6 +168,7 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
       }
       validateSafeResult(input.state, input.result, {
         operationId: current.operation_id,
+        operation: current.operation,
         targetIdentityRevision: current.target_identity_revision
       });
       const updated = await client.query<OperationRow>(
@@ -212,6 +214,7 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
       }
       validateSafeResult(input.state, input.result, {
         operationId: current.operation_id,
+        operation: current.operation,
         targetIdentityRevision: current.target_identity_revision
       });
       const updated = await client.query<OperationRow>(
@@ -261,8 +264,9 @@ async function insertEvent(
 }
 
 function rowToRecord(row: OperationRow): SshGatewayOperationRecord {
-  const result = row.safe_result === null ? undefined : safeStatus(row.safe_result, {
+  const result = row.safe_result === null ? undefined : safeResult(row.safe_result, {
     operationId: row.operation_id,
+    operation: row.operation,
     targetIdentityRevision: row.target_identity_revision
   });
   return {
@@ -288,32 +292,62 @@ function rowToRecord(row: OperationRow): SshGatewayOperationRecord {
 
 function validateSafeResult(
   state: SshGatewayOperationState,
-  value: SshGatewayStatusResult | undefined,
-  identity: { operationId: string; targetIdentityRevision: string }
+  value: SshGatewaySafeResult | undefined,
+  identity: { operationId: string; operation: SshControlOperation; targetIdentityRevision: string }
 ) {
   if ((state === 'succeeded') !== Boolean(value)) {
     throw new SshGatewayError('operation_conflict', 'Operation result does not match its state.');
   }
-  if (value) safeStatus(value, identity);
+  if (value) safeResult(value, identity);
 }
 
-function safeStatus(
+function safeResult(
   value: unknown,
-  identity: { operationId: string; targetIdentityRevision: string }
-): SshGatewayStatusResult {
+  identity: { operationId: string; operation: SshControlOperation; targetIdentityRevision: string }
+): SshGatewaySafeResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidResult();
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort().join('\0');
-  const expected = [
-    'checkedAt', 'operation', 'operationId', 'schemaVersion', 'state',
-    'targetIdentityRevision', 'type'
-  ].sort().join('\0');
-  if (keys !== expected || record.schemaVersion !== 1 || record.type !== 'result' ||
-    record.operation !== 'status.v1' || record.state !== 'ready' ||
+  if (record.schemaVersion !== 1 || record.type !== 'result' ||
+    record.operation !== identity.operation ||
     record.operationId !== identity.operationId || typeof record.checkedAt !== 'string' ||
     !Number.isFinite(Date.parse(record.checkedAt)) ||
     record.targetIdentityRevision !== identity.targetIdentityRevision) throw invalidResult();
-  return record as unknown as SshGatewayStatusResult;
+  if (identity.operation === 'status.v1') {
+    const expected = [
+      'checkedAt', 'operation', 'operationId', 'schemaVersion', 'state',
+      'targetIdentityRevision', 'type'
+    ].sort().join('\0');
+    if (Object.keys(record).sort().join('\0') !== expected || record.state !== 'ready') throw invalidResult();
+  } else {
+    const allowed = new Set([
+      'checkedAt', 'disposition', 'generation', 'manifestDigest', 'mode', 'operation',
+      'operationId', 'schemaVersion', 'sourceHead', 'state', 'targetIdentityRevision',
+      'type', 'workspaceId'
+    ]);
+    const required = ['manifestDigest', 'mode', 'sourceHead', 'state', 'workspaceId'];
+    if (Object.keys(record).some((key) => !allowed.has(key)) ||
+      required.some((key) => typeof record[key] !== 'string') ||
+      !isUuid(record.workspaceId as string) ||
+      !/^[0-9a-f]{64}$/.test(record.manifestDigest as string) ||
+      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(record.sourceHead as string) ||
+      !['process', 'devcontainer'].includes(record.mode as string) ||
+      ![
+        'starting', 'running', 'suspending', 'suspended', 'resuming',
+        'stopping', 'stopped', 'cleaning', 'stale', 'failed'
+      ].includes(record.state as string) ||
+      (record.generation !== undefined &&
+        (typeof record.generation !== 'string' || !isUuid(record.generation))) ||
+      (record.disposition !== undefined &&
+        !['created', 'reused', 'cleaned'].includes(record.disposition as string))) {
+      throw invalidResult();
+    }
+  }
+  return record as unknown as SshGatewaySafeResult;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value);
 }
 
 function outcome(state: SshGatewayOperationState) {

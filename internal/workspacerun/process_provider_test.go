@@ -2,6 +2,7 @@ package workspacerun
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -20,14 +21,20 @@ func TestProcessProviderUsesGenerationScopedEnvironmentWithoutInheritance(t *tes
 	generationHome := filepath.Join(t.TempDir(), "generation")
 	binding := testRuntimeBinding()
 	var committed RuntimeHandle
+	logFile, err := os.CreateTemp(t.TempDir(), "runtime-*.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logFile.Close()
 
 	handle, err := provider.Start(context.Background(), LaunchRequest{
 		Binding:        binding,
 		Directory:      t.TempDir(),
 		Manifest:       Manifest{},
-		LogPath:        filepath.Join(t.TempDir(), "runtime.log"),
+		LogFile:        logFile,
 		GenerationHome: generationHome,
 		ProjectBinary:  "/verified/project",
+		CodexBinary:    "/verified/codex",
 		Commit: func(handle RuntimeHandle) error {
 			committed = handle
 			return nil
@@ -42,7 +49,7 @@ func TestProcessProviderUsesGenerationScopedEnvironmentWithoutInheritance(t *tes
 	if runner.command.InheritEnv {
 		t.Fatal("runtime process inherited the connector environment")
 	}
-	if got := strings.Join(runner.command.Argv, " "); got != "/verified/project __workspace-runtime-idle" {
+	if got := strings.Join(runner.command.Argv, " "); got != "/verified/codex app-server --listen unix://"+appServerSocketPath(binding)+" --strict-config" {
 		t.Fatalf("argv = %q", got)
 	}
 	environment := environmentValues(runner.command.Env)
@@ -76,7 +83,7 @@ func TestProcessProviderFailsClosedWhenProcessIdentityChanges(t *testing.T) {
 	}
 	provider := ProcessProvider{Runner: runner}
 	binding := testRuntimeBinding()
-	handle := RuntimeHandle{Kind: ResourceProcess, Process: processHandle(runner.process, binding)}
+	handle := RuntimeHandle{Kind: ResourceProcess, Process: processHandle(runner.process, binding, appServerSocketPath(binding))}
 
 	observation, err := provider.Inspect(context.Background(), handle, binding)
 	if err != nil {
@@ -133,7 +140,7 @@ type runtimeProcessRunner struct {
 	stopped   bool
 }
 
-func (runner *runtimeProcessRunner) StartDetached(command projectrun.Command, _ string, commit projectrun.ProcessCommit) (projectrun.ProcessRef, error) {
+func (runner *runtimeProcessRunner) StartDetachedWithOutput(command projectrun.Command, _ *os.File, commit projectrun.ProcessCommit) (projectrun.ProcessRef, error) {
 	runner.command = command
 	if err := commit(runner.process); err != nil {
 		return projectrun.ProcessRef{}, err
@@ -179,4 +186,8 @@ func (runner *runtimeProcessRunner) StopGroup(process projectrun.ProcessRef, _ t
 	runner.stopped = true
 	runner.alive = false
 	return nil
+}
+
+func (runner *runtimeProcessRunner) OwnsUnixSocket(process projectrun.ProcessRef, _ string) (bool, error) {
+	return runner.Alive(process), nil
 }

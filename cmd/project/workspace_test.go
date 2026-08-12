@@ -110,7 +110,7 @@ func TestWorkspaceRuntimeDefaultsToCurrentDirectoryAndPrettyOutput(t *testing.T)
 		t.Fatalf("default directory = %q, want current directory", manager.directory)
 	}
 	for _, line := range []string{
-		"Workspace: ws_0123456789abcdef01234567",
+		"Workspace: 123e4567-e89b-42d3-a456-426614174001",
 		"Generation: 123e4567-e89b-42d3-a456-426614174000",
 		"State: running",
 		"Mode: process",
@@ -193,7 +193,7 @@ func workspaceRuntimeResultFixture(operation string) workspacerun.Result {
 		SchemaVersion:  workspacerun.SchemaVersion,
 		Operation:      operation,
 		Disposition:    workspacerun.DispositionCreated,
-		WorkspaceID:    "ws_0123456789abcdef01234567",
+		WorkspaceID:    "123e4567-e89b-42d3-a456-426614174001",
 		Generation:     "123e4567-e89b-42d3-a456-426614174000",
 		Directory:      "/tmp/exact-worktree",
 		Repository:     "https://github.com/DotNaos/project-space.git",
@@ -231,7 +231,7 @@ func assertWorkspaceRuntimeJSON(t *testing.T, output []byte, operation string) {
 			t.Fatalf("Workspace runtime JSON is missing %q: %#v", key, payload)
 		}
 	}
-	if payload["operation"] != operation || payload["workspaceId"] != "ws_0123456789abcdef01234567" || payload["state"] != "running" {
+	if payload["operation"] != operation || payload["workspaceId"] != "123e4567-e89b-42d3-a456-426614174001" || payload["state"] != "running" {
 		t.Fatalf("Workspace runtime JSON = %#v", payload)
 	}
 	for _, forbidden := range []string{"ownershipToken", "credential", "secret", "accessToken"} {

@@ -12,32 +12,38 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const maximumStateBytes = 256 << 10
 
 type runtimeRecord struct {
-	Version            int                `json:"schemaVersion"`
-	WorkspaceID        string             `json:"workspaceId"`
-	Repository         string             `json:"repository"`
-	Directory          string             `json:"directory"`
-	GitDirectory       string             `json:"gitDirectory"`
-	Branch             string             `json:"branch"`
-	Head               string             `json:"head"`
-	IdentityProof      string             `json:"identityProof"`
-	ManifestDigest     string             `json:"manifestDigest"`
-	Mode               Mode               `json:"mode"`
-	State              RuntimeState       `json:"state"`
-	Generation         string             `json:"generation"`
-	OwnershipToken     string             `json:"ownershipToken"`
-	Handle             RuntimeHandle      `json:"handle"`
-	Resources          ResourceLimits     `json:"resources"`
-	DevServers         []ManagedDevServer `json:"devServers"`
-	ExpectedDevServers []string           `json:"expectedDevServers"`
-	Shutdown           []string           `json:"shutdown"`
-	StartedAt          string             `json:"startedAt,omitempty"`
-	CheckedAt          string             `json:"checkedAt"`
-	LastError          string             `json:"lastError,omitempty"`
+	Version            int                 `json:"schemaVersion"`
+	WorkspaceID        string              `json:"workspaceId"`
+	Repository         string              `json:"repository"`
+	Directory          string              `json:"directory"`
+	GitDirectory       string              `json:"gitDirectory"`
+	Branch             string              `json:"branch"`
+	Head               string              `json:"head"`
+	IdentityProof      string              `json:"identityProof"`
+	ManifestDigest     string              `json:"manifestDigest"`
+	Mode               Mode                `json:"mode"`
+	State              RuntimeState        `json:"state"`
+	Generation         string              `json:"generation"`
+	GenerationProof    string              `json:"generationProof"`
+	GenerationRemoved  bool                `json:"generationRemoved"`
+	GenerationArchive  string              `json:"generationArchive,omitempty"`
+	OwnershipToken     string              `json:"ownershipToken"`
+	Handle             RuntimeHandle       `json:"handle"`
+	Resources          ResourceLimits      `json:"resources"`
+	DevServers         []ManagedDevServer  `json:"devServers"`
+	DevServerOperation *devServerOperation `json:"devServerOperation,omitempty"`
+	ExpectedDevServers []string            `json:"expectedDevServers"`
+	Shutdown           []string            `json:"shutdown"`
+	StartedAt          string              `json:"startedAt,omitempty"`
+	CheckedAt          string              `json:"checkedAt"`
+	LastError          string              `json:"lastError,omitempty"`
 }
 
 func (record runtimeRecord) binding() RuntimeBinding {
@@ -48,8 +54,12 @@ func (record runtimeRecord) binding() RuntimeBinding {
 }
 
 type stateStore struct {
-	root string
-	mu   sync.Mutex
+	root                       string
+	mu                         sync.Mutex
+	directoryProofs            map[string]os.FileInfo
+	stateProofs                map[string]os.FileInfo
+	beforeGenerationQuarantine func() error
+	afterGenerationQuarantine  func() error
 }
 
 func defaultStateRoot() (string, error) {
@@ -76,13 +86,28 @@ func newStateStore(root string) (*stateStore, error) {
 	}
 	for _, directory := range []string{
 		resolved, filepath.Join(resolved, "states"), filepath.Join(resolved, "locks"),
-		filepath.Join(resolved, "logs"), filepath.Join(resolved, "generations"),
+		filepath.Join(resolved, "generations"),
 	} {
 		if err := ensurePrivateDirectory(directory); err != nil {
 			return nil, err
 		}
 	}
-	return &stateStore{root: resolved}, nil
+	store := &stateStore{
+		root: resolved, directoryProofs: map[string]os.FileInfo{},
+		stateProofs: map[string]os.FileInfo{},
+	}
+	for _, name := range []string{"", "states", "locks", "generations"} {
+		path := resolved
+		if name != "" {
+			path = filepath.Join(resolved, name)
+		}
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+			return nil, fmt.Errorf("workspace runtime directory %q has no stable private identity", path)
+		}
+		store.directoryProofs[name] = info
+	}
+	return store, nil
 }
 
 func ensurePrivateDirectory(path string) error {
@@ -103,25 +128,24 @@ func ensurePrivateDirectory(path string) error {
 }
 
 func (store *stateStore) load(identity WorkspaceIdentity) (runtimeRecord, bool, error) {
-	path := store.statePath(identity.WorkspaceID)
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
+	directory, err := store.openDirectory("states")
+	if err != nil {
+		return runtimeRecord{}, false, err
+	}
+	defer directory.Close()
+	name := identity.WorkspaceID + ".json"
+	fd, err := unix.Openat(int(directory.Fd()), name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, syscall.ENOENT) {
 		return runtimeRecord{}, false, nil
 	}
 	if err != nil {
-		return runtimeRecord{}, false, fmt.Errorf("inspect workspace runtime state: %w", err)
+		return runtimeRecord{}, false, fmt.Errorf("open workspace runtime state: %w", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > maximumStateBytes || info.Mode().Perm()&0o077 != 0 {
-		return runtimeRecord{}, false, fmt.Errorf("workspace runtime state must be a private bounded regular file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return runtimeRecord{}, false, fmt.Errorf("read workspace runtime state: %w", err)
-	}
+	file := os.NewFile(uintptr(fd), store.statePath(identity.WorkspaceID))
 	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil || !os.SameFile(info, opened) {
-		return runtimeRecord{}, false, fmt.Errorf("workspace runtime state changed while opening")
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maximumStateBytes || info.Mode().Perm()&0o077 != 0 {
+		return runtimeRecord{}, false, fmt.Errorf("workspace runtime state must be a private bounded regular file")
 	}
 	record := runtimeRecord{}
 	decoder := json.NewDecoder(io.LimitReader(file, maximumStateBytes+1))
@@ -136,6 +160,7 @@ func (store *stateStore) load(identity WorkspaceIdentity) (runtimeRecord, bool, 
 	if err := validateRecord(record, identity); err != nil {
 		return runtimeRecord{}, false, fmt.Errorf("workspace runtime state is invalid: %w", err)
 	}
+	store.stateProofs[identity.WorkspaceID] = info
 	return record, true, nil
 }
 
@@ -156,16 +181,17 @@ func (store *stateStore) save(record runtimeRecord) error {
 	if len(body) > maximumStateBytes {
 		return fmt.Errorf("workspace runtime state exceeds the %d-byte limit", maximumStateBytes)
 	}
-	temporary, err := os.CreateTemp(filepath.Join(store.root, "states"), ".runtime-*.json")
+	directory, err := store.openDirectory("states")
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	temporaryName := ".runtime-" + recordSafeNonce() + ".json"
+	fd, err := unix.Openat(int(directory.Fd()), temporaryName, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return fmt.Errorf("create workspace runtime state: %w", err)
 	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("protect workspace runtime state: %w", err)
-	}
+	temporary := os.NewFile(uintptr(fd), filepath.Join(store.root, "states", temporaryName))
 	if _, err := temporary.Write(body); err != nil {
 		_ = temporary.Close()
 		return fmt.Errorf("write workspace runtime state: %w", err)
@@ -177,81 +203,144 @@ func (store *stateStore) save(record runtimeRecord) error {
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close workspace runtime state: %w", err)
 	}
-	if err := os.Rename(temporaryPath, store.statePath(record.WorkspaceID)); err != nil {
-		return fmt.Errorf("publish workspace runtime state: %w", err)
+	name := record.WorkspaceID + ".json"
+	if err := store.publishState(directory, name, temporaryName, record.WorkspaceID); err != nil {
+		return err
 	}
-	return syncDirectory(filepath.Join(store.root, "states"))
-}
-
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
+	proof, err := store.regularFileProof(directory, name)
 	if err != nil {
 		return err
 	}
-	defer directory.Close()
+	store.stateProofs[record.WorkspaceID] = proof
 	return directory.Sync()
 }
 
-func (store *stateStore) remove(workspaceID string) error {
-	if !workspaceIDPattern.MatchString(workspaceID) {
-		return fmt.Errorf("workspace ID is invalid")
+func (store *stateStore) removeGeneration(workspaceID, generation, expectedProof string) (string, error) {
+	if !workspaceIDPattern.MatchString(workspaceID) || !uuidPattern.MatchString(generation) || !filesystemIdentityPattern.MatchString(expectedProof) {
+		return "", fmt.Errorf("runtime generation identity is invalid")
 	}
-	var failures []error
-	for _, path := range []string{store.statePath(workspaceID), store.logPath(workspaceID)} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			failures = append(failures, err)
-		}
+	root, err := store.openDirectory("generations")
+	if err != nil {
+		return "", err
 	}
-	return errors.Join(failures...)
-}
-
-func (store *stateStore) removeGeneration(workspaceID, generation string) error {
-	if !workspaceIDPattern.MatchString(workspaceID) || !uuidPattern.MatchString(generation) {
-		return fmt.Errorf("runtime generation identity is invalid")
-	}
-	root := filepath.Join(store.root, "generations")
-	parent := filepath.Join(root, workspaceID)
-	parentInfo, err := os.Lstat(parent)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil || parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
-		return fmt.Errorf("runtime Workspace generation parent is not an owned directory")
-	}
-	target := filepath.Join(root, workspaceID, generation)
-	relative, err := filepath.Rel(root, target)
-	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("runtime generation path escapes its state root")
-	}
-	info, err := os.Lstat(target)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	defer root.Close()
+	parentFD, err := unix.Openat(int(root.Fd()), workspaceID, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, syscall.ENOENT) {
+		return "", fmt.Errorf("runtime generation parent is missing before proof-bound cleanup")
 	}
 	if err != nil {
-		return fmt.Errorf("inspect runtime generation directory: %w", err)
+		return "", fmt.Errorf("runtime Workspace generation parent is not an owned directory")
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("runtime generation path is not an owned directory")
+	parentFile := os.NewFile(uintptr(parentFD), filepath.Join(store.root, "generations", workspaceID))
+	defer parentFile.Close()
+	fd, err := unix.Openat(parentFD, generation, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, syscall.ENOENT) {
+		found, scanErr := directoryContainsProof(parentFile, expectedProof, "")
+		if scanErr != nil {
+			return "", scanErr
+		}
+		if found != "" {
+			return "", fmt.Errorf("proof-bound runtime generation moved before cleanup")
+		}
+		quarantineName, scanErr := directoryContainsProof(root, expectedProof, ".retained-"+generation+"-")
+		if scanErr != nil {
+			return "", scanErr
+		}
+		if quarantineName != "" {
+			if err := finalizeGenerationRetention(parentFD, generation, parentFile, root); err != nil {
+				return "", err
+			}
+			return quarantineName, nil
+		}
+		return "", fmt.Errorf("proof-bound runtime generation is absent from active and retained namespaces")
 	}
-	if err := os.RemoveAll(target); err != nil {
-		return fmt.Errorf("remove runtime generation directory: %w", err)
+	if err != nil {
+		return "", fmt.Errorf("open runtime generation directory: %w", err)
+	}
+	opened := os.NewFile(uintptr(fd), generation)
+	defer opened.Close()
+	info, statErr := opened.Stat()
+	if statErr != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 || fileIdentity(info) != expectedProof {
+		return "", fmt.Errorf("runtime generation path is not an owned private directory")
+	}
+	quarantineName := ".retained-" + generation + "-" + recordSafeNonce()
+	if store.beforeGenerationQuarantine != nil {
+		if err := store.beforeGenerationQuarantine(); err != nil {
+			return "", err
+		}
+	}
+	if err := unix.Renameat(parentFD, generation, int(root.Fd()), quarantineName); err != nil {
+		return "", fmt.Errorf("retain runtime generation directory: %w", err)
+	}
+	retainedFD, err := unix.Openat(int(root.Fd()), quarantineName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return "", fmt.Errorf("reopen retained runtime generation: %w", err)
+	}
+	retained := os.NewFile(uintptr(retainedFD), quarantineName)
+	retainedInfo, retainedErr := retained.Stat()
+	_ = retained.Close()
+	if retainedErr != nil || !os.SameFile(info, retainedInfo) || fileIdentity(retainedInfo) != expectedProof {
+		return "", errors.Join(retainedErr, fmt.Errorf("runtime generation identity changed during retention"))
+	}
+	if err := finalizeGenerationRetention(parentFD, generation, parentFile, root); err != nil {
+		return "", err
+	}
+	if store.afterGenerationQuarantine != nil {
+		if err := store.afterGenerationQuarantine(); err != nil {
+			return "", err
+		}
+	}
+	return quarantineName, nil
+}
+
+func finalizeGenerationRetention(parentFD int, generation string, parentFile, root *os.File) error {
+	var active unix.Stat_t
+	if err := unix.Fstatat(parentFD, generation, &active, unix.AT_SYMLINK_NOFOLLOW); !errors.Is(err, syscall.ENOENT) {
+		if err == nil {
+			err = fmt.Errorf("another directory appeared at the active generation name")
+		}
+		return fmt.Errorf("active generation namespace changed during retention: %w", err)
+	}
+	if err := parentFile.Sync(); err != nil {
+		return fmt.Errorf("sync active generation namespace after retention: %w", err)
+	}
+	if err := root.Sync(); err != nil {
+		return fmt.Errorf("sync retained generation namespace: %w", err)
 	}
 	return nil
 }
 
-func (store *stateStore) prepareGeneration(workspaceID, generation string) error {
+func (store *stateStore) prepareGeneration(workspaceID, generation string) (string, error) {
 	if !workspaceIDPattern.MatchString(workspaceID) || !uuidPattern.MatchString(generation) {
-		return fmt.Errorf("runtime generation identity is invalid")
+		return "", fmt.Errorf("runtime generation identity is invalid")
 	}
-	for _, directory := range []string{
-		filepath.Join(store.root, "generations", workspaceID),
-		filepath.Join(store.root, "generations", workspaceID, generation),
-	} {
-		if err := ensurePrivateDirectory(directory); err != nil {
-			return err
-		}
+	root, err := store.openDirectory("generations")
+	if err != nil {
+		return "", err
 	}
-	return nil
+	defer root.Close()
+	if err := mkdirPrivateAt(int(root.Fd()), workspaceID); err != nil {
+		return "", err
+	}
+	parentFD, err := unix.Openat(int(root.Fd()), workspaceID, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return "", fmt.Errorf("open runtime generation parent: %w", err)
+	}
+	defer unix.Close(parentFD)
+	if err := unix.Mkdirat(parentFD, generation, 0o700); err != nil {
+		return "", fmt.Errorf("create private runtime generation: %w", err)
+	}
+	fd, err := unix.Openat(parentFD, generation, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return "", fmt.Errorf("open private runtime generation: %w", err)
+	}
+	file := os.NewFile(uintptr(fd), generation)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("runtime generation is not a private directory")
+	}
+	return fileIdentity(info), nil
 }
 
 func (store *stateStore) generationHome(workspaceID, generation string) string {
@@ -264,13 +353,21 @@ func (store *stateStore) withLock(workspaceID string, action func() error) error
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	file, err := os.OpenFile(filepath.Join(store.root, "locks", workspaceID+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	lockPath := filepath.Join(store.root, "locks", workspaceID+".lock")
+	directory, err := store.openDirectory("locks")
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	fd, err := unix.Openat(int(directory.Fd()), filepath.Base(lockPath), unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return fmt.Errorf("open workspace runtime lock: %w", err)
 	}
+	file := os.NewFile(uintptr(fd), lockPath)
 	defer file.Close()
-	if err := file.Chmod(0o600); err != nil {
-		return fmt.Errorf("protect workspace runtime lock: %w", err)
+	info, statErr := file.Stat()
+	if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("workspace runtime lock must be a private regular file")
 	}
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("acquire workspace runtime lock: %w", err)
@@ -279,18 +376,26 @@ func (store *stateStore) withLock(workspaceID string, action func() error) error
 	return action()
 }
 
+func recordSafeNonce() string {
+	value, err := randomToken()
+	if err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return strings.ReplaceAll(value, "-", "")
+}
+
 func (store *stateStore) statePath(workspaceID string) string {
 	return filepath.Join(store.root, "states", workspaceID+".json")
 }
-func (store *stateStore) logPath(workspaceID string) string {
-	return filepath.Join(store.root, "logs", workspaceID+".log")
+func (store *stateStore) logPath(workspaceID, generation string) string {
+	return filepath.Join(store.root, "generations", workspaceID, generation, "runtime.log")
 }
 
 func validateRecord(record runtimeRecord, identity WorkspaceIdentity) error {
 	if record.Version != SchemaVersion {
 		return fmt.Errorf("schemaVersion must be %d", SchemaVersion)
 	}
-	if !workspaceIDPattern.MatchString(record.WorkspaceID) || !uuidPattern.MatchString(record.Generation) || !tokenPattern.MatchString(record.OwnershipToken) || !sha256Pattern.MatchString(record.ManifestDigest) || !sha256Pattern.MatchString(record.IdentityProof) {
+	if !workspaceIDPattern.MatchString(record.WorkspaceID) || !uuidPattern.MatchString(record.Generation) || !filesystemIdentityPattern.MatchString(record.GenerationProof) || !tokenPattern.MatchString(record.OwnershipToken) || !sha256Pattern.MatchString(record.ManifestDigest) || !sha256Pattern.MatchString(record.IdentityProof) {
 		return fmt.Errorf("runtime identity fields are invalid")
 	}
 	if record.WorkspaceID != identity.WorkspaceID || record.Repository != identity.Repository || record.Directory != identity.Directory ||
@@ -322,6 +427,14 @@ func validateRecord(record runtimeRecord, identity WorkspaceIdentity) error {
 	if err := validateDevServers(record); err != nil {
 		return err
 	}
+	archivePrefix := ".retained-" + record.Generation + "-"
+	archiveValid := strings.HasPrefix(record.GenerationArchive, archivePrefix) && len(record.GenerationArchive) <= 128 && !strings.ContainsAny(record.GenerationArchive, "/\\\x00")
+	if record.GenerationRemoved && (!archiveValid || record.State != StateStopped && record.State != StateFailed || record.Handle.Kind != "" || len(record.DevServers) != 0 || record.DevServerOperation != nil) {
+		return fmt.Errorf("removed generation must be terminal and retain no resource evidence")
+	}
+	if !record.GenerationRemoved && record.GenerationArchive != "" {
+		return fmt.Errorf("active generation cannot have a retained archive")
+	}
 	return nil
 }
 
@@ -344,7 +457,7 @@ func validateHandle(record runtimeRecord) error {
 	}
 	switch record.Handle.Kind {
 	case ResourceProcess:
-		if record.Handle.Process == nil || record.Handle.Container != nil || record.Handle.Process.PID <= 0 || !sha256Pattern.MatchString(record.Handle.Process.Identity) || record.Handle.Process.BindingDigest != bindingDigest(record.binding()) {
+		if record.Handle.Process == nil || record.Handle.Container != nil || record.Handle.Process.PID <= 0 || !sha256Pattern.MatchString(record.Handle.Process.Identity) || record.Handle.Process.BindingDigest != bindingDigest(record.binding()) || !filepath.IsAbs(record.Handle.Process.AppServerSocket) || filepath.Clean(record.Handle.Process.AppServerSocket) != record.Handle.Process.AppServerSocket || len(record.Handle.Process.AppServerSocket) > 4096 {
 			return fmt.Errorf("process handle is invalid")
 		}
 		if record.Mode != ModeProcess || !record.Resources.Empty() {
@@ -383,6 +496,20 @@ func validateDevServers(record runtimeRecord) error {
 			return fmt.Errorf("managed dev-server evidence is invalid")
 		}
 		seen[server.Name] = true
+	}
+	if operation := record.DevServerOperation; operation != nil {
+		if !expected[operation.Name] || operation.Action != devServerStarting && operation.Action != devServerStopping {
+			return fmt.Errorf("dev-server operation evidence is invalid")
+		}
+		if operation.Action == devServerStarting && seen[operation.Name] {
+			return fmt.Errorf("dev-server start operation duplicates persisted evidence")
+		}
+		if operation.Action == devServerStopping && !seen[operation.Name] {
+			return fmt.Errorf("dev-server stop operation has no persisted evidence")
+		}
+	}
+	if (record.State == StateStopped || record.State == StateFailed || record.State == StateCleaning) && record.DevServerOperation != nil {
+		return fmt.Errorf("terminal runtime state must not retain a dev-server operation")
 	}
 	return nil
 }

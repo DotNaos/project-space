@@ -8,7 +8,8 @@ export function validateReservation(
   if (input.operationId !== audit.operationId ||
     input.targetEnvironmentId !== audit.targetEnvironmentId ||
     audit.capability !== 'project_cli' || audit.routeClass !== 'ssh_private_network' ||
-    audit.operation !== 'status.v1' || audit.outcome !== 'accepted' || audit.completedAt ||
+    !/^status\.v1$|^workspace-runtime\.(?:start|inspect|suspend|resume|stop|clean|reconcile)\.v1$/.test(audit.operation) ||
+    audit.outcome !== 'accepted' || audit.completedAt ||
     !isUuid(input.targetEnvironmentId) || !isUuid(audit.routeId) ||
     !/^[A-Za-z0-9:._-]{1,256}$/.test(input.operationId) ||
     !/^[0-9a-f]{64}$/.test(input.fingerprint) ||

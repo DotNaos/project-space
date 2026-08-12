@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -72,8 +71,15 @@ func TestRuntimeLifecycleReusesOnlyExactGenerationAndPreservesCheckout(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, exists, err := manager.store.load(identity); err != nil || exists {
-		t.Fatalf("runtime state after clean: exists=%v err=%v", exists, err)
+	cleanedRecord, exists, err := manager.store.load(identity)
+	if err != nil || !exists || !cleanedRecord.GenerationRemoved || cleanedRecord.GenerationArchive == "" || cleanedRecord.State != StateStopped {
+		t.Fatalf("runtime tombstone after clean: record=%#v exists=%v err=%v", cleanedRecord, exists, err)
+	}
+	if _, err := os.Lstat(manager.store.generationHome(cleanedRecord.WorkspaceID, cleanedRecord.Generation)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("active generation still exists after clean: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(manager.store.root, "generations", cleanedRecord.GenerationArchive)); err != nil {
+		t.Fatalf("retained proof-bound generation is missing: %v", err)
 	}
 }
 
@@ -172,6 +178,282 @@ func TestStopUsesStoredRuntimeBindingAfterCheckoutHeadMoves(t *testing.T) {
 	}
 }
 
+func TestStopPreflightsEveryDevServerBeforeAnyMutation(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, _ := manager.store.load(identity)
+	record.ExpectedDevServers = []string{"first", "foreign"}
+	record.DevServers = []ManagedDevServer{
+		{Name: "first", ServerID: "server-first", TmuxSession: "tmux-first", State: string(projectrun.StateRunning)},
+		{Name: "foreign", ServerID: "server-foreign", TmuxSession: "tmux-foreign", State: string(projectrun.StateRunning)},
+	}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	project := &preflightLifecycleProject{workspaceID: record.WorkspaceID, generation: record.Generation}
+	manager.project = project
+	result, err := manager.Stop(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation}, Streams{})
+	if err == nil || !strings.Contains(err.Error(), "foreign") {
+		t.Fatalf("stop=%#v error=%v", result, err)
+	}
+	if provider.stops != 0 || project.stops != 0 {
+		t.Fatalf("failed preflight mutated resources: provider stops=%d dev-server stops=%d", provider.stops, project.stops)
+	}
+}
+
+func TestReconcileCompletesStopAfterOwnedProcessIsAuthoritativelyAbsent(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, _ := manager.store.load(identity)
+	record.State = StateStopping
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	provider.exists = false
+	provider.running = false
+	reconciled, err := manager.Reconcile(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation})
+	if err != nil || reconciled.State != StateStopped || provider.stops != 0 {
+		t.Fatalf("reconcile=%#v error=%v provider stops=%d", reconciled, err, provider.stops)
+	}
+}
+
+func TestStartFailureAfterCommittedHandleConvergesToFailed(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	provider.failAfterCommit = true
+	result, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err == nil || result.State != StateFailed {
+		t.Fatalf("start=%#v error=%v", result, err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, exists, loadErr := manager.store.load(identity)
+	if loadErr != nil || !exists || record.State != StateFailed || record.Handle.Kind != "" {
+		t.Fatalf("record=%#v exists=%v error=%v", record, exists, loadErr)
+	}
+}
+
+func TestReconcileAdoptsOnlyPersistedStartIntentAndCleansIt(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, _ := manager.store.load(identity)
+	record.State = StateStarting
+	record.ExpectedDevServers = []string{"docs"}
+	record.DevServerOperation = &devServerOperation{Name: "docs", Action: devServerStarting}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	project := &ledgerLifecycleProject{session: projectrun.ServeResult{
+		Script: "docs", Directory: record.Directory, WorkspaceID: record.WorkspaceID,
+		RuntimeGeneration: record.Generation, ServerID: "server-docs", TmuxSession: "tmux-docs",
+		State: projectrun.StateRunning,
+	}}
+	manager.project = project
+	provider.exists = false
+	provider.running = false
+	reconciled, err := manager.Reconcile(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation})
+	if err != nil || reconciled.State != StateFailed || project.stops != 1 || len(reconciled.DevServers) != 0 {
+		t.Fatalf("reconcile=%#v error=%v stops=%d", reconciled, err, project.stops)
+	}
+}
+
+func TestReconcileConfirmsPersistedStopIntentWasAlreadyAbsent(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, _ := manager.store.load(identity)
+	record.State = StateStopping
+	record.ExpectedDevServers = []string{"docs"}
+	record.DevServers = []ManagedDevServer{{
+		Name: "docs", ServerID: "server-docs", TmuxSession: "tmux-docs", State: string(projectrun.StateRunning),
+	}}
+	record.DevServerOperation = &devServerOperation{Name: "docs", Action: devServerStopping}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	manager.project = &ledgerLifecycleProject{}
+	provider.exists = false
+	provider.running = false
+	reconciled, err := manager.Reconcile(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation})
+	if err != nil || reconciled.State != StateStopped || len(reconciled.DevServers) != 0 {
+		t.Fatalf("reconcile=%#v error=%v", reconciled, err)
+	}
+}
+
+func TestReconcileCleansExactInterruptedDevServerState(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, _ := manager.store.load(identity)
+	record.State = StateStarting
+	record.ExpectedDevServers = []string{"docs"}
+	record.DevServerOperation = &devServerOperation{Name: "docs", Action: devServerStarting}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	message := "serve session was interrupted while starting"
+	project := &ledgerLifecycleProject{session: projectrun.ServeResult{
+		Script: "docs", Directory: record.Directory, WorkspaceID: record.WorkspaceID,
+		RuntimeGeneration: record.Generation, ServerID: "server-docs", TmuxSession: "tmux-docs",
+		State: projectrun.StateError, LastError: &message,
+	}}
+	manager.project = project
+	provider.exists = false
+	provider.running = false
+	reconciled, err := manager.Reconcile(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation})
+	if err != nil || reconciled.State != StateFailed || project.stops != 1 || len(reconciled.DevServers) != 0 {
+		t.Fatalf("reconcile=%#v error=%v stops=%d", reconciled, err, project.stops)
+	}
+}
+
+func TestReconcileFailsClosedWhenReadOnlyInventoryIsIncomplete(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, _ := manager.store.load(identity)
+	record.State = StateStarting
+	record.ExpectedDevServers = []string{"docs"}
+	record.DevServerOperation = &devServerOperation{Name: "docs", Action: devServerStarting}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	message := "interrupted exact session"
+	project := &ledgerLifecycleProject{session: projectrun.ServeResult{
+		Script: "docs", Directory: record.Directory, WorkspaceID: record.WorkspaceID,
+		RuntimeGeneration: record.Generation, ServerID: "server-docs", TmuxSession: "tmux-docs",
+		State: projectrun.StateError, LastError: &message,
+	}, observeErr: errors.New("separate invalid persisted session"), errorCount: 1}
+	manager.project = project
+	provider.exists = false
+	provider.running = false
+	reconciled, err := manager.Reconcile(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation})
+	if err == nil || reconciled.State != StateStale || project.stops != 0 {
+		t.Fatalf("reconcile=%#v error=%v stops=%d", reconciled, err, project.stops)
+	}
+	stored, _, loadErr := manager.store.load(identity)
+	if loadErr != nil || stored.DevServerOperation == nil || stored.DevServerOperation.Name != "docs" {
+		t.Fatalf("incomplete inventory lost operation intent: record=%#v err=%v", stored, loadErr)
+	}
+}
+
+func TestSuspendReconcilesFailedStopBeforeRestartingServers(t *testing.T) {
+	manager, _, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, _ := manager.store.load(identity)
+	record.ExpectedDevServers = []string{"first", "second"}
+	record.DevServers = []ManagedDevServer{
+		{Name: "first", ServerID: "server-first", TmuxSession: "tmux-first", State: string(projectrun.StateRunning)},
+		{Name: "second", ServerID: "server-second", TmuxSession: "tmux-second", State: string(projectrun.StateRunning)},
+	}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	project := newRollbackLifecycleProject(record)
+	manager.project = project
+	result, err := manager.Suspend(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation})
+	if err == nil || result.State != StateRunning {
+		t.Fatalf("suspend=%#v error=%v", result, err)
+	}
+	stored, _, loadErr := manager.store.load(identity)
+	if loadErr != nil || stored.State != StateRunning || stored.DevServerOperation != nil || len(stored.DevServers) != 2 {
+		t.Fatalf("stored=%#v error=%v", stored, loadErr)
+	}
+	if project.starts != 2 {
+		t.Fatalf("rollback restarted %d servers, want 2", project.starts)
+	}
+}
+
+func TestInitialStartDoesNotCleanupWhenDevServerInventoryIsUncertain(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	writeDevServerRuntimeFixture(t, workspace, []string{"first", "second"})
+	project := newUncertainLifecycleProject()
+	project.failStartName = "second"
+	project.observeErr = errors.New("read-only session inventory unavailable")
+	manager.project = project
+	result, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err == nil || result.State != StateStale || provider.stops != 0 || project.stops != 0 {
+		t.Fatalf("start=%#v error=%v provider stops=%d server stops=%d", result, err, provider.stops, project.stops)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, loadErr := manager.store.load(identity)
+	if loadErr != nil || record.DevServerOperation == nil || record.DevServerOperation.Name != "second" || record.DevServerOperation.Action != devServerStarting {
+		t.Fatalf("uncertain start intent was not preserved: record=%#v error=%v", record, loadErr)
+	}
+}
+
+func TestResumeDoesNotRollbackWhenDevServerInventoryIsUncertain(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	writeDevServerRuntimeFixture(t, workspace, []string{"first", "second"})
+	project := newUncertainLifecycleProject()
+	manager.project = project
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Suspend(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation}); err != nil {
+		t.Fatal(err)
+	}
+	stopsBefore, suspendsBefore := project.stops, provider.suspends
+	project.failStartName = "second"
+	project.observeErr = errors.New("read-only session inventory unavailable")
+	result, err := manager.Resume(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation})
+	if err == nil || result.State != StateStale || project.stops != stopsBefore || provider.suspends != suspendsBefore {
+		t.Fatalf("resume=%#v error=%v stops=%d/%d suspends=%d/%d", result, err, project.stops, stopsBefore, provider.suspends, suspendsBefore)
+	}
+	identity, _ := manager.identity.Resolve(context.Background(), workspace)
+	record, _, loadErr := manager.store.load(identity)
+	if loadErr != nil || record.DevServerOperation == nil || record.DevServerOperation.Name != "second" || record.DevServerOperation.Action != devServerStarting {
+		t.Fatalf("uncertain resume intent was not preserved: record=%#v error=%v", record, loadErr)
+	}
+}
+
+func writeDevServerRuntimeFixture(t *testing.T, workspace string, names []string) {
+	t.Helper()
+	path := filepath.Join(workspace, manifestPath)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, len(names))
+	for index, name := range names {
+		lines[index] = "  - " + name
+	}
+	body = []byte(strings.Replace(string(body), "devServers: []", "devServers:\n"+strings.Join(lines, "\n"), 1))
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scripts := "version: 1\nscripts:\n"
+	for _, name := range names {
+		scripts += "  " + name + ":\n    command: [\"true\"]\n"
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".project", "scripts.yaml"), []byte(scripts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newRuntimeTestManager(t *testing.T) (*Manager, *lifecycleProvider, string) {
 	t.Helper()
 	workspace := t.TempDir()
@@ -234,7 +516,7 @@ func (lifecycleAllowCheckout) Verify(context.Context, WorkspaceIdentity, Operati
 type lifecycleVerifier struct{}
 
 func (lifecycleVerifier) Verify(context.Context, Manifest) (VerifiedTools, error) {
-	return VerifiedTools{ProjectBinary: "/verified/project"}, nil
+	return VerifiedTools{ProjectBinary: "/verified/project", CodexBinary: "/verified/codex"}, nil
 }
 
 type lifecycleProject struct{}
@@ -256,6 +538,9 @@ func (*lifecycleProject) StartWithOptions(_ context.Context, _ string, name stri
 		State:             projectrun.StateRunning,
 	}, nil
 }
+func (*lifecycleProject) ObserveSessions(context.Context) (projectrun.ServeCollectionResult, error) {
+	return projectrun.ServeCollectionResult{Sessions: []projectrun.ServeResult{}}, nil
+}
 
 func (*lifecycleProject) Status(context.Context, string, string) (projectrun.ServeResult, error) {
 	return projectrun.ServeResult{}, errors.New("unexpected dev-server status")
@@ -268,97 +553,4 @@ func (*lifecycleProject) StopExpected(context.Context, string, string, string, s
 type countingLifecycleProject struct {
 	statuses int
 	stops    int
-}
-
-func (*countingLifecycleProject) PrepareExpected(context.Context, string, string, projectrun.SetupExpectations, projectrun.Streams) (projectrun.SetupCollectionResult, error) {
-	return projectrun.SetupCollectionResult{}, nil
-}
-
-func (*countingLifecycleProject) RunWithOptions(context.Context, string, string, projectrun.Streams, projectrun.RunOptions) (projectrun.RunResult, error) {
-	return projectrun.RunResult{}, nil
-}
-
-func (*countingLifecycleProject) StartWithOptions(context.Context, string, string, projectrun.StartOptions) (projectrun.ServeResult, error) {
-	return projectrun.ServeResult{}, errors.New("unexpected dev-server start")
-}
-
-func (project *countingLifecycleProject) Status(context.Context, string, string) (projectrun.ServeResult, error) {
-	project.statuses++
-	return projectrun.ServeResult{}, errors.New("unexpected dev-server status")
-}
-
-func (project *countingLifecycleProject) StopExpected(context.Context, string, string, string, string) (projectrun.ServeResult, error) {
-	project.stops++
-	return projectrun.ServeResult{}, errors.New("unexpected dev-server stop")
-}
-
-type lifecycleProvider struct {
-	starts  int
-	stops   int
-	cleans  int
-	exists  bool
-	owned   bool
-	running bool
-	handle  RuntimeHandle
-	binding RuntimeBinding
-}
-
-func (*lifecycleProvider) Mode() Mode { return ModeProcess }
-
-func (provider *lifecycleProvider) Start(_ context.Context, request LaunchRequest) (RuntimeHandle, error) {
-	provider.starts++
-	provider.binding = request.Binding
-	provider.handle = RuntimeHandle{
-		Kind: ResourceProcess,
-		Process: &ProcessHandle{
-			PID:           4242,
-			Identity:      strings.Repeat("d", 64),
-			BindingDigest: bindingDigest(request.Binding),
-		},
-	}
-	provider.exists = true
-	provider.owned = true
-	provider.running = true
-	if err := request.Commit(provider.handle); err != nil {
-		return RuntimeHandle{}, err
-	}
-	return provider.handle, nil
-}
-
-func (provider *lifecycleProvider) Inspect(_ context.Context, handle RuntimeHandle, binding RuntimeBinding) (ProviderObservation, error) {
-	if !reflect.DeepEqual(handle, provider.handle) || binding != provider.binding {
-		return ProviderObservation{}, errors.New("runtime binding changed")
-	}
-	return ProviderObservation{
-		Exists: provider.exists, Owned: provider.owned, Running: provider.running,
-		Handle: provider.handle,
-	}, nil
-}
-
-func (provider *lifecycleProvider) Suspend(context.Context, RuntimeHandle, RuntimeBinding) error {
-	provider.running = false
-	return nil
-}
-
-func (provider *lifecycleProvider) Resume(context.Context, RuntimeHandle, RuntimeBinding) error {
-	provider.running = true
-	return nil
-}
-
-func (provider *lifecycleProvider) Stop(_ context.Context, handle RuntimeHandle, binding RuntimeBinding, _ time.Duration) error {
-	if !reflect.DeepEqual(handle, provider.handle) || binding != provider.binding || !provider.owned {
-		return errors.New("refusing changed runtime ownership")
-	}
-	provider.stops++
-	provider.exists = false
-	provider.running = false
-	return nil
-}
-
-func (provider *lifecycleProvider) Clean(_ context.Context, handle RuntimeHandle, binding RuntimeBinding) error {
-	if !reflect.DeepEqual(handle, provider.handle) || binding != provider.binding || provider.exists {
-		return errors.New("refusing changed or live runtime")
-	}
-	provider.cleans++
-	return nil
 }

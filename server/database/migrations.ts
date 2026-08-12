@@ -95,6 +95,10 @@ import {
   sshControlGatewayMigrationId,
   sshControlGatewayMigrationSql
 } from './ssh-control-gateway-migration';
+import {
+  workspaceRuntimeControlMigrationId,
+  workspaceRuntimeControlMigrationSql
+} from './workspace-runtime-control-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -771,6 +775,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: sshControlGatewayMigrationId,
     sql: sshControlGatewayMigrationSql
+  },
+  {
+    id: workspaceRuntimeControlMigrationId,
+    sql: workspaceRuntimeControlMigrationSql
   }
 ];
 

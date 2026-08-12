@@ -302,12 +302,19 @@ function operationFrame(
   return `${JSON.stringify({
     environmentId: request.environmentId,
     expectedCliVersion: handshake.cliVersion,
+    ...(request.expectedCommit ? { expectedCommit: request.expectedCommit } : {}),
+    ...(request.expectedGeneration ? { expectedGeneration: request.expectedGeneration } : {}),
+    ...(request.expectedManifestDigest
+      ? { expectedManifestDigest: request.expectedManifestDigest }
+      : {}),
     expectedProtocolVersion: handshake.protocolVersion,
+    ...(request.mode ? { mode: request.mode } : {}),
     operation: request.operation,
     operationId: request.operationId,
     schemaVersion: 1,
     targetIdentityRevision,
-    type: 'operation'
+    type: 'operation',
+    ...(request.workspaceId ? { workspaceId: request.workspaceId } : {})
   })}\n`;
 }
 

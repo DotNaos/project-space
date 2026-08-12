@@ -84,14 +84,26 @@ func (manager *Manager) Suspend(ctx context.Context, directory string, options O
 		}
 		stopped, err := manager.stopServers(ctx, record)
 		if err != nil {
-			manager.restartServers(ctx, record, stopped)
-			record.State = StateRunning
-			return err
+			ledgerErr := manager.reconcileDevServerLedger(ctx, record)
+			restartErr := error(nil)
+			if ledgerErr == nil {
+				restartErr = manager.restartServers(ctx, record, stopped)
+			}
+			if ledgerErr == nil && restartErr == nil {
+				record.State = StateRunning
+			} else {
+				record.State = StateStale
+			}
+			return errors.Join(err, ledgerErr, restartErr)
 		}
 		if err := provider.Suspend(ctx, record.Handle, record.binding()); err != nil {
-			manager.restartServers(ctx, record, stopped)
-			record.State = StateRunning
-			return err
+			restartErr := manager.restartServers(ctx, record, stopped)
+			if restartErr == nil {
+				record.State = StateRunning
+			} else {
+				record.State = StateStale
+			}
+			return errors.Join(err, restartErr)
 		}
 		record.DevServers = []ManagedDevServer{}
 		record.State = StateSuspended
@@ -125,16 +137,25 @@ func (manager *Manager) Resume(ctx context.Context, directory string, options Op
 			record.State = StateSuspended
 			return err
 		}
-		started, err := manager.startServers(ctx, record)
+		_, err := manager.startServers(ctx, record)
 		if err != nil {
-			record.DevServers = started
-			_, _ = manager.stopServers(ctx, record)
-			_ = provider.Suspend(ctx, record.Handle, record.binding())
-			record.DevServers = []ManagedDevServer{}
-			record.State = StateSuspended
-			return err
+			ledgerErr := manager.reconcileDevServerLedger(ctx, record)
+			var stopErr, suspendErr error
+			if ledgerErr == nil {
+				_, stopErr = manager.stopServers(ctx, record)
+				if stopErr == nil {
+					suspendErr = provider.Suspend(ctx, record.Handle, record.binding())
+				}
+			} else {
+				record.State = StateStale
+			}
+			if ledgerErr == nil && stopErr == nil && suspendErr == nil {
+				record.DevServers = []ManagedDevServer{}
+				record.DevServerOperation = nil
+				record.State = StateSuspended
+			}
+			return errors.Join(err, ledgerErr, stopErr, suspendErr)
 		}
-		record.DevServers = started
 		record.State = StateRunning
 		return manager.inspectResources(ctx, provider, *record)
 	})
@@ -247,6 +268,10 @@ func (manager *Manager) Clean(ctx context.Context, directory string, options Ope
 		if activeState(record.State) || len(record.DevServers) > 0 || record.State != StateStopped && record.State != StateFailed {
 			return fmt.Errorf("Workspace runtime must be fully stopped before clean")
 		}
+		if record.GenerationRemoved {
+			result = manager.result("clean", DispositionCleaned, record, nil)
+			return nil
+		}
 		provider, err := manager.provider(record.Mode)
 		if err != nil {
 			return err
@@ -267,13 +292,21 @@ func (manager *Manager) Clean(ctx context.Context, directory string, options Ope
 				return err
 			}
 		}
-		if err := manager.store.removeGeneration(record.WorkspaceID, record.Generation); err != nil {
+		archive, err := manager.store.removeGeneration(record.WorkspaceID, record.Generation, record.GenerationProof)
+		if err != nil {
 			return err
 		}
-		cleaned := record
-		cleaned.State = StateStopped
-		result = manager.result("clean", DispositionCleaned, cleaned, nil)
-		return manager.store.remove(record.WorkspaceID)
+		record.GenerationRemoved = true
+		record.GenerationArchive = archive
+		record.Handle = RuntimeHandle{}
+		record.State = StateStopped
+		record.CheckedAt = manager.timestamp()
+		record.LastError = ""
+		if err := manager.store.save(record); err != nil {
+			return err
+		}
+		result = manager.result("clean", DispositionCleaned, record, nil)
+		return nil
 	})
 	return result, err
 }
@@ -339,6 +372,9 @@ func (manager *Manager) resolveIdentity(ctx context.Context, directory string, o
 }
 
 func (manager *Manager) inspectSuspended(ctx context.Context, provider RuntimeProvider, record runtimeRecord) error {
+	if record.DevServerOperation != nil {
+		return fmt.Errorf("suspended Workspace runtime has an interrupted dev-server operation")
+	}
 	observation, err := provider.Inspect(ctx, record.Handle, record.binding())
 	if err != nil {
 		return err
@@ -350,6 +386,9 @@ func (manager *Manager) inspectSuspended(ctx context.Context, provider RuntimePr
 }
 
 func (manager *Manager) preflightOwned(ctx context.Context, provider RuntimeProvider, record runtimeRecord) error {
+	if record.DevServerOperation != nil {
+		return fmt.Errorf("Workspace runtime has an interrupted dev-server operation; reconcile it first")
+	}
 	if record.Handle.Kind != "" {
 		observation, err := provider.Inspect(ctx, record.Handle, record.binding())
 		if err != nil {
@@ -374,9 +413,34 @@ func (manager *Manager) preflightOwned(ctx context.Context, provider RuntimeProv
 	return nil
 }
 
+func (manager *Manager) preflightCleanup(ctx context.Context, provider RuntimeProvider, record runtimeRecord) (ProviderObservation, error) {
+	observation := ProviderObservation{}
+	if record.Handle.Kind != "" {
+		var err error
+		observation, err = provider.Inspect(ctx, record.Handle, record.binding())
+		if err != nil {
+			return ProviderObservation{}, err
+		}
+		if observation.Exists && !observation.Owned {
+			return ProviderObservation{}, fmt.Errorf("Workspace runtime process ownership changed")
+		}
+	}
+	for _, server := range record.DevServers {
+		observed, err := manager.project.Status(ctx, record.Directory, server.Name)
+		if err != nil {
+			return ProviderObservation{}, err
+		}
+		if err := exactServer(record, observed, server); err != nil {
+			return ProviderObservation{}, err
+		}
+	}
+	return observation, nil
+}
+
 func (manager *Manager) stopServers(ctx context.Context, record *runtimeRecord) ([]ManagedDevServer, error) {
-	stopped := append([]ManagedDevServer{}, record.DevServers...)
-	for index := len(record.DevServers) - 1; index >= 0; index-- {
+	stopped := []ManagedDevServer{}
+	for len(record.DevServers) > 0 {
+		index := len(record.DevServers) - 1
 		server := record.DevServers[index]
 		observed, err := manager.project.Status(ctx, record.Directory, server.Name)
 		if err != nil {
@@ -385,17 +449,40 @@ func (manager *Manager) stopServers(ctx context.Context, record *runtimeRecord) 
 		if err := exactServer(*record, observed, server); err != nil {
 			return stopped, err
 		}
+		record.DevServerOperation = &devServerOperation{Name: server.Name, Action: devServerStopping}
+		record.CheckedAt = manager.timestamp()
+		if err := manager.store.save(*record); err != nil {
+			return stopped, err
+		}
 		if _, err := manager.project.StopExpected(ctx, record.Directory, server.Name, record.WorkspaceID, record.Generation); err != nil {
 			return stopped, err
 		}
+		stopped = append(stopped, server)
+		record.DevServers = record.DevServers[:index]
+		record.DevServerOperation = nil
+		record.CheckedAt = manager.timestamp()
+		if err := manager.store.save(*record); err != nil {
+			return stopped, err
+		}
 	}
-	record.DevServers = []ManagedDevServer{}
 	return stopped, nil
 }
 
 func (manager *Manager) startServers(ctx context.Context, record *runtimeRecord) ([]ManagedDevServer, error) {
+	return manager.startNamedServers(ctx, record, record.ExpectedDevServers)
+}
+
+func (manager *Manager) startNamedServers(ctx context.Context, record *runtimeRecord, names []string) ([]ManagedDevServer, error) {
+	if record.DevServerOperation != nil {
+		return nil, fmt.Errorf("cannot start a dev server while another dev-server operation is unresolved")
+	}
 	started := []ManagedDevServer{}
-	for _, name := range record.ExpectedDevServers {
+	for _, name := range names {
+		record.DevServerOperation = &devServerOperation{Name: name, Action: devServerStarting}
+		record.CheckedAt = manager.timestamp()
+		if err := manager.store.save(*record); err != nil {
+			return started, err
+		}
 		server, err := manager.project.StartWithOptions(ctx, record.Directory, name, projectrun.StartOptions{
 			LocalOnly: true, APIs: projectrun.APIsModeSimulated, Data: projectrun.DataModeLocal,
 			WorkspaceID: record.WorkspaceID, RuntimeGeneration: record.Generation,
@@ -404,16 +491,34 @@ func (manager *Manager) startServers(ctx context.Context, record *runtimeRecord)
 		if err != nil {
 			return started, err
 		}
-		started = append(started, serverFromResult(name, server))
+		managed := serverFromResult(name, server)
+		if err := exactServer(*record, server, managed); err != nil {
+			return started, err
+		}
+		started = append(started, managed)
+		record.DevServers = append(record.DevServers, managed)
+		record.DevServerOperation = nil
+		record.CheckedAt = manager.timestamp()
+		if err := manager.store.save(*record); err != nil {
+			return started, err
+		}
 	}
 	return started, nil
 }
 
-func (manager *Manager) restartServers(ctx context.Context, record *runtimeRecord, _ []ManagedDevServer) {
-	started, err := manager.startServers(ctx, record)
-	if err == nil {
-		record.DevServers = started
+func (manager *Manager) restartServers(ctx context.Context, record *runtimeRecord, _ []ManagedDevServer) error {
+	present := make(map[string]bool, len(record.DevServers))
+	for _, server := range record.DevServers {
+		present[server.Name] = true
 	}
+	names := make([]string, 0, len(record.ExpectedDevServers)-len(record.DevServers))
+	for _, name := range record.ExpectedDevServers {
+		if !present[name] {
+			names = append(names, name)
+		}
+	}
+	_, err := manager.startNamedServers(ctx, record, names)
+	return err
 }
 
 func emptyRecord(plan resolvedPlan, state RuntimeState, checkedAt string) runtimeRecord {

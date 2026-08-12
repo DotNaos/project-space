@@ -108,12 +108,82 @@ describe('SSH control gateway cross-language contract', () => {
       actorId: 'machine-one', routeId, targetEnvironmentId: environmentId
     });
   });
+
+  test('carries one replay-fenced Workspace runtime start through the authorized SSH path', async () => {
+    const processRunner: SshProcessRunner = {
+      async run(input) {
+        if (input.command.endsWith('ssh-keyscan')) {
+          return { exitCode: 0, stderr: '', timedOut: false, stdout: `100.64.0.10 ssh-ed25519 ${publicKey}\n` };
+        }
+        return runGoGateway(input);
+      }
+    };
+    const checkedAt = new Date(Date.now() - 1_000).toISOString();
+    const verifiedUntil = new Date(Date.now() + 60_000).toISOString();
+    const service = new SshControlGatewayService({
+      authorization: { authorize: async () => ({
+        allowed: true, capability: 'project_cli', expiresAt: verifiedUntil,
+        gatewayId: 'gateway-one', ownerUserId: 'owner-one', reason: 'contract-test',
+        risk: 'normal', target: { id: environmentId, identityRevision: revision, kind: 'environment' }
+      }) },
+      credentials: { resolve: async () => ({ privateKey: 'TEST PRIVATE KEY', purpose: 'project_control_gateway_v1' }) },
+      operations: new MemorySshGatewayOperationStore(),
+      routes: { load: async () => ({
+        networks: [{
+          approvalState: 'approved', availability: 'available', enabled: true,
+          id: networkId, lastVerifiedAt: checkedAt, name: 'private', ownerUserId: 'owner-one',
+          providerKind: 'tailscale', providerReference: 'provider', verifiedUntil
+        }],
+        routes: [{
+          allowedGatewayIds: ['gateway-one'], availability: 'available', capabilities: ['project_cli'],
+          credentialPurpose: 'project_control_gateway_v1', credentialReference: 'op://Contract/Control/private-key',
+          enabled: true, freshnessSeconds: 300, hostKeySha256: pin, id: routeId,
+          lastVerifiedAt: checkedAt, ownerUserId: 'owner-one', policyState: 'approved', priority: 100,
+          privateAddress: '100.64.0.10', privateNetworkId: networkId, providerKind: 'tailscale',
+          requiresInteractiveApproval: false, routeKind: 'ssh_private_network', sshPort: 22,
+          sshUser: 'project-control', target: { id: environmentId, kind: 'environment' },
+          targetIdentityRevision: revision, verifiedUntil
+        }]
+      }) },
+      targets: { resolve: async () => ({
+        environmentDefinitionId: 'definition-one', environmentId,
+        platformId: 'platform-one', targetIdentityRevision: revision
+      }) },
+      transport: new OpenSshControlTransport(processRunner)
+    });
+    const request = {
+      environmentId,
+      expectedCommit: '0123456789abcdef0123456789abcdef01234567',
+      expectedManifestDigest: 'a'.repeat(64),
+      mode: 'process' as const,
+      operation: 'workspace-runtime.start.v1' as const,
+      operationId: 'workspace-contract-operation-one',
+      workspaceId: '123e4567-e89b-42d3-a456-426614174001'
+    };
+    const first = await service.execute(
+      { id: 'machine-one', kind: 'machine', ownerUserId: 'owner-one' }, request
+    );
+    const replay = await service.execute(
+      { id: 'machine-one', kind: 'machine', ownerUserId: 'owner-one' }, request
+    );
+    expect(first.result).toMatchObject({
+      operation: request.operation, state: 'running', workspaceId: request.workspaceId
+    });
+    expect(replay.replayed).toBe(true);
+    expect(replay.result).toEqual(first.result);
+  });
 });
 
 async function runGoGateway(input: SshProcessInput) {
   const child = Bun.spawn({
     cmd: [helper, '-test.run=^TestControlGatewayContractProcess$'],
-    env: { ...process.env, PROJECT_CONTROL_GATEWAY_CONTRACT_HELPER: '1' },
+    env: {
+      ...process.env,
+      PROJECT_CONTROL_GATEWAY_CONTRACT_HELPER: '1',
+      ...(input.stdin?.includes('workspace-runtime.')
+        ? { PROJECT_CONTROL_GATEWAY_WORKSPACE_HELPER: '1' }
+        : {})
+    },
     stderr: 'pipe', stdin: 'pipe', stdout: 'pipe'
   });
   child.stdin.write(input.stdin ?? '');

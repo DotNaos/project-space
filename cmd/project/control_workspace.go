@@ -12,7 +12,7 @@ import (
 	"github.com/DotNaos/project-space/internal/workspacerun"
 )
 
-var controlWorkspaceIDPattern = regexp.MustCompile(`^ws_[a-f0-9]{24}$`)
+var controlWorkspaceIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 var controlDigestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var controlCommitPattern = regexp.MustCompile(`^(?:[a-f0-9]{40}|[a-f0-9]{64})$`)
 var controlGenerationPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)

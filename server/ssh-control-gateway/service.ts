@@ -6,6 +6,7 @@ import type {
   SshGatewayActor,
   SshGatewayExecutionResult,
   SshGatewayRequest,
+  SshGatewaySafeResult,
   SshGatewayStatusResult,
   SshControlHandshake
 } from './contracts';
@@ -117,7 +118,7 @@ export class SshControlGatewayService {
       const credential = await this.resolveCredential(reference);
       const handshake = validateHandshake(await this.handshake(
         revalidated.route, credential, verifiedHost
-      ));
+      ), request.operation);
       const finalAuthorization = await this.dependencies.authorization.authorize({
         actor,
         environmentId: request.environmentId,
@@ -149,7 +150,7 @@ export class SshControlGatewayService {
       });
       dispatchAttempted = true;
       const startedAt = Date.now();
-      const result = validateStatusResponse(
+      const result = validateControlResponse(
         await this.run(finalRoute.route, credential, request, verifiedHost, handshake), request,
         finalRoute.route.targetIdentityRevision, startedAt
       );
@@ -250,12 +251,33 @@ function validateRequest(actor: SshGatewayActor, request: SshGatewayRequest) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(request.environmentId) ||
     !/^[A-Za-z0-9:._-]{1,256}$/.test(request.operationId) ||
-    request.operation !== 'status.v1' || !actor.id || !actor.ownerUserId) {
+    !validOperationRequest(request) || !actor.id || !actor.ownerUserId) {
     throw new SshGatewayError('operation_conflict', 'SSH gateway request is invalid.');
   }
 }
 
-function validateHandshake(value: string): SshControlHandshake {
+function validOperationRequest(request: SshGatewayRequest) {
+  if (request.operation === 'status.v1') {
+    return request.workspaceId === undefined && request.expectedCommit === undefined &&
+      request.expectedManifestDigest === undefined && request.expectedGeneration === undefined &&
+      request.mode === undefined;
+  }
+  const workspaceOperation = /^workspace-runtime\.(start|inspect|suspend|resume|stop|clean|reconcile)\.v1$/
+    .test(request.operation);
+  const generationRequired = request.operation !== 'workspace-runtime.start.v1';
+  return workspaceOperation && isUuid(request.workspaceId) &&
+    /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(request.expectedCommit ?? '') &&
+    /^[0-9a-f]{64}$/.test(request.expectedManifestDigest ?? '') &&
+    (request.mode === 'process' || request.mode === 'devcontainer') &&
+    (generationRequired ? isUuid(request.expectedGeneration) : request.expectedGeneration === undefined);
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function validateHandshake(value: string, operation: SshGatewayRequest['operation']): SshControlHandshake {
   const lines = value.trim().split('\n');
   if (lines.length !== 1) {
     throw new SshGatewayError('cli_incompatible', 'Remote Project CLI control protocol is incompatible.');
@@ -270,10 +292,22 @@ function validateHandshake(value: string): SshControlHandshake {
     handshake.operations.some((operation) => typeof operation !== 'string' ||
       !/^[a-z][a-z0-9._-]{0,63}$/.test(operation)) ||
     new Set(handshake.operations).size !== handshake.operations.length ||
-    !handshake.operations.includes('status.v1')) {
+    !handshake.operations.includes(operation)) {
     throw new SshGatewayError('cli_incompatible', 'Remote Project CLI control protocol is incompatible.');
   }
   return { cliVersion: handshake.cliVersion, protocolVersion: 1 };
+}
+
+function validateControlResponse(
+  value: string,
+  request: SshGatewayRequest,
+  targetIdentityRevision: string,
+  startedAt: number
+): SshGatewaySafeResult {
+  if (request.operation === 'status.v1') {
+    return validateStatusResponse(value, request, targetIdentityRevision, startedAt);
+  }
+  return validateWorkspaceRuntimeResponse(value, request, targetIdentityRevision, startedAt);
 }
 
 function validateStatusResponse(
@@ -301,6 +335,57 @@ function validateStatusResponse(
   return parsed as unknown as SshGatewayStatusResult;
 }
 
+function validateWorkspaceRuntimeResponse(
+  value: string,
+  request: SshGatewayRequest,
+  targetIdentityRevision: string,
+  startedAt: number
+): SshGatewaySafeResult {
+  const lines = value.trim().split('\n');
+  if (lines.length !== 1) throw incompatible();
+  let parsed: Record<string, unknown>;
+  try {
+    const candidate = JSON.parse(lines[0]!) as unknown;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error();
+    parsed = candidate as Record<string, unknown>;
+  } catch {
+    throw incompatible();
+  }
+  const allowed = new Set([
+    'checkedAt', 'disposition', 'generation', 'manifestDigest', 'mode', 'operation',
+    'operationId', 'schemaVersion', 'sourceHead', 'state', 'targetIdentityRevision',
+    'type', 'workspaceId'
+  ]);
+  const required = [
+    'checkedAt', 'manifestDigest', 'mode', 'operation', 'operationId', 'schemaVersion',
+    'sourceHead', 'state', 'targetIdentityRevision', 'type', 'workspaceId'
+  ];
+  if (Object.keys(parsed).some((key) => !allowed.has(key)) ||
+    required.some((key) => !(key in parsed))) throw incompatible();
+  const checkedAt = typeof parsed.checkedAt === 'string' ? Date.parse(parsed.checkedAt) : NaN;
+  const states = new Set(['starting', 'running', 'suspending', 'suspended', 'resuming',
+    'stopping', 'stopped', 'cleaning', 'stale', 'failed']);
+  if (parsed.schemaVersion !== 1 || parsed.type !== 'result' ||
+    parsed.operation !== request.operation || parsed.operationId !== request.operationId ||
+    parsed.targetIdentityRevision !== targetIdentityRevision ||
+    parsed.workspaceId !== request.workspaceId || parsed.sourceHead !== request.expectedCommit ||
+    parsed.manifestDigest !== request.expectedManifestDigest || parsed.mode !== request.mode ||
+    typeof parsed.state !== 'string' || !states.has(parsed.state) ||
+    !Number.isFinite(checkedAt) || checkedAt < startedAt - 30_000 || checkedAt > Date.now() + 30_000 ||
+    (parsed.generation !== undefined && !isUuid(parsed.generation)) ||
+    (parsed.disposition !== undefined && !['created', 'reused', 'cleaned'].includes(String(parsed.disposition)))) {
+    throw incompatible();
+  }
+  if (request.expectedGeneration !== undefined && parsed.generation !== request.expectedGeneration) {
+    throw incompatible();
+  }
+  return parsed as unknown as SshGatewaySafeResult;
+}
+
+function incompatible(): SshGatewayError {
+  return new SshGatewayError('cli_incompatible', 'Remote Project CLI control protocol is incompatible.');
+}
+
 function strictObject(value: string, keys: readonly string[]): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -324,8 +409,13 @@ function requestFingerprint(
     environmentId: request.environmentId,
     gatewayId: authorization.gatewayId,
     operation: request.operation,
+    expectedCommit: request.expectedCommit,
+    expectedGeneration: request.expectedGeneration,
+    expectedManifestDigest: request.expectedManifestDigest,
+    mode: request.mode,
     ownerUserId: actor.ownerUserId,
-    targetIdentityRevision: authorization.target.identityRevision
+    targetIdentityRevision: authorization.target.identityRevision,
+    workspaceId: request.workspaceId
   })).digest('hex');
 }
 

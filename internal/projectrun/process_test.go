@@ -178,6 +178,26 @@ func TestDetachedStartDoesNotLaunchCommandWhenCommitFails(t *testing.T) {
 	}
 }
 
+func TestManagedOutputRefusesSymlinkWithoutTruncatingForeignFile(t *testing.T) {
+	foreign := filepath.Join(t.TempDir(), "foreign.log")
+	if err := os.WriteFile(foreign, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(t.TempDir(), "runtime.log")
+	if err := os.Symlink(foreign, linked); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := managedOutput(linked); err == nil {
+		_ = file.Close()
+		t.Fatal("symlink output was accepted")
+	}
+	body, err := os.ReadFile(foreign)
+	info, statErr := os.Stat(foreign)
+	if err != nil || statErr != nil || string(body) != "keep" || info.Mode().Perm() != 0o644 {
+		t.Fatalf("foreign output changed: body=%q mode=%v readErr=%v statErr=%v", body, info.Mode().Perm(), err, statErr)
+	}
+}
+
 func TestManagedRuntimeStopsItsProcessGroupOnSIGHUP(t *testing.T) {
 	port, err := (NetworkPortAllocator{}).Local(map[int]bool{})
 	if err != nil {

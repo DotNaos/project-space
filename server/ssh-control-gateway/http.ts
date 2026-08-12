@@ -9,7 +9,8 @@ import type {
 } from './contracts';
 import { SshGatewayError } from './contracts';
 
-const route = '/api/compute/control/status';
+const statusRoute = '/api/compute/control/status';
+const workspaceRuntimeRoute = '/api/compute/control/workspace-runtime';
 const maximumBodyBytes = 16 * 1024;
 
 export interface SshControlHttpActor {
@@ -22,7 +23,7 @@ export function createSshControlGatewayHttpApi(
   resolveActor: (request: IncomingMessage) => Promise<SshControlHttpActor>
 ) {
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
-    if (url.pathname !== route) return false;
+    if (url.pathname !== statusRoute && url.pathname !== workspaceRuntimeRoute) return false;
     response.setHeader('Cache-Control', 'private, no-store');
     try {
       if (request.method !== 'POST' || [...url.searchParams.keys()].length > 0) {
@@ -32,7 +33,9 @@ export function createSshControlGatewayHttpApi(
       if (!actor.callerMachineId) {
         throw new SshGatewayError('authorization_denied', 'Machine authentication is required.');
       }
-      const input = statusRequest(await readBody(request));
+      const input = url.pathname === statusRoute
+        ? statusRequest(await readBody(request))
+        : workspaceRuntimeRequest(await readBody(request));
       if (request.headers['idempotency-key'] !== input.operationId) {
         throw invalid('Idempotency-Key must match operationId.');
       }
@@ -58,6 +61,28 @@ export function createSshControlGatewayHttpApi(
     }
     return true;
   };
+}
+
+function workspaceRuntimeRequest(body: Record<string, unknown>): SshGatewayRequest {
+  const allowed = new Set([
+    'environmentId', 'expectedCommit', 'expectedGeneration', 'expectedManifestDigest',
+    'mode', 'operation', 'operationId', 'workspaceId'
+  ]);
+  if (Object.keys(body).some((key) => !allowed.has(key)) ||
+    typeof body.environmentId !== 'string' || !isUuid(body.environmentId) ||
+    typeof body.workspaceId !== 'string' || !isUuid(body.workspaceId) ||
+    typeof body.operationId !== 'string' || !/^[A-Za-z0-9:._-]{1,256}$/.test(body.operationId) ||
+    typeof body.operation !== 'string' ||
+    !/^workspace-runtime\.(start|inspect|suspend|resume|stop|clean|reconcile)\.v1$/.test(body.operation) ||
+    typeof body.expectedCommit !== 'string' || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(body.expectedCommit) ||
+    typeof body.expectedManifestDigest !== 'string' || !/^[0-9a-f]{64}$/.test(body.expectedManifestDigest) ||
+    body.mode !== 'process' && body.mode !== 'devcontainer' ||
+    (body.operation === 'workspace-runtime.start.v1'
+      ? body.expectedGeneration !== undefined
+      : typeof body.expectedGeneration !== 'string' || !isUuid(body.expectedGeneration))) {
+    throw invalid('SSH Workspace runtime request is invalid.');
+  }
+  return body as unknown as SshGatewayRequest;
 }
 
 function statusRequest(body: Record<string, unknown>): SshGatewayRequest {

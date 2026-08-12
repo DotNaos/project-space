@@ -19,9 +19,10 @@ const manifestPath = ".project/runtime.yaml"
 var declarationNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
 var exactVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9][A-Za-z0-9.-]*)?$`)
 var sha256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
-var workspaceIDPattern = regexp.MustCompile(`^ws_[a-f0-9]{24}$`)
+var workspaceIDPattern = regexp.MustCompile(`^(?:ws_[a-f0-9]{24}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$`)
 var uuidPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
 var tokenPattern = uuidPattern
+var filesystemIdentityPattern = regexp.MustCompile(`^[a-f0-9]+:[a-f0-9]+$`)
 
 func LoadManifest(directory string) (ManifestResolution, error) {
 	root, err := canonicalDirectory(directory)

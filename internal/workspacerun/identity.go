@@ -62,8 +62,12 @@ func (resolver GitIdentityResolver) Resolve(ctx context.Context, directory strin
 	payload := strings.Join([]string{workspaceIdentityVersion, repository, gitDirectory, instance}, "\x00")
 	digest := sha256.Sum256([]byte(payload))
 	proof := hex.EncodeToString(digest[:])
+	workspaceID, err := run(ctx, "git", "-C", worktree, "config", "--worktree", "--get", "project.workspaceId")
+	if err != nil || !uuidPattern.MatchString(strings.TrimSpace(workspaceID)) {
+		return WorkspaceIdentity{}, fmt.Errorf("resolve immutable Workspace ID: run project worktree prepare in this checkout")
+	}
 	return WorkspaceIdentity{
-		WorkspaceID:   "ws_" + proof[:24],
+		WorkspaceID:   strings.TrimSpace(workspaceID),
 		Repository:    repository,
 		Directory:     worktree,
 		GitDirectory:  gitDirectory,

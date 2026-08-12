@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DotNaos/project-space/internal/computecontrol"
 	"github.com/DotNaos/project-space/internal/computeinventory"
@@ -136,7 +137,7 @@ func TestControlGatewayRunsWorkspaceLifecycleThroughTheSharedManager(t *testing.
 	previous := projectMachineClientVersion
 	projectMachineClientVersion = "0.5.0-test"
 	t.Cleanup(func() { projectMachineClientVersion = previous })
-	const workspaceID = "ws_0123456789abcdef01234567"
+	const workspaceID = "123e4567-e89b-42d3-a456-426614174001"
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	manager := &fakeWorkspaceRuntimeManager{result: workspacerun.Result{
@@ -176,8 +177,8 @@ func TestControlGatewayRejectsUnregisteredWorkspaceAndRemotePathInjection(t *tes
 	projectMachineClientVersion = "0.5.0-test"
 	t.Cleanup(func() { projectMachineClientVersion = previous })
 	identity := controlTestIdentity()
-	identity.Workspaces = map[string]string{"ws_0123456789abcdef01234567": "/trusted/worktree"}
-	input := `{"environmentId":"11111111-1111-4111-8111-111111111111","expectedCliVersion":"0.5.0-test","expectedCommit":"0123456789abcdef0123456789abcdef01234567","expectedManifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expectedProtocolVersion":1,"mode":"process","operation":"workspace-runtime.start.v1","operationId":"op-runtime-1","path":"/tmp/foreign","schemaVersion":1,"targetIdentityRevision":"1:environment:test","type":"operation","workspaceId":"ws_ffffffffffffffffffffffff"}` + "\n"
+	identity.Workspaces = map[string]string{"123e4567-e89b-42d3-a456-426614174001": "/trusted/worktree"}
+	input := `{"environmentId":"11111111-1111-4111-8111-111111111111","expectedCliVersion":"0.5.0-test","expectedCommit":"0123456789abcdef0123456789abcdef01234567","expectedManifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expectedProtocolVersion":1,"mode":"process","operation":"workspace-runtime.start.v1","operationId":"op-runtime-1","path":"/tmp/foreign","schemaVersion":1,"targetIdentityRevision":"1:environment:test","type":"operation","workspaceId":"123e4567-e89b-42d3-a456-426614174099"}` + "\n"
 	called := false
 	err := serveControlGatewayWithRuntime(strings.NewReader(input), &bytes.Buffer{}, identity, func() (workspaceRuntimeManager, error) {
 		called = true
@@ -189,7 +190,7 @@ func TestControlGatewayRejectsUnregisteredWorkspaceAndRemotePathInjection(t *tes
 }
 
 func TestWorkspaceControlDispatchesEveryTypedLifecycleOperation(t *testing.T) {
-	const workspaceID = "ws_0123456789abcdef01234567"
+	const workspaceID = "123e4567-e89b-42d3-a456-426614174001"
 	const commit = "0123456789abcdef0123456789abcdef01234567"
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const generation = "123e4567-e89b-42d3-a456-426614174000"
@@ -306,7 +307,27 @@ func TestControlGatewayContractProcess(t *testing.T) {
 	if os.Getenv("PROJECT_CONTROL_GATEWAY_CONTRACT_HELPER") != "1" {
 		return
 	}
-	if err := serveControlGateway(os.Stdin, os.Stdout, controlTestIdentity()); err != nil {
+	identity := controlTestIdentity()
+	serve := func() error { return serveControlGateway(os.Stdin, os.Stdout, identity) }
+	if os.Getenv("PROJECT_CONTROL_GATEWAY_WORKSPACE_HELPER") == "1" {
+		const workspaceID = "123e4567-e89b-42d3-a456-426614174001"
+		const commit = "0123456789abcdef0123456789abcdef01234567"
+		const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		identity.Workspaces = map[string]string{workspaceID: "/private/owned/worktree"}
+		manager := &fakeWorkspaceRuntimeManager{result: workspacerun.Result{
+			SchemaVersion: workspacerun.SchemaVersion, Operation: "start",
+			Disposition: workspacerun.DispositionCreated, WorkspaceID: workspaceID,
+			Generation: "123e4567-e89b-42d3-a456-426614174000", ManifestDigest: digest,
+			SourceHead: commit, Mode: workspacerun.ModeProcess, State: workspacerun.StateRunning,
+			CheckedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		}}
+		serve = func() error {
+			return serveControlGatewayWithRuntime(os.Stdin, os.Stdout, identity, func() (workspaceRuntimeManager, error) {
+				return manager, nil
+			})
+		}
+	}
+	if err := serve(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}

@@ -19,14 +19,21 @@ import { PostgresSshGatewayOperationStore } from './postgres-store';
 import { SshControlGatewayService } from './service';
 import { InventorySshGatewayTargetResolver } from './target-resolver';
 
-const route = '/api/compute/control/status';
+const routes = new Set([
+  '/api/compute/control/status',
+  '/api/compute/control/workspace-runtime'
+]);
+
+export function isConfiguredSshControlGatewayRoute(pathname: string) {
+  return routes.has(pathname);
+}
 
 export function createConfiguredSshControlGatewayHandler(options: {
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
 }) {
   let runtime: Promise<ReturnType<typeof createSshControlGatewayHttpApi>> | undefined;
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
-    if (url.pathname !== route) return false;
+    if (!isConfiguredSshControlGatewayRoute(url.pathname)) return false;
     if (!isDatabaseConfigured() || !configuredGatewayId()) {
       unavailable(response);
       return true;

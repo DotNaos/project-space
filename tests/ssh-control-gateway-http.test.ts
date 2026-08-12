@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import { CodexMachineTasksAuthError } from '../server/codex-machine-tasks/auth-context';
 import type { SshGatewayExecutionResult } from '../server/ssh-control-gateway/contracts';
+import { isConfiguredSshControlGatewayRoute } from '../server/ssh-control-gateway/configured-runtime';
 import { createSshControlGatewayHttpApi } from '../server/ssh-control-gateway/http';
 
 const servers: Server[] = [];
@@ -16,6 +17,12 @@ afterEach(async () => {
 });
 
 describe('SSH control gateway HTTP boundary', () => {
+  test('the productive router admits both typed control endpoints and nothing adjacent', () => {
+    expect(isConfiguredSshControlGatewayRoute('/api/compute/control/status')).toBe(true);
+    expect(isConfiguredSshControlGatewayRoute('/api/compute/control/workspace-runtime')).toBe(true);
+    expect(isConfiguredSshControlGatewayRoute('/api/compute/control/shell')).toBe(false);
+  });
+
   test('binds machine identity, idempotency, and the exact typed status request', async () => {
     const calls: unknown[] = [];
     const origin = await start(createSshControlGatewayHttpApi({
@@ -36,6 +43,41 @@ describe('SSH control gateway HTTP boundary', () => {
       actor: { id: 'machine-one', kind: 'machine', ownerUserId: 'owner-one' },
       request: { environmentId, operation: 'status.v1', operationId: 'operation-one' }
     }]);
+  });
+
+  test('accepts only a fully bound typed Workspace runtime request', async () => {
+    const calls: unknown[] = [];
+    const operationId = 'runtime-operation-one';
+    const input = {
+      environmentId,
+      expectedCommit: '0123456789abcdef0123456789abcdef01234567',
+      expectedManifestDigest: 'a'.repeat(64),
+      mode: 'process', operation: 'workspace-runtime.start.v1', operationId,
+      workspaceId: '123e4567-e89b-42d3-a456-426614174001'
+    };
+    const origin = await start(createSshControlGatewayHttpApi({
+      async execute(actor, request) {
+        calls.push({ actor, request });
+        return workspaceSuccess(operationId);
+      }
+    }, async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' })));
+    const response = await fetch(`${origin}/api/compute/control/workspace-runtime`, {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationId },
+      method: 'POST'
+    });
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{
+      actor: { id: 'machine-one', kind: 'machine', ownerUserId: 'owner-one' },
+      request: input
+    }]);
+    const injected = await fetch(`${origin}/api/compute/control/workspace-runtime`, {
+      body: JSON.stringify({ ...input, path: '/tmp/foreign', operationId: 'runtime-operation-two' }),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'runtime-operation-two' },
+      method: 'POST'
+    });
+    expect(injected.status).toBe(409);
+    expect(calls).toHaveLength(1);
   });
 
   test('rejects browsers, query input, unknown fields, and mismatched idempotency', async () => {
@@ -122,6 +164,27 @@ function success(operationId: string): SshGatewayExecutionResult {
       checkedAt: '2026-08-12T10:00:00.000Z', operation: 'status.v1', operationId,
       schemaVersion: 1, state: 'ready', targetIdentityRevision: '1:environment:test',
       type: 'result'
+    }
+  };
+}
+
+function workspaceSuccess(operationId: string): SshGatewayExecutionResult {
+  return {
+    audit: {
+      actorId: 'machine-one', actorKind: 'machine', capability: 'project_cli',
+      completedAt: '2026-08-12T10:00:00.000Z', gatewayId: 'gateway-one',
+      operation: 'workspace-runtime.start.v1', operationId, outcome: 'succeeded',
+      routeClass: 'ssh_private_network', routeId: '22222222-2222-4222-8222-222222222222',
+      targetEnvironmentId: environmentId, targetIdentityRevision: '1:environment:test'
+    },
+    replayed: false,
+    result: {
+      checkedAt: '2026-08-12T10:00:00.000Z', disposition: 'created',
+      generation: '123e4567-e89b-42d3-a456-426614174000', manifestDigest: 'a'.repeat(64),
+      mode: 'process', operation: 'workspace-runtime.start.v1', operationId,
+      schemaVersion: 1, sourceHead: '0123456789abcdef0123456789abcdef01234567',
+      state: 'running', targetIdentityRevision: '1:environment:test', type: 'result',
+      workspaceId: '123e4567-e89b-42d3-a456-426614174001'
     }
   };
 }

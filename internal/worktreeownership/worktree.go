@@ -1,6 +1,7 @@
 package worktreeownership
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -10,10 +11,11 @@ import (
 )
 
 const (
-	ownerConfigKey   = "project.codexThreadId"
-	managedConfigKey = "project.worktreeManaged"
-	issueConfigKey   = "project.issueNumber"
-	taskConfigKey    = "project.taskName"
+	ownerConfigKey     = "project.codexThreadId"
+	managedConfigKey   = "project.worktreeManaged"
+	issueConfigKey     = "project.issueNumber"
+	taskConfigKey      = "project.taskName"
+	workspaceConfigKey = "project.workspaceId"
 )
 
 var (
@@ -35,15 +37,16 @@ type CheckOptions struct {
 }
 
 type Result struct {
-	BaseRef   string `json:"baseRef"`
-	Branch    string `json:"branch"`
-	Issue     int    `json:"issue,omitempty"`
-	Owner     string `json:"ownerThreadId"`
-	Path      string `json:"path"`
-	Project   string `json:"project"`
-	Status    string `json:"status"`
-	Task      string `json:"task,omitempty"`
-	Worktrees string `json:"worktreesRoot"`
+	BaseRef     string `json:"baseRef"`
+	Branch      string `json:"branch"`
+	Issue       int    `json:"issue,omitempty"`
+	Owner       string `json:"ownerThreadId"`
+	Path        string `json:"path"`
+	Project     string `json:"project"`
+	Status      string `json:"status"`
+	Task        string `json:"task,omitempty"`
+	Worktrees   string `json:"worktreesRoot"`
+	WorkspaceID string `json:"workspaceId"`
 }
 
 // InspectManaged verifies the Project-managed linked-worktree boundary without
@@ -72,10 +75,15 @@ func InspectManaged(startPath string) (Result, error) {
 	if err := validateThreadID(owner); err != nil {
 		return Result{}, fmt.Errorf("worktree has an invalid Codex owner: %w", err)
 	}
+	workspaceID, _, err := worktreeConfigValue(currentPath, workspaceConfigKey)
+	if err != nil || !threadIDPattern.MatchString(strings.TrimSpace(workspaceID)) {
+		return Result{}, errors.New("worktree has no valid immutable Workspace ID; run project worktree prepare here")
+	}
 	return Result{
 		BaseRef: repo.baseRef, Branch: branch, Issue: readIssueNumber(currentPath),
 		Owner: strings.TrimSpace(owner), Path: currentPath, Project: repo.project,
 		Status: "ready", Task: readTaskName(currentPath), Worktrees: repo.worktreesRoot,
+		WorkspaceID: strings.TrimSpace(workspaceID),
 	}, nil
 }
 
@@ -106,6 +114,10 @@ func Prepare(options PrepareOptions) (Result, error) {
 			return ownedErr
 		}
 		if ok {
+			workspaceID, workspaceErr := ensureWorkspaceID(existing.path)
+			if workspaceErr != nil {
+				return workspaceErr
+			}
 			managed, _, configErr := worktreeConfigValue(existing.path, managedConfigKey)
 			if configErr != nil {
 				return configErr
@@ -124,6 +136,7 @@ func Prepare(options PrepareOptions) (Result, error) {
 				}
 			}
 			result = resultFor(repo, existing, options, "ready")
+			result.WorkspaceID = workspaceID
 			return nil
 		}
 
@@ -162,6 +175,7 @@ func Prepare(options PrepareOptions) (Result, error) {
 			return cleanupCreatedWorktree(repo, targetPath, branch, options.ThreadID, configureErr)
 		}
 		result = resultFor(createdRepo, worktree{branch: branch, path: createdPath}, options, "created")
+		result.WorkspaceID, _, _ = worktreeConfigValue(createdPath, workspaceConfigKey)
 		return nil
 	})
 	if err != nil {
@@ -217,15 +231,16 @@ func Check(options CheckOptions) (Result, error) {
 			return errors.New("worktree ownership could not be confirmed; run project worktree prepare before continuing")
 		}
 		result = Result{
-			BaseRef:   repo.baseRef,
-			Branch:    branch,
-			Issue:     readIssueNumber(lockedPath),
-			Owner:     owner,
-			Path:      lockedPath,
-			Project:   repo.project,
-			Status:    "ready",
-			Task:      readTaskName(lockedPath),
-			Worktrees: repo.worktreesRoot,
+			BaseRef:     repo.baseRef,
+			Branch:      branch,
+			Issue:       readIssueNumber(lockedPath),
+			Owner:       owner,
+			Path:        lockedPath,
+			Project:     repo.project,
+			Status:      "ready",
+			Task:        readTaskName(lockedPath),
+			Worktrees:   repo.worktreesRoot,
+			WorkspaceID: readWorkspaceID(lockedPath),
 		}
 		return nil
 	})
@@ -267,8 +282,13 @@ func Slug(value string) string {
 }
 
 func configureOwnership(path string, threadID string, task string, issue int) error {
+	workspaceID, err := newWorkspaceID()
+	if err != nil {
+		return err
+	}
 	values := [][2]string{
 		{taskConfigKey, task},
+		{workspaceConfigKey, workspaceID},
 	}
 	if issue > 0 {
 		values = append(values, [2]string{issueConfigKey, strconv.Itoa(issue)})
@@ -281,6 +301,44 @@ func configureOwnership(path string, threadID string, task string, issue int) er
 		}
 	}
 	return nil
+}
+
+func ensureWorkspaceID(path string) (string, error) {
+	value, _, err := worktreeConfigValue(path, workspaceConfigKey)
+	if err != nil {
+		return "", err
+	}
+	value = strings.TrimSpace(value)
+	if value != "" {
+		if !threadIDPattern.MatchString(value) {
+			return "", errors.New("worktree has an invalid immutable Workspace ID")
+		}
+		return value, nil
+	}
+	value, err = newWorkspaceID()
+	if err != nil {
+		return "", err
+	}
+	if _, err := git(path, "config", "--worktree", workspaceConfigKey, value); err != nil {
+		return "", fmt.Errorf("record immutable Workspace ID: %w", err)
+	}
+	return value, nil
+}
+
+func readWorkspaceID(path string) string {
+	value, _, _ := worktreeConfigValue(path, workspaceConfigKey)
+	return strings.TrimSpace(value)
+}
+
+func newWorkspaceID() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("generate immutable Workspace ID: %w", err)
+	}
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
 }
 
 func cleanupCreatedWorktree(repo repository, targetPath string, branch string, threadID string, cause error) error {

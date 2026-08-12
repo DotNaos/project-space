@@ -58,6 +58,30 @@ describe('SSH control gateway durable store', () => {
     }
   });
 
+  test('rejects semantically invalid Workspace runtime results at the store boundary', async () => {
+    const fresh = new GatewayStoreClient();
+    fresh.row = operationRow({
+      operation: 'workspace-runtime.start.v1',
+      state: 'dispatching'
+    });
+    const base = workspaceResult();
+    for (const unsafe of [
+      { ...base, workspaceId: 'ws_display-name' },
+      { ...base, manifestDigest: 'a'.repeat(63) },
+      { ...base, sourceHead: 'main' },
+      { ...base, mode: 'host' },
+      { ...base, state: 'ready' },
+      { ...base, generation: 'latest' },
+      { ...base, disposition: 'adopted' }
+    ]) {
+      await expect(new PostgresSshGatewayOperationStore(fresh).complete({
+        audit: { ...audit(), operation: 'workspace-runtime.start.v1' },
+        fingerprint, operationId: 'op-1', ownerUserId: owner,
+        result: unsafe as never, state: 'succeeded'
+      })).rejects.toMatchObject({ code: 'operation_conflict' });
+    }
+  });
+
   test('refuses a client that cannot keep operation and audit writes atomic', () => {
     expect(() => new PostgresSshGatewayOperationStore({
       query: async () => ({ rows: [] })
@@ -234,6 +258,18 @@ function statusResult() {
     checkedAt: '2026-08-12T00:00:00.000Z', operation: 'status.v1' as const,
     operationId: 'op-1', schemaVersion: 1 as const, state: 'ready' as const,
     targetIdentityRevision: '1:environment:test', type: 'result' as const
+  };
+}
+
+function workspaceResult() {
+  return {
+    checkedAt: '2026-08-12T00:00:00.000Z', disposition: 'created' as const,
+    generation: '33333333-3333-4333-8333-333333333333',
+    manifestDigest: 'c'.repeat(64), mode: 'process' as const,
+    operation: 'workspace-runtime.start.v1' as const, operationId: 'op-1',
+    schemaVersion: 1 as const, sourceHead: 'd'.repeat(40), state: 'running' as const,
+    targetIdentityRevision: '1:environment:test', type: 'result' as const,
+    workspaceId: '44444444-4444-4444-8444-444444444444'
   };
 }
 

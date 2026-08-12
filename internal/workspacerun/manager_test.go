@@ -108,7 +108,7 @@ func TestExpectedWorkspaceIDFailsBeforeRuntimeMutation(t *testing.T) {
 	provider := newFakeProvider(ModeProcess)
 	manager := newTestManager(t, directory, provider)
 	_, err := manager.Start(context.Background(), directory, OperationOptions{
-		ExpectedWorkspaceID: "ws_ffffffffffffffffffffffff",
+		ExpectedWorkspaceID: "123e4567-e89b-42d3-a456-426614174099",
 	}, Streams{})
 	if err == nil || !strings.Contains(err.Error(), "Workspace identity mismatch") {
 		t.Fatalf("mismatched Workspace identity error = %v", err)
@@ -131,7 +131,7 @@ func (allowCheckout) Verify(context.Context, WorkspaceIdentity, OperationOptions
 type fakeVerifier struct{}
 
 func (fakeVerifier) Verify(context.Context, Manifest) (VerifiedTools, error) {
-	return VerifiedTools{ProjectBinary: "/fixture/project"}, nil
+	return VerifiedTools{ProjectBinary: "/fixture/project", CodexBinary: "/fixture/codex"}, nil
 }
 
 type fakeProjectLifecycle struct{}
@@ -144,6 +144,9 @@ func (fakeProjectLifecycle) RunWithOptions(context.Context, string, string, proj
 }
 func (fakeProjectLifecycle) StartWithOptions(context.Context, string, string, projectrun.StartOptions) (projectrun.ServeResult, error) {
 	return projectrun.ServeResult{}, fmt.Errorf("unexpected dev-server start")
+}
+func (fakeProjectLifecycle) ObserveSessions(context.Context) (projectrun.ServeCollectionResult, error) {
+	return projectrun.ServeCollectionResult{Sessions: []projectrun.ServeResult{}}, nil
 }
 func (fakeProjectLifecycle) Status(context.Context, string, string) (projectrun.ServeResult, error) {
 	return projectrun.ServeResult{}, fmt.Errorf("unexpected dev-server status")
@@ -171,7 +174,7 @@ func (provider *fakeProvider) Start(_ context.Context, request LaunchRequest) (R
 	defer provider.mu.Unlock()
 	provider.startCount++
 	if provider.mode == ModeProcess {
-		provider.handle = RuntimeHandle{Kind: ResourceProcess, Process: &ProcessHandle{PID: 12345, Identity: repeated("c"), BindingDigest: bindingDigest(request.Binding)}}
+		provider.handle = RuntimeHandle{Kind: ResourceProcess, Process: &ProcessHandle{PID: 12345, Identity: repeated("c"), BindingDigest: bindingDigest(request.Binding), AppServerSocket: appServerSocketPath(request.Binding)}}
 	} else {
 		provider.handle = RuntimeHandle{Kind: ResourceContainer, Container: &ContainerHandle{
 			Provider: "fixture", ContainerID: "container-1", ImageDigest: repeated("d"), Binding: request.Binding,

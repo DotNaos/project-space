@@ -13,13 +13,14 @@ import (
 )
 
 type processRunner interface {
-	StartDetached(projectrun.Command, string, projectrun.ProcessCommit) (projectrun.ProcessRef, error)
+	StartDetachedWithOutput(projectrun.Command, *os.File, projectrun.ProcessCommit) (projectrun.ProcessRef, error)
 	Alive(projectrun.ProcessRef) bool
 	PIDExists(int) bool
 	Suspended(projectrun.ProcessRef) (bool, error)
 	SuspendGroup(projectrun.ProcessRef) error
 	ResumeGroup(projectrun.ProcessRef) error
 	StopGroup(projectrun.ProcessRef, time.Duration) error
+	OwnsUnixSocket(projectrun.ProcessRef, string) (bool, error)
 }
 
 type ProcessProvider struct {
@@ -37,6 +38,12 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 	}
 	if request.ProjectBinary == "" {
 		return RuntimeHandle{}, fmt.Errorf("verified Project CLI path is required")
+	}
+	if request.CodexBinary == "" {
+		return RuntimeHandle{}, fmt.Errorf("verified Codex CLI path is required")
+	}
+	if request.LogFile == nil {
+		return RuntimeHandle{}, fmt.Errorf("anchored Workspace runtime log is required")
 	}
 	for _, directory := range []string{
 		request.GenerationHome,
@@ -57,24 +64,51 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 	if runner == nil {
 		runner = projectrun.OSProcessRunner{SupervisorExecutable: request.ProjectBinary}
 	}
+	appServerSocket := appServerSocketPath(request.Binding)
+	if _, err := os.Lstat(appServerSocket); err == nil {
+		return RuntimeHandle{}, fmt.Errorf("private Codex app-server socket path is already occupied")
+	} else if !os.IsNotExist(err) {
+		return RuntimeHandle{}, fmt.Errorf("inspect private Codex app-server socket: %w", err)
+	}
 	command := projectrun.Command{
-		Argv:       []string{request.ProjectBinary, "__workspace-runtime-idle"},
+		Argv:       []string{request.CodexBinary, "app-server", "--listen", "unix://" + appServerSocket, "--strict-config"},
 		Dir:        request.Directory,
 		Env:        generationEnvironment(request.GenerationHome, request.Binding),
 		InheritEnv: false,
 	}
-	process, err := runner.StartDetached(command, request.LogPath, func(process projectrun.ProcessRef) error {
-		handle := RuntimeHandle{Kind: ResourceProcess, Process: processHandle(process, request.Binding)}
+	process, err := runner.StartDetachedWithOutput(command, request.LogFile, func(process projectrun.ProcessRef) error {
+		handle := RuntimeHandle{Kind: ResourceProcess, Process: processHandle(process, request.Binding, appServerSocket)}
 		return request.Commit(handle)
 	})
 	if err != nil {
 		return RuntimeHandle{}, err
 	}
-	return RuntimeHandle{Kind: ResourceProcess, Process: processHandle(process, request.Binding)}, nil
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		owned, inspectErr := runner.OwnsUnixSocket(process, appServerSocket)
+		if inspectErr != nil {
+			_ = runner.StopGroup(process, time.Second)
+			return RuntimeHandle{}, inspectErr
+		}
+		if owned {
+			break
+		}
+		if !runner.Alive(process) || time.Now().After(deadline) {
+			_ = runner.StopGroup(process, time.Second)
+			return RuntimeHandle{}, fmt.Errorf("pinned Codex app-server did not acquire its private socket")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return RuntimeHandle{Kind: ResourceProcess, Process: processHandle(process, request.Binding, appServerSocket)}, nil
 }
 
-func processHandle(process projectrun.ProcessRef, binding RuntimeBinding) *ProcessHandle {
-	return &ProcessHandle{PID: process.PID, Identity: process.Identity, BindingDigest: bindingDigest(binding)}
+func appServerSocketPath(binding RuntimeBinding) string {
+	digest := sha256.Sum256([]byte("project-codex-app-server\x00" + bindingDigest(binding)))
+	return filepath.Join(os.TempDir(), "project-codex-"+hex.EncodeToString(digest[:12])+".sock")
+}
+
+func processHandle(process projectrun.ProcessRef, binding RuntimeBinding, appServerSocket string) *ProcessHandle {
+	return &ProcessHandle{PID: process.PID, Identity: process.Identity, BindingDigest: bindingDigest(binding), AppServerSocket: appServerSocket}
 }
 
 func bindingDigest(binding RuntimeBinding) string {
@@ -115,6 +149,13 @@ func (provider ProcessProvider) Inspect(_ context.Context, handle RuntimeHandle,
 	exists := runner.Alive(process)
 	if !exists {
 		return ProviderObservation{Exists: runner.PIDExists(process.PID), Owned: false, Handle: handle}, nil
+	}
+	ownedSocket, err := runner.OwnsUnixSocket(process, handle.Process.AppServerSocket)
+	if err != nil {
+		return ProviderObservation{}, err
+	}
+	if !ownedSocket {
+		return ProviderObservation{Exists: true, Owned: false, Handle: handle}, nil
 	}
 	suspended, err := runner.Suspended(process)
 	if err != nil {
@@ -185,6 +226,11 @@ func (provider ProcessProvider) Clean(_ context.Context, handle RuntimeHandle, b
 	}
 	if runner.PIDExists(process.PID) {
 		return fmt.Errorf("refusing to clean after the recorded PID changed ownership")
+	}
+	if _, err := os.Lstat(handle.Process.AppServerSocket); err == nil {
+		return fmt.Errorf("refusing to clean while the recorded Codex app-server socket still exists")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect recorded Codex app-server socket: %w", err)
 	}
 	return nil
 }

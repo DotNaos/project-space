@@ -27,6 +27,10 @@ import {
   sshControlGatewayMigrationId,
   sshControlGatewayMigrationSql
 } from '../server/database/ssh-control-gateway-migration';
+import {
+  workspaceRuntimeControlMigrationId,
+  workspaceRuntimeControlMigrationSql
+} from '../server/database/workspace-runtime-control-migration';
 
 interface QueryCall {
   sql: string;
@@ -156,7 +160,15 @@ describe('database migrations', () => {
     for (const secretField of [
       'private_address', 'ssh_user', 'host_key', 'credential_reference', 'stdout', 'stderr'
     ]) expect(operationLedgerSql).not.toContain(secretField);
-    expect(databaseMigrations.at(-1)?.id).toBe(sshControlGatewayMigrationId);
+    expect(workspaceRuntimeControlMigrationId).toBe('0042_workspace_runtime_control');
+    expect(workspaceRuntimeControlMigrationSql).toContain(
+      'drop constraint ssh_gateway_operations_operation_check'
+    );
+    expect(workspaceRuntimeControlMigrationSql).toContain(
+      'ssh_gateway_operations_safe_result_v2_check'
+    );
+    expect(workspaceRuntimeControlMigrationSql).toContain('workspace-runtime.start.v1');
+    expect(databaseMigrations.at(-1)?.id).toBe(workspaceRuntimeControlMigrationId);
   });
 
   test('preserves the original machine-task migration and backfills durability conservatively', () => {
@@ -213,7 +225,8 @@ describe('database migrations', () => {
       '0038_dev_server_managed_states',
       '0039_environment_catalog',
       '0040_private_network_access_routes',
-      '0041_ssh_control_gateway_operations'
+      '0041_ssh_control_gateway_operations',
+      '0042_workspace_runtime_control'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

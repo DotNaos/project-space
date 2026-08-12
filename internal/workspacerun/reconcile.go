@@ -2,6 +2,7 @@ package workspacerun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -29,6 +30,16 @@ func (manager *Manager) Reconcile(ctx context.Context, directory string, options
 		provider, err := manager.provider(record.Mode)
 		if err != nil {
 			return err
+		}
+		if record.State != StateCleaning && record.State != StateStopped && record.State != StateFailed {
+			if err := manager.reconcileDevServerLedger(ctx, &record); err != nil {
+				record.State = StateStale
+				record.LastError = err.Error()
+				record.CheckedAt = manager.timestamp()
+				_ = manager.store.save(record)
+				result = manager.result("reconcile", "", record, err)
+				return err
+			}
 		}
 		switch record.State {
 		case StateRunning:
@@ -60,12 +71,13 @@ func (manager *Manager) Reconcile(ctx context.Context, directory string, options
 				return cause
 			}
 			if len(record.DevServers) > 0 {
-				cause := fmt.Errorf("runtime process is absent while dev-server resources remain; no resource was changed")
-				record.State = StateStale
-				record.LastError = cause.Error()
-				_ = manager.store.save(record)
-				result = manager.result("reconcile", "", record, cause)
-				return cause
+				if err := manager.cleanupOwned(ctx, provider, &record); err != nil {
+					record.State = StateStale
+					record.LastError = err.Error()
+					_ = manager.store.save(record)
+					result = manager.result("reconcile", "", record, err)
+					return err
+				}
 			}
 			record.State = StateFailed
 			record.Handle = RuntimeHandle{}
@@ -79,6 +91,37 @@ func (manager *Manager) Reconcile(ctx context.Context, directory string, options
 				return err
 			}
 		case StateStarting, StateSuspending, StateResuming:
+			if record.Handle.Kind == "" && len(record.DevServers) == 0 {
+				record.State = StateFailed
+				record.LastError = "interrupted runtime transition ended before resource launch"
+				break
+			}
+			observation, inspectErr := provider.Inspect(ctx, record.Handle, record.binding())
+			if inspectErr != nil || (observation.Exists && !observation.Owned) {
+				if inspectErr == nil {
+					inspectErr = fmt.Errorf("runtime ownership changed")
+				}
+				record.State = StateStale
+				record.LastError = inspectErr.Error()
+				_ = manager.store.save(record)
+				result = manager.result("reconcile", "", record, inspectErr)
+				return inspectErr
+			}
+			if !observation.Exists {
+				if len(record.DevServers) > 0 {
+					if err := manager.cleanupOwned(ctx, provider, &record); err != nil {
+						record.State = StateStale
+						record.LastError = err.Error()
+						_ = manager.store.save(record)
+						result = manager.result("reconcile", "", record, err)
+						return err
+					}
+				}
+				record.State = StateFailed
+				record.Handle = RuntimeHandle{}
+				record.LastError = "interrupted runtime transition ended after its process exited"
+				break
+			}
 			if err := manager.preflightOwned(ctx, provider, record); err != nil {
 				record.State = StateStale
 				record.LastError = err.Error()
@@ -98,6 +141,21 @@ func (manager *Manager) Reconcile(ctx context.Context, directory string, options
 			record.DevServers = []ManagedDevServer{}
 			record.LastError = "interrupted runtime transition was rolled back"
 		case StateStopping:
+			observation, inspectErr := provider.Inspect(ctx, record.Handle, record.binding())
+			if inspectErr != nil || (observation.Exists && !observation.Owned) {
+				return errors.Join(inspectErr, fmt.Errorf("stopping runtime ownership is ambiguous"))
+			}
+			if !observation.Exists {
+				if len(record.DevServers) > 0 {
+					if err := manager.cleanupOwned(ctx, provider, &record); err != nil {
+						return err
+					}
+				}
+				record.State = StateStopped
+				record.Handle = RuntimeHandle{}
+				record.LastError = ""
+				break
+			}
 			if err := manager.preflightOwned(ctx, provider, record); err != nil {
 				return err
 			}
@@ -124,13 +182,35 @@ func (manager *Manager) Reconcile(ctx context.Context, directory string, options
 				}
 				record.Handle = RuntimeHandle{}
 			}
-			if err := manager.store.removeGeneration(record.WorkspaceID, record.Generation); err != nil {
+			archive, err := manager.store.removeGeneration(record.WorkspaceID, record.Generation, record.GenerationProof)
+			if err != nil {
+				return err
+			}
+			record.GenerationRemoved = true
+			record.GenerationArchive = archive
+			record.Handle = RuntimeHandle{}
+			record.State = StateStopped
+			record.CheckedAt = manager.timestamp()
+			record.LastError = ""
+			if err := manager.store.save(record); err != nil {
 				return err
 			}
 			result = manager.result("reconcile", DispositionCleaned, record, nil)
-			return manager.store.remove(record.WorkspaceID)
-		case StateStopped, StateFailed, StateStale:
-			// Terminal or explicitly ambiguous state: report it without guessing.
+			return nil
+		case StateStale:
+			if err := manager.cleanupOwned(ctx, provider, &record); err != nil {
+				record.LastError = err.Error()
+				_ = manager.store.save(record)
+				result = manager.result("reconcile", "", record, err)
+				return err
+			}
+			record.State = StateFailed
+			record.Handle = RuntimeHandle{}
+			record.DevServers = []ManagedDevServer{}
+			record.DevServerOperation = nil
+			record.LastError = "ambiguous runtime was reconciled to authoritative absence"
+		case StateStopped, StateFailed:
+			// Terminal state: report it without redispatch.
 		}
 		record.CheckedAt = manager.timestamp()
 		if err := manager.store.save(record); err != nil {

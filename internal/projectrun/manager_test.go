@@ -416,6 +416,28 @@ func TestListRevalidatesRuntimeAndLeavesForeignOwnershipUntouched(t *testing.T) 
 	}
 }
 
+func TestObserveSessionsNeverRunsHealthChecksOrCleanup(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	started, err := manager.Start(context.Background(), project, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux := manager.tmux.(*fakeTmux)
+	observation := tmux.sessions[started.TmuxSession]
+	observation.Spec.OwnershipToken = "foreign-generation"
+	tmux.sessions[started.TmuxSession] = observation
+
+	result, err := manager.ObserveSessions(context.Background())
+	if err != nil || len(result.Sessions) != 1 || result.Sessions[0].State != StateRunning {
+		t.Fatalf("read-only observation = %#v, %v", result, err)
+	}
+	if len(processes.stopped) != 0 || len(tailnet.stopped) != 0 ||
+		tailnet.routes[*started.PublicPort] != *started.LocalPort {
+		t.Fatalf("read-only observation mutated runtime: %#v %#v", processes.stopped, tailnet.stopped)
+	}
+}
+
 func TestDifferentWorktreesReceiveDistinctSessionsAndPorts(t *testing.T) {
 	firstProject := writeTestScripts(t)
 	secondProject := writeTestScripts(t)

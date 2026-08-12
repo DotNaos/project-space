@@ -54,6 +54,13 @@ func TestPrepareCreatesStandardOwnedWorktreeAndCheckAcceptsOwner(t *testing.T) {
 	if checked.Status != "ready" || checked.Owner != firstThread || checked.Issue != 123 {
 		t.Fatalf("unexpected check result: %#v", checked)
 	}
+	inspected, err := InspectManaged(result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkspaceID == "" || checked.WorkspaceID != result.WorkspaceID || inspected.WorkspaceID != result.WorkspaceID {
+		t.Fatalf("immutable Workspace ID changed: prepare=%#v check=%#v inspect=%#v", result, checked, inspected)
+	}
 }
 
 func TestPrepareReusesOneWorktreeForSameThread(t *testing.T) {
@@ -77,6 +84,9 @@ func TestPrepareReusesOneWorktreeForSameThread(t *testing.T) {
 	}
 	if reused.Status != "ready" || reused.Path != created.Path || reused.Branch != created.Branch {
 		t.Fatalf("same thread did not reuse its worktree: created=%#v reused=%#v", created, reused)
+	}
+	if reused.WorkspaceID == "" || reused.WorkspaceID != created.WorkspaceID {
+		t.Fatalf("reused worktree changed Workspace ID: created=%#v reused=%#v", created, reused)
 	}
 }
 

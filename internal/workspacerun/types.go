@@ -3,6 +3,7 @@ package workspacerun
 import (
 	"context"
 	"io"
+	"os"
 	"time"
 
 	"github.com/DotNaos/project-space/internal/projectrun"
@@ -137,9 +138,10 @@ type RuntimeBinding struct {
 }
 
 type ProcessHandle struct {
-	PID           int    `json:"pid"`
-	Identity      string `json:"processIdentity"`
-	BindingDigest string `json:"bindingDigest"`
+	PID             int    `json:"pid"`
+	Identity        string `json:"processIdentity"`
+	BindingDigest   string `json:"bindingDigest"`
+	AppServerSocket string `json:"appServerSocket"`
 }
 
 type ContainerHandle struct {
@@ -168,9 +170,10 @@ type LaunchRequest struct {
 	Binding        RuntimeBinding
 	Directory      string
 	Manifest       Manifest
-	LogPath        string
+	LogFile        *os.File
 	GenerationHome string
 	ProjectBinary  string
+	CodexBinary    string
 	Commit         func(RuntimeHandle) error
 }
 
@@ -188,12 +191,14 @@ type ProjectLifecycle interface {
 	PrepareExpected(context.Context, string, string, projectrun.SetupExpectations, projectrun.Streams) (projectrun.SetupCollectionResult, error)
 	RunWithOptions(context.Context, string, string, projectrun.Streams, projectrun.RunOptions) (projectrun.RunResult, error)
 	StartWithOptions(context.Context, string, string, projectrun.StartOptions) (projectrun.ServeResult, error)
+	ObserveSessions(context.Context) (projectrun.ServeCollectionResult, error)
 	Status(context.Context, string, string) (projectrun.ServeResult, error)
 	StopExpected(context.Context, string, string, string, string) (projectrun.ServeResult, error)
 }
 
 type VerifiedTools struct {
 	ProjectBinary string
+	CodexBinary   string
 }
 
 type ToolVerifier interface {
@@ -229,6 +234,18 @@ type ManagedDevServer struct {
 	State       string  `json:"state"`
 	LocalPort   *int    `json:"localPort"`
 	LocalURL    *string `json:"localUrl"`
+}
+
+type devServerAction string
+
+const (
+	devServerStarting devServerAction = "starting"
+	devServerStopping devServerAction = "stopping"
+)
+
+type devServerOperation struct {
+	Name   string          `json:"name"`
+	Action devServerAction `json:"action"`
 }
 
 type Result struct {

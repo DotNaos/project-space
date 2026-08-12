@@ -4,7 +4,15 @@ import type {
   PrivateNetworkInventory
 } from '../private-network/contracts';
 
-export type SshControlOperation = 'status.v1';
+export type WorkspaceRuntimeControlOperation =
+  | 'workspace-runtime.start.v1'
+  | 'workspace-runtime.inspect.v1'
+  | 'workspace-runtime.suspend.v1'
+  | 'workspace-runtime.resume.v1'
+  | 'workspace-runtime.stop.v1'
+  | 'workspace-runtime.clean.v1'
+  | 'workspace-runtime.reconcile.v1';
+export type SshControlOperation = 'status.v1' | WorkspaceRuntimeControlOperation;
 export type SshGatewayOperationState =
   | 'reserved'
   | 'dispatching'
@@ -23,7 +31,31 @@ export interface SshGatewayRequest {
   environmentId: string;
   operation: SshControlOperation;
   operationId: string;
+  expectedCommit?: string;
+  expectedGeneration?: string;
+  expectedManifestDigest?: string;
+  mode?: 'process' | 'devcontainer';
+  workspaceId?: string;
 }
+
+export interface SshGatewayWorkspaceRuntimeResult {
+  checkedAt: string;
+  disposition?: 'created' | 'reused' | 'cleaned';
+  generation?: string;
+  manifestDigest: string;
+  mode: 'process' | 'devcontainer';
+  operation: WorkspaceRuntimeControlOperation;
+  operationId: string;
+  schemaVersion: 1;
+  sourceHead: string;
+  state: 'starting' | 'running' | 'suspending' | 'suspended' | 'resuming' |
+    'stopping' | 'stopped' | 'cleaning' | 'stale' | 'failed';
+  targetIdentityRevision: string;
+  type: 'result';
+  workspaceId: string;
+}
+
+export type SshGatewaySafeResult = SshGatewayStatusResult | SshGatewayWorkspaceRuntimeResult;
 
 export interface SshGatewayStatusResult {
   checkedAt: string;
@@ -38,7 +70,7 @@ export interface SshGatewayStatusResult {
 export interface SshGatewayExecutionResult {
   audit: SshGatewayAuditEvidence;
   replayed: boolean;
-  result: SshGatewayStatusResult;
+  result: SshGatewaySafeResult;
 }
 
 export interface SshGatewayAuditEvidence {
@@ -59,7 +91,7 @@ export interface SshGatewayAuditEvidence {
 export interface SshGatewayOperationRecord {
   audit: SshGatewayAuditEvidence;
   fingerprint: string;
-  result?: SshGatewayStatusResult;
+  result?: SshGatewaySafeResult;
   state: SshGatewayOperationState;
 }
 
@@ -69,7 +101,7 @@ export interface SshGatewayOperationStore {
     fingerprint: string;
     operationId: string;
     ownerUserId: string;
-    result?: SshGatewayStatusResult;
+    result?: SshGatewaySafeResult;
     state: 'succeeded' | 'failed' | 'incompatible' | 'uncertain';
   }): Promise<SshGatewayOperationRecord>;
   reserve(input: {
@@ -89,7 +121,7 @@ export interface SshGatewayOperationStore {
     fingerprint: string;
     operationId: string;
     ownerUserId: string;
-    result?: SshGatewayStatusResult;
+    result?: SshGatewaySafeResult;
     state: 'succeeded' | 'failed';
   }): Promise<SshGatewayOperationRecord>;
 }

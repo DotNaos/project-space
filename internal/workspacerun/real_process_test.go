@@ -22,6 +22,10 @@ func TestRealProcessRuntimeLifecyclePreservesNeighborAndCheckout(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build Project CLI fixture: %v\n%s", err, output)
 	}
+	codex, err := exec.LookPath("codex")
+	if err != nil {
+		t.Skip("Codex CLI is not installed")
+	}
 	neighbor := exec.Command("sleep", "30")
 	if err := neighbor.Start(); err != nil {
 		t.Fatal(err)
@@ -32,41 +36,63 @@ func TestRealProcessRuntimeLifecyclePreservesNeighborAndCheckout(t *testing.T) {
 	})
 
 	identity := lifecycleWorkspaceIdentity(workspace)
-	tokens := []string{
-		"11111111-1111-4111-8111-111111111111",
-		"22222222-2222-4222-8222-222222222222",
+	stateRoot := t.TempDir()
+	openManager := func() (*Manager, error) {
+		return NewManager(Dependencies{
+			StateRoot: stateRoot, Identity: lifecycleIdentityResolver{identity: identity},
+			Checkout: lifecycleAllowCheckout{}, Project: &lifecycleProject{},
+			Providers: []RuntimeProvider{ProcessProvider{}},
+			Verifier:  fixedProjectVerifier{project: helper, codex: codex}, Now: time.Now,
+			Token: randomToken,
+		})
 	}
-	manager, err := NewManager(Dependencies{
-		StateRoot: t.TempDir(), Identity: lifecycleIdentityResolver{identity: identity},
-		Checkout: lifecycleAllowCheckout{}, Project: &lifecycleProject{},
-		Providers: []RuntimeProvider{ProcessProvider{}},
-		Verifier:  fixedProjectVerifier{path: helper}, Now: time.Now,
-		Token: func() (string, error) {
-			value := tokens[0]
-			tokens = tokens[1:]
-			return value, nil
-		},
-	})
+	manager, err := openManager()
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	started, err := manager.Start(ctx, workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	t.Cleanup(func() {
+		if started.Generation == "" {
+			return
+		}
+		cleanupManager, openErr := openManager()
+		if openErr != nil {
+			return
+		}
+		_, _ = cleanupManager.Stop(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation}, Streams{})
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if started.State != StateRunning || started.PID == nil {
 		t.Fatalf("start = %#v", started)
 	}
+	manager, err = openManager()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := manager.Inspect(ctx, workspace, OperationOptions{ExpectedGeneration: started.Generation}); err != nil {
+		t.Fatal(err)
+	}
+	manager, err = openManager()
+	if err != nil {
 		t.Fatal(err)
 	}
 	if result, err := manager.Suspend(ctx, workspace, OperationOptions{ExpectedGeneration: started.Generation}); err != nil || result.State != StateSuspended {
 		t.Fatalf("suspend = %#v, %v", result, err)
 	}
+	manager, err = openManager()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result, err := manager.Resume(ctx, workspace, OperationOptions{ExpectedGeneration: started.Generation}); err != nil || result.State != StateRunning {
 		t.Fatalf("resume = %#v, %v", result, err)
+	}
+	manager, err = openManager()
+	if err != nil {
+		t.Fatal(err)
 	}
 	if result, err := manager.Stop(ctx, workspace, OperationOptions{ExpectedGeneration: started.Generation}, Streams{}); err != nil || result.State != StateStopped {
 		t.Fatalf("stop = %#v, %v", result, err)
@@ -74,16 +100,27 @@ func TestRealProcessRuntimeLifecyclePreservesNeighborAndCheckout(t *testing.T) {
 	if err := syscall.Kill(neighbor.Process.Pid, 0); err != nil {
 		t.Fatalf("neighboring process was changed: %v", err)
 	}
+	manager, err = openManager()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := manager.Clean(ctx, workspace, OperationOptions{ExpectedGeneration: started.Generation}); err != nil {
 		t.Fatal(err)
+	}
+	manager, err = openManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed, err := manager.Clean(ctx, workspace, OperationOptions{ExpectedGeneration: started.Generation}); err != nil || replayed.Disposition != DispositionCleaned {
+		t.Fatalf("replayed clean = %#v, %v", replayed, err)
 	}
 	if _, err := os.Stat(filepath.Join(workspace, manifestPath)); err != nil {
 		t.Fatalf("clean removed checkout content: %v", err)
 	}
 }
 
-type fixedProjectVerifier struct{ path string }
+type fixedProjectVerifier struct{ project, codex string }
 
 func (verifier fixedProjectVerifier) Verify(context.Context, Manifest) (VerifiedTools, error) {
-	return VerifiedTools{ProjectBinary: verifier.path}, nil
+	return VerifiedTools{ProjectBinary: verifier.project, CodexBinary: verifier.codex}, nil
 }

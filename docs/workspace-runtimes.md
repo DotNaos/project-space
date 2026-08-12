@@ -57,7 +57,7 @@ project workspace runtime clean --expected-generation <generation> --json
 project workspace runtime reconcile --expected-generation <generation> --json
 ```
 
-`start` reuses an already healthy generation only when the Workspace identity, commit, manifest digest, and runtime mode still match. Every mutating follow-up requires the exact generation. A changed or incomplete process, tmux, port, or container observation fails closed.
+`project worktree prepare` assigns the linked worktree one immutable UUID Workspace ID. That identity survives path moves and is shared with the control plane; recreating the runtime changes only its generation. `start` reuses an already healthy generation only when the Workspace identity, commit, manifest digest, and runtime mode still match. Every mutating follow-up requires the exact generation. A changed or incomplete process, tmux, port, or container observation fails closed.
 
 ```mermaid
 flowchart LR
@@ -72,6 +72,16 @@ flowchart LR
   I --> J["Clean generation state only"]
 ```
 
-The process driver creates a private HOME and `CODEX_HOME` inside the generation state directory and does not inherit ambient credentials. The container boundary uses an immutable container ID plus exact Workspace, generation, manifest, image, and ownership labels. A container driver is deliberately pluggable; there is no fallback from a requested container runtime to process mode.
+The process driver launches the exact checksum-verified Codex App Server on a private Unix socket whose live owner must remain in the recorded process group. It creates a private HOME and `CODEX_HOME` inside the generation state directory and does not inherit ambient credentials. The container boundary uses an immutable container ID plus exact Workspace, generation, manifest, image, and ownership labels. A container driver is deliberately pluggable; there is no fallback from a requested container runtime to process mode.
 
-The root-owned SSH control-gateway identity can register bounded mappings from a Workspace ID to its Project-managed Worktree. Remote operations accept only that ID plus the expected commit, manifest digest, mode, generation, and operation ID; they invoke this same manager and never accept caller-selected shell commands or host paths. The manager rechecks the resolved Workspace ID before any mutation. Public results omit ownership tokens, credentials, logs, and raw provider data.
+The root-owned SSH control-gateway identity can register bounded mappings from a Workspace ID to its Project-managed Worktree. The machine-authenticated HTTP boundary and the pinned private-network SSH transport accept only that ID plus the expected commit, manifest digest, mode, generation, and operation ID. The same authorization and durable replay fence used by `status.v1` protect the runtime operations. The remote gateway invokes the same manager and never accepts caller-selected shell commands or host paths. Public results omit ownership tokens, credentials, logs, and raw provider data.
+
+## Validation obligations
+
+- If an exact healthy generation is started twice, the second start returns the same generation without launching another runtime.
+- If a process, container, socket, dev-server session, state directory, or generation proof is missing, replaced, foreign, or ambiguous, no foreign resource is mutated.
+- If a crash happens around a dev-server start or stop, the persisted intent plus the complete Project Serve inventory either reconstructs the exact owned resource or proves it absent; otherwise reconciliation remains blocked.
+- If `stop` and `clean` succeed, the generation leaves the active namespace and a bounded, secret-free terminal ownership tombstone records its proof-bound retained archive; no name-based recursive deletion can reach a replacement object. The managed Worktree, its Git metadata, and unrelated processes remain unchanged.
+- If an SSH request is retried with the same operation ID and bindings, the durable result is replayed without a second dispatch. A changed binding is rejected.
+
+The deterministic proof is split across `go test ./internal/workspacerun ./internal/projectrun`, the race variants of those packages, the SSH control-gateway contract tests, and the database migration tests. `TestRealProcessRuntimeLifecyclePreservesNeighborAndCheckout` is the representative local process-mode run: it builds the current Project CLI, launches the installed pinned Codex App Server, walks start, inspect, suspend, resume, stop, and clean, and checks the neighboring process and checkout afterward. It needs no 1Password credential. A real container engine is optional infrastructure; the provider-neutral container lifecycle and strict digest-pinned fixture remain deterministic contract tests when Docker or Devcontainer is unavailable.

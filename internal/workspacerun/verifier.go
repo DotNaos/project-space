@@ -25,7 +25,7 @@ func (ExactToolVerifier) Verify(ctx context.Context, manifest Manifest) (Verifie
 		}
 		resolved[pin.ID] = path
 	}
-	return VerifiedTools{ProjectBinary: resolved[ToolProject]}, nil
+	return VerifiedTools{ProjectBinary: resolved[ToolProject], CodexBinary: resolved[ToolCodex]}, nil
 }
 
 func verifyTool(ctx context.Context, pin ToolPin) (string, error) {

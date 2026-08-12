@@ -96,14 +96,14 @@ func (manager *Manager) Start(
 			Shutdown:           append([]string{}, plan.Resolution.Manifest.Shutdown...),
 			DevServers:         []ManagedDevServer{}, CheckedAt: manager.timestamp(),
 		}
-		if exists {
-			if err := manager.store.removeGeneration(existing.WorkspaceID, existing.Generation); err != nil {
-				return err
-			}
+		if exists && !existing.GenerationRemoved {
+			return fmt.Errorf("previous terminal Workspace runtime must be cleaned before recreation")
 		}
-		if err := manager.store.prepareGeneration(record.WorkspaceID, record.Generation); err != nil {
+		generationProof, err := manager.store.prepareGeneration(record.WorkspaceID, record.Generation)
+		if err != nil {
 			return err
 		}
+		record.GenerationProof = generationProof
 		if err := manager.store.save(record); err != nil {
 			return err
 		}
@@ -121,10 +121,15 @@ func (manager *Manager) Start(
 				return manager.failStart(ctx, provider, &record, err, &result)
 			}
 		}
-		handle, err := provider.Start(ctx, LaunchRequest{
+		logFile, err := manager.store.openLog(record)
+		if err != nil {
+			return manager.failStart(ctx, provider, &record, err, &result)
+		}
+		handle, startErr := provider.Start(ctx, LaunchRequest{
 			Workspace: plan.Identity, Binding: record.binding(), Directory: plan.Identity.Directory,
 			Manifest: plan.Resolution.Manifest, ProjectBinary: verified.ProjectBinary,
-			LogPath:        manager.store.logPath(plan.Identity.WorkspaceID),
+			CodexBinary:    verified.CodexBinary,
+			LogFile:        logFile,
 			GenerationHome: manager.store.generationHome(record.WorkspaceID, record.Generation),
 			Commit: func(handle RuntimeHandle) error {
 				record.Handle = handle
@@ -132,27 +137,16 @@ func (manager *Manager) Start(
 				return manager.store.save(record)
 			},
 		})
-		if err != nil {
-			return manager.failStart(ctx, provider, &record, err, &result)
+		_ = logFile.Close()
+		if startErr != nil {
+			return manager.failStart(ctx, provider, &record, startErr, &result)
 		}
 		record.Handle = handle
 		if err := manager.store.save(record); err != nil {
 			return manager.failStart(ctx, provider, &record, err, &result)
 		}
-		for _, name := range record.ExpectedDevServers {
-			server, err := manager.project.StartWithOptions(ctx, plan.Identity.Directory, name, projectrun.StartOptions{
-				LocalOnly: true, APIs: projectrun.APIsModeSimulated, Data: projectrun.DataModeLocal,
-				WorkspaceID: record.WorkspaceID, RuntimeGeneration: record.Generation,
-				Environment: runtimeEnvironment,
-			})
-			if err != nil {
-				return manager.failStart(ctx, provider, &record, err, &result)
-			}
-			record.DevServers = append(record.DevServers, serverFromResult(name, server))
-			record.CheckedAt = manager.timestamp()
-			if err := manager.store.save(record); err != nil {
-				return manager.failStart(ctx, provider, &record, err, &result)
-			}
+		if _, err := manager.startServers(ctx, &record); err != nil {
+			return manager.failStart(ctx, provider, &record, err, &result)
 		}
 		if err := manager.inspectResources(ctx, provider, record); err != nil {
 			return manager.failStart(ctx, provider, &record, err, &result)
@@ -176,6 +170,9 @@ func (manager *Manager) Start(
 }
 
 func (manager *Manager) inspectResources(ctx context.Context, provider RuntimeProvider, record runtimeRecord) error {
+	if record.DevServerOperation != nil {
+		return fmt.Errorf("Workspace runtime has an interrupted dev-server operation; reconcile it first")
+	}
 	observation, err := provider.Inspect(ctx, record.Handle, record.binding())
 	if err != nil {
 		return err
@@ -202,9 +199,13 @@ func (manager *Manager) inspectResources(ctx context.Context, provider RuntimePr
 }
 
 func (manager *Manager) failStart(ctx context.Context, provider RuntimeProvider, record *runtimeRecord, cause error, result *Result) error {
-	cleanupErr := manager.cleanupOwned(ctx, provider, record)
-	combined := errors.Join(cause, cleanupErr)
-	if cleanupErr == nil {
+	ledgerErr := manager.reconcileDevServerLedger(ctx, record)
+	var cleanupErr error
+	if ledgerErr == nil {
+		cleanupErr = manager.cleanupOwned(ctx, provider, record)
+	}
+	combined := errors.Join(cause, ledgerErr, cleanupErr)
+	if ledgerErr == nil && cleanupErr == nil {
 		record.State = StateFailed
 		record.Handle = RuntimeHandle{}
 		record.DevServers = []ManagedDevServer{}
@@ -219,34 +220,26 @@ func (manager *Manager) failStart(ctx context.Context, provider RuntimeProvider,
 }
 
 func (manager *Manager) cleanupOwned(ctx context.Context, provider RuntimeProvider, record *runtimeRecord) error {
-	if err := manager.preflightOwned(ctx, provider, *record); err != nil {
+	if record.DevServerOperation != nil {
+		return fmt.Errorf("Workspace runtime has an unresolved dev-server operation; reconcile it before cleanup")
+	}
+	observation, err := manager.preflightCleanup(ctx, provider, *record)
+	if err != nil {
 		return err
 	}
-	var failures []error
-	for index := len(record.DevServers) - 1; index >= 0; index-- {
-		server := record.DevServers[index]
-		observed, err := manager.project.Status(ctx, record.Directory, server.Name)
-		if err != nil {
-			failures = append(failures, err)
-			continue
+	_, stopErr := manager.stopServers(ctx, record)
+	if stopErr != nil {
+		return stopErr
+	}
+	if record.Handle.Kind != "" && observation.Exists {
+		current, inspectErr := provider.Inspect(ctx, record.Handle, record.binding())
+		if inspectErr != nil || !current.Exists || !current.Owned {
+			return errors.Join(inspectErr, fmt.Errorf("runtime ownership changed immediately before cleanup"))
 		}
-		if err := exactServer(*record, observed, server); err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		if _, err := manager.project.StopExpected(ctx, record.Directory, server.Name, record.WorkspaceID, record.Generation); err != nil {
-			failures = append(failures, err)
+		if err := provider.Stop(ctx, record.Handle, record.binding(), 5*time.Second); err != nil {
+			return err
 		}
 	}
-	if record.Handle.Kind != "" {
-		observation, err := provider.Inspect(ctx, record.Handle, record.binding())
-		if err != nil {
-			failures = append(failures, err)
-		} else if observation.Exists && !observation.Owned {
-			failures = append(failures, fmt.Errorf("refusing to stop changed Workspace runtime process ownership"))
-		} else if observation.Exists {
-			failures = append(failures, provider.Stop(ctx, record.Handle, record.binding(), 5*time.Second))
-		}
-	}
-	return mergeErrors(failures...)
+	record.Handle = RuntimeHandle{}
+	return nil
 }

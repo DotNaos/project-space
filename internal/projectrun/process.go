@@ -9,11 +9,14 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 type OSProcessRunner struct {
@@ -87,13 +90,36 @@ func (runner OSProcessRunner) StartDetached(
 			return ProcessRef{}, fmt.Errorf("resolve Project CLI executable: %w", err)
 		}
 	}
-	return startSupervisedDetached(executable, command, outputPath, commit)
+	return startSupervisedDetached(executable, command, outputPath, nil, commit)
+}
+
+// StartDetachedWithOutput starts a supervised process whose log is already
+// opened beneath an ownership-checked directory. The supervisor inherits a
+// duplicate descriptor and never resolves the log path again.
+func (runner OSProcessRunner) StartDetachedWithOutput(
+	command Command,
+	output *os.File,
+	commit ProcessCommit,
+) (ProcessRef, error) {
+	if output == nil {
+		return ProcessRef{}, fmt.Errorf("managed runtime output file is required")
+	}
+	executable := runner.SupervisorExecutable
+	if executable == "" {
+		var err error
+		executable, err = os.Executable()
+		if err != nil {
+			return ProcessRef{}, fmt.Errorf("resolve Project CLI executable: %w", err)
+		}
+	}
+	return startSupervisedDetached(executable, command, "", output, commit)
 }
 
 func startSupervisedDetached(
 	supervisorExecutable string,
 	command Command,
 	outputPath string,
+	outputFile *os.File,
 	commit ProcessCommit,
 ) (ProcessRef, error) {
 	if _, err := prepareCommand(command); err != nil {
@@ -117,7 +143,14 @@ func startSupervisedDetached(
 		return ProcessRef{}, err
 	}
 	defer discard.Close()
-	supervisorCommand := exec.Command(supervisorExecutable, RuntimeSupervisorCommandName, outputPath)
+	arguments := []string{RuntimeSupervisorCommandName, outputPath}
+	if outputFile != nil {
+		arguments = []string{RuntimeSupervisorCommandName, "--inherited-log"}
+	}
+	supervisorCommand := exec.Command(supervisorExecutable, arguments...)
+	if outputFile != nil {
+		supervisorCommand.ExtraFiles = []*os.File{outputFile}
+	}
 	supervisorCommand.Stdin = controlReader
 	supervisorCommand.Stdout, supervisorCommand.Stderr = ackWriter, discard
 	supervisorCommand.Env = safeEnvironment(os.Environ())
@@ -213,6 +246,43 @@ func (OSProcessRunner) OwnsTCP(process ProcessRef, host string, port int) (bool,
 	return ownsExclusiveTCP(process.PID, expected, listeners, syscall.Getpgid)
 }
 
+// OwnsUnixSocket proves that exactly one process in the recorded process group
+// has the named Unix socket open.
+func (runner OSProcessRunner) OwnsUnixSocket(process ProcessRef, path string) (bool, error) {
+	if !runner.Alive(process) || path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return false, nil
+	}
+	executable, err := lsofExecutable()
+	if err != nil {
+		return false, fmt.Errorf("lsof is required to verify the Codex app-server socket owner: %w", err)
+	}
+	command := exec.Command(executable, "-n", "-Fpn", "--", path)
+	command.Env = safeEnvironment(os.Environ())
+	body, err := command.Output()
+	if exitError := (&exec.ExitError{}); errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect Unix socket owner: %w", err)
+	}
+	owners := map[int]bool{}
+	for _, line := range strings.Split(string(body), "\n") {
+		if !strings.HasPrefix(line, "p") {
+			continue
+		}
+		pid, parseErr := strconv.Atoi(strings.TrimPrefix(line, "p"))
+		if parseErr != nil || pid <= 0 {
+			return false, fmt.Errorf("inspect Unix socket owner: invalid PID evidence")
+		}
+		group, groupErr := syscall.Getpgid(pid)
+		if groupErr != nil || group != process.PID {
+			return false, nil
+		}
+		owners[pid] = true
+	}
+	return len(owners) == 1 && runner.Alive(process), nil
+}
+
 func ownsExclusiveTCP(
 	processGroup int,
 	expected string,
@@ -244,7 +314,7 @@ type tcpListener struct {
 }
 
 func tcpListeners(port int) ([]tcpListener, error) {
-	executable, err := exec.LookPath("lsof")
+	executable, err := lsofExecutable()
 	if err != nil {
 		return nil, fmt.Errorf("lsof is required to verify the dev-server port owner: %w", err)
 	}
@@ -271,6 +341,18 @@ func tcpListeners(port int) ([]tcpListener, error) {
 		}
 	}
 	return listeners, nil
+}
+
+func lsofExecutable() (string, error) {
+	if executable, err := exec.LookPath("lsof"); err == nil {
+		return executable, nil
+	}
+	for _, candidate := range []string{"/usr/sbin/lsof", "/usr/bin/lsof"} {
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("lsof is not installed")
 }
 
 func (OSProcessRunner) StopGroup(process ProcessRef, timeout time.Duration) error {
@@ -340,9 +422,21 @@ func managedOutput(path string) (*os.File, error) {
 	if path == "" {
 		return os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	parent := filepath.Dir(path)
+	directoryFD, err := unix.Open(parent, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open managed output directory: %w", err)
+	}
+	defer unix.Close(directoryFD)
+	fd, err := unix.Openat(directoryFD, filepath.Base(path), unix.O_CREAT|unix.O_TRUNC|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open managed output: %w", err)
+	}
+	file := os.NewFile(uintptr(fd), path)
+	info, statErr := file.Stat()
+	if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		_ = file.Close()
+		return nil, fmt.Errorf("open managed output: target is not a private regular file")
 	}
 	return file, nil
 }
