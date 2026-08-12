@@ -9,9 +9,12 @@ export interface CodexSessionModelSelection {
   models: CodexModelRecord[];
   onChange(value: string): void;
   onEffortChange(value: string): void;
+  onRetry?(): void;
   onServiceTierChange(value: string | null): void;
   onRetry?(): void;
   override?: CodexSessionTurnSettings;
+  recoveryCommand?: string;
+  recoveryHref?: string;
   serviceTier?: string | null;
   usesCatalogueDefault?: boolean;
   value: string;

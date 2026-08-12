@@ -117,7 +117,9 @@ export function connectorLocationPresentation({
 
   return {
     connectorLabel,
-    machineName: memberships.length === 1 ? memberships[0]!.name : 'Ungrouped connector',
+    machineName: memberships.length > 1
+      ? 'Connector identity conflict'
+      : memberships[0]?.name ?? 'Ungrouped connector',
     statusLabel: `${connectorLabel} · ${connector.connector.status}`
   };
 }

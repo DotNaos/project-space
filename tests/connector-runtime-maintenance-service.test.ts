@@ -46,8 +46,22 @@ function manifest(): ConnectorRuntimeReleaseManifest {
   };
 }
 
-function signedManifest() {
-  const value = manifest();
+function versionedManifest(version: string, build = '2') {
+  const value = structuredClone(manifest());
+  value.version = version;
+  value.releaseId = `v${version}`;
+  value.buildId = build.repeat(40);
+  const artifact = value.artifacts[0]!;
+  artifact.assetName = `project-space-machine-tools-darwin-arm64-v${version}.tar.gz`;
+  artifact.bundleVersions = {
+    connector: version, machineTools: version, projectCli: version
+  };
+  artifact.downloadUrl =
+    `https://github.com/DotNaos/project-space/releases/download/v${version}/${artifact.assetName}`;
+  return value;
+}
+
+function signedManifest(value: ConnectorRuntimeReleaseManifest = manifest()) {
   return {
     manifest: value,
     signature: sign(
@@ -91,6 +105,9 @@ function currentMachine(overrides: Partial<MachineRecord> = {}): MachineRecord {
 }
 
 class Harness {
+  approvedManifest = manifest();
+  automaticUpdateAllowed = true;
+  automaticUpdateOwners: Array<string | undefined> = [];
   currentNow = new Date(now);
   machine: MachineRecord | null = currentMachine();
   role: 'member' | 'owner' | null = 'owner';
@@ -99,11 +116,17 @@ class Harness {
     typeof ConnectorRuntimeMaintenanceService
   >[0]['dispatcher']['dispatch']>[0]> = [];
   dispatchError?: Error;
+  historicalManifests = new Map<string, ConnectorRuntimeReleaseManifest>();
+  releaseErrorById = new Map<string, Error>();
   readonly operations = new CapturingConnectorRuntimeOperationStore();
 
   service() {
     return new ConnectorRuntimeMaintenanceService({
       directory: {
+        canAutomaticallyUpdate: async (_machineId, ownerUserId) => {
+          this.automaticUpdateOwners.push(ownerUserId);
+          return this.automaticUpdateAllowed;
+        },
         readMachine: async () => this.machine,
         readMembership: async () => this.role ? { role: this.role } : null
       },
@@ -126,8 +149,14 @@ class Harness {
       releases: {
         loadApprovedManifest: async (releaseId) => {
           this.releaseCalls += 1;
-          if (releaseId && releaseId !== 'v0.5.0') throw new Error('release mismatch');
-          return signedManifest();
+          if (releaseId && this.releaseErrorById.has(releaseId)) {
+            throw this.releaseErrorById.get(releaseId)!;
+          }
+          const selected = !releaseId || releaseId === this.approvedManifest.releaseId
+            ? this.approvedManifest
+            : this.historicalManifests.get(releaseId);
+          if (!selected) throw new Error('release unavailable');
+          return signedManifest(selected);
         }
       }
     });
@@ -135,6 +164,7 @@ class Harness {
 }
 
 class CapturingConnectorRuntimeOperationStore extends MemoryConnectorRuntimeOperationStore {
+  blockNextSucceededTransition = false;
   readonly createInputs: CreateConnectorRuntimeOperationInput[] = [];
 
   override async createAccepted(
@@ -144,6 +174,16 @@ class CapturingConnectorRuntimeOperationStore extends MemoryConnectorRuntimeOper
   ) {
     this.createInputs.push(structuredClone(input));
     return await super.createAccepted(input, audit, acceptedAt);
+  }
+
+  override async transition(
+    input: Parameters<MemoryConnectorRuntimeOperationStore['transition']>[0]
+  ) {
+    if (this.blockNextSucceededTransition && input.state === 'succeeded') {
+      this.blockNextSucceededTransition = false;
+      return null;
+    }
+    return super.transition(input);
   }
 }
 
@@ -167,6 +207,234 @@ describe('connector runtime maintenance service', () => {
     expect(connectorRuntimeBridgeReleaseForMachine(linux)).toBeUndefined();
     linux.connector.runtime.platform = 'darwin';
     expect(connectorRuntimeBridgeReleaseForMachine(linux)).toBeUndefined();
+  });
+
+  test('persists an automatic update before dispatching it on a stale reconnect', async () => {
+    const harness = new Harness();
+    const service = harness.service();
+
+    expect(await service.decideReconnect(harness.machine!)).toBeUndefined();
+    expect(harness.dispatches).toHaveLength(0);
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      expectedReleaseId: 'v0.5.0',
+      operation: 'update',
+      requestedByUserId: 'system:connector-auto-update',
+      state: 'queued'
+    });
+    expect((await service.status('machine-1')).update.state).toBe('update-pending');
+
+    await service.continueMaintenance(harness.machine!);
+    expect(harness.dispatches).toHaveLength(1);
+    expect(harness.dispatches[0]?.plan).toMatchObject({
+      operation: 'update', releaseId: 'v0.5.0'
+    });
+    await settleDispatch();
+    expect((await harness.operations.latest('machine-1'))?.state).toBe('reconnecting');
+  });
+
+  test('does not auto-select a connector when physical identity is ambiguous', async () => {
+    const harness = new Harness();
+    harness.automaticUpdateAllowed = false;
+    const service = harness.service();
+
+    await service.prepareReconnect(harness.machine!, 'owner-1');
+    await service.continueMaintenance(harness.machine!);
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      lastFailure: { code: 'ambiguous-physical-machine' },
+      state: 'queued'
+    });
+    expect(harness.dispatches).toHaveLength(0);
+  });
+
+  test('keeps a busy automatic update queued and retries it after the machine is idle', async () => {
+    const harness = new Harness();
+    const service = harness.service();
+    harness.dispatchError = Object.assign(new Error('busy'), { code: 'busy' });
+
+    await service.decideReconnect(harness.machine!);
+    await service.continueMaintenance(harness.machine!);
+    await settleDispatch();
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      lastFailure: {
+        code: 'busy',
+        message: 'Update deferred until Codex work and machine changes are finished.'
+      },
+      state: 'queued'
+    });
+
+    harness.dispatchError = undefined;
+    await service.continueMaintenance(harness.machine!);
+    await settleDispatch();
+    expect(harness.dispatches).toHaveLength(2);
+    expect((await harness.operations.latest('machine-1'))?.state).toBe('reconnecting');
+  });
+
+  test('persists concrete deferral reasons and requeues pre-send unavailability', async () => {
+    for (const [code, message] of [
+      ['codex-waiting-approval', 'waiting for approval'],
+      ['unavailable', 'connector is available again']
+    ] as const) {
+      const harness = new Harness();
+      harness.dispatchError = Object.assign(new Error(code), { code });
+      const service = harness.service();
+      await service.prepareReconnect(harness.machine!, 'owner-1');
+      await service.continueMaintenance(harness.machine!, 'owner-1');
+      await settleDispatch();
+      expect(await harness.operations.latest('machine-1')).toMatchObject({
+        lastFailure: { code }, state: 'queued'
+      });
+      expect((await harness.operations.latest('machine-1'))?.lastFailure?.message)
+        .toContain(message);
+    }
+  });
+
+  test('keeps an unknown post-send outcome reconcilable until its deadline', async () => {
+    const harness = new Harness();
+    harness.dispatchError = Object.assign(new Error('unknown'), { code: 'outcome-unknown' });
+    const service = harness.service();
+    await service.prepareReconnect(harness.machine!, 'owner-1');
+    await service.continueMaintenance(harness.machine!, 'owner-1');
+    await settleDispatch();
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      lastFailure: { code: 'outcome-unknown', rollbackAvailable: true },
+      state: 'reconnecting'
+    });
+
+    harness.currentNow = new Date(now.getTime() + 11 * 60_000);
+    await service.continueMaintenance(harness.machine!, 'owner-1');
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      lastFailure: { code: 'reconnect-timeout' }, state: 'recovery-required'
+    });
+  });
+
+  test('fails closed when a dispatched update reconnects without maintenance evidence', async () => {
+    const harness = new Harness();
+    const service = harness.service();
+    await service.prepareReconnect(harness.machine!, 'owner-1');
+    await service.continueMaintenance(harness.machine!, 'owner-1');
+    await settleDispatch();
+    expect((await harness.operations.latest('machine-1'))?.state).toBe('reconnecting');
+
+    const reconnected = structuredClone(harness.machine!);
+    reconnected.connector.runtime!.instanceId = 'instance-without-evidence';
+    const restartedService = harness.service();
+    await restartedService.prepareReconnect(reconnected, 'owner-1');
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      lastFailure: { code: 'maintenance-evidence-missing' },
+      state: 'recovery-required'
+    });
+  });
+
+  test('keeps old-instance staging and pre-shutdown heartbeats active', async () => {
+    const staging = new Harness();
+    const stagingService = staging.service();
+    await stagingService.prepareReconnect(staging.machine!, 'owner-1');
+    const queued = await staging.operations.latest('machine-1');
+    await staging.operations.transition({
+      expectedStates: ['queued'], id: queued!.id, startedAt: now.toISOString(),
+      state: 'staging', updatedAt: now.toISOString()
+    });
+    await stagingService.prepareReconnect(staging.machine!, 'owner-1');
+    expect((await staging.operations.latest('machine-1'))?.state).toBe('staging');
+
+    const accepted = new Harness();
+    const acceptedService = accepted.service();
+    await acceptedService.prepareReconnect(accepted.machine!, 'owner-1');
+    await acceptedService.continueMaintenance(accepted.machine!, 'owner-1');
+    await settleDispatch();
+    expect((await accepted.operations.latest('machine-1'))?.state).toBe('reconnecting');
+    await accepted.service().prepareReconnect(accepted.machine!, 'owner-1');
+    expect((await accepted.operations.latest('machine-1'))?.state).toBe('reconnecting');
+  });
+
+  test('keeps the physical owner scope through the dispatch-adjacent canonical check', async () => {
+    const harness = new Harness();
+    const service = harness.service();
+    await service.prepareReconnect(harness.machine!, 'owner-1');
+    await service.continueMaintenance(harness.machine!, 'owner-1');
+    expect(harness.automaticUpdateOwners.length).toBeGreaterThanOrEqual(3);
+    expect(harness.automaticUpdateOwners.every((owner) => owner === 'owner-1')).toBe(true);
+  });
+
+  test('coalesces a queued reconnect update to the newest approved release', async () => {
+    const harness = new Harness();
+    const service = harness.service();
+    await service.decideReconnect(harness.machine!);
+
+    const newest = structuredClone(manifest());
+    newest.version = '0.6.0';
+    newest.releaseId = 'v0.6.0';
+    newest.buildId = '2'.repeat(40);
+    newest.artifacts[0]!.assetName =
+      'project-space-machine-tools-darwin-arm64-v0.6.0.tar.gz';
+    newest.artifacts[0]!.bundleVersions = {
+      connector: '0.6.0', machineTools: '0.6.0', projectCli: '0.6.0'
+    };
+    newest.artifacts[0]!.downloadUrl =
+      'https://github.com/DotNaos/project-space/releases/download/v0.6.0/project-space-machine-tools-darwin-arm64-v0.6.0.tar.gz';
+    harness.approvedManifest = newest;
+
+    await service.continueMaintenance(harness.machine!);
+    expect(harness.dispatches[0]?.plan).toMatchObject({
+      operation: 'update', releaseId: 'v0.6.0'
+    });
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      expectedBuildId: '2'.repeat(40),
+      expectedReleaseId: 'v0.6.0'
+    });
+  });
+
+  test('never coalesces backward and dispatches the persisted newest signed release', async () => {
+    const harness = new Harness();
+    harness.approvedManifest = versionedManifest('0.6.0');
+    const service = harness.service();
+    await service.prepareReconnect(harness.machine!, 'owner-1');
+    harness.historicalManifests.set('v0.6.0', harness.approvedManifest);
+    harness.approvedManifest = manifest();
+
+    await service.continueMaintenance(harness.machine!, 'owner-1');
+    expect(harness.dispatches).toHaveLength(1);
+    expect(harness.dispatches[0]?.plan).toMatchObject({
+      operation: 'update', releaseId: 'v0.6.0'
+    });
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      expectedReleaseId: 'v0.6.0', state: 'validating'
+    });
+  });
+
+  test('preserves a queued target when its signed release source is temporarily unavailable', async () => {
+    const harness = new Harness();
+    harness.approvedManifest = versionedManifest('0.6.0');
+    const service = harness.service();
+    await service.prepareReconnect(harness.machine!, 'owner-1');
+    harness.approvedManifest = manifest();
+    harness.releaseErrorById.set('v0.6.0', new Error('temporary source outage'));
+
+    await service.continueMaintenance(harness.machine!, 'owner-1');
+    expect(harness.dispatches).toHaveLength(0);
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      expectedReleaseId: 'v0.6.0',
+      lastFailure: { code: 'unavailable' },
+      state: 'queued'
+    });
+  });
+
+  test('treats extra normal connector capabilities as compatible with the signed runtime', async () => {
+    const harness = new Harness();
+    harness.machine = currentMachine({ connector: {
+      ...currentMachine().connector,
+      capabilities: [...capabilities, 'workspace.inspect.v2'],
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        buildId: manifest().buildId,
+        bundleVersions: manifest().artifacts[0]!.bundleVersions,
+        releaseId: manifest().releaseId,
+        version: manifest().version
+      }
+    } });
+    await harness.service().prepareReconnect(harness.machine, 'owner-1');
+    expect(await harness.operations.latest('machine-1')).toBeNull();
+    expect(harness.dispatches).toHaveLength(0);
   });
 
   test('authorizes an exact update and persists reconnect expectations before dispatch', async () => {
@@ -345,7 +613,7 @@ describe('connector runtime maintenance service', () => {
     expect(await success.service().decideReconnect(updated)).toEqual({
       action: 'commit', operationId: started.operation.id
     });
-    expect((await success.operations.latest('machine-1'))?.state).toBe('health-checking');
+    expect((await success.operations.latest('machine-1'))?.state).toBe('succeeded');
     expect(await success.service().decideReconnect(updated)).toEqual({
       action: 'commit', operationId: started.operation.id
     });
@@ -383,6 +651,69 @@ describe('connector runtime maintenance service', () => {
     });
   });
 
+  test('returns a reconnect decision only after a successful fresh state comparison', async () => {
+    const harness = new Harness();
+    const service = harness.service();
+    const started = await service.request(
+      { machineId: 'machine-1', operation: 'update' }, 'owner-1'
+    );
+    await settleDispatch();
+    const updated = currentMachine({ connector: {
+      ...currentMachine().connector,
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        buildId: manifest().buildId,
+        bundleVersions: manifest().artifacts[0]!.bundleVersions,
+        instanceId: 'instance-after',
+        maintenance: { operationId: started.operation.id, state: 'pending-health-check' },
+        releaseId: manifest().releaseId,
+        version: manifest().version
+      }
+    } });
+    harness.operations.blockNextSucceededTransition = true;
+    expect(await service.decideReconnect(updated)).toBeUndefined();
+    expect((await harness.operations.latest('machine-1'))?.state).toBe('reconnecting');
+    expect(await service.decideReconnect(updated)).toEqual({
+      action: 'commit', operationId: started.operation.id
+    });
+  });
+
+  test('never reuses a succeeded decision for a later stale reconnect fingerprint', async () => {
+    const harness = new Harness();
+    const service = harness.service();
+    const started = await service.request(
+      { machineId: 'machine-1', operation: 'update' }, 'owner-1'
+    );
+    await settleDispatch();
+    const healthy = currentMachine({ connector: {
+      ...currentMachine().connector,
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        buildId: manifest().buildId,
+        bundleVersions: manifest().artifacts[0]!.bundleVersions,
+        instanceId: 'instance-after',
+        maintenance: { operationId: started.operation.id, state: 'pending-health-check' },
+        releaseId: manifest().releaseId,
+        version: manifest().version
+      }
+    } });
+    expect(await service.decideReconnect(healthy)).toMatchObject({ action: 'commit' });
+    const stale = currentMachine({ connector: {
+      ...currentMachine().connector,
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        instanceId: 'instance-stale',
+        maintenance: { operationId: started.operation.id, state: 'pending-health-check' }
+      }
+    } });
+    expect(await service.decideReconnect(stale)).toEqual({
+      action: 'rollback', operationId: started.operation.id
+    });
+    expect(await harness.operations.latest('machine-1')).toMatchObject({
+      lastFailure: { code: 'wrong-reconnect-version' }, state: 'rolling-back'
+    });
+  });
+
   test('commits an exact signed update when the supervisor preserves its instance id', async () => {
     const stableInstance = new Harness();
     const started = await stableInstance.service().request(
@@ -405,7 +736,152 @@ describe('connector runtime maintenance service', () => {
       action: 'commit', operationId: started.operation.id
     });
     expect((await stableInstance.operations.latest('machine-1'))?.state)
-      .toBe('health-checking');
+      .toBe('succeeded');
+  });
+
+  test('repairs same-release Codex drift once and accepts unchanged connector identity', async () => {
+    const configureDrift = (harness: Harness) => {
+      harness.approvedManifest.artifacts[0]!.capabilities = [
+        ...capabilities, 'codex.runtime.v1', 'codex.runtime.version.0.145.0'
+      ].sort();
+      harness.machine = currentMachine({ connector: {
+        ...currentMachine().connector,
+        capabilities: [
+          ...harness.approvedManifest.artifacts[0]!.capabilities,
+          'codex.machine-tasks.v1',
+          'codex.sessions.model-selection.v1',
+          'codex.sessions.model-settings.v1'
+        ],
+        daemon: {
+          appServerVersion: '0.145.0', authenticated: true, backend: 'socket',
+          checkedAt: now.toISOString(), cliVersion: '0.145.0', compatible: true,
+          installed: true, managedCodexVersion: '0.145.0', paired: false,
+          reachable: true, remoteControlEnabled: false, remoteControlState: 'disabled',
+          running: true, state: 'ready'
+        },
+        runtime: {
+          ...currentMachine().connector.runtime!,
+          buildId: harness.approvedManifest.buildId,
+          bundleVersions: harness.approvedManifest.artifacts[0]!.bundleVersions,
+          releaseId: harness.approvedManifest.releaseId,
+          version: harness.approvedManifest.version
+        }
+      } });
+    };
+    const exactDaemon = {
+      ...currentMachine().connector.daemon,
+      appServerVersion: '0.145.0', authenticated: true, backend: 'pid',
+      checkedAt: now.toISOString(), cliVersion: '0.145.0', compatible: true,
+      installed: true, managedCodexVersion: '0.145.0', paired: false,
+      reachable: true, remoteControlEnabled: false, remoteControlState: 'disabled' as const,
+      running: true, state: 'ready' as const
+    };
+
+    const repaired = new Harness();
+    configureDrift(repaired);
+    const service = repaired.service();
+    await service.prepareReconnect(repaired.machine!, 'owner-1');
+    await service.continueMaintenance(repaired.machine!, 'owner-1');
+    await settleDispatch();
+    const operation = await repaired.operations.latest('machine-1');
+    expect(operation).toMatchObject({ expectedReleaseId: 'v0.5.0', state: 'reconnecting' });
+    const healthy = structuredClone(repaired.machine!);
+    healthy.connector.daemon = exactDaemon;
+    healthy.connector.runtime!.maintenance = {
+      operationId: operation!.id, state: 'pending-health-check'
+    };
+    expect(await service.decideReconnect(healthy)).toEqual({
+      action: 'commit', operationId: operation!.id
+    });
+    expect((await repaired.operations.latest('machine-1'))?.state).toBe('succeeded');
+
+    const failed = new Harness();
+    configureDrift(failed);
+    failed.dispatchError = Object.assign(new Error('download failed'), {
+      code: 'download-failed'
+    });
+    const failedService = failed.service();
+    await failedService.prepareReconnect(failed.machine!, 'owner-1');
+    await failedService.continueMaintenance(failed.machine!, 'owner-1');
+    await settleDispatch();
+    expect((await failed.operations.latest('machine-1'))?.state).toBe('failed');
+    await failedService.continueMaintenance(failed.machine!, 'owner-1');
+    expect(failed.dispatches).toHaveLength(1);
+  });
+
+  test('commits a version-pinned Codex bundle only after exact daemon and model readiness', async () => {
+    const prepare = async (harness: Harness) => {
+      harness.approvedManifest.artifacts[0]!.capabilities = [
+        ...capabilities,
+        'codex.runtime.v1',
+        'codex.runtime.version.0.145.0'
+      ].sort();
+      const started = await harness.service().request(
+        { machineId: 'machine-1', operation: 'update' }, 'owner-1'
+      );
+      await settleDispatch();
+      return started;
+    };
+    const reconnected = (
+      started: Awaited<ReturnType<typeof prepare>>,
+      daemon: NonNullable<MachineRecord['connector']['daemon']>
+    ) => currentMachine({ connector: {
+      ...currentMachine().connector,
+      capabilities: [
+        ...capabilities,
+        'codex.machine-tasks.v1',
+        'codex.runtime.v1',
+        'codex.runtime.version.0.145.0',
+        'codex.sessions.model-selection.v1',
+        'codex.sessions.model-settings.v1'
+      ],
+      daemon,
+      runtime: {
+        ...currentMachine().connector.runtime!,
+        buildId: manifest().buildId,
+        bundleVersions: manifest().artifacts[0]!.bundleVersions,
+        instanceId: 'instance-after',
+        maintenance: {
+          operationId: started.operation.id,
+          state: 'pending-health-check'
+        },
+        releaseId: manifest().releaseId,
+        version: manifest().version
+      }
+    } });
+    const exactDaemon = {
+      appServerVersion: '0.145.0',
+      authenticated: true,
+      backend: 'pid',
+      checkedAt: now.toISOString(),
+      cliVersion: '0.145.0',
+      compatible: true,
+      installed: true,
+      managedCodexVersion: '0.145.0',
+      paired: false,
+      reachable: true,
+      remoteControlEnabled: false,
+      remoteControlState: 'disabled' as const,
+      running: true,
+      state: 'ready' as const
+    };
+
+    const wrong = new Harness();
+    const wrongStart = await prepare(wrong);
+    expect(await wrong.service().decideReconnect(reconnected(wrongStart, {
+      ...exactDaemon,
+      backend: 'socket'
+    }))).toEqual({ action: 'rollback', operationId: wrongStart.operation.id });
+    expect(await wrong.operations.latest('machine-1')).toMatchObject({
+      lastFailure: { code: 'codex-runtime-not-ready' },
+      state: 'rolling-back'
+    });
+
+    const healthy = new Harness();
+    const healthyStart = await prepare(healthy);
+    expect(await healthy.service().decideReconnect(reconnected(healthyStart, exactDaemon)))
+      .toEqual({ action: 'commit', operationId: healthyStart.operation.id });
+    expect((await healthy.operations.latest('machine-1'))?.state).toBe('succeeded');
   });
 
   test('orders rollback for wrong reconnect evidence', async () => {

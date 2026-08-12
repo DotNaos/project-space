@@ -63,6 +63,7 @@ export function isRuntimeOperationActive(operation?: ConnectorRuntimeOperationRe
 export function isRuntimeBusy(update?: ConnectorRuntimeUpdateRecord) {
   return (
     update?.state === 'checking' ||
+    update?.state === 'update-pending' ||
     update?.state === 'updating' ||
     update?.state === 'restarting' ||
     isRuntimeOperationActive(update?.operation)
@@ -159,6 +160,8 @@ export function runtimeStateLabel(state: ConnectorRuntimeState | undefined) {
       return 'Update available';
     case 'update-required':
       return 'Update required';
+    case 'update-pending':
+      return 'Update pending';
     case 'restart-required':
       return 'Restart required';
     case 'failed':

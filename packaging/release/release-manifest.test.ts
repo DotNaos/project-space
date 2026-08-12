@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,6 +18,30 @@ const releaseId = `v${version}`;
 const sourceCommit = 'a'.repeat(40);
 const issuedAt = 1_700_000_000;
 const secondsPerDay = 24 * 60 * 60;
+const codexVersion = '0.145.0';
+
+async function writeLinuxArtifact(
+  root: string,
+  artifacts: string,
+  pinnedCodexVersion: string | null = codexVersion
+) {
+  const bundleName = `project-space-machine-tools-linux-x64-v${version}`;
+  const source = join(root, 'linux-artifact-source');
+  const bundle = join(source, bundleName);
+  await rm(source, { force: true, recursive: true });
+  await mkdir(bundle, { recursive: true });
+  if (pinnedCodexVersion !== null) {
+    await writeFile(join(bundle, 'CODEX-VERSION'), `${pinnedCodexVersion}\n`);
+  }
+  const artifact = join(artifacts, `${bundleName}.tar.gz`);
+  const archive = Bun.spawn(
+    ['tar', '-czf', artifact, '-C', source, bundleName],
+    { stderr: 'pipe' }
+  );
+  if (await archive.exited !== 0) {
+    throw new Error(await new Response(archive.stderr).text());
+  }
+}
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'project-release-manifest-'));
@@ -26,10 +50,7 @@ async function fixture() {
     join(artifacts, `project-space-machine-tools-darwin-arm64-v${version}.tar.gz`),
     'darwin'
   );
-  await Bun.write(
-    join(artifacts, `project-space-machine-tools-linux-x64-v${version}.tar.gz`),
-    'linux'
-  );
+  await writeLinuxArtifact(root, artifacts);
   await Bun.write(
     join(artifacts, 'project-space-machine-tools-windows-x64-setup.exe'),
     'windows'
@@ -309,6 +330,7 @@ describe('authenticated connector runtime release manifest', () => {
             ? [
                 'codex.account.device-login.v1',
                 'codex.runtime.v1',
+                `codex.runtime.version.${codexVersion}`,
                 'runtime.restart',
                 'runtime.update'
               ]
@@ -321,6 +343,36 @@ describe('authenticated connector runtime release manifest', () => {
       expect(artifact.sizeBytes).toBeGreaterThan(0);
       expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
     }
+  });
+
+  test('derives the signed Codex version from the Linux release artifact', async () => {
+    const root = await fixture();
+    await writeLinuxArtifact(root.root, root.artifacts, '0.146.0');
+    const manifestPath = await create(root);
+    const envelope = JSON.parse(await readFile(manifestPath, 'utf8'));
+    const linux = envelope.manifest.artifacts.find(
+      (artifact: { target: string }) => artifact.target === 'linux-x64'
+    );
+
+    expect(linux.capabilities).toContain('codex.runtime.version.0.146.0');
+    expect(linux.capabilities).not.toContain(
+      `codex.runtime.version.${codexVersion}`
+    );
+  });
+
+  test('rejects a Linux release artifact without one exact Codex version', async () => {
+    const malformed = await fixture();
+    await writeLinuxArtifact(malformed.root, malformed.artifacts, '01.146.0');
+
+    await expect(create(malformed)).rejects.toThrow(
+      'managed Codex runtime version must be an exact semantic version'
+    );
+
+    const missing = await fixture();
+    await writeLinuxArtifact(missing.root, missing.artifacts, null);
+    await expect(create(missing)).rejects.toThrow(
+      'does not expose its pinned Codex version'
+    );
   });
 
   test('defaults published manifests to a 365-day validity window', async () => {

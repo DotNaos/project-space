@@ -76,14 +76,18 @@ export function codexThreadDirectory({
   sessions
 }: CodexThreadDirectoryInput): CodexThreadDirectoryMachine[] {
   const machineById = new Map(machines.map((machine) => [machine.id, machine]));
-  const physicalMachineByConnectorId = new Map<string, PhysicalMachineRecord>();
+  const physicalMemberships = new Map<string, PhysicalMachineRecord[]>();
   for (const physicalMachine of physicalMachines) {
-    for (const connectorId of physicalMachine.connectorIds) {
-      if (!physicalMachineByConnectorId.has(connectorId)) {
-        physicalMachineByConnectorId.set(connectorId, physicalMachine);
-      }
+    for (const connectorId of new Set(physicalMachine.connectorIds)) {
+      const memberships = physicalMemberships.get(connectorId) ?? [];
+      memberships.push(physicalMachine);
+      physicalMemberships.set(connectorId, memberships);
     }
   }
+  const physicalMachineByConnectorId = new Map(
+    [...physicalMemberships].flatMap(([connectorId, memberships]) =>
+      memberships.length === 1 ? [[connectorId, memberships[0]!] as const] : [])
+  );
   const groupIdFor = (connectorId: string) =>
     physicalMachineByConnectorId.get(connectorId)?.id ?? connectorId;
 

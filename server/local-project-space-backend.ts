@@ -87,7 +87,9 @@ import {
   CODEX_DAEMON_CONNECTOR_CAPABILITY,
   type CodexDaemonEvidence
 } from '../src/shared/codex-daemon-api';
+import { codexRuntimeVersionCapability } from '../src/shared/codex-runtime-release-contract';
 import { CodexDaemonManager } from './codex-daemon/manager';
+import { inspectCodexDaemonForConnectorRuntime } from './codex-daemon/runtime-maintenance';
 import {
   applyProjectStructureAction,
   listProjectTrash,
@@ -170,7 +172,10 @@ function scopeDiscoveryToMachine<
 export type LocalProjectSpaceBackend = ProjectSpaceBackend &
   ConnectorDevServerAdapter &
   ConnectorWorktreeActionAdapter &
-  Pick<ConfiguredConnectorRuntime, 'decideReconnect'>;
+  Pick<
+    ConfiguredConnectorRuntime,
+    'continueMaintenance' | 'decideReconnect' | 'prepareReconnect'
+  >;
 export { isWebHubMachine };
 const baseConnectorCommandCapabilities = [
   'filesystem.directory',
@@ -199,9 +204,20 @@ const codexDaemonInspector = new CodexDaemonManager({
     executeManagedOperation: async (_operationId, _fingerprint, action) => action()
   }
 });
-const inspectCodexDaemon = () => codexDaemonInspector.inspect();
+const inspectCodexDaemon = () => inspectCodexDaemonForConnectorRuntime({
+  environment: process.env,
+  manager: codexDaemonInspector
+});
 
 async function connectorCommandCapabilities(daemon: CodexDaemonEvidence) {
+  let runtimeVersionCapability: string | undefined;
+  try {
+    runtimeVersionCapability = daemon.cliVersion
+      ? codexRuntimeVersionCapability(daemon.cliVersion)
+      : undefined;
+  } catch {
+    runtimeVersionCapability = undefined;
+  }
   const readiness = daemon.state === 'ready'
     ? 'ready'
     : daemon.state === 'authorization-required'
@@ -211,6 +227,7 @@ async function connectorCommandCapabilities(daemon: CodexDaemonEvidence) {
         : 'missing';
   return [
     ...baseConnectorCommandCapabilities,
+    ...(runtimeVersionCapability ? [runtimeVersionCapability] : []),
     ...(process.platform === 'linux' &&
       process.env.PROJECT_SPACE_INSTALL_SOURCE === 'managed'
       ? [CODEX_DAEMON_CONNECTOR_CAPABILITY]
@@ -274,10 +291,16 @@ export function createLocalProjectSpaceBackend(
       return getCodexStatus();
     },
     async getConnectorOverview() {
-      return loadConnectorOverview();
+      return connectorRuntime.enrichOverview(await loadConnectorOverview());
+    },
+    continueMaintenance(machine, ownerUserId) {
+      return connectorRuntime.continueMaintenance(machine, ownerUserId);
     },
     decideReconnect(machine) {
       return connectorRuntime.decideReconnect(machine);
+    },
+    prepareReconnect(machine, ownerUserId) {
+      return connectorRuntime.prepareReconnect(machine, ownerUserId);
     },
     getMachineRuntime(machineId) {
       return connectorRuntime.getMachineRuntime(machineId);

@@ -5,6 +5,7 @@ import {
   type CodexMachineTasksStore
 } from '../../server/codex-machine-tasks/service';
 import { CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY } from '../../src/shared/codex-machine-tasks-api';
+import type { MachineRuntimeStatusResult } from '../../src/shared/connector-runtime-api';
 import type { MachineRecord } from '../../src/shared/project-space-api';
 
 export const threadId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
@@ -198,6 +199,7 @@ export function service(options: {
   inventory?: () => Promise<{
     connectors: MachineRecord[];
     physicalMachines: Array<{ connectorIds: string[]; id: string; name: string }>;
+    runtimeStatuses?: ReadonlyMap<string, MachineRuntimeStatusResult>;
   }>;
   issue?: () => Promise<{
     branch: string;

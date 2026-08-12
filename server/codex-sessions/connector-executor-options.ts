@@ -6,6 +6,7 @@ import type {
   CodexMachineTaskConnectorStartResult
 } from '../../src/shared/codex-machine-tasks-api';
 import type { CodexSessionsGrantReplayProtection } from '../codex-sessions-connector-contract';
+import type { ConnectorRuntimeMaintenanceAdmission } from '../connector-runtime-maintenance-safety';
 import type { CodexStartTurnInput, CodexSteerTurnInput } from './contracts';
 import type { CodexSessionManager } from './index';
 import type { CodexTaskLocationResolver } from './task-access-evidence';
@@ -15,6 +16,7 @@ export interface CodexSessionsConnectorExecutorOptions {
   expectedGeneration: number | (() => number);
   expectedMachineId: string;
   machineName: string;
+  maintenanceAdmission?: ConnectorRuntimeMaintenanceAdmission;
   manager: CodexSessionManager;
   now?: () => number;
   readBrowserSnapshot?: (

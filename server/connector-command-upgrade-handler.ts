@@ -40,6 +40,7 @@ const defaultCredentialRevalidationIntervalMs = 30_000;
 export interface AuthenticatedConnectorIdentity {
   connectorProfile?: MachineConnectorProfile;
   machineId: string;
+  userId?: string;
 }
 
 export type AuthenticateConnectorCredential = (
@@ -50,6 +51,18 @@ export type AuthenticateConnectorCredential = (
 export interface ConnectorCommandUpgradeHandlerOptions {
   authenticateConnectorCredential?: AuthenticateConnectorCredential;
   credentialRevalidationIntervalMs?: number;
+  continueConnectorRuntimeMaintenance?(input: {
+    machineId: string;
+    machine: MachineRecord;
+    ownerUserId?: string;
+    registry: ConnectorProjectRegistryResult;
+  }): Promise<void>;
+  prepareConnectorRuntimeMaintenance?(input: {
+    machineId: string;
+    machine: MachineRecord;
+    ownerUserId?: string;
+    registry: ConnectorProjectRegistryResult;
+  }): Promise<void>;
   decideConnectorRuntimeMaintenance?(input: {
     machineId: string;
     machine: MachineRecord;
@@ -101,6 +114,7 @@ export function createConnectorCommandUpgradeHandlerCore(
     let machineId = '';
     let registrationToken = '';
     let connectorProfile: MachineConnectorProfile | undefined;
+    let ownerUserId: string | undefined;
     let registrationPending = false;
     let credentialRevalidationTimer: ReturnType<typeof setInterval> | undefined;
     let credentialRevalidation: Promise<AuthenticatedConnectorIdentity | null> | undefined;
@@ -127,7 +141,8 @@ export function createConnectorCommandUpgradeHandlerCore(
         credentialRevalidation = undefined;
       }
       const authenticated = Boolean(
-        identity && sameMachineConnectorProfile(identity.connectorProfile, connectorProfile)
+        identity && sameMachineConnectorProfile(identity.connectorProfile, connectorProfile) &&
+        identity.userId === ownerUserId
       );
       if (!authenticated && socket.readyState === WebSocket.OPEN) {
         socket.close(1008, 'Connector credential expired or was revoked.');
@@ -138,9 +153,16 @@ export function createConnectorCommandUpgradeHandlerCore(
     async function decideMaintenance(
       requestedMachineId: string,
       registry: ConnectorProjectRegistryResult,
-      machine: MachineRecord
+      machine: MachineRecord,
+      authenticatedOwnerUserId?: string
     ) {
       const evidence = connectorRuntimeMaintenanceEvidence(registry);
+      await options.prepareConnectorRuntimeMaintenance?.({
+        machine,
+        machineId: requestedMachineId,
+        ownerUserId: authenticatedOwnerUserId,
+        registry
+      });
       if (!evidence) return undefined;
       const decision = await options.decideConnectorRuntimeMaintenance?.({
         machine,
@@ -196,7 +218,8 @@ export function createConnectorCommandUpgradeHandlerCore(
           maintenance = await decideMaintenance(
             requestedMachineId,
             message.payload,
-            registeredMachine
+            registeredMachine,
+            identity.userId
           );
         } catch {
           socket.close(1008, 'Connector runtime maintenance decision failed.');
@@ -206,6 +229,7 @@ export function createConnectorCommandUpgradeHandlerCore(
         machineId = requestedMachineId;
         registrationToken = message.token;
         connectorProfile = identity.connectorProfile;
+        ownerUserId = identity.userId;
         registrationPending = false;
         const previous = connectorSocket(machineId);
         if (previous && previous !== socket) {
@@ -229,6 +253,16 @@ export function createConnectorCommandUpgradeHandlerCore(
           ...(maintenance ? { maintenance } : {}),
           type: 'connector.registered'
         });
+        try {
+          await options.continueConnectorRuntimeMaintenance?.({
+            machine: registeredMachine,
+            machineId,
+            ownerUserId,
+            registry: message.payload
+          });
+        } catch {
+          socket.close(1011, 'Connector runtime maintenance scheduling failed.');
+        }
         return;
       }
 
@@ -257,12 +291,22 @@ export function createConnectorCommandUpgradeHandlerCore(
           return;
         }
         try {
-          await decideMaintenance(machineId, message.payload, registeredMachine);
+          await decideMaintenance(machineId, message.payload, registeredMachine, ownerUserId);
         } catch {
           socket.close(1008, 'Connector runtime maintenance decision failed.');
           return;
         }
         updateConnectorCapabilities(machineId, message.payload.connector.capabilities ?? []);
+        try {
+          await options.continueConnectorRuntimeMaintenance?.({
+            machine: registeredMachine,
+            machineId,
+            ownerUserId,
+            registry: message.payload
+          });
+        } catch {
+          socket.close(1011, 'Connector runtime maintenance scheduling failed.');
+        }
         return;
       }
 

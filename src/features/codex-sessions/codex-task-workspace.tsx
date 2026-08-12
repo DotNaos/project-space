@@ -145,7 +145,12 @@ export function CodexTaskWorkspace({
   const task = parseProjectCodexTaskTitle(session.title);
   const modelSelection = useCodexSessionModels(
     session,
-    machine?.supportsModelSettings === true
+    machine?.supportsModelSettings === true,
+    {
+      command: machine?.modelSettingsRecoveryCommand,
+      href: machine?.modelSettingsRecoveryHref,
+      reason: machine?.modelSettingsUnavailableReason
+    }
   );
 
   useEffect(() => {

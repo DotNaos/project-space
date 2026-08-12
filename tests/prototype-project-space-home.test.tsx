@@ -121,7 +121,7 @@ describe('project space home prototype', () => {
     ['overview', 'Current focus', 'Project pulse'],
     ['issues', 'Search tasks', 'Backlog'],
     ['branches', 'Search branches, PRs, or machines', '30 of 30 branches'],
-    ['machines', 'Available destinations', 'os-pc'],
+    ['machines', 'Search machines and connectors', 'Update pending'],
     ['chats', 'Project manager', 'Agent runs'],
     ['template', 'Project Template', 'Required pipelines'],
     ['deployments', 'Pull request previews', 'Production'],

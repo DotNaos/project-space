@@ -12,6 +12,16 @@ async function configuredStore(): Promise<ConnectorRuntimeOperationStore> {
 
 export class ConfiguredConnectorRuntimeOperationStore
   implements ConnectorRuntimeOperationStore {
+  async claimQueued(...args: Parameters<ConnectorRuntimeOperationStore['claimQueued']>) {
+    return (await configuredStore()).claimQueued(...args);
+  }
+
+  async coalesceQueuedUpdate(
+    ...args: Parameters<ConnectorRuntimeOperationStore['coalesceQueuedUpdate']>
+  ) {
+    return (await configuredStore()).coalesceQueuedUpdate(...args);
+  }
+
   async createAccepted(...args: Parameters<ConnectorRuntimeOperationStore['createAccepted']>) {
     return (await configuredStore()).createAccepted(...args);
   }

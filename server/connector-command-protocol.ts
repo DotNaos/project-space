@@ -161,9 +161,9 @@ function hasConnectorMetadata(connector: Record<string, unknown>) {
 function hasCodexDaemonEvidence(value: unknown) {
   if (value === undefined) return true;
   if (!isRecord(value) || !hasOnlyKeys(value, [
-    'appServerVersion', 'authenticated', 'checkedAt', 'cliVersion', 'compatible',
-    'environmentId', 'installed', 'paired', 'reachable', 'remoteControlEnabled',
-    'remoteControlState', 'running', 'state'
+    'appServerVersion', 'authenticated', 'backend', 'checkedAt', 'cliVersion', 'compatible',
+    'environmentId', 'installed', 'managedCodexVersion', 'paired', 'reachable',
+    'remoteControlEnabled', 'remoteControlState', 'running', 'state'
   ])) return false;
   return typeof value.checkedAt === 'string' &&
     Number.isFinite(Date.parse(value.checkedAt)) &&
@@ -177,7 +177,10 @@ function hasCodexDaemonEvidence(value: unknown) {
       'ready', 'missing', 'stopped', 'incompatible', 'authorization-required',
       'remote-control-disabled', 'pairing-required', 'connecting', 'unsupported', 'uncertain'
     ].includes(String(value.state)) &&
-    [value.appServerVersion, value.cliVersion, value.environmentId]
+    [
+      value.appServerVersion, value.backend, value.cliVersion,
+      value.environmentId, value.managedCodexVersion
+    ]
       .every((entry) => entry === undefined || isBoundedMetadata(entry, 256)) &&
     codexDaemonEvidenceIsConsistent(value as unknown as CodexDaemonEvidence);
 }

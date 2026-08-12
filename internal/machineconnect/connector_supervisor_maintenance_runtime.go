@@ -130,6 +130,9 @@ func (maintenance *ConnectorSupervisorMaintenance) failPendingHealth(
 	if state.Phase != connectorSupervisorPhasePendingHealth {
 		return stateResult(state), nil
 	}
+	if result, accepted, outcomeErr := maintenance.recoverAcceptedCommit(state); accepted || outcomeErr != nil {
+		return result, outcomeErr
+	}
 	return maintenance.handleHealthFailure(state, code)
 }
 

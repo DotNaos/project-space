@@ -42,6 +42,7 @@ function inventory(options: {
   online?: boolean;
   publishedAt?: string;
   statusMessage?: string;
+  supportsModelSettings?: boolean;
 } = {}): CodexSessionListResult {
   return {
     checkedAt: options.checkedAt ?? '2026-07-21T09:00:01.000Z',
@@ -50,7 +51,8 @@ function inventory(options: {
       id: machineId,
       name: options.machineName ?? 'os-macbook',
       online: options.online ?? true,
-      statusMessage: options.statusMessage
+      statusMessage: options.statusMessage,
+      supportsModelSettings: options.supportsModelSettings
     },
     publishedAt: options.publishedAt ?? '2026-07-21T09:00:02.000Z',
     sessions: []
@@ -120,6 +122,28 @@ describe('Codex sessions controller inventory evidence', () => {
         status: 'connected'
       })
     ]);
+  });
+
+  test('disables model settings while an approved managed update is pending', async () => {
+    const status = runtimeStatus('instance-current');
+    status.update = {
+      availableReleaseId: 'v0.4.11',
+      availableVersion: '0.4.11',
+      state: 'update-pending'
+    };
+    const controller = new CodexSessionsController(
+      clientWithList(async () => inventory({ supportsModelSettings: true })),
+      undefined,
+      async () => status
+    );
+
+    await controller.loadMachines([machineId]);
+
+    expect(controller.getState().machines[0]).toMatchObject({
+      modelSettingsUnavailableReason:
+        'Model settings are paused until the approved connector update can start.',
+      supportsModelSettings: false
+    });
   });
 
   test('preserves stale offline inventory evidence without presenting it as live', async () => {

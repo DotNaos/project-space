@@ -10,7 +10,11 @@ import type {
   CodexMachine,
   CodexSession
 } from '../src/features/codex-sessions/codex-sessions-types';
-import type { MachineRecord, ProjectSpaceRecord } from '../src/shared/project-space-api';
+import type {
+  MachineRecord,
+  PhysicalMachineRecord,
+  ProjectSpaceRecord
+} from '../src/shared/project-space-api';
 
 const projectRecords: ProjectSpaceRecord[] = [{
   id: 'project-mac',
@@ -169,6 +173,24 @@ describe('project Codex task grouping and state', () => {
       machine: { id: 'os-pc-id', name: 'os-pc', status: 'connected' }
     });
     expect(groups[0]?.tasks.map((task) => task.machineId)).toEqual(['machine-mac', 'machine-pc']);
+  });
+
+  test('never groups tasks by the first of conflicting physical records', () => {
+    const physicalMachines: PhysicalMachineRecord[] = [
+      { connectorIds: ['machine-mac'], id: 'physical-first', name: 'First' },
+      { connectorIds: ['machine-mac'], id: 'physical-second', name: 'Second' }
+    ];
+    const tasks = projectCodexTasks([session()], projectRecords);
+    const forward = groupProjectCodexTasks(tasks, machines, [], { physicalMachines });
+    const reversed = groupProjectCodexTasks(tasks, machines, [], {
+      physicalMachines: [...physicalMachines].reverse()
+    });
+
+    expect(forward).toEqual(reversed);
+    expect(forward).toMatchObject([{
+      connectorIds: ['machine-mac'],
+      machine: { id: 'machine-mac', name: 'os-macbook' }
+    }]);
   });
 
   test('groups by physical machine and preserves unavailable task owners', () => {

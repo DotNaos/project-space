@@ -523,9 +523,11 @@ export function CodexConversationPane({
                 models={modelSelection?.models ?? []}
                 onChange={modelSelection?.onChange ?? (() => {})}
                 onEffortChange={modelSelection?.onEffortChange ?? (() => {})}
-                onServiceTierChange={modelSelection?.onServiceTierChange ?? (() => {})}
                 onRetry={modelSelection?.onRetry}
+                onServiceTierChange={modelSelection?.onServiceTierChange ?? (() => {})}
                 override={modelSelection?.override}
+                recoveryCommand={modelSelection?.recoveryCommand}
+                recoveryHref={modelSelection?.recoveryHref}
                 serviceTier={modelSelection?.serviceTier}
                 usesCatalogueDefault={modelSelection?.usesCatalogueDefault}
                 value={modelSelection?.value ?? session.model ?? ''}

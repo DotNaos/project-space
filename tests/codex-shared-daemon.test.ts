@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { generateKeyPairSync } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,6 +24,14 @@ import {
   createCodexSessionsWireRequest,
   verifyCodexSessionsWireRequest
 } from '../server/codex-sessions-connector-contract';
+import {
+  codexRuntimeVersionCapability,
+  codexRuntimeVersionFromCapabilities
+} from '../src/shared/codex-runtime-release-contract';
+import {
+  ConnectorRuntimeMaintenanceAdmission,
+  createConnectorRuntimeMaintenanceSafetyCheck
+} from '../server/connector-runtime-maintenance-safety';
 
 const cleanupPaths: string[] = [];
 const unixSocketFixtureRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
@@ -36,6 +44,18 @@ afterEach(async () => {
 });
 
 describe('managed shared Codex daemon', () => {
+  test('round-trips one exact signed Codex runtime version capability', () => {
+    expect(codexRuntimeVersionCapability('0.146.0'))
+      .toBe('codex.runtime.version.0.146.0');
+    expect(() => codexRuntimeVersionCapability('latest')).toThrow();
+    expect(codexRuntimeVersionFromCapabilities([
+      'codex.runtime.v1', 'codex.runtime.version.0.146.0'
+    ])).toBe('0.146.0');
+    expect(codexRuntimeVersionFromCapabilities([
+      'codex.runtime.version.0.145.0', 'codex.runtime.version.0.146.0'
+    ])).toBeUndefined();
+  });
+
   test('uses one Unix-socket App Server and preserves canonical thread identity across clients', async () => {
     const fixture = await daemonFixture();
     const first = new CodexSessionManager({
@@ -60,6 +80,65 @@ describe('managed shared Codex daemon', () => {
     expect(fixture.connectionCount()).toBe(2);
     await first.close();
     await second.close();
+    await fixture.close();
+  });
+
+  test('defers maintenance for a cold active thread and preserves worktree and history on reconnect', async () => {
+    const fixture = await daemonFixture();
+    const worktreeMarker = join(fixture.root, 'worktree', 'marker.txt');
+    await mkdir(join(fixture.root, 'worktree'), { recursive: true });
+    await writeFile(worktreeMarker, 'preserved');
+    const producer = new CodexSessionManager({
+      daemonSocketPath: fixture.socketPath,
+      sharedDaemon: true
+    });
+    const started = await producer.startThread({
+      cwd: join(fixture.root, 'worktree'),
+      operationId: 'preserved-thread-start'
+    });
+    await producer.startTurn({
+      operationId: 'preserved-turn-start', prompt: 'Keep this history', threadId: started.thread.id
+    });
+    await producer.close();
+
+    const observer = new CodexSessionManager({
+      daemonSocketPath: fixture.socketPath,
+      sharedDaemon: true
+    });
+    const admission = new ConnectorRuntimeMaintenanceAdmission();
+    const safety = createConnectorRuntimeMaintenanceSafetyCheck(admission, observer);
+    expect(observer.maintenanceBlockers()).toContainEqual({
+      kind: 'codex-runtime', state: 'uncertain'
+    });
+    await observer.reconcileMaintenanceState();
+    expect(safety()).toEqual({
+      blockers: [{ kind: 'codex-turn', state: 'active', threadId: started.thread.id }],
+      certainty: 'known'
+    });
+
+    fixture.completeTurns();
+    observer.invalidateMaintenanceState();
+    await observer.reconcileMaintenanceState();
+    const maintenance = safety();
+    expect(maintenance).toMatchObject({ blockers: [], certainty: 'known' });
+    expect(await readFile(worktreeMarker, 'utf8')).toBe('preserved');
+    expect((await observer.readThread(started.thread.id)).thread.turns).toEqual([
+      expect.objectContaining({ id: 'turn-1', status: 'completed' })
+    ]);
+    if (maintenance.certainty === 'known') maintenance.lease?.release();
+    await observer.close();
+
+    const reconnected = new CodexSessionManager({
+      daemonSocketPath: fixture.socketPath,
+      sharedDaemon: true
+    });
+    await reconnected.reconcileMaintenanceState();
+    await expect(reconnected.startTurn({
+      operationId: 'preserved-follow-up', prompt: 'Continue after reconnect',
+      threadId: started.thread.id
+    })).resolves.toMatchObject({ turn: { id: 'turn-2', status: 'inProgress' } });
+    expect(await readFile(worktreeMarker, 'utf8')).toBe('preserved');
+    await reconnected.close();
     await fixture.close();
   });
 
@@ -148,10 +227,14 @@ describe('managed shared Codex daemon', () => {
     });
 
     await expect(manager.inspect()).resolves.toMatchObject({
+      appServerVersion: '0.146.0',
       authenticated: true,
+      backend: 'pid',
+      cliVersion: '0.146.0',
       compatible: true,
       environmentId: 'env_os_pc',
       installed: true,
+      managedCodexVersion: '0.146.0',
       paired: true,
       reachable: true,
       remoteControlEnabled: true,
@@ -218,6 +301,30 @@ describe('managed shared Codex daemon', () => {
     expect(restarted.evidence).toMatchObject({ compatible: true, state: 'ready' });
     expect(fixture.commands.filter((command) => command === 'restart')).toHaveLength(2);
     expect(fixture.maximumConcurrentCommands()).toBe(1);
+    await fixture.close();
+  });
+
+  test('atomically replaces a valid but drifted managed Codex binary', async () => {
+    const fixture = await daemonFixture({ initialAppServerVersion: '0.145.0' });
+    const managedPath = join(
+      fixture.environment.CODEX_HOME!, 'packages', 'standalone', 'current', 'codex'
+    );
+    await writeFile(managedPath, '#!/bin/sh\necho old\n');
+    await chmod(managedPath, 0o755);
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run
+    });
+
+    await expect(manager.execute('ensure', 'repair-drifted-managed-codex'))
+      .resolves.toMatchObject({ evidence: { compatible: true, state: 'ready' } });
+    expect(await readFile(managedPath, 'utf8'))
+      .toBe(await readFile(fixture.binaryPath, 'utf8'));
+    expect(fixture.commands).toContain('restart');
     await fixture.close();
   });
 
@@ -470,6 +577,7 @@ async function daemonFixture(options: {
 
   const threads = new Map<string, Record<string, unknown>>();
   let connectionCount = 0;
+  let nextTurn = 1;
   const http = createServer();
   const websocket = new WebSocketServer({ noServer: true });
   http.on('upgrade', (request, socket, head) => {
@@ -514,12 +622,27 @@ async function daemonFixture(options: {
           name: 'Shared task',
           preview: '',
           status: { type: 'idle' },
+          turns: [],
           updatedAt: 1
         };
         threads.set(thread.id, thread);
         result = { thread };
       } else if (request.method === 'thread/list') {
         result = { data: [...threads.values()], nextCursor: null };
+      } else if (request.method === 'thread/loaded/list') {
+        result = { data: [...threads.keys()] };
+      } else if (request.method === 'turn/start') {
+        const threadId = String(request.params?.threadId);
+        const thread = threads.get(threadId);
+        const turn = { id: `turn-${nextTurn++}`, items: [], status: 'inProgress' };
+        if (thread) {
+          threads.set(threadId, {
+            ...thread,
+            status: { type: 'active' },
+            turns: [...(Array.isArray(thread.turns) ? thread.turns : []), turn]
+          });
+        }
+        result = { turn };
       } else if (request.method === 'thread/read' && options.unmaterializedRead) {
         client.send(JSON.stringify({
           error: {
@@ -583,9 +706,21 @@ async function daemonFixture(options: {
       http.close();
     },
     commands,
+    completeTurns: () => {
+      for (const [threadId, thread] of threads) {
+        threads.set(threadId, {
+          ...thread,
+          status: { type: 'idle' },
+          turns: (Array.isArray(thread.turns) ? thread.turns : []).map((turn) => ({
+            ...(turn as Record<string, unknown>), status: 'completed'
+          }))
+        });
+      }
+    },
     connectionCount: () => connectionCount,
     environment,
     maximumConcurrentCommands: () => maximumConcurrentCommands,
+    root: fixtureRoot,
     run,
     socketPath
   };

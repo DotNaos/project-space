@@ -19,6 +19,9 @@ import {
   type ConnectorDevServerResult,
   type ConnectorDevServerWireRequest
 } from './connector-dev-server-contract';
+import type { ConnectorRuntimeMaintenanceAdmission } from './connector-runtime-maintenance-safety';
+
+const maintenanceMessage = 'Connector runtime maintenance is in progress.';
 
 function resultMatchesRequest(
   result: ConnectorDevServerResult,
@@ -40,7 +43,8 @@ export class ConnectorDevServerCommandExecutor {
   constructor(
     private readonly adapter: ConnectorDevServerAdapter,
     private readonly verificationKey: KeyLike,
-    private readonly expectedMachineId?: string
+    private readonly expectedMachineId?: string,
+    private readonly maintenanceAdmission?: ConnectorRuntimeMaintenanceAdmission
   ) {}
 
   execute(
@@ -82,6 +86,19 @@ export class ConnectorDevServerCommandExecutor {
         request as ConnectorDevServerWireRequest,
         request.grant.generation,
         'Connector command authorization failed.'
+      );
+    }
+
+    const mutates = operation === 'start' || operation === 'stop';
+    const admission = mutates
+      ? this.maintenanceAdmission?.tryBeginActivity('dev-server')
+      : undefined;
+    if (mutates && this.maintenanceAdmission && !admission) {
+      return connectorDevServerErrorResult(
+        request as ConnectorDevServerWireRequest,
+        actor.generation,
+        maintenanceMessage,
+        'unavailable'
       );
     }
 
@@ -142,6 +159,8 @@ export class ConnectorDevServerCommandExecutor {
           ? error.message
           : 'The connector could not run the dev-server command.'
       );
+    } finally {
+      admission?.release();
     }
   }
 }

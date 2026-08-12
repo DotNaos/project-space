@@ -301,22 +301,47 @@ jobs:
               "assetName", "bundleVersions", "capabilities", "downloadUrl",
               "protocolVersion", "sha256", "sizeBytes", "target",
           }
+          codex_version_prefix = "codex.runtime.version."
+          codex_version_pattern = re.compile(
+              r"codex\.runtime\.version\.(0|[1-9][0-9]*)\."
+              r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+          )
           for artifact in artifacts:
               target = artifact["target"]
               asset = artifact_names[target]
-              capabilities = (
-                  []
-                  if target == "windows-x64"
-                  else ["codex.account.device-login.v1", "codex.runtime.v1", "runtime.restart", "runtime.update"]
-                  if target == "linux-x64"
-                  else ["runtime.restart", "runtime.update"]
-              )
+              capabilities = artifact.get("capabilities")
+              codex_versions = [
+                  capability
+                  for capability in capabilities
+                  if isinstance(capability, str)
+                  and capability.startswith(codex_version_prefix)
+              ] if isinstance(capabilities, list) else []
+              if target == "linux-x64" and len(codex_versions) == 1:
+                  expected_capabilities = [
+                      "codex.account.device-login.v1",
+                      "codex.runtime.v1",
+                      codex_versions[0],
+                      "runtime.restart",
+                      "runtime.update",
+                  ]
+              elif target == "darwin-arm64":
+                  expected_capabilities = ["runtime.restart", "runtime.update"]
+              else:
+                  expected_capabilities = []
               if (
                   set(artifact) != artifact_keys
                   or artifact["assetName"] != asset
                   or artifact["downloadUrl"] != f"https://github.com/DotNaos/project-space/releases/download/{source_ref}/{asset}"
                   or artifact["protocolVersion"] != "2"
-                  or artifact["capabilities"] != capabilities
+                  or (
+                      target == "linux-x64"
+                      and (
+                          len(codex_versions) != 1
+                          or codex_version_pattern.fullmatch(codex_versions[0]) is None
+                      )
+                  )
+                  or (target != "linux-x64" and len(codex_versions) != 0)
+                  or capabilities != expected_capabilities
                   or artifact["bundleVersions"] != {
                       "connector": version, "machineTools": version, "projectCli": version
                   }

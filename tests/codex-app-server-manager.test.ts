@@ -13,6 +13,7 @@ import {
   CodexThreadActiveError
 } from '../server/codex-sessions';
 import { presentCodexTurns } from '../server/codex-sessions/public-presenter';
+import type { CodexAppServerTransport } from '../server/codex-sessions/stdio-transport';
 
 type RpcMessage = {
   id?: number | string;
@@ -88,6 +89,129 @@ function standardHandler(message: RpcMessage, server: FakeCodexProcess) {
 }
 
 describe('Codex app-server session manager', () => {
+  test('keeps a cold shared-daemon session uncertain until loaded threads are read', async () => {
+    let status: 'active' | 'idle' = 'active';
+    const calls: string[] = [];
+    const transport: CodexAppServerTransport = {
+      async call(method, params) {
+        calls.push(method);
+        if (method === 'thread/loaded/list') return { data: ['thread-shared'] } as never;
+        if (method === 'thread/read') {
+          return {
+            thread: {
+              id: (params as { threadId: string }).threadId,
+              status: status === 'active'
+                ? { activeFlags: ['waitingOnApproval'], type: 'active' }
+                : { type: 'idle' },
+              turns: [{ id: 'turn-shared', status: status === 'active' ? 'inProgress' : 'completed' }]
+            }
+          } as never;
+        }
+        throw new Error(`Unexpected method ${method}`);
+      },
+      async close() { this.isOpen = false; },
+      async initialize() {},
+      isOpen: true,
+      async respond() {}
+    };
+    const manager = new CodexSessionManager({
+      sharedDaemon: true,
+      transportFactory: async () => transport
+    });
+
+    try {
+      expect(manager.maintenanceBlockers()).toEqual([
+        { kind: 'codex-runtime', state: 'uncertain' }
+      ]);
+      await manager.reconcileMaintenanceState();
+      expect(calls).toEqual(['thread/loaded/list', 'thread/read']);
+      expect(manager.maintenanceBlockers()).toEqual([
+        { kind: 'codex-turn', state: 'active', threadId: 'thread-shared' }
+      ]);
+
+      status = 'idle';
+      manager.invalidateMaintenanceState();
+      await manager.reconcileMaintenanceState();
+      expect(manager.maintenanceBlockers()).toEqual([]);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  test('reports idle, active, and starting turns as typed maintenance state', async () => {
+    const activeProcess = new FakeCodexProcess(standardHandler);
+    const activeManager = new CodexSessionManager({ processFactory: () => activeProcess });
+    try {
+      expect(activeManager.maintenanceBlockers()).toEqual([]);
+      await activeManager.startTurn({
+        operationId: 'operation-active', prompt: 'Keep working', threadId: 'thread-active'
+      });
+      expect(activeManager.maintenanceBlockers()).toEqual([{
+        kind: 'codex-turn', state: 'active', threadId: 'thread-active', turnId: 'turn-1'
+      }]);
+    } finally {
+      await activeManager.close();
+    }
+
+    const startingProcess = new FakeCodexProcess((message, server) => {
+      if (message.method === 'initialize') server.send({ id: message.id, result: {} });
+    });
+    const startingManager = new CodexSessionManager({ processFactory: () => startingProcess });
+    const start = startingManager.startTurn({
+      operationId: 'operation-starting', prompt: 'Begin carefully', threadId: 'thread-starting'
+    });
+    try {
+      await Bun.sleep(0);
+      expect(startingManager.maintenanceBlockers()).toEqual(expect.arrayContaining([
+        { kind: 'codex-turn', state: 'starting', threadId: 'thread-starting' },
+        { kind: 'codex-operation', operationId: 'operation-starting', state: 'uncertain' }
+      ]));
+    } finally {
+      startingProcess.disconnect();
+      await expect(start).rejects.toBeInstanceOf(CodexOperationUncertainError);
+      await startingManager.close();
+    }
+  });
+
+  test('reports pending approvals, user input, and uncertain operations as blockers', async () => {
+    const process = new FakeCodexProcess(standardHandler);
+    const manager = new CodexSessionManager({
+      operationSnapshot: [{
+        fingerprint: 'uncertain-fingerprint',
+        operationId: 'operation-uncertain',
+        state: 'uncertain'
+      }],
+      processFactory: () => process
+    });
+    try {
+      await manager.listThreads();
+      process.send({
+        id: 'approval-1',
+        method: 'item/commandExecution/requestApproval',
+        params: { threadId: 'thread-1', turnId: 'turn-1' }
+      });
+      process.send({
+        id: 2,
+        method: 'item/tool/requestUserInput',
+        params: { threadId: 'thread-2', turnId: 'turn-2' }
+      });
+      await Bun.sleep(0);
+      expect(manager.maintenanceBlockers()).toEqual(expect.arrayContaining([
+        {
+          kind: 'codex-request', requestId: 'approval-1', state: 'waiting-for-approval',
+          threadId: 'thread-1', turnId: 'turn-1'
+        },
+        {
+          kind: 'codex-request', requestId: 2, state: 'waiting-for-user-input',
+          threadId: 'thread-2', turnId: 'turn-2'
+        },
+        { kind: 'codex-operation', operationId: 'operation-uncertain', state: 'uncertain' }
+      ]));
+    } finally {
+      await manager.close();
+    }
+  });
+
   test('steers the exact active turn with text and local images', async () => {
     const process = new FakeCodexProcess(standardHandler);
     const manager = new CodexSessionManager({ processFactory: () => process });

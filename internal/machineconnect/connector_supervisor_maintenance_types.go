@@ -15,9 +15,11 @@ const (
 	ConnectorSupervisorControlSchema          = "project-space.connector-runtime-supervisor-control/v1"
 	ConnectorSupervisorDecisionSchema         = "project-space.connector-runtime-supervisor-decision/v1"
 	ConnectorSupervisorMaintenanceStateSchema = "project-space.connector-runtime-supervisor-state/v1"
+	ConnectorSupervisorOutcomeSchema          = "project-space.connector-runtime-supervisor-outcome/v1"
 
 	ConnectorSupervisorMaintenanceControlEnv     = "PROJECT_CONNECTOR_RUNTIME_CONTROL_FILE"
 	ConnectorSupervisorMaintenanceDecisionEnv    = "PROJECT_CONNECTOR_RUNTIME_DECISION_FILE"
+	ConnectorSupervisorMaintenanceOutcomeEnv     = "PROJECT_CONNECTOR_RUNTIME_OUTCOME_FILE"
 	ConnectorSupervisorMaintenanceStagingEnv     = "PROJECT_CONNECTOR_RUNTIME_STAGING_DIR"
 	ConnectorSupervisorMaintenanceOperationIDEnv = "PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID"
 	ConnectorSupervisorMaintenanceStateEnv       = "PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE"
@@ -27,6 +29,7 @@ const (
 	connectorSupervisorMaintenanceDirectoryName = "maintenance"
 	connectorSupervisorControlFileName          = "control.json"
 	connectorSupervisorDecisionFileName         = "decision.json"
+	connectorSupervisorOutcomeFileName          = "outcome.json"
 	connectorSupervisorStateFileName            = "state.json"
 	connectorSupervisorStagingDirectoryName     = "staging"
 	connectorSupervisorVersionsDirectoryName    = "versions"
@@ -40,6 +43,7 @@ const (
 	defaultConnectorSupervisorMaxExtracted    = int64(4 * 1024 * 1024 * 1024)
 	maximumConnectorSupervisorControlBytes    = 512 * 1024
 	maximumConnectorSupervisorDecisionBytes   = 64 * 1024
+	maximumConnectorSupervisorOutcomeBytes    = 64 * 1024
 	maximumConnectorSupervisorStateBytes      = 64 * 1024
 	maximumConnectorSupervisorArchiveMembers  = 64
 	maximumConnectorSupervisorCapabilityCount = 64
@@ -105,6 +109,7 @@ type ConnectorSupervisorMaintenancePaths struct {
 	CurrentPointer  string
 	DecisionFile    string
 	MaintenanceRoot string
+	OutcomeFile     string
 	StagingRoot     string
 	StateFile       string
 	ToolsRoot       string
@@ -138,6 +143,7 @@ type ConnectorSupervisorMaintenance struct {
 
 	// Tests use these hooks to model process death at durable transition edges.
 	afterPointerSwitch  func() error
+	afterOutcomeWrite   func() error
 	beforePointerSwitch func() error
 }
 
@@ -240,6 +246,7 @@ func NewConnectorSupervisorMaintenance(
 			CurrentPointer:  filepath.Join(toolsRoot, connectorSupervisorCurrentPointerName),
 			DecisionFile:    filepath.Join(maintenanceRoot, connectorSupervisorDecisionFileName),
 			MaintenanceRoot: maintenanceRoot,
+			OutcomeFile:     filepath.Join(maintenanceRoot, connectorSupervisorOutcomeFileName),
 			StagingRoot:     filepath.Join(maintenanceRoot, connectorSupervisorStagingDirectoryName),
 			StateFile:       filepath.Join(maintenanceRoot, connectorSupervisorStateFileName),
 			ToolsRoot:       toolsRoot,
@@ -308,6 +315,7 @@ func (maintenance *ConnectorSupervisorMaintenance) CompanionEnvironment(
 	environment := []string{
 		ConnectorSupervisorMaintenanceControlEnv + "=" + maintenance.paths.ControlFile,
 		ConnectorSupervisorMaintenanceDecisionEnv + "=" + maintenance.paths.DecisionFile,
+		ConnectorSupervisorMaintenanceOutcomeEnv + "=" + maintenance.paths.OutcomeFile,
 		ConnectorSupervisorMaintenanceStagingEnv + "=" + maintenance.paths.StagingRoot,
 		ConnectorCommandSigningKeyFileEnv + "=" + maintenance.commandVerificationKeyFile,
 		ConnectorReleaseSigningKeyFileEnv + "=" + maintenance.releaseVerificationKeyFile,

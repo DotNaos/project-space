@@ -30,6 +30,9 @@ export interface CodexMachine {
   name: string;
   status: CodexMachineStatus;
   lastSeenAt?: string;
+  modelSettingsRecoveryCommand?: string;
+  modelSettingsRecoveryHref?: string;
+  modelSettingsUnavailableReason?: string;
   statusDetail?: string;
   supportsModelSelection?: boolean;
   supportsModelSettings?: boolean;

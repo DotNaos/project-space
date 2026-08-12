@@ -43,6 +43,10 @@ import {
 import type { CodexSessionEventListener } from '../server/codex-sessions/contracts';
 import type { CodexSessionManager } from '../server/codex-sessions/manager';
 import { createLocalProjectSpaceBackend } from '../server/local-project-space-backend';
+import {
+  ConnectorRuntimeMaintenanceAdmission,
+  createConnectorRuntimeMaintenanceSafetyCheck
+} from '../server/connector-runtime-maintenance-safety';
 
 const keys = generateKeyPairSync('ed25519');
 const machineId = 'codex-channel-machine';
@@ -690,7 +694,9 @@ describe('Codex sessions connector channel', () => {
 });
 
 class DispatchManager {
+  invalidations = 0;
   listener?: CodexSessionEventListener;
+  reconciliations = 0;
 
   subscribe(listener: CodexSessionEventListener) {
     this.listener = listener;
@@ -711,6 +717,30 @@ class DispatchManager {
   async readThread() {
     throw new Error('missing thread');
   }
+
+  invalidateMaintenanceState() { this.invalidations += 1; }
+
+  async reconcileMaintenanceState() { this.reconciliations += 1; }
+}
+
+function readyDaemonResult(operation: 'ensure' | 'restart' | 'status', operationId: string) {
+  return {
+    evidence: {
+      authenticated: true,
+      checkedAt: new Date().toISOString(),
+      compatible: true,
+      installed: true,
+      paired: false,
+      reachable: true,
+      remoteControlEnabled: false,
+      remoteControlState: 'disabled' as const,
+      running: true,
+      state: 'ready' as const
+    },
+    operation,
+    operationId,
+    state: 'completed' as const
+  };
 }
 
 describe('Codex sessions connector dispatch', () => {
@@ -832,6 +862,109 @@ describe('Codex sessions connector dispatch', () => {
     await Bun.sleep(0);
 
     expect(order).toEqual(['registry', 'result']);
+    dispatcher.close();
+  });
+
+  test('admitted maintenance rejects daemon repair but keeps daemon status open', async () => {
+    const admission = new ConnectorRuntimeMaintenanceAdmission();
+    const maintenance = createConnectorRuntimeMaintenanceSafetyCheck(
+      admission, { maintenanceBlockers: () => [] }
+    )();
+    const manager = new DispatchManager();
+    const executions: string[] = [];
+    const messages: ConnectorHubMessage[] = [];
+    const dispatcher = new CodexSessionsConnectorDispatcher({
+      daemonManager: {
+        async execute(operation, operationId) {
+          executions.push(operation);
+          return readyDaemonResult(operation, operationId);
+        }
+      },
+      expectedMachineId: machineId,
+      maintenanceAdmission: admission,
+      manager: manager as unknown as CodexSessionManager,
+      verificationKey: keys.publicKey
+    });
+    dispatcher.setExpectedGeneration(23);
+    const request = (operation: 'ensure' | 'status') => createCodexSessionsWireRequest({
+      generation: 23,
+      operation: 'daemon',
+      operationId: `daemon-${operation}-during-maintenance`,
+      payload: {
+        machineId, operation, operationId: `daemon-${operation}-during-maintenance`
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: `nonce-daemon-${operation}-maintenance`, now: Date.now() });
+
+    dispatcher.dispatch('daemon-ensure-busy', request('ensure'), (message) => {
+      messages.push(message);
+    }, () => { throw new Error('valid daemon grant was rejected'); });
+    dispatcher.dispatch('daemon-status-open', request('status'), (message) => {
+      messages.push(message);
+    }, () => { throw new Error('valid daemon grant was rejected'); });
+    await Bun.sleep(0);
+
+    expect(messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'daemon-ensure-busy',
+        payload: expect.objectContaining({ error: { code: 'rejected' } }),
+        type: 'codex.sessions.error'
+      }),
+      expect.objectContaining({ id: 'daemon-status-open', type: 'codex.sessions.result' })
+    ]));
+    expect(executions).toEqual(['status']);
+    expect(manager.invalidations).toBe(0);
+    if (maintenance.certainty === 'known') maintenance.lease?.release();
+    dispatcher.close();
+  });
+
+  test('daemon repair reserves activity before runtime maintenance checks', async () => {
+    let finish!: () => void;
+    const barrier = new Promise<void>((resolve) => { finish = resolve; });
+    const admission = new ConnectorRuntimeMaintenanceAdmission();
+    const manager = new DispatchManager();
+    const messages: ConnectorHubMessage[] = [];
+    const dispatcher = new CodexSessionsConnectorDispatcher({
+      daemonManager: {
+        async execute(operation, operationId) {
+          await barrier;
+          return readyDaemonResult(operation, operationId);
+        }
+      },
+      expectedMachineId: machineId,
+      maintenanceAdmission: admission,
+      manager: manager as unknown as CodexSessionManager,
+      verificationKey: keys.publicKey
+    });
+    dispatcher.setExpectedGeneration(24);
+    const request = createCodexSessionsWireRequest({
+      generation: 24,
+      operation: 'daemon',
+      operationId: 'daemon-ensure-wins-race',
+      payload: {
+        machineId, operation: 'ensure', operationId: 'daemon-ensure-wins-race'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey, { nonce: 'nonce-daemon-ensure-wins-race', now: Date.now() });
+
+    dispatcher.dispatch('daemon-ensure-race', request, (message) => messages.push(message), () => {
+      throw new Error('valid daemon grant was rejected');
+    });
+    expect(manager.invalidations).toBe(1);
+    expect(createConnectorRuntimeMaintenanceSafetyCheck(
+      admission, { maintenanceBlockers: () => [] }
+    )()).toEqual({
+      blockers: [{ count: 1, kind: 'connector-activity', scope: 'daemon' }],
+      certainty: 'known'
+    });
+
+    finish();
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    expect(messages).toEqual([
+      expect.objectContaining({ id: 'daemon-ensure-race', type: 'codex.sessions.result' })
+    ]);
+    expect(manager.reconciliations).toBe(1);
     dispatcher.close();
   });
 

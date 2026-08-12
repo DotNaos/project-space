@@ -146,6 +146,26 @@ describe('codexThreadDirectory', () => {
     expect(directory[0].entries).toHaveLength(2);
   });
 
+  test('never groups a connector by the first of conflicting physical records', () => {
+    const physicalMachines: PhysicalMachineRecord[] = [
+      { connectorIds: ['connector-a'], id: 'physical-first', name: 'First' },
+      { connectorIds: ['connector-a'], id: 'physical-second', name: 'Second' }
+    ];
+    const input = {
+      machines: [machine({ id: 'connector-a', name: 'Exact connector' })],
+      projects,
+      sessions: [session({ machineId: 'connector-a', threadId: 'a' })]
+    };
+    const forward = codexThreadDirectory({ ...input, physicalMachines });
+    const reversed = codexThreadDirectory({
+      ...input,
+      physicalMachines: [...physicalMachines].reverse()
+    });
+
+    expect(forward).toEqual(reversed);
+    expect(forward).toMatchObject([{ id: 'connector-a', name: 'Exact connector' }]);
+  });
+
   test('marks attention states as active work', () => {
     const [macbook] = codexThreadDirectory({
       machines: [machine({ id: 'os-macbook' })],

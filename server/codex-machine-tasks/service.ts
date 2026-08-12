@@ -300,6 +300,28 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         ? operation.durableOperations
         : reservation.durableOperations;
       operation.generation = executionGeneration;
+      if (reservation.kind === 'new') {
+        try {
+          const revalidated = await target(actor.userId, {
+            connectorId: selected.connector.id,
+            physicalMachineId: selected.physicalMachine.id
+          });
+          if (revalidated.connector.generation !== executionGeneration) {
+            await options.store.releaseStart(operation);
+            return blocked(
+              request.operationId,
+              'stale_connector',
+              'The connector changed before the task could be dispatched.',
+              revalidated
+            );
+          }
+          selected = revalidated;
+        } catch (error) {
+          if (!(error instanceof CodexMachineTaskTargetError)) throw error;
+          await options.store.releaseStart(operation);
+          return blocked(request.operationId, error.reason, error.message, selected);
+        }
+      }
       const start = await options.start({
         branch: issue.branch,
         commit: issue.commit,

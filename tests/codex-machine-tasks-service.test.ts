@@ -77,6 +77,54 @@ describe('Codex machine-task service', () => {
     }));
   });
 
+  test('revalidates runtime maintenance after reservation and before dispatch', async () => {
+    const store = memoryStore();
+    let inventoryCalls = 0;
+    let starts = 0;
+    const tasks = service({
+      inventory: async () => {
+        inventoryCalls += 1;
+        return {
+          connectors: [connector()],
+          physicalMachines: [{
+            connectorIds: ['connector-local'], id: 'physical-local', name: 'Mac'
+          }],
+          ...(inventoryCalls === 1 ? {} : {
+            runtimeStatuses: new Map([['connector-local', {
+              capabilities: ['codex.machine-tasks.v1', 'runtime.update'],
+              machineId: 'connector-local',
+              online: true,
+              update: {
+                operation: {
+                  createdAt: '2026-08-10T00:00:00.000Z',
+                  id: 'runtime-update-race',
+                  machineId: 'connector-local',
+                  operation: 'update',
+                  requestedByUserId: 'system:connector-auto-update',
+                  state: 'queued',
+                  updatedAt: '2026-08-10T00:00:00.000Z'
+                },
+                state: 'update-pending'
+              }
+            }]])
+          })
+        };
+      },
+      start: async () => {
+        starts += 1;
+        return { state: 'confirmed', threadId, worktreeId: 'must-not-start' };
+      },
+      store
+    });
+
+    expect(await tasks.start({ userId: 'user-owner' }, request)).toMatchObject({
+      reason: 'machine_not_ready', state: 'blocked'
+    });
+    expect(inventoryCalls).toBe(2);
+    expect(starts).toBe(0);
+    expect(store.operations.has(request.operationId)).toBe(false);
+  });
+
   test('replays a completed start before consulting live target or GitHub state', async () => {
     const store = memoryStore();
     const first = await service({ store }).start({ userId: 'user-owner' }, request);

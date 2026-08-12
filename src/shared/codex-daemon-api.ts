@@ -22,11 +22,13 @@ export type CodexRemoteControlState =
 export interface CodexDaemonEvidence {
   appServerVersion?: string;
   authenticated: boolean;
+  backend?: string;
   checkedAt: string;
   cliVersion?: string;
   compatible: boolean;
   environmentId?: string;
   installed: boolean;
+  managedCodexVersion?: string;
   paired: boolean;
   reachable: boolean;
   remoteControlEnabled: boolean;
@@ -36,6 +38,11 @@ export interface CodexDaemonEvidence {
 }
 
 export function codexDaemonEvidenceIsConsistent(evidence: CodexDaemonEvidence) {
+  if (evidence.backend !== undefined && evidence.backend.length === 0) return false;
+  if (evidence.state === 'ready' && evidence.managedCodexVersion && (
+    evidence.managedCodexVersion !== evidence.cliVersion ||
+    evidence.managedCodexVersion !== evidence.appServerVersion
+  )) return false;
   if (evidence.compatible && (!evidence.installed || !evidence.running)) return false;
   if (evidence.reachable && !evidence.running) return false;
   if (evidence.authenticated && !evidence.reachable) return false;
@@ -48,6 +55,7 @@ export function codexDaemonEvidenceIsConsistent(evidence: CodexDaemonEvidence) {
   if (evidence.state !== 'ready') return true;
   return Boolean(
     evidence.authenticated &&
+    (evidence.backend === undefined || evidence.backend === 'pid') &&
     evidence.compatible &&
     evidence.installed &&
     evidence.reachable &&

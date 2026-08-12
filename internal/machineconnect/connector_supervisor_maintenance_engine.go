@@ -2,6 +2,7 @@ package machineconnect
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"time"
@@ -84,6 +85,9 @@ func (maintenance *ConnectorSupervisorMaintenance) RecoverStartup() (
 				errors.New("managed pointer changed during health verification"),
 			)
 		}
+		if result, accepted, outcomeErr := maintenance.recoverAcceptedCommit(state); accepted || outcomeErr != nil {
+			return result, outcomeErr
+		}
 	case connectorSupervisorPhaseRolledBack:
 		if state.Operation == ConnectorSupervisorMaintenanceUpdate {
 			current, pointerErr := readManagedPointer(
@@ -135,6 +139,16 @@ func (maintenance *ConnectorSupervisorMaintenance) ProcessControl() (
 ) {
 	if err := maintenance.ensureDirectories(); err != nil {
 		return ConnectorSupervisorMaintenanceResult{}, err
+	}
+	if outcome, err := maintenance.readCommitOutcome(); err == nil {
+		maintenance.discardControl(nil)
+		return ConnectorSupervisorMaintenanceResult{}, maintenanceError(
+			"outcome-pending",
+			fmt.Errorf("commit outcome %s is awaiting connector acknowledgement", outcome.OperationID),
+		)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		maintenance.discardControl(nil)
+		return ConnectorSupervisorMaintenanceResult{}, maintenanceError("invalid-outcome", err)
 	}
 	if state, err := maintenance.readState(); err == nil {
 		if state.Phase != connectorSupervisorPhaseRolledBack &&
@@ -311,9 +325,6 @@ func (maintenance *ConnectorSupervisorMaintenance) CheckHealthDecision() (
 			errors.New("health decision does not match the pending operation"),
 		)
 	}
-	if err := removeIfExists(maintenance.paths.DecisionFile); err != nil {
-		return ConnectorSupervisorMaintenanceResult{}, false, maintenanceError("decision-cleanup", err)
-	}
 	if decision.Action == "rollback" {
 		result, rollbackErr := maintenance.handleHealthFailure(state, "health-rejected")
 		return result, true, rollbackErr
@@ -330,14 +341,16 @@ func (maintenance *ConnectorSupervisorMaintenance) CheckHealthDecision() (
 		)
 		return result, true, recoveryErr
 	}
-	if err := maintenance.removeState(); err != nil {
-		return ConnectorSupervisorMaintenanceResult{}, true, stateError("commit-cleanup", err)
+	if err := maintenance.writeCommitOutcome(state.OperationID); err != nil {
+		return ConnectorSupervisorMaintenanceResult{}, true, err
 	}
-	return ConnectorSupervisorMaintenanceResult{
-		Operation:   state.Operation,
-		OperationID: state.OperationID,
-		Outcome:     ConnectorSupervisorMaintenanceSucceeded,
-	}, true, nil
+	if maintenance.afterOutcomeWrite != nil {
+		if err := maintenance.afterOutcomeWrite(); err != nil {
+			return ConnectorSupervisorMaintenanceResult{}, true, err
+		}
+	}
+	result, err := maintenance.finalizeAcceptedCommit(state)
+	return result, true, err
 }
 
 func (maintenance *ConnectorSupervisorMaintenance) HandleHealthTimeout() (
@@ -354,6 +367,9 @@ func (maintenance *ConnectorSupervisorMaintenance) HandleHealthTimeout() (
 	deadline, _ := time.Parse(time.RFC3339Nano, state.DeadlineAt)
 	if maintenance.now().Before(deadline) {
 		return pendingConnectorSupervisorResult(state), nil
+	}
+	if result, accepted, outcomeErr := maintenance.recoverAcceptedCommit(state); accepted || outcomeErr != nil {
+		return result, outcomeErr
 	}
 	return maintenance.handleHealthFailure(state, "health-timeout")
 }

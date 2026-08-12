@@ -21,6 +21,7 @@ export interface MachineListRow {
   /** Connector installation used to render the device and platform marks. */
   device: ConnectorInstallationRecord;
   id: string;
+  hasIdentityConflict: boolean;
   instances: SettingsConnectorInstance[];
   isGrouped: boolean;
   isOnline: boolean;
@@ -57,6 +58,7 @@ function searchTerms(name: string, instances: readonly SettingsConnectorInstance
  * own row so the list never hides a reachable machine behind a group.
  */
 export function machineListRows(grouping: SettingsMachineGroupingResult): MachineListRow[] {
+  const conflicts = new Set(grouping.scopeConflicts.map(({ machineId }) => machineId));
   const groupRows = grouping.groups.flatMap<MachineListRow>((group) => {
     const device = group.instances[0]?.machine ?? group.archivedInstances[0]?.machine;
     if (!device) return [];
@@ -64,6 +66,7 @@ export function machineListRows(grouping: SettingsMachineGroupingResult): Machin
     return [{
       connectorCount: group.connectorCount,
       device,
+      hasIdentityConflict: false,
       id: group.id,
       instances: group.instances,
       isGrouped: true,
@@ -78,6 +81,7 @@ export function machineListRows(grouping: SettingsMachineGroupingResult): Machin
   const unscopedRows = grouping.unscopedInstances.map<MachineListRow>((instance) => ({
     connectorCount: 1,
     device: instance.machine,
+    hasIdentityConflict: conflicts.has(instance.id),
     id: instance.id,
     instances: [instance],
     isGrouped: false,

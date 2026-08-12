@@ -205,6 +205,22 @@ describe('canonical machine readiness model', () => {
     }).state).toBe('unreachable');
   });
 
+  test('blocks a stale managed connector that has no executable update action', () => {
+    const result = diagnose({
+      connector: connector({
+        capabilities: ['codex.machine-tasks.v1', 'runtime.restart']
+      }),
+      generation: 4,
+      runtimeStatus: {
+        ...status('update-required'),
+        capabilities: ['codex.machine-tasks.v1', 'runtime.restart']
+      }
+    });
+
+    expect(result).toMatchObject({ ready: false, state: 'manually-blocked' });
+    expect(result.plan).toBeUndefined();
+  });
+
   test('preserves repairing, rollback, failed, and recovery states', () => {
     for (const [operationState, readinessState] of [
       ['reconnecting', 'repairing'],
@@ -269,7 +285,7 @@ describe('canonical machine readiness model', () => {
           toVersion: '0.4.10'
         }]
       },
-      ready: true,
+      ready: false,
       state: 'degraded'
     });
   });
@@ -309,7 +325,7 @@ describe('canonical machine readiness model', () => {
         operation: 'update',
         releaseId: 'v0.4.10'
       }] },
-      ready: true,
+      ready: false,
       state: 'degraded'
     });
     for (const rejectedOperation of [
@@ -389,5 +405,26 @@ describe('canonical machine readiness model', () => {
       }]
     });
     expect(result.state).toBe('ambiguous');
+  });
+
+  test('fails closed when one connector is assigned to multiple physical machines', () => {
+    const result = evaluateMachineReadiness({
+      checkedAt: '2026-07-24T00:00:00.000Z',
+      connectorId: 'linux-stable',
+      connectors: [connector({ capabilities: ['codex.machine-tasks.v1'] })],
+      generationFor: () => 1,
+      physicalMachineId: 'physical-pc',
+      physicalMachines: [
+        ...physicalMachines,
+        { connectorIds: ['linux-stable'], id: 'physical-other', name: 'os-other' }
+      ]
+    });
+
+    expect(result).toMatchObject({
+      message: 'Connector linux-stable is assigned to more than one physical machine.',
+      ready: false,
+      state: 'ambiguous'
+    });
+    expect(result.selectedConnectorId).toBeUndefined();
   });
 });

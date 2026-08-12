@@ -1,8 +1,7 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { constants, realpathSync } from 'node:fs';
-import { access, chmod, copyFile, lstat, mkdir, realpath, rename, rm } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 import type {
   CodexDaemonConnectorResult,
@@ -15,9 +14,15 @@ import type { CodexSessionManager } from '../codex-sessions/manager';
 import { CodexOperationUncertainError } from '../codex-sessions/operation-ledger';
 import {
   CodexWebSocketTransport,
-  codexAppServerSocketPath,
-  resolveCodexHome
+  codexAppServerSocketPath
 } from '../codex-sessions/websocket-transport';
+import {
+  commitManagedCodexBinarySelection,
+  managedCodexBinaryInstalled,
+  provisionExactManagedCodexBinary,
+  restorePreviousManagedCodexBinary
+} from './managed-binary';
+import { recoverConnectorRuntimeSupervisorOutcome } from '../connector-runtime-supervisor-outcome';
 
 type CommandResult = { exitCode: number | null; stdout: string };
 
@@ -84,7 +89,7 @@ export class CodexDaemonManager {
     if (!binaryPath) return baseEvidence(checkedAt, 'missing');
     const lifecycle = await this.lifecycle(binaryPath, 'version');
     if (!lifecycle) {
-      const managedInstalled = await this.managedBinaryInstalled();
+      const managedInstalled = await managedCodexBinaryInstalled(this.environment);
       return {
         ...baseEvidence(checkedAt, managedInstalled ? 'stopped' : 'missing'),
         cliVersion: await this.binaryVersion(binaryPath),
@@ -94,7 +99,7 @@ export class CodexDaemonManager {
     const running = lifecycle.status === 'running' ||
       lifecycle.status === 'alreadyRunning' ||
       Boolean(lifecycle.appServerVersion);
-    const managedInstalled = await this.managedBinaryInstalled();
+    const managedInstalled = await managedCodexBinaryInstalled(this.environment);
     const managedRunning = lifecycle.backend === 'pid' &&
       Boolean(lifecycle.managedCodexVersion);
     const compatible = Boolean(
@@ -115,8 +120,12 @@ export class CodexDaemonManager {
       return {
         ...baseEvidence(checkedAt, 'uncertain'),
         appServerVersion: lifecycle.appServerVersion,
+        ...(lifecycle.backend ? { backend: lifecycle.backend } : {}),
         cliVersion: lifecycle.cliVersion,
         installed: managedInstalled,
+        ...(lifecycle.managedCodexVersion
+          ? { managedCodexVersion: lifecycle.managedCodexVersion }
+          : {}),
         running: true
       };
     }
@@ -124,7 +133,11 @@ export class CodexDaemonManager {
       return {
         ...baseEvidence(checkedAt, 'missing'),
         appServerVersion: lifecycle.appServerVersion,
+        ...(lifecycle.backend ? { backend: lifecycle.backend } : {}),
         cliVersion: lifecycle.cliVersion,
+        ...(lifecycle.managedCodexVersion
+          ? { managedCodexVersion: lifecycle.managedCodexVersion }
+          : {}),
         running: true
       };
     }
@@ -133,9 +146,13 @@ export class CodexDaemonManager {
       return {
         ...baseEvidence(checkedAt, 'uncertain'),
         appServerVersion: lifecycle.appServerVersion,
+        ...(lifecycle.backend ? { backend: lifecycle.backend } : {}),
         cliVersion: lifecycle.cliVersion,
         compatible,
         installed: managedInstalled,
+        ...(lifecycle.managedCodexVersion
+          ? { managedCodexVersion: lifecycle.managedCodexVersion }
+          : {}),
         running: true
       };
     }
@@ -169,11 +186,15 @@ export class CodexDaemonManager {
       return {
         appServerVersion: lifecycle.appServerVersion,
         authenticated,
+        ...(lifecycle.backend ? { backend: lifecycle.backend } : {}),
         checkedAt,
         cliVersion: lifecycle.cliVersion,
         compatible,
         ...(remote.environmentId ? { environmentId: remote.environmentId } : {}),
         installed: managedInstalled,
+        ...(lifecycle.managedCodexVersion
+          ? { managedCodexVersion: lifecycle.managedCodexVersion }
+          : {}),
         paired,
         reachable: true,
         remoteControlEnabled: enabled,
@@ -185,9 +206,13 @@ export class CodexDaemonManager {
       return {
         ...baseEvidence(checkedAt, compatible ? 'uncertain' : 'incompatible'),
         appServerVersion: lifecycle.appServerVersion,
+        ...(lifecycle.backend ? { backend: lifecycle.backend } : {}),
         cliVersion: lifecycle.cliVersion,
         compatible,
         installed: managedInstalled,
+        ...(lifecycle.managedCodexVersion
+          ? { managedCodexVersion: lifecycle.managedCodexVersion }
+          : {}),
         remoteControlEnabled: lifecycle.remoteControlEnabled === true,
         running: true
       };
@@ -196,10 +221,38 @@ export class CodexDaemonManager {
     }
   }
 
+  async restoreMaintenanceSelection(operationId: string) {
+    return this.serializeMutation(async () => {
+      this.requireSupported();
+      const binaryPath = this.requireBinary();
+      const restored = await restorePreviousManagedCodexBinary({
+        environment: this.environment,
+        operationId
+      });
+      if (restored.found) {
+        // A failed restart remains visible in the fresh evidence collected by
+        // the reconnect path; the durable pointer restoration is the hard gate.
+        await this.lifecycle(binaryPath, 'restart');
+      }
+      return restored;
+    });
+  }
+
+  async commitMaintenanceSelection(operationId: string) {
+    return this.serializeMutation(() => this.commitMaintenanceSelectionUnlocked(operationId));
+  }
+
+  async recoverMaintenanceSelectionOutcome() {
+    return this.serializeMutation(() => recoverConnectorRuntimeSupervisorOutcome({
+      commit: (operationId) => this.commitMaintenanceSelectionUnlocked(operationId),
+      environment: this.environment
+    }));
+  }
+
   private async ensure() {
     this.requireSupported();
     const binaryPath = this.requireBinary();
-    await this.provisionManagedBinary(binaryPath);
+    await this.provisionExactManagedBinary(binaryPath);
     await this.requireLifecycle(binaryPath, 'start');
     const evidence = await this.inspect();
     if (evidence.state !== 'incompatible') return evidence;
@@ -210,61 +263,9 @@ export class CodexDaemonManager {
   private async restart() {
     this.requireSupported();
     const binaryPath = this.requireBinary();
-    await this.provisionManagedBinary(binaryPath);
+    await this.provisionExactManagedBinary(binaryPath);
     await this.requireLifecycle(binaryPath, 'restart');
     return this.inspect();
-  }
-
-  private async provisionManagedBinary(binaryPath: string) {
-    if (this.environment.PROJECT_SPACE_INSTALL_SOURCE !== 'managed') {
-      throw new Error(
-        'Doctor will not create a managed Codex installation from an unpinned runtime.'
-      );
-    }
-    if (await this.managedBinaryInstalled()) return;
-    const codexHome = resolveCodexHome(this.environment);
-    const managedPath = join(codexHome, 'packages', 'standalone', 'current', 'codex');
-    const managedDirectory = dirname(managedPath);
-    await mkdir(managedDirectory, { recursive: true, mode: 0o700 });
-    const existing = await lstat(managedPath).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return undefined;
-      throw error;
-    });
-    if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
-      throw new Error('The managed Codex binary path is not a regular file.');
-    }
-    const temporaryPath = join(
-      managedDirectory,
-      `.project-space-codex-${randomBytes(12).toString('hex')}.tmp`
-    );
-    try {
-      await copyFile(binaryPath, temporaryPath, constants.COPYFILE_EXCL);
-      await chmod(temporaryPath, 0o755);
-      await rename(temporaryPath, managedPath);
-    } finally {
-      await rm(temporaryPath, { force: true }).catch(() => undefined);
-    }
-    await access(managedPath, constants.X_OK);
-  }
-
-  private async managedBinaryInstalled() {
-    const codexHome = resolveCodexHome(this.environment);
-    const standaloneRoot = join(codexHome, 'packages', 'standalone');
-    const path = join(standaloneRoot, 'current', 'codex');
-    try {
-      const [resolvedRoot, resolvedPath] = await Promise.all([
-        realpath(standaloneRoot),
-        realpath(path)
-      ]);
-      const relativePath = relative(resolvedRoot, resolvedPath);
-      if (isAbsolute(relativePath) || relativePath === '..' ||
-          relativePath.startsWith(`..${sep}`)) return false;
-      const status = await lstat(resolvedPath);
-      return status.isFile() && !status.isSymbolicLink() &&
-        (status.mode & 0o111) !== 0 && (status.mode & 0o022) === 0;
-    } catch {
-      return false;
-    }
   }
 
   private async binaryVersion(binaryPath: string) {
@@ -273,6 +274,37 @@ export class CodexDaemonManager {
       ? /^codex-cli\s+(\S+)\s*$/.exec(result.stdout)
       : undefined;
     return match?.[1];
+  }
+
+  private async provisionExactManagedBinary(binaryPath: string) {
+    const version = await this.binaryVersion(binaryPath);
+    if (!version) {
+      throw new Error('The signed Codex runtime did not report an exact version.');
+    }
+    await provisionExactManagedCodexBinary({
+      environment: this.environment,
+      ...(this.environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_STATE ===
+        'pending-health-check' &&
+        this.environment.PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID?.trim()
+        ? {
+            operationId: this.environment
+              .PROJECT_CONNECTOR_RUNTIME_MAINTENANCE_OPERATION_ID.trim()
+          }
+        : {}),
+      sourcePath: binaryPath,
+      version
+    });
+  }
+
+  private async commitMaintenanceSelectionUnlocked(operationId: string) {
+    const committed = await commitManagedCodexBinarySelection({
+      environment: this.environment,
+      operationId
+    });
+    if (!committed.found) {
+      throw new Error('The staged managed Codex selection is unavailable.');
+    }
+    return committed;
   }
 
   private lifecycle(binaryPath: string, command: string) {

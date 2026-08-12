@@ -29,6 +29,11 @@ import {
   type ConnectorRuntimeCommandStageEvent
 } from '../server/connector-runtime-command-executor';
 import {
+  ConnectorRuntimeMaintenanceAdmission,
+  createConnectorRuntimeMaintenanceSafetyCheck,
+  type ConnectorRuntimeMaintenanceSafetyCheck
+} from '../server/connector-runtime-maintenance-safety';
+import {
   canonicalConnectorRuntimeReleaseManifest,
   connectorRuntimeReleaseManifestSchema,
   type ConnectorRuntimeReleaseManifest,
@@ -137,10 +142,15 @@ function workspace() {
 function executor(input: {
   control: string;
   fetchArtifact?: (url: string, init: RequestInit) => Promise<Response>;
+  maintenanceSafety?: ConnectorRuntimeMaintenanceSafetyCheck;
   shutdowns: ConnectorRuntimeCommandAcceptedResult[];
   stages: ConnectorRuntimeCommandStageEvent[];
   staging: string;
 }) {
+  const maintenanceSafety = input.maintenanceSafety ?? createConnectorRuntimeMaintenanceSafetyCheck(
+    new ConnectorRuntimeMaintenanceAdmission(),
+    { maintenanceBlockers: () => [] }
+  );
   return new ConnectorRuntimeCommandExecutor({
     commandVerificationKey: commandKeys.publicKey,
     controlFilePath: input.control,
@@ -149,6 +159,7 @@ function executor(input: {
     expectedMachineId: 'machine-1',
     expectedTarget: 'darwin-arm64',
     fetchArtifact: input.fetchArtifact,
+    maintenanceSafety,
     now: () => now,
     releaseVerificationKey: releaseKeys.publicKey,
     shutdown: async (result) => {
@@ -161,6 +172,171 @@ function executor(input: {
 }
 
 describe('connector runtime command executor', () => {
+  test('allows the same signed operation to retry after a busy deferral', async () => {
+    const paths = workspace();
+    const admission = new ConnectorRuntimeMaintenanceAdmission();
+    let busy = true;
+    const runtimeExecutor = executor({
+      control: paths.control,
+      maintenanceSafety: createConnectorRuntimeMaintenanceSafetyCheck(
+        admission,
+        {
+          maintenanceBlockers: () => busy
+            ? [{ kind: 'codex-turn', state: 'active', threadId: 'thread-busy' }]
+            : []
+        }
+      ),
+      shutdowns: [],
+      stages: [],
+      staging: paths.staging
+    });
+    const request = command('restart');
+    try {
+      await expect(runtimeExecutor.execute(request)).rejects.toMatchObject({
+        code: 'codex-turn-active'
+      });
+      busy = false;
+      await expect(runtimeExecutor.execute(request)).resolves.toMatchObject({
+        operationId: 'operation-restart',
+        status: 'accepted'
+      });
+    } finally {
+      rmSync(paths.root, { force: true, recursive: true });
+    }
+  });
+
+  test('rejects blockers and uncertain safety checks before runtime side effects', async () => {
+    const checks: Array<{
+      code: string;
+      maintenanceSafety: ConnectorRuntimeMaintenanceSafetyCheck;
+    }> = [
+      {
+        code: 'codex-turn-active',
+        maintenanceSafety: () => ({
+          blockers: [{ kind: 'codex-turn', state: 'active', threadId: 'thread-1' }],
+          certainty: 'known'
+        })
+      },
+      {
+        code: 'codex-turn-starting',
+        maintenanceSafety: () => ({
+          blockers: [{ kind: 'codex-turn', state: 'starting', threadId: 'thread-2' }],
+          certainty: 'known'
+        })
+      },
+      {
+        code: 'codex-waiting-approval',
+        maintenanceSafety: () => ({
+          blockers: [{
+            kind: 'codex-request', requestId: 1, state: 'waiting-for-approval',
+            threadId: 'thread-3'
+          }],
+          certainty: 'known'
+        })
+      },
+      {
+        code: 'codex-waiting-input',
+        maintenanceSafety: () => ({
+          blockers: [{
+            kind: 'codex-request', requestId: 2, state: 'waiting-for-user-input',
+            threadId: 'thread-4'
+          }],
+          certainty: 'known'
+        })
+      },
+      {
+        code: 'codex-state-uncertain',
+        maintenanceSafety: () => ({
+          blockers: [{ kind: 'codex-runtime', state: 'uncertain' }], certainty: 'known'
+        })
+      },
+      {
+        code: 'machine-mutation',
+        maintenanceSafety: () => ({
+          blockers: [{ count: 1, kind: 'connector-activity', scope: 'terminal' }],
+          certainty: 'known'
+        })
+      },
+      {
+        code: 'codex-turn-active',
+        maintenanceSafety: () => ({
+          blockers: [{ count: 1, kind: 'connector-activity', scope: 'codex-chat' }],
+          certainty: 'known'
+        })
+      },
+      { code: 'codex-state-uncertain', maintenanceSafety: () => ({ certainty: 'uncertain' }) },
+      {
+        code: 'codex-state-uncertain',
+        maintenanceSafety: () => { throw new Error('state unavailable'); }
+      }
+    ];
+    for (const { code, maintenanceSafety } of checks) {
+      const paths = workspace();
+      const stages: ConnectorRuntimeCommandStageEvent[] = [];
+      const shutdowns: ConnectorRuntimeCommandAcceptedResult[] = [];
+      let fetched = false;
+      try {
+        await expect(executor({
+          control: paths.control,
+          fetchArtifact: async () => {
+            fetched = true;
+            return new Response(artifactBytes);
+          },
+          maintenanceSafety,
+          shutdowns,
+          stages,
+          staging: paths.staging
+        }).execute(command('restart'))).rejects.toMatchObject({ code });
+        expect(existsSync(paths.control)).toBe(false);
+        expect(existsSync(paths.staging)).toBe(false);
+        expect(fetched).toBe(false);
+        expect(shutdowns).toEqual([]);
+        expect(stages).toEqual([]);
+      } finally {
+        rmSync(paths.root, { force: true, recursive: true });
+      }
+    }
+  });
+
+  test('releases failed maintenance admission and keeps published maintenance closed', async () => {
+    const failedAdmission = new ConnectorRuntimeMaintenanceAdmission();
+    const failedPaths = workspace();
+    try {
+      await expect(executor({
+        control: failedPaths.control,
+        fetchArtifact: async () => { throw new Error('download failed'); },
+        maintenanceSafety: createConnectorRuntimeMaintenanceSafetyCheck(
+          failedAdmission, { maintenanceBlockers: () => [] }
+        ),
+        shutdowns: [],
+        stages: [],
+        staging: failedPaths.staging
+      }).execute(command('update'))).rejects.toMatchObject({ code: 'download-failed' });
+      const activity = failedAdmission.tryBeginActivity('codex');
+      expect(activity).toBeDefined();
+      activity?.release();
+    } finally {
+      rmSync(failedPaths.root, { force: true, recursive: true });
+    }
+
+    const acceptedAdmission = new ConnectorRuntimeMaintenanceAdmission();
+    const acceptedPaths = workspace();
+    try {
+      await executor({
+        control: acceptedPaths.control,
+        maintenanceSafety: createConnectorRuntimeMaintenanceSafetyCheck(
+          acceptedAdmission, { maintenanceBlockers: () => [] }
+        ),
+        shutdowns: [],
+        stages: [],
+        staging: acceptedPaths.staging
+      }).execute(command('restart'));
+      expect(acceptedAdmission.tryBeginActivity('codex')).toBeUndefined();
+    } finally {
+      rmSync(acceptedPaths.root, { force: true, recursive: true });
+    }
+  });
+
   test('accepts restart while current without downloading or inventing an artifact', async () => {
     const paths = workspace();
     const stages: ConnectorRuntimeCommandStageEvent[] = [];

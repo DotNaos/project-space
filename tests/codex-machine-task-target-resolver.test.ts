@@ -101,6 +101,19 @@ describe('Codex machine-task target resolution', () => {
     });
   });
 
+  test('fails closed when the connector has conflicting physical identities', () => {
+    expect(() => resolveCodexMachineTaskTarget({
+      connectorId: 'mac-local',
+      connectors: [connector('mac-local')],
+      generationFor: () => 7,
+      physicalMachineId: 'physical-local',
+      physicalMachines: [
+        ...physicalMachines,
+        { connectorIds: ['mac-local'], id: 'physical-duplicate', name: 'duplicate' }
+      ]
+    })).toThrow(expect.objectContaining({ reason: 'connector_required' }));
+  });
+
   test('reports offline, incapable, stale, and unauthorized targets honestly', () => {
     const cases: Array<[MachineRecord, CodexMachineTaskTargetError['reason']]> = [
       [connector('mac-local', { connector: { installCommand: '', status: 'offline' } }), 'offline'],
@@ -135,5 +148,47 @@ describe('Codex machine-task target resolution', () => {
       physicalMachines,
       userCanUseConnector: () => false
     })).toThrow(expect.objectContaining({ reason: 'unauthorized' }));
+  });
+
+  test('blocks a live task session while its signed connector update is pending', () => {
+    const candidate = connector('mac-local', { connector: {
+      capabilities: [CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY, 'runtime.update'],
+      installCommand: '',
+      runtime: {
+        architecture: 'arm64',
+        buildId: '0'.repeat(40),
+        bundleVersions: {
+          connector: '0.4.0', machineTools: '0.4.0', projectCli: '0.4.0'
+        },
+        channel: 'stable',
+        instanceId: 'runtime-before',
+        lastCheckedAt: '2026-08-10T00:00:00.000Z',
+        platform: 'darwin',
+        protocolVersion: '2',
+        releaseId: 'v0.4.0',
+        source: 'managed',
+        version: '0.4.0'
+      },
+      status: 'online'
+    } });
+    const runtimeStatuses = new Map([['mac-local', {
+      capabilities: candidate.connector.capabilities!,
+      machineId: 'mac-local',
+      online: true,
+      runtime: candidate.connector.runtime,
+      update: {
+        availableReleaseId: 'v0.5.0',
+        availableVersion: '0.5.0',
+        state: 'update-available' as const
+      }
+    }]]);
+
+    expect(() => resolveCodexMachineTaskTarget({
+      connectors: [candidate],
+      generationFor: () => 9,
+      physicalMachineId: 'physical-local',
+      physicalMachines,
+      runtimeStatuses
+    })).toThrow(expect.objectContaining({ reason: 'machine_not_ready' }));
   });
 });

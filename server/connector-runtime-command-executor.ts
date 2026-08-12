@@ -19,6 +19,12 @@ import {
   type ConnectorRuntimeCommandWireRequest
 } from './connector-runtime-command-contract';
 import type { ConnectorRuntimeReleaseTarget } from './connector-runtime-maintenance-contract';
+import type {
+  ConnectorRuntimeMaintenanceBlocker,
+  ConnectorRuntimeMaintenanceLease,
+  ConnectorRuntimeMaintenanceSafetyCheck,
+  ConnectorRuntimeMaintenanceSafetyResult
+} from './connector-runtime-maintenance-safety';
 
 export const connectorRuntimeSupervisorControlSchema =
   'project-space.connector-runtime-supervisor-control/v1' as const;
@@ -59,10 +65,18 @@ export type ConnectorRuntimeSupervisorControlRequest =
     };
 
 export type ConnectorRuntimeCommandExecutorErrorCode =
+  | 'busy'
+  | 'codex-state-uncertain'
+  | 'codex-turn-active'
+  | 'codex-turn-starting'
+  | 'codex-waiting-approval'
+  | 'codex-waiting-input'
   | 'control-conflict'
   | 'download-failed'
   | 'integrity-failed'
-  | 'invalid-configuration';
+  | 'invalid-configuration'
+  | 'machine-mutation'
+  | 'maintenance-in-progress';
 
 export class ConnectorRuntimeCommandExecutorError extends Error {
   constructor(readonly code: ConnectorRuntimeCommandExecutorErrorCode) {
@@ -81,6 +95,7 @@ export interface ConnectorRuntimeCommandExecutorOptions {
   expectedMachineId: string;
   expectedTarget: ConnectorRuntimeReleaseTarget;
   fetchArtifact?: FetchArtifact;
+  maintenanceSafety: ConnectorRuntimeMaintenanceSafetyCheck;
   now?(): number;
   releaseVerificationKey?: Buffer | KeyLike | string;
   replayProtection?: ConnectorRuntimeCommandReplayProtection;
@@ -127,6 +142,60 @@ async function ensurePrivateDirectory(path: string) {
 
 function operationKey(operationId: string) {
   return createHash('sha256').update(operationId, 'utf8').digest('hex').slice(0, 24);
+}
+
+function requireMaintenanceSafety(
+  check: ConnectorRuntimeMaintenanceSafetyCheck
+): ConnectorRuntimeMaintenanceLease {
+  try {
+    const result = check();
+    if (result.certainty === 'known' && Array.isArray(result.blockers) &&
+        result.blockers.length === 0 && typeof result.lease?.release === 'function') {
+      return result.lease;
+    }
+    if (result.certainty === 'known') result.lease?.release();
+    throw new ConnectorRuntimeCommandExecutorError(maintenanceRejectionCode(result));
+  } catch (error) {
+    if (error instanceof ConnectorRuntimeCommandExecutorError) throw error;
+    throw new ConnectorRuntimeCommandExecutorError('codex-state-uncertain');
+  }
+}
+
+function maintenanceRejectionCode(
+  result: ConnectorRuntimeMaintenanceSafetyResult
+): ConnectorRuntimeCommandExecutorErrorCode {
+  if (result.certainty === 'uncertain') return 'codex-state-uncertain';
+  const codes = new Set(result.blockers.map(maintenanceBlockerCode));
+  const priority: ConnectorRuntimeCommandExecutorErrorCode[] = [
+    'codex-state-uncertain', 'codex-waiting-input', 'codex-waiting-approval',
+    'codex-turn-starting', 'codex-turn-active', 'machine-mutation',
+    'maintenance-in-progress'
+  ];
+  return priority.find((code) => codes.has(code)) ?? 'busy';
+}
+
+function maintenanceBlockerCode(
+  blocker: ConnectorRuntimeMaintenanceBlocker
+): ConnectorRuntimeCommandExecutorErrorCode {
+  switch (blocker.kind) {
+    case 'codex-runtime':
+    case 'codex-operation':
+      return 'codex-state-uncertain';
+    case 'codex-turn':
+      return blocker.state === 'starting' ? 'codex-turn-starting' : 'codex-turn-active';
+    case 'codex-request':
+      return blocker.state === 'waiting-for-user-input'
+        ? 'codex-waiting-input'
+        : 'codex-waiting-approval';
+    case 'connector-activity':
+      return blocker.scope === 'codex' || blocker.scope === 'codex-chat'
+        ? 'codex-turn-active'
+        : 'machine-mutation';
+    case 'connector-mutation':
+      return 'machine-mutation';
+    case 'runtime-maintenance':
+      return 'maintenance-in-progress';
+  }
 }
 
 async function publishExclusive(path: string, body: string) {
@@ -234,6 +303,7 @@ export class ConnectorRuntimeCommandExecutor {
   }
 
   async execute(value: unknown): Promise<ConnectorRuntimeCommandAcceptedResult> {
+    const verifiedAt = this.options.now?.() ?? Date.now();
     const verified = verifyConnectorRuntimeCommandWireRequest(
       value,
       this.options.commandVerificationKey,
@@ -241,19 +311,19 @@ export class ConnectorRuntimeCommandExecutor {
         expectedGeneration: this.generation(),
         expectedMachineId: this.options.expectedMachineId,
         expectedTarget: this.options.expectedTarget,
-        now: this.options.now?.(),
-        releaseVerificationKey: this.options.releaseVerificationKey,
-        replayProtection: this.replay
+        now: verifiedAt,
+        releaseVerificationKey: this.options.releaseVerificationKey
       }
     );
+    const admission = requireMaintenanceSafety(this.options.maintenanceSafety);
     const command = value as ConnectorRuntimeCommandWireRequest;
-    this.emit(verified.plan, 'validating');
-    await ensurePrivateDirectory(dirname(this.options.controlFilePath));
-    await ensurePrivateDirectory(this.options.stagingDirectory);
-
     let staged: ConnectorRuntimeSupervisorStagedArtifact | undefined;
     let controlPublished = false;
     try {
+      this.replay.accept(command.grant, verifiedAt);
+      this.emit(verified.plan, 'validating');
+      await ensurePrivateDirectory(dirname(this.options.controlFilePath));
+      await ensurePrivateDirectory(this.options.stagingDirectory);
       if (verified.plan.operation === 'update') {
         if (!verified.artifact) {
           throw new ConnectorRuntimeCommandExecutorError('integrity-failed');
@@ -289,6 +359,8 @@ export class ConnectorRuntimeCommandExecutor {
     } catch (error) {
       if (staged && !controlPublished) await rm(staged.path, { force: true }).catch(() => undefined);
       throw error;
+    } finally {
+      if (!controlPublished) admission.release();
     }
   }
 

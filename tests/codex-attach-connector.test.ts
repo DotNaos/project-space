@@ -32,12 +32,107 @@ import {
   openConnectorCodexAttach
 } from '../server/codex-sessions/connector-hub';
 import type { CodexSessionManager } from '../server/codex-sessions/manager';
+import {
+  ConnectorRuntimeMaintenanceAdmission,
+  createConnectorRuntimeMaintenanceSafetyCheck
+} from '../server/connector-runtime-maintenance-safety';
 
 const keys = generateKeyPairSync('ed25519');
 const machineId = 'attach-machine';
 const threadId = '019f5a78-3c4c-7082-bb45-5411be7d9b9a';
 
 describe('Codex remote attach connector tunnel', () => {
+  test('shares maintenance admission for raw follow-ups while reads and interrupt stay open', async () => {
+    const admission = new ConnectorRuntimeMaintenanceAdmission();
+    let invalidations = 0;
+    let finishReconciliation!: () => void;
+    const reconciliation = new Promise<void>((resolve) => { finishReconciliation = resolve; });
+    const manager = {
+      invalidateMaintenanceState() { invalidations += 1; },
+      reconcileMaintenanceState() { return reconciliation; }
+    } as CodexSessionManager;
+    let relayOptions: Parameters<NonNullable<
+      ConstructorParameters<typeof CodexSessionsConnectorDispatcher>[0]['createAttachRelay']
+    >>[0] | undefined;
+    const relayInput: string[] = [];
+    const sent: ConnectorHubMessage[] = [];
+    const dispatcher = new CodexSessionsConnectorDispatcher({
+      createAttachRelay: async (options) => {
+        relayOptions = options;
+        return { close() {}, async send(message) { relayInput.push(message); } };
+      },
+      expectedMachineId: machineId,
+      maintenanceAdmission: admission,
+      manager,
+      verificationKey: keys.publicKey
+    });
+    dispatcher.setExpectedGeneration(5);
+    const request = createCodexSessionsWireRequest({
+      generation: 5,
+      operation: 'attach',
+      operationId: 'attach-maintenance',
+      payload: {
+        machineId, operationId: 'attach-maintenance', threadId,
+        tunnelId: 'tunnel-maintenance'
+      },
+      userId: 'user-owner'
+    }, keys.privateKey);
+    dispatcher.dispatch('tunnel-maintenance', request, (message) => sent.push(message), () => {
+      throw new Error('attach grant rejected');
+    });
+    await Bun.sleep(0);
+    const binding = bindingForCodexSessionsRequest(request);
+    let inputMessageId = 1;
+    const sendInput = (message: string) => {
+      for (const chunk of codexAttachMessageChunks(message, inputMessageId++)) {
+        expect(dispatcher.acceptAttachInput('tunnel-maintenance', { binding, chunk })).toBe(true);
+      }
+    };
+    const inspect = createConnectorRuntimeMaintenanceSafetyCheck(admission, {
+      maintenanceBlockers: () => []
+    });
+
+    const maintenance = inspect();
+    expect(maintenance.certainty === 'known' && maintenance.lease).toBeDefined();
+    sendInput(JSON.stringify({ id: 1, method: 'thread/read', params: { threadId } }));
+    sendInput(JSON.stringify({ id: 2, method: 'turn/interrupt', params: { threadId } }));
+    sendInput(JSON.stringify({ id: 3, method: 'turn/start', params: { threadId } }));
+    await Bun.sleep(0);
+    expect(relayInput.map((message) => JSON.parse(message).method)).toEqual([
+      'thread/read', 'turn/interrupt'
+    ]);
+    const rejected = new CodexAttachChunkAssembler();
+    let rejectedMessage: string | undefined;
+    for (const message of sent) {
+      if (message.type === 'codex.attach.output') {
+        rejectedMessage = rejected.push(message.payload.chunk) ?? rejectedMessage;
+      }
+    }
+    expect(JSON.parse(rejectedMessage ?? '{}')).toMatchObject({
+      error: { code: -32_000 }, id: 3
+    });
+    if (maintenance.certainty === 'known') maintenance.lease?.release();
+
+    sendInput(JSON.stringify({ id: 4, method: 'turn/start', params: { threadId } }));
+    await Bun.sleep(0);
+    expect(invalidations).toBe(1);
+    expect(inspect()).toEqual({
+      blockers: [{ count: 1, kind: 'connector-activity', scope: 'codex' }],
+      certainty: 'known'
+    });
+    relayOptions?.onMessage(JSON.stringify({ id: 4, result: { turn: { id: 'turn-four' } } }));
+    expect(inspect()).toEqual({
+      blockers: [{ count: 1, kind: 'connector-activity', scope: 'codex' }],
+      certainty: 'known'
+    });
+    finishReconciliation();
+    await Bun.sleep(0);
+    const after = inspect();
+    expect(after.certainty === 'known' && after.lease).toBeDefined();
+    if (after.certainty === 'known') after.lease?.release();
+    dispatcher.close();
+  });
+
   test('round-trips signed, generation-bound, chunked App Server messages', async () => {
     const outbound: ConnectorMachineMessage[] = [];
     const socket = {
