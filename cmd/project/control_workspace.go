@@ -85,7 +85,7 @@ func executeWorkspaceRuntimeControl(
 	if request.RuntimeSessionEndpoint != "" {
 		controllerBinary := ""
 		if containsRuntimeCapability(request.RuntimeSessionRequestedCapabilities, "runtime.codex.v1") {
-			controllerBinary, err = resolveConnectorBinary()
+			controllerBinary, err = resolveCodexHostBinary()
 			if err != nil {
 				return fmt.Errorf("Workspace Runtime Codex controller is unavailable")
 			}

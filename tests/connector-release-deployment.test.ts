@@ -219,7 +219,8 @@ describe('connector release and production deployment contract', () => {
     expect(runtime).toContain(
       'install -m 0755 "$RUNNER_TEMP/test-release-packaging.sh" packaging/macos/test-release-packaging.sh'
     );
-    expect(runtime).toContain('project-space-connector');
+    expect(runtime).toContain('project-codex-host');
+    expect(runtime).not.toContain('dist/project-space-connector');
     expect(runtime).not.toContain('project-approval-signer');
     expect(workflow).not.toContain('environment: release-signing');
     expect(workflow).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');

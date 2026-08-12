@@ -121,9 +121,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/linux
-          bun packaging/release/build-connector.ts \
+          bun packaging/release/build-codex-host.ts \
             bun-linux-x64 \
-            dist/linux/project-space-connector
+            dist/linux/project-codex-host
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -trimpath \
             -ldflags "-s -w -X main.projectMachineClientVersion=$VERSION -X main.projectMachineClientReleaseID=v$VERSION -X main.projectMachineClientBuildID=$RELEASE_SOURCE_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net" \

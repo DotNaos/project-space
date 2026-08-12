@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { connectorBuildIdentity } from '../packaging/release/build-connector';
+import { codexHostBuildIdentity } from '../packaging/release/build-codex-host';
 
 describe('Windows release version', () => {
-  test('matches the package, connector, and WinGet packaging test', async () => {
+  test('matches the package, Codex host, and WinGet packaging test', async () => {
     const repositoryRoot = resolve(import.meta.dir, '..');
     const packageJson = JSON.parse(
       await readFile(resolve(repositoryRoot, 'package.json'), 'utf8')
@@ -15,13 +15,13 @@ describe('Windows release version', () => {
       'utf8'
     );
 
-    const connectorIdentity = await connectorBuildIdentity({
+    const codexHostIdentity = await codexHostBuildIdentity({
       GITHUB_SHA: '1111111111111111111111111111111111111111'
     });
     const packagingVersion = packagingTest.match(/\$version = '([^']+)'/)?.[1];
 
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(connectorIdentity).toEqual({
+    expect(codexHostIdentity).toEqual({
       buildId: '1111111111111111111111111111111111111111',
       releaseId: `v${packageJson.version}`,
       version: packageJson.version

@@ -131,6 +131,38 @@ func resolveConnectorBinary() (string, error) {
 	return resolveAuthenticatedConnectorBinary(executable, runtime.GOOS)
 }
 
+func resolveCodexHostBinary() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve Project CLI executable: %w", err)
+	}
+	return resolveAuthenticatedCodexHostBinary(executable, runtime.GOOS)
+}
+
+func resolveAuthenticatedCodexHostBinary(projectExecutable string, goos string) (string, error) {
+	executable, err := filepath.Abs(projectExecutable)
+	if err != nil {
+		return "", fmt.Errorf("resolve Project CLI executable: %w", err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", fmt.Errorf("resolve Project CLI executable: %w", err)
+	}
+	name := "project-codex-host"
+	if goos == "windows" {
+		name += ".exe"
+	}
+	candidate := filepath.Join(filepath.Dir(executable), name)
+	info, err := os.Lstat(candidate)
+	if err != nil {
+		return "", fmt.Errorf("inspect bundled Codex host binary: %w", err)
+	}
+	if !usableConnectorBinary(candidate, info, goos) {
+		return "", fmt.Errorf("bundled Codex host binary is not a usable regular file: %s", candidate)
+	}
+	return candidate, nil
+}
+
 func resolveAuthenticatedConnectorBinary(projectExecutable string, goos string) (string, error) {
 	projectExecutable, err := filepath.Abs(projectExecutable)
 	if err != nil {

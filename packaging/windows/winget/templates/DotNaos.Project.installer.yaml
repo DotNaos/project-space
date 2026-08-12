@@ -12,7 +12,7 @@ UpgradeBehavior: install
 ProductCode: '{D0B7D247-B537-41B4-9F36-73C61CB16B54}_is1'
 Commands:
   - project
-  - project-space-connector
+  - project-codex-host
 AppsAndFeaturesEntries:
   - DisplayName: Project
     DisplayVersion: '{{VERSION}}'

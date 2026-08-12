@@ -43,7 +43,11 @@ VersionInfoProductVersion={#MyAppVersion}
 
 [Files]
 Source: "{#SourceDirectory}\project.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDirectory}\project-space-connector.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDirectory}\project-codex-host.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDirectory}\retire-connector.ps1"; Flags: dontcopy
+
+[InstallDelete]
+Type: files; Name: "{app}\project-space-connector.exe"
 
 [Code]
 const
@@ -51,7 +55,7 @@ const
 
 var
   PreviousProjectPresent: Boolean;
-  PreviousConnectorPresent: Boolean;
+  PreviousCodexHostPresent: Boolean;
   PreviousFilesPreserved: Boolean;
 
 function RunInstalledProject(const Arguments: string; var ResultCode: Integer): Boolean;
@@ -102,7 +106,7 @@ end;
 function PreservePreviousInstallation(): Boolean;
 var
   ProjectPreserved: Boolean;
-  ConnectorPreserved: Boolean;
+  CodexHostPreserved: Boolean;
 begin
   if PreviousFilesPreserved then
   begin
@@ -115,12 +119,12 @@ begin
     'project-space-previous-project.exe',
     PreviousProjectPresent
   );
-  ConnectorPreserved := PreserveInstalledFile(
-    'project-space-connector.exe',
-    'project-space-previous-connector.exe',
-    PreviousConnectorPresent
+  CodexHostPreserved := PreserveInstalledFile(
+    'project-codex-host.exe',
+    'project-space-previous-codex-host.exe',
+    PreviousCodexHostPresent
   );
-  Result := ProjectPreserved and ConnectorPreserved;
+  Result := ProjectPreserved and CodexHostPreserved;
   if Result then
     PreviousFilesPreserved := True;
 end;
@@ -151,19 +155,19 @@ end;
 function RestorePreviousFiles(): Boolean;
 var
   ProjectRestored: Boolean;
-  ConnectorRestored: Boolean;
+  CodexHostRestored: Boolean;
 begin
   ProjectRestored := RestoreInstalledFile(
     'project.exe',
     'project-space-previous-project.exe',
     PreviousProjectPresent
   );
-  ConnectorRestored := RestoreInstalledFile(
-    'project-space-connector.exe',
-    'project-space-previous-connector.exe',
-    PreviousConnectorPresent
+  CodexHostRestored := RestoreInstalledFile(
+    'project-codex-host.exe',
+    'project-space-previous-codex-host.exe',
+    PreviousCodexHostPresent
   );
-  Result := ProjectRestored and ConnectorRestored;
+  Result := ProjectRestored and CodexHostRestored;
 end;
 
 function RunInstalledProjectSuccessfully(const Arguments: string): Boolean;
@@ -171,34 +175,6 @@ var
   ResultCode: Integer;
 begin
   Result := RunInstalledProject(Arguments, ResultCode) and (ResultCode = 0);
-end;
-
-procedure RollBackFailedConnectorStart();
-begin
-  if not RunInstalledProjectSuccessfully('connector service stop') then
-    RaiseException('The new Project Space connector did not reconnect and could not be stopped. Manual recovery is required.');
-
-  if not RestorePreviousFiles() then
-    RaiseException('The new Project Space connector did not reconnect and the previous machine tools could not be restored. Manual recovery is required.');
-
-  if PreviousProjectPresent then
-  begin
-    if not RunInstalledProjectSuccessfully('connector service start-if-connected') then
-      RaiseException('The previous Project Space machine tools were restored, but their connector could not be restarted. Manual recovery is required.');
-    RaiseException('The new Project Space connector failed its authenticated reconnect check. The previous machine tools were restored and restarted.');
-  end;
-
-  RaiseException('The new Project Space connector failed its authenticated reconnect check. The installation was rolled back.');
-end;
-
-procedure StartInstalledConnectorOrRollback();
-var
-  ResultCode: Integer;
-begin
-  if not RunInstalledProject('connector service start-if-connected', ResultCode) then
-    RollBackFailedConnectorStart();
-  if ResultCode <> 0 then
-    RollBackFailedConnectorStart();
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): string;
@@ -211,15 +187,22 @@ begin
     Result := 'The existing Project Space machine tools could not be preserved for rollback. Close them and run the installer again.';
     exit;
   end;
-  if not RunInstalledProject('connector service stop', ResultCode) then
+  ExtractTemporaryFile('retire-connector.ps1');
+  if not Exec(
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{tmp}\retire-connector.ps1') + '"',
+    ExpandConstant('{tmp}'),
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
   begin
-    Result := 'The existing Project Space connector could not be stopped. Close it and run the installer again.';
+    Result := 'The retired Project Space Connector tasks could not be removed. Close them and run the installer again.';
     exit;
   end;
   if ResultCode <> 0 then
-  begin
-    Result := 'The existing Project Space connector reported an error while stopping. Run project connector service stop, then try again.';
-  end;
+    Result := 'The retired Project Space Connector tasks reported an error while being removed.';
 end;
 
 function PathContainsEntry(const PathValue: string; const Entry: string): Boolean;
@@ -300,25 +283,14 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    StartInstalledConnectorOrRollback();
     AddPathEntry(ExpandConstant('{app}'));
   end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var
-  ResultCode: Integer;
 begin
   if CurUninstallStep <> usUninstall then
     exit;
 
-  if not FileExists(ExpandConstant('{app}\project.exe')) then
-    RaiseException('Project Space cannot remove connector state because project.exe is missing. Reinstall this version, then uninstall again.');
-
-  { One locked command combines best-effort revocation with local cleanup. }
-  if not RunInstalledProject('connector service uninstall', ResultCode) then
-    RaiseException('Project Space could not start its local connector cleanup.');
-  if ResultCode <> 0 then
-    RaiseException('Project Space could not remove its local connector state.');
   RemovePathEntry(ExpandConstant('{app}'));
 end;

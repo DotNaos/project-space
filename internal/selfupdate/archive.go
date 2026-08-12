@@ -332,7 +332,7 @@ func archiveBundleMembers(target string) (map[string]fs.FileMode, bool) {
 		"connector-command-signing-public-key.pem": 0o600,
 		"install.sh":              0o700,
 		"project":                 0o700,
-		"project-space-connector": 0o700,
+		"project-codex-host":      0o700,
 		"release-manifest-signing-public-key.pem": 0o600,
 	}
 	switch target {
@@ -415,7 +415,7 @@ func (installer *managedArtifactInstaller) verifyInstalledVersions(
 	version string,
 	environment []string,
 ) error {
-	for _, name := range []string{"project", "project-space-connector"} {
+	for _, name := range []string{"project", "project-codex-host"} {
 		output := &bytes.Buffer{}
 		if err := installer.commandRunner(
 			ctx,

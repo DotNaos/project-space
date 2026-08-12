@@ -11,6 +11,7 @@ $url = 'https://github.com/DotNaos/project-space/releases/download/v0.4.66/proje
 $sha256 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 $installerScriptPath = Join-Path $PSScriptRoot 'project-space.iss'
 $innoInstallScriptPath = Join-Path $PSScriptRoot 'install-inno-setup.ps1'
+$connectorRetirementScriptPath = Join-Path $PSScriptRoot 'retire-connector.ps1'
 
 function Remove-ExactPathEntry(
   [string]$PathValue,
@@ -90,19 +91,14 @@ try {
     'UninstallDisplayName={#MyAppName}',
     'function PreservePreviousInstallation(): Boolean;',
     'function RestorePreviousFiles(): Boolean;',
-    'procedure StartInstalledConnectorOrRollback();',
-    "if not RunInstalledProject('connector service start-if-connected', ResultCode) then",
-    "if not RunInstalledProjectSuccessfully('connector service stop') then",
-    "if not RunInstalledProjectSuccessfully('connector service start-if-connected') then",
-    'if ResultCode <> 0 then',
-    'The previous Project Space machine tools were restored, but their connector could not be restarted. Manual recovery is required.',
-    'The new Project Space connector failed its authenticated reconnect check. The previous machine tools were restored and restarted.',
+    'project-codex-host.exe',
+    'Type: files; Name: "{app}\project-space-connector.exe"',
+    "ExtractTemporaryFile('retire-connector.ps1')",
+    'The retired Project Space Connector tasks could not be removed.',
     'if Uppercase(Item) <> Uppercase(Entry) then',
     'if HasOutputSegment then',
     'NewPath := PathWithoutEntry(CurrentPath, Entry)',
-    "if not FileExists(ExpandConstant('{app}\project.exe')) then",
-    "if not RunInstalledProject('connector service uninstall', ResultCode) then",
-    "RaiseException('Project Space could not remove its local connector state.')"
+    "Source: \"{#SourceDirectory}\project-codex-host.exe\""
   )) {
     if (-not $installerScript.Contains($requiredFragment)) {
       throw "Installer PATH removal contract is missing: $requiredFragment"
@@ -115,7 +111,30 @@ try {
     throw 'Installer uninstall must keep revocation and purge inside one locked CLI command.'
   }
   if ($installerScript.Contains('[Run]')) {
-    throw 'Installer connector startup must remain in checked Pascal code, not an unchecked [Run] entry.'
+    throw 'The installer must not add unchecked startup actions.'
+  }
+  if ($installerScript.Contains('StartInstalledConnectorOrRollback') -or
+      $installerScript.Contains("RunInstalledProject('connector service start-if-connected'") -or
+      $installerScript.Contains("RunInstalledProject('connector service uninstall'")) {
+    throw 'The installer must not restart or uninstall the retired Connector.'
+  }
+
+  $connectorRetirementScript = [System.IO.File]::ReadAllText($connectorRetirementScriptPath)
+  foreach ($requiredFragment in @(
+    "Import-Module ScheduledTasks -ErrorAction Stop",
+    "'Project Space Native Machine Connector Supervisor~s'",
+    "'Project Space Machine Connector Supervisor~d'",
+    "Get-ScheduledTask -TaskPath '\' -ErrorAction Stop",
+    "Stop-ScheduledTask -TaskPath '\' -TaskName `$task.TaskName -ErrorAction SilentlyContinue",
+    "Unregister-ScheduledTask -TaskPath '\' -TaskName `$task.TaskName -Confirm:`$false -ErrorAction Stop"
+  )) {
+    if (-not $connectorRetirementScript.Contains($requiredFragment)) {
+      throw "Connector retirement contract is missing: $requiredFragment"
+    }
+  }
+  if ($connectorRetirementScript.Contains('project-space-connector.exe') -or
+      $connectorRetirementScript.Contains('connector service')) {
+    throw 'Connector retirement must remove known scheduled tasks without invoking the retired binary or CLI surface.'
   }
 
   $innoInstallScript = [System.IO.File]::ReadAllText($innoInstallScriptPath)

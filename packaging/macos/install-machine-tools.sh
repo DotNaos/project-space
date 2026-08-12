@@ -43,7 +43,7 @@ fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 for required in \
-  SHA256SUMS.txt VERSION project project-space-connector \
+  SHA256SUMS.txt VERSION project project-codex-host \
   connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
     echo "The release bundle is incomplete: $required is missing." >&2
@@ -63,7 +63,7 @@ fi
 verify_installed_pair() {
   local binary output version_pattern
   version_pattern=${version//./\\.}
-  for binary in project project-space-connector; do
+  for binary in project project-codex-host; do
     if ! output=$("${install_directory}/${binary}" --version 2>&1) ||
       [[ ! $output =~ (^|[[:space:]])v?${version_pattern}($|[[:space:]]) ]]; then
       echo "The installed ${binary} does not report the bundled version." >&2
@@ -127,6 +127,7 @@ if [[ -f $legacy_plist && -f $modern_plist ]]; then
 fi
 launch_domain="gui/$(id -u)"
 legacy_service="${launch_domain}/net.os-home.project-space-connector"
+modern_service="${launch_domain}/net.os-home.project-space.machine-connector-supervisor"
 existing_project="${install_directory}/project"
 previous_managed_project=""
 if [[ $service_mode == managed && ! -x $existing_project ]]; then
@@ -151,7 +152,6 @@ previous_current_target=""
 installation_started=0
 committed=0
 pointer_switched=0
-legacy_was_running=0
 changed_entries=()
 
 restore_entry() {
@@ -164,42 +164,9 @@ restore_entry() {
   fi
 }
 
-start_connector() {
-  if [[ $service_mode == legacy ]]; then
-    launchctl bootstrap "$launch_domain" "$legacy_plist"
-    launchctl kickstart -k "$legacy_service"
-  elif [[ $service_mode == managed ]]; then
-    "${install_directory}/project" connector service start-if-connected
-  fi
-}
-
-restart_previous_connector() {
-  local restart_failed=0
-  if [[ $service_mode == legacy ]]; then
-    launchctl bootstrap "$launch_domain" "$legacy_plist" || restart_failed=1
-    launchctl kickstart -k "$legacy_service" || restart_failed=1
-  elif [[ $service_mode == managed && -n $previous_managed_project ]]; then
-    "$previous_managed_project" connector service start-if-connected || restart_failed=1
-  elif [[ $service_mode == managed && -x $existing_project ]]; then
-    "$existing_project" connector service start-if-connected || restart_failed=1
-  fi
-  if [[ $migrate_legacy_service -eq 1 && $legacy_was_running -eq 1 ]]; then
-    launchctl bootstrap "$launch_domain" "$legacy_plist" || restart_failed=1
-    launchctl kickstart -k "$legacy_service" || restart_failed=1
-  fi
-  return "$restart_failed"
-}
-
 rollback_installation() {
   local rollback_pointer="${transaction_root}/current.rollback"
-  local rollback_failed=0
   if [[ $pointer_switched -eq 1 ]]; then
-    if [[ $service_mode != legacy && -x ${install_directory}/project ]]; then
-      if ! "${install_directory}/project" connector service stop; then
-        echo "The attempted connector service could not be stopped before rollback." >&2
-        rollback_failed=1
-      fi
-    fi
     if [[ -n $previous_current_target ]]; then
       rm -f -- "$rollback_pointer"
       ln -s -- "$previous_current_target" "$rollback_pointer"
@@ -212,11 +179,6 @@ rollback_installation() {
   for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
     restore_entry "${changed_entries[$index]}"
   done
-  if ! restart_previous_connector; then
-    echo "The previous connector service could not be restarted after rollback." >&2
-    rollback_failed=1
-  fi
-  return "$rollback_failed"
 }
 
 cleanup() {
@@ -230,7 +192,7 @@ cleanup() {
   fi
   rm -rf -- "$transaction_root"
   if [[ $rollback_failed -eq 1 ]]; then
-    echo "The installation failed with status $status and rollback could not restore the previous connector service. Manual recovery is required." >&2
+    echo "The installation failed with status $status and the previous machine tools could not be restored. Manual recovery is required." >&2
     exit 71
   fi
   exit "$status"
@@ -239,7 +201,7 @@ trap cleanup EXIT
 
 staged_release="${transaction_root}/${release_id}"
 mkdir -m 0700 -- "$staged_release"
-for name in project project-space-connector; do
+for name in project project-codex-host; do
   install -m 0755 -- "${bundle_root}/${name}" "${staged_release}/${name}"
 done
 for name in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
@@ -248,7 +210,7 @@ done
 install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 if [[ -d $release_directory ]]; then
   for member in \
-    project project-space-connector \
+    project project-codex-host \
     connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
     VERSION; do
     if ! files_match "${staged_release}/${member}" "${release_directory}/${member}"; then
@@ -260,7 +222,7 @@ else
   mv -- "$staged_release" "$release_directory"
 fi
 
-for name in project project-space-connector; do
+for name in project project-codex-host; do
   destination="${install_directory}/${name}"
   if [[ -d $destination && ! -L $destination ]]; then
     echo "Refusing to replace a directory: $destination" >&2
@@ -270,7 +232,6 @@ done
 
 installation_started=1
 if [[ $migrate_legacy_service -eq 1 ]] && launchctl print "$legacy_service" >/dev/null 2>&1; then
-  legacy_was_running=1
   launchctl bootout "$legacy_service"
 fi
 if [[ $service_mode == legacy ]]; then
@@ -278,12 +239,14 @@ if [[ $service_mode == legacy ]]; then
     launchctl bootout "$legacy_service"
   fi
 elif [[ $service_mode == managed ]]; then
-  "$release_directory/project" connector service stop
+  if launchctl print "$modern_service" >/dev/null 2>&1; then
+    launchctl bootout "$modern_service"
+  fi
 fi
 assert_connector_maintenance_idle
 [[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 
-for name in project project-space-connector; do
+for name in project project-codex-host; do
   destination="${install_directory}/${name}"
   expected_target=".project-space-machine-tools/current/${name}"
   if [[ -L $destination && $(readlink "$destination") == "$expected_target" ]]; then
@@ -297,6 +260,12 @@ for name in project project-space-connector; do
   mv -h -f -- "$link_temp" "$destination"
   changed_entries+=("$name")
 done
+obsolete_connector="${install_directory}/project-space-connector"
+if [[ -L $obsolete_connector &&
+  $(readlink "$obsolete_connector") == '.project-space-machine-tools/current/project-space-connector' ]]; then
+  mv -h -f -- "$obsolete_connector" "${backup_root}/project-space-connector"
+  changed_entries+=("project-space-connector")
+fi
 obsolete_signer="${install_directory}/project-approval-signer"
 if [[ -L $obsolete_signer && $(readlink "$obsolete_signer") == ".project-space-machine-tools/current/project-approval-signer" ]]; then
   mv -h -f -- "$obsolete_signer" "${backup_root}/project-approval-signer"
@@ -312,13 +281,7 @@ if ! verify_installed_pair; then
   exit 70
 fi
 
-if ! start_connector; then
-  echo "The new connector could not be started; the previous machine-tools release was restored." >&2
-  exit 70
-fi
-if [[ $migrate_legacy_service -eq 1 ]]; then
-  rm -f -- "$legacy_plist"
-fi
+rm -f -- "$legacy_plist" "$modern_plist"
 committed=1
 rm -rf -- "$transaction_root"
 trap - EXIT

@@ -111,7 +111,7 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path dist\windows -Force | Out-Null
-          bun run build:connector:windows-x64
+          bun run build:codex-host:windows-x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:CGO_ENABLED = '0'
           $ldflags = "-s -w -X main.projectMachineClientVersion=$env:VERSION -X main.projectMachineClientReleaseID=v$env:VERSION -X main.projectMachineClientBuildID=$env:RELEASE_SOURCE_SHA -X main.projectSpaceMachineBackendURL=https://projects.os-home.net"

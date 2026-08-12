@@ -221,7 +221,7 @@ func (detector *installDetector) detectWindows(unknown Installation, resolved st
 	}
 	installDir := windowsJoin(localAppData, "Programs", "Project Space")
 	expectedProject := windowsJoin(installDir, "project.exe")
-	expectedConnector := windowsJoin(installDir, "project-space-connector.exe")
+	expectedConnector := windowsJoin(installDir, "project-codex-host.exe")
 	if !windowsPathEqual(resolved, expectedProject) ||
 		!regularFile(expectedProject, detector.options.Lstat) ||
 		!regularFile(expectedConnector, detector.options.Lstat) {
@@ -263,8 +263,8 @@ func (detector *installDetector) detectManagedUnix(unknown Installation, resolve
 	if !exactSymlink(detector.options.ExecutablePath, filepath.ToSlash(filepath.Join(
 		managedToolsDirectory, "current", "project",
 	)), detector.options.Lstat, detector.options.Readlink) ||
-		!exactSymlink(filepath.Join(installDir, "project-space-connector"), filepath.ToSlash(filepath.Join(
-			managedToolsDirectory, "current", "project-space-connector",
+		!exactSymlink(filepath.Join(installDir, "project-codex-host"), filepath.ToSlash(filepath.Join(
+			managedToolsDirectory, "current", "project-codex-host",
 		)), detector.options.Lstat, detector.options.Readlink) ||
 		!exactSymlink(
 			current,
@@ -274,8 +274,8 @@ func (detector *installDetector) detectManagedUnix(unknown Installation, resolve
 		) {
 		return unknown, nil
 	}
-	connector := filepath.Join(toolsRoot, "versions", releaseID, "project-space-connector")
-	resolvedConnector, err := detector.options.EvalSymlinks(filepath.Join(installDir, "project-space-connector"))
+	connector := filepath.Join(toolsRoot, "versions", releaseID, "project-codex-host")
+	resolvedConnector, err := detector.options.EvalSymlinks(filepath.Join(installDir, "project-codex-host"))
 	expectedConnector, expectedErr := detector.options.EvalSymlinks(connector)
 	if err != nil || expectedErr != nil || filepath.Clean(resolvedConnector) != filepath.Clean(expectedConnector) ||
 		!regularFile(resolved, detector.options.Lstat) || !regularFile(connector, detector.options.Lstat) {
@@ -291,7 +291,7 @@ func (detector *installDetector) detectManagedUnix(unknown Installation, resolve
 	}
 	connectorVersion, err := detector.options.ReadVersion(connector)
 	if err != nil || !versionOutputMatches(connectorVersion, detector.options.CurrentVersion) {
-		return unknown, fmt.Errorf("verify managed connector version: %w", errOrMismatch(err))
+		return unknown, fmt.Errorf("verify managed Codex host version: %w", errOrMismatch(err))
 	}
 	unknown.ExecutablePath = resolved
 	unknown.InstallDir = installDir

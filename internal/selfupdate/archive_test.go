@@ -49,7 +49,7 @@ func TestManagedArtifactInstallerAppliesVerifiedBundle(t *testing.T) {
 				!reflect.DeepEqual(environment, []string{"HOME=/safe/home", "LC_ALL=C", "PATH=/usr/bin:/bin"}) {
 				t.Fatalf("installer invocation = %q %#v %#v", command, arguments, environment)
 			}
-			if _, err := os.Stat(filepath.Join(directory, "project-space-connector")); err != nil {
+			if _, err := os.Stat(filepath.Join(directory, "project-codex-host")); err != nil {
 				t.Fatal(err)
 			}
 			return nil
@@ -82,7 +82,7 @@ func TestManagedArtifactInstallerAppliesVerifiedBundle(t *testing.T) {
 	if err != nil || outcome != ApplyOutcomeUpdated {
 		t.Fatalf("Apply() = %q, %v", outcome, err)
 	}
-	if !reflect.DeepEqual(calls, []string{"install.sh", "project", "project-space-connector"}) {
+	if !reflect.DeepEqual(calls, []string{"install.sh", "project", "project-codex-host"}) {
 		t.Fatalf("calls = %#v", calls)
 	}
 }
