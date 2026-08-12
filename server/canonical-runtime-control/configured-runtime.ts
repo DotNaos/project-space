@@ -93,9 +93,12 @@ function createHandler(options: {
   });
   return createCanonicalRuntimeControlHttpApi(service, async (request) => {
     const authenticated = await authenticate(request);
+    const callerMachineId = 'callerMachineId' in authenticated
+      ? authenticated.callerMachineId
+      : undefined;
     return {
-      actorId: authenticated.callerMachineId ?? authenticated.userId,
-      actorKind: authenticated.callerMachineId ? 'agent' : 'human',
+      actorId: callerMachineId ?? authenticated.userId,
+      actorKind: callerMachineId ? 'agent' : 'human',
       ownerUserId: authenticated.userId
     };
   });
