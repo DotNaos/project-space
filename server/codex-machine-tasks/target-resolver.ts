@@ -1,5 +1,6 @@
 import type {
   CodexMachineTaskBlockedReason,
+  CodexMachineTaskReadRequest,
   CodexMachineTaskTarget
 } from '../../src/shared/codex-machine-tasks-api';
 import type {
@@ -9,6 +10,12 @@ import type {
 import type { MachineRuntimeStatusResult } from '../../src/shared/connector-runtime-api';
 import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
 import { evaluateMachineReadiness } from '../machine-readiness/model';
+import type { CodexMachineTasksServiceOptions } from './contracts';
+
+export type CodexMachineTaskTargetSelector = Pick<
+  CodexMachineTaskReadRequest,
+  'connectorId' | 'environmentId' | 'physicalMachineId' | 'physicalMachineName'
+>;
 
 export class CodexMachineTaskTargetError extends Error {
   constructor(
@@ -107,6 +114,32 @@ export function resolveCodexMachineTaskTarget(input: {
     ...(environment ? { environment: { id: environment.id, name: environment.name } } : {}),
     physicalMachine: { id: physicalMachine.id, name: physicalMachine.name }
   };
+}
+
+export async function resolveCodexMachineTaskServiceTarget(
+  options: Pick<
+    CodexMachineTasksServiceOptions,
+    'generationFor' | 'inventory' | 'userCanUseConnector'
+  >,
+  userId: string,
+  selector: CodexMachineTaskTargetSelector,
+  callerMachineId?: string
+) {
+  const inventory = await options.inventory(userId);
+  const callerPhysicalMachine = !selector.environmentId && !selector.physicalMachineId &&
+    !selector.physicalMachineName && callerMachineId
+    ? inventory.physicalMachines.find((machine) => machine.connectorIds.includes(callerMachineId))
+    : undefined;
+  return resolveCodexMachineTaskTarget({
+    ...selector,
+    connectorId: selector.connectorId ?? (callerPhysicalMachine ? callerMachineId : undefined),
+    physicalMachineId: selector.physicalMachineId ?? callerPhysicalMachine?.id,
+    ...inventory,
+    generationFor: options.generationFor,
+    userCanUseConnector: options.userCanUseConnector
+      ? (connectorId) => options.userCanUseConnector!(userId, connectorId)
+      : undefined
+  });
 }
 
 function selectEnvironment(input: {

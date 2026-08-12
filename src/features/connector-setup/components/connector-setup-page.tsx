@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Disclosure } from '@heroui/react';
 import { Button, Card, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import {
   ArrowRight,
@@ -14,11 +15,19 @@ import {
 } from 'lucide-react';
 import { MachineConnectionApprovalPage } from './machine-connection-approval-page';
 
-const manualCommands = [
+const legacyConnectorCommands = [
   '# Download one exact machine-tools archive from the release page',
   'tar -xzf project-space-machine-tools-darwin-arm64-vX.Y.Z.tar.gz',
   './project-space-machine-tools-darwin-arm64-vX.Y.Z/install.sh',
   '~/.local/bin/project connect'
+];
+
+const environmentBootstrapCommands = [
+  'project environment list --format json',
+  'project environment bootstrap <environment-instance> \\',
+  '  --workspace <workspace-uuid> --branch <branch> --commit <commit-sha> \\',
+  '  --generation <generation-uuid> --manifest-digest <sha256> \\',
+  '  --runtime-version <version> --format json'
 ];
 
 function tokenClassName(token: string, isCommand: boolean) {
@@ -207,50 +216,44 @@ export function ConnectorSetupPage() {
 
         <section className="grid gap-4">
           <Chip size="sm" variant="primary" className="w-fit">
-            Project Space Connector
+            Environment bootstrap
           </Chip>
           <h1 className="max-w-4xl break-words text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
-            Connect this web UI to your Mac, VPS, and dev machines.
+            Start a pinned Workspace Runtime without a permanent Connector.
           </h1>
           <Text className="max-w-3xl text-base leading-7 text-neutral-400">
-            The connector runs on each trusted machine. It gives Project Space a safe local
-            endpoint for projects, Git, Codex, deployments, and backups without putting direct
-            filesystem access inside the hosted web app.
+            Select a canonical Environment Instance, bind it to one exact Workspace commit and
+            Runtime manifest, then launch through the typed Project CLI. The runtime connects only
+            for the requested workspace generation; routine setup no longer installs a background
+            Connector service.
           </Text>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <StepCard icon={Download} label="1" title="Get the pinned installer">
+          <StepCard icon={Network} label="1" title="Choose the Environment">
             <Text className="text-sm leading-6 text-neutral-400">
-              Sign in, open Settings → Install a connector, and copy the generated command. It names one
-              exact release and checksum instead of downloading a mutable latest build.
+              List canonical Environment Instances and select the exact host and execution boundary
+              where this Workspace should run.
             </Text>
-            <a href="/settings" className="w-fit">
-              <Button variant="outline">
-                Open Settings
-                <ArrowRight className="size-4" />
-              </Button>
-            </a>
+            <CommandBlock commands={['project environment list --format json']} />
           </StepCard>
 
-          <StepCard icon={Network} label="2" title="Install and approve">
+          <StepCard icon={Download} label="2" title="Pin the runtime">
             <Text className="text-sm leading-6 text-neutral-400">
-              Run only that pinned command. It installs the integrity-checked managed bundle and
-              starts project connect, which opens a short-lived approval page and creates the
-              protected machine identity. No inbound endpoint is required.
+              Use one immutable commit, a new generation identity, and the verified manifest digest
+              for the exact Project Runtime version you intend to launch.
             </Text>
             <Text className="text-xs leading-5 text-neutral-500">
-              If you install an exact release manually, finish with
-              {' '}<span className="font-mono text-neutral-300">project connect</span>.
+              A mismatched identity, commit, manifest, or generation fails closed before execution.
             </Text>
           </StepCard>
 
-          <StepCard icon={Terminal} label="3" title="Use it from Project Space">
+          <StepCard icon={Terminal} label="3" title="Bootstrap with Project CLI">
             <Text className="text-sm leading-6 text-neutral-400">
-              Open the web UI normally. The machine appears only after your signed-in approval and
-              key proof complete; no API URL override is required.
+              Launch the scoped Workspace Runtime through the authenticated control boundary. The
+              operation is idempotent and the returned bindings are checked before success.
             </Text>
-            <CommandBlock commands={['https://projects.os-home.net']} />
+            <CommandBlock commands={environmentBootstrapCommands} />
           </StepCard>
         </section>
 
@@ -261,24 +264,15 @@ export function ConnectorSetupPage() {
           >
             <Card.Header className="gap-3">
               <Card.Title className="text-xl font-semibold tracking-tight text-neutral-50">
-                Manual download
+                Canonical bootstrap command
               </Card.Title>
               <Card.Description className="text-sm text-neutral-400">
-                Prefer the pinned command from Settings → Install a connector. For a direct release test,
-                download one exact versioned bundle and then run project connect.
+                Replace every placeholder with values from the selected Environment, Workspace, and
+                signed Runtime manifest. No Connector enrollment is part of this path.
               </Card.Description>
             </Card.Header>
             <Card.Content className="gap-3">
-              <CommandBlock commands={manualCommands} />
-              <a
-                href="https://github.com/DotNaos/project-space/releases/latest"
-                rel="noreferrer"
-                target="_blank"
-                className="inline-flex items-center gap-2 text-sm text-neutral-200 underline decoration-neutral-500/40 underline-offset-2 hover:text-neutral-50"
-              >
-                Open GitHub release downloads
-                <ExternalLink className="size-4" />
-              </a>
+              <CommandBlock commands={environmentBootstrapCommands} />
             </Card.Content>
           </Card>
 
@@ -296,17 +290,54 @@ export function ConnectorSetupPage() {
               </Card.Description>
             </Card.Header>
             <Card.Content className="gap-2">
-              <GraphRow from="Hosted web UI" to="Pinned managed installer" />
-              <GraphRow from="Project connect" to="Signed-in approval" />
-              <GraphRow from="Machines repo" to="Available dev machines" />
-              <GraphRow from="Private VPS platform" to="Deployments and backups" />
+              <GraphRow from="Environment Instance" to="Exact Workspace commit" />
+              <GraphRow from="Signed Runtime manifest" to="New generation" />
+              <GraphRow from="Project CLI" to="Typed control gateway" />
+              <GraphRow from="Workspace Runtime" to="Scoped session" />
               <div className="mt-2 flex items-center gap-2 text-sm text-emerald-300">
                 <CheckCircle2 className="size-4" />
-                Missing links become visible next actions instead of dead ends.
+                Every launch result is bound back to the requested identities.
               </div>
             </Card.Content>
           </Card>
         </section>
+
+        <Disclosure className="border-t border-neutral-800/70">
+          <Disclosure.Heading>
+            <Disclosure.Trigger className="group flex min-h-12 w-full items-center gap-3 py-3 text-left text-sm text-neutral-500 outline-none transition hover:text-neutral-300 focus-visible:ring-2 focus-visible:ring-neutral-500">
+              <Disclosure.Indicator className="size-4 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none" />
+              Legacy Connector compatibility — deprecated and time-bounded
+            </Disclosure.Trigger>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            <Disclosure.Body className="grid gap-4 pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+              <div className="grid min-w-0 gap-3">
+                <Text className="max-w-3xl text-sm leading-6 text-neutral-500">
+                  Use this only for a workload that has not yet moved to Environment bootstrap.
+                  The generated command pins one release, requires an explicit compatibility
+                  acknowledgement, and stops working at its configured sunset. It remains
+                  reversible so an existing identity can be preserved during migration.
+                </Text>
+                <CommandBlock commands={legacyConnectorCommands} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a href="/settings">
+                  <Button variant="outline">Open compatibility settings</Button>
+                </a>
+                <a
+                  href="https://github.com/DotNaos/project-space/releases/latest"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <Button variant="ghost">
+                    Exact release assets
+                    <ExternalLink className="size-4" />
+                  </Button>
+                </a>
+              </div>
+            </Disclosure.Body>
+          </Disclosure.Content>
+        </Disclosure>
       </div>
     </main>
   );

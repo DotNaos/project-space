@@ -31,6 +31,10 @@ import {
   codexMachineTaskStartPayloadMigrationSql
 } from './codex-machine-task-start-payload-migration';
 import {
+  codexMachineTaskMessageDeliveryMigrationId,
+  codexMachineTaskMessageDeliveryMigrationSql
+} from './codex-machine-task-message-delivery-migration';
+import {
   prDevServerLeaseMigrationId,
   prDevServerLeaseMigrationSql
 } from './pr-dev-server-lease-migration';
@@ -83,6 +87,54 @@ import {
   devServerManagedStateMigrationId,
   devServerManagedStateMigrationSql
 } from './dev-server-managed-state-migration';
+import {
+  environmentCatalogMigrationId,
+  environmentCatalogMigrationSql
+} from './environment-catalog-migration';
+import {
+  privateNetworkAccessRoutesMigrationId,
+  privateNetworkAccessRoutesMigrationSql
+} from './private-network-access-routes-migration';
+import {
+  sshControlGatewayMigrationId,
+  sshControlGatewayMigrationSql
+} from './ssh-control-gateway-migration';
+import {
+  workspaceRuntimeControlMigrationId,
+  workspaceRuntimeControlMigrationSql
+} from './workspace-runtime-control-migration';
+import {
+  workspaceRuntimeSessionMigrationId,
+  workspaceRuntimeSessionMigrationSql
+} from './workspace-runtime-session-migration';
+import {
+  projectHostdMigrationId,
+  projectHostdMigrationSql
+} from './project-hostd-migration';
+import {
+  hostControlMigrationId,
+  hostControlMigrationSql
+} from './host-control-migration';
+import {
+  hostControlHardeningMigrationId,
+  hostControlHardeningMigrationSql
+} from './host-control-hardening-migration';
+import {
+  workspaceRuntimeCapabilityPromotionMigrationId,
+  workspaceRuntimeCapabilityPromotionMigrationSql
+} from './workspace-runtime-capability-promotion-migration';
+import {
+  connectorCompatibilityUsageMigrationId,
+  connectorCompatibilityUsageMigrationSql
+} from './connector-compatibility-usage-migration';
+import {
+  canonicalRuntimeControlMigrationId,
+  canonicalRuntimeControlMigrationSql
+} from './canonical-runtime-control-migration';
+import {
+  canonicalRuntimeMutationMigrationId,
+  canonicalRuntimeMutationMigrationSql
+} from './canonical-runtime-mutation-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -747,6 +799,58 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: devServerManagedStateMigrationId,
     sql: devServerManagedStateMigrationSql
+  },
+  {
+    id: environmentCatalogMigrationId,
+    sql: environmentCatalogMigrationSql
+  },
+  {
+    id: privateNetworkAccessRoutesMigrationId,
+    sql: privateNetworkAccessRoutesMigrationSql
+  },
+  {
+    id: sshControlGatewayMigrationId,
+    sql: sshControlGatewayMigrationSql
+  },
+  {
+    id: workspaceRuntimeControlMigrationId,
+    sql: workspaceRuntimeControlMigrationSql
+  },
+  {
+    id: workspaceRuntimeSessionMigrationId,
+    sql: workspaceRuntimeSessionMigrationSql
+  },
+  {
+    id: codexMachineTaskMessageDeliveryMigrationId,
+    sql: codexMachineTaskMessageDeliveryMigrationSql
+  },
+  {
+    id: workspaceRuntimeCapabilityPromotionMigrationId,
+    sql: workspaceRuntimeCapabilityPromotionMigrationSql
+  },
+  {
+    id: projectHostdMigrationId,
+    sql: projectHostdMigrationSql
+  },
+  {
+    id: hostControlMigrationId,
+    sql: hostControlMigrationSql
+  },
+  {
+    id: hostControlHardeningMigrationId,
+    sql: hostControlHardeningMigrationSql
+  },
+  {
+    id: connectorCompatibilityUsageMigrationId,
+    sql: connectorCompatibilityUsageMigrationSql
+  },
+  {
+    id: canonicalRuntimeControlMigrationId,
+    sql: canonicalRuntimeControlMigrationSql
+  },
+  {
+    id: canonicalRuntimeMutationMigrationId,
+    sql: canonicalRuntimeMutationMigrationSql
   }
 ];
 

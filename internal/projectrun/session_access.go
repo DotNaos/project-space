@@ -43,6 +43,34 @@ func (manager *Manager) ListSessions(ctx context.Context) (ServeCollectionResult
 	return result, errors.Join(failures...)
 }
 
+// ObserveSessions returns validated persisted session evidence without running
+// health checks or cleanup. Callers that need a global inventory must use this
+// boundary so observing one Workspace cannot mutate another Workspace.
+func (manager *Manager) ObserveSessions(ctx context.Context) (ServeCollectionResult, error) {
+	result := ServeCollectionResult{
+		SchemaVersion: SchemaVersion,
+		Operation:     "observe",
+		CheckedAt:     manager.timestamp(),
+		Sessions:      []ServeResult{},
+	}
+	if err := ctx.Err(); err != nil {
+		result.ErrorCount = 1
+		return result, err
+	}
+	listing, err := manager.store.list()
+	if err != nil {
+		result.ErrorCount = 1
+		return result, err
+	}
+	for _, state := range listing.States {
+		session := manager.resultFromState("observe", CapabilityConfigured, state, nil)
+		result.Sessions = append(result.Sessions, session)
+	}
+	result.ErrorCount = len(listing.Failures)
+	result.CheckedAt = manager.timestamp()
+	return result, errors.Join(listing.Failures...)
+}
+
 func (manager *Manager) AccessSession(
 	ctx context.Context,
 	directory string,

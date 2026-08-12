@@ -66,7 +66,11 @@ export interface TaskExecutionMutationRequest {
   operationId: string;
 }
 
+export type TaskExecutionMessageDelivery = 'auto' | 'new-turn' | 'queue' | 'steer';
+
 export interface SendTaskExecutionMessageRequest extends TaskExecutionMutationRequest {
+  delivery?: TaskExecutionMessageDelivery;
+  expectedTurnId?: string;
   message: string;
   wait?: boolean;
 }

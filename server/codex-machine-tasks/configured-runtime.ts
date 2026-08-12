@@ -167,6 +167,8 @@ export async function createConfiguredCodexMachineTasksRuntime(
           generation,
           result: await sessions.service.reconcileContinue({ userId: input.userId }, {
             connectorGeneration: generation,
+            delivery: input.delivery,
+            expectedTurnId: input.expectedTurnId,
             machineId: input.connectorId,
             message: input.message,
             operationId: input.operationId,
@@ -174,9 +176,10 @@ export async function createConfiguredCodexMachineTasksRuntime(
           })
         };
       },
-      send: ({ connectorId, generation, message, operationId, threadId, userId }) => sessions.service.continue(
+      send: ({ connectorId, delivery, expectedTurnId, generation, message, operationId, threadId, userId }) => sessions.service.continue(
         { userId }, {
-          connectorGeneration: generation, machineId: connectorId, message, operationId, threadId
+          connectorGeneration: generation, delivery, expectedTurnId,
+          machineId: connectorId, message, operationId, threadId
         }
       ),
       async stream(input) {

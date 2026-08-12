@@ -17,19 +17,16 @@ import {
   isDatabaseConfigured,
   isMachineClaimed,
   deleteMachineExecutionScope,
-  listConnectorCredentials,
   listPhysicalMachines,
   listMachineExecutionScopes,
   listDevServerSessions,
   readMachineMembership,
   readProjectRunSettings,
-  revokeConnectorCredential,
   savePhysicalMachine,
   saveMachineExecutionScope,
   transitionDevServerSession,
   upsertProjectRunSettings
 } from './local-database-store';
-import { loadConfiguredComputeInventory } from './configured-compute-inventory';
 import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
 import { readJson, writeJson } from './project-space-http-response';
 import type {
@@ -78,13 +75,24 @@ import { createLocalPhysicalMachineStore } from './local-physical-machine-store'
 import { createPullRequestTestSurfacesTrustedRoute } from './pr-test-surfaces/trusted-http';
 import { createPullRequestPrototypeIterationRoute } from './pr-prototype-iteration-http';
 import { createPreviewHubService } from './preview-hub-service';
+import {
+  configuredConnectorRetirementService,
+  recordSuccessfulConnectorCompatibilityUse
+} from './connector-retirement/configured-runtime';
+import { createConnectorRetirementHttpApi } from './connector-retirement/http';
+import type { ConnectorRetirementService } from './connector-retirement/service';
+import { createConnectorOwnerCompatibilityRoutes } from './connector-retirement/owner-compatibility-routes';
 
 export function createProjectSpaceCoreApiRoutes(
   backend: ProjectSpaceBackend,
   options: {
+    connectorRetirementService?: ConnectorRetirementService;
     loadPullRequestPreviewStatus?: typeof getPullRequestPreviewStatus;
+    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
   } = {}
 ) {
+  const recordCompatibilityUse = options.recordCompatibilityUse ??
+    recordSuccessfulConnectorCompatibilityUse;
   const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
   const handlePullRequestTestSurfaces = createPullRequestTestSurfacesTrustedRoute(backend);
   const handlePullRequestPrototypeIteration = createPullRequestPrototypeIterationRoute(backend);
@@ -94,12 +102,23 @@ export function createProjectSpaceCoreApiRoutes(
   const loadPhysicalMachines = (userId: string) => isDatabaseConfigured()
     ? listPhysicalMachines(userId)
     : Promise.resolve(canUseLocalPhysicalMachines() ? localPhysicalMachines.list(userId) : []);
+  const handleConnectorOwnerCompatibility = createConnectorOwnerCompatibilityRoutes({
+    backend,
+    loadPhysicalMachines,
+    recordCompatibilityUse
+  });
   const currentUserId = () => {
     const session = getCurrentAuthSession();
     if (session?.userId) return session.userId;
     if (!isProjectSpaceAuthRequired()) return 'local-development-user';
     throw new Error('Login required.');
   };
+  const handleConnectorRetirement = createConnectorRetirementHttpApi({
+    loadService: async () => options.connectorRetirementService ??
+      configuredConnectorRetirementService(),
+    resolveOwnerUserId: async (_request, authenticatedOwnerUserId) =>
+      authenticatedOwnerUserId
+  });
   const devServers = createDevServerService({
     backend,
     connector: {
@@ -133,6 +152,8 @@ export function createProjectSpaceCoreApiRoutes(
     url: URL,
     userId: string
   ) {
+    if (await handleConnectorRetirement(request, response, url, userId)) return true;
+    if (await handleConnectorOwnerCompatibility(request, response, url, userId)) return true;
     if (await handleConnectorRuntime(request, response, url)) return true;
     if (await handlePullRequestTestSurfaces(request, response, url, userId)) return true;
     if (await handlePullRequestPrototypeIteration(request, response, url, userId)) return true;
@@ -234,19 +255,23 @@ export function createProjectSpaceCoreApiRoutes(
 
     if (request.method === 'POST' && url.pathname === '/api/connectors/install-command') {
       response.setHeader('Cache-Control', 'no-store');
+      const userId = currentUserId();
+      const installer = await createConnectorInstaller(requestPublicOrigin(request));
       writeJson(
         response,
         200,
-        await createConnectorInstaller(requestPublicOrigin(request))
+        installer
       );
-      return true;
-    }
-
-    if (request.method === 'GET' && url.pathname === '/api/connectors/credentials') {
-      response.setHeader('Cache-Control', 'no-store');
-      writeJson(response, 200, {
-        credentials: isDatabaseConfigured() ? await listConnectorCredentials(userId) : []
-      });
+      await Promise.allSettled([
+        recordCompatibilityUse(
+          userId,
+          'connector.enrollment.http.v1'
+        ),
+        recordCompatibilityUse(
+          userId,
+          'connector.installer-update.http.v1'
+        )
+      ]);
       return true;
     }
 
@@ -363,20 +388,6 @@ export function createProjectSpaceCoreApiRoutes(
       return true;
     }
 
-    const connectorCredentialMatch = url.pathname.match(
-      /^\/api\/connectors\/credentials\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i
-    );
-    if (request.method === 'DELETE' && connectorCredentialMatch?.[1]) {
-      response.setHeader('Cache-Control', 'no-store');
-      writeJson(response, 200, {
-        revoked: await revokeConnectorCredential({
-          credentialId: connectorCredentialMatch[1],
-          userId
-        })
-      });
-      return true;
-    }
-
     if (request.method === 'GET' && url.pathname === '/api/launcher/apps') {
       writeJson(response, 200, await backend.loadLauncherApps());
       return true;
@@ -472,11 +483,8 @@ export function createProjectSpaceCoreApiRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/worktrees/materialize') {
-      writeJson(
-        response,
-        200,
-        await worktreeActions.materialize(await readJson<WorktreeMaterializeRequest>(request))
-      );
+      await readJson<WorktreeMaterializeRequest>(request);
+      canonicalRuntimeRequired(response, 'Worktree preparation');
       return true;
     }
     if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/inspect') {
@@ -488,29 +496,20 @@ export function createProjectSpaceCoreApiRoutes(
       return true;
     }
     if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/run') {
-      writeJson(
-        response,
-        200,
-        await worktreeActions.runSetup(await readJson<WorktreeSetupRunRequest>(request))
-      );
+      await readJson<WorktreeSetupRunRequest>(request);
+      canonicalRuntimeRequired(response, 'Worktree setup');
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/dev-servers/start') {
-      writeJson(
-        response,
-        200,
-        await devServers.start(await readJson<DevServerActionRequest>(request))
-      );
+      await readJson<DevServerActionRequest>(request);
+      canonicalRuntimeRequired(response, 'Dev-server start');
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/dev-servers/stop') {
-      writeJson(
-        response,
-        200,
-        await devServers.stop(await readJson<DevServerActionRequest>(request))
-      );
+      await readJson<DevServerActionRequest>(request);
+      canonicalRuntimeRequired(response, 'Dev-server stop');
       return true;
     }
 
@@ -608,27 +607,6 @@ export function createProjectSpaceCoreApiRoutes(
       return true;
     }
 
-    if (request.method === 'GET' && url.pathname === '/api/connectors/overview') {
-      const overview = await backend.getConnectorOverview();
-      const physicalMachines = await loadPhysicalMachines(userId);
-      const { snapshot: computeInventory } = await loadConfiguredComputeInventory({
-        backend,
-        overview: { ...overview, physicalMachines },
-        userId
-      });
-      writeJson(response, 200, {
-        ...overview,
-        computeInventory,
-        physicalMachines
-      });
-      return true;
-    }
-
-    if (request.method === 'GET' && url.pathname === '/api/connectors/project-registry') {
-      writeJson(response, 200, await backend.getConnectorProjectRegistry());
-      return true;
-    }
-
     if (request.method === 'POST' && url.pathname === '/api/project-cli/run') {
       const payload = await readJson<ProjectCliCommandRequest>(request);
       if (payload.machineId) {
@@ -661,6 +639,16 @@ export function createProjectSpaceCoreApiRoutes(
 
     return false;
   };
+}
+
+function canonicalRuntimeRequired(response: ServerResponse, operation: string) {
+  response.setHeader('Cache-Control', 'private, no-store');
+  writeJson(response, 409, {
+    error: {
+      code: 'canonical_runtime_required',
+      message: `${operation} requires the canonical control API.`
+    }
+  });
 }
 
 function parsePreviewHubStartRequest(value: unknown): PreviewHubStartRequest | null {

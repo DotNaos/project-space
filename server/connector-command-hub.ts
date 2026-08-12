@@ -48,6 +48,7 @@ import {
 } from './connector-command-upgrade-handler';
 import {
   connectorHasCapability,
+  connectorSessionOwnerUserId,
   connectorSocket,
   disconnectConnectorSession,
   sendConnectorJson
@@ -89,6 +90,12 @@ import type {
   ProjectWorktreeRecord,
   TerminalCommandResult
 } from '../src/shared/project-space-api';
+import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
+import {
+  compatibilitySurfaceForPendingKind,
+  successfulCompatibilityResult,
+  type ConnectorCompatibilityCommandKind
+} from './connector-retirement/command-classification';
 
 type ConnectorCommandResult =
   | CodexModelCatalogueResult
@@ -101,7 +108,6 @@ type ConnectorCommandResult =
   | ConnectorDevServerListResult
   | ConnectorWorktreeActionResult
   | TerminalCommandResult;
-
 interface PendingCommand {
   worktreeActionTarget?: {
     generation: number;
@@ -115,36 +121,21 @@ interface PendingCommand {
     serverId: string;
     worktreeId: string;
   };
-  kind:
-    | 'chat'
-    | 'dev-server-inspect'
-    | 'dev-server-list'
-    | 'dev-server-start'
-    | 'dev-server-stop'
-    | 'worktree-action'
-    | 'filesystem-directory'
-    | 'filesystem-file'
-    | 'filesystem-root'
-    | 'folder-create'
-    | 'folder-delete'
-    | 'folder-rename'
-    | 'models'
-    | 'terminal'
-    | 'worktrees';
+  kind: ConnectorCompatibilityCommandKind;
   machineId: string;
+  ownerUserId?: string;
   onChatEvent?: (event: CodexChatStreamEvent) => void;
   reject(error: Error): void;
   resolve(value?: ConnectorCommandResult): void;
   timeout: ReturnType<typeof setTimeout>;
 }
-
 const commandTimeoutMs = 10 * 60_000;
 const pendingCommands = new Map<string, PendingCommand>();
 
 export { registerLocalConnectorDevServerExecutor };
 export { registerLocalConnectorWorktreeActionExecutor };
-export type { ConnectorDevServerRequestOptions };
 export { authenticateConnectorCredential };
+export type { ConnectorDevServerRequestOptions };
 export type { AuthenticateConnectorCredential };
 function commandId() {
   return globalThis.crypto?.randomUUID?.() ?? `connector-${Date.now()}-${Math.random()}`;
@@ -169,12 +160,23 @@ function socketForMachine(machineId: string, capability?: string) {
   return socket;
 }
 
-function finishPending(id: string, value?: ConnectorCommandResult) {
+function finishPending(
+  id: string,
+  value?: ConnectorCommandResult,
+  recordCompatibilityUse = recordSuccessfulConnectorCompatibilityUse
+) {
   const pending = pendingCommands.get(id);
   if (!pending) return;
   pendingCommands.delete(id);
   clearTimeout(pending.timeout);
   pending.resolve(value);
+  const surface = compatibilitySurfaceForPendingKind(pending.kind);
+  if (surface && successfulCompatibilityResult(pending.kind, value)) {
+    void recordCompatibilityUse(
+      pending.ownerUserId,
+      surface
+    );
+  }
 }
 
 function failPending(id: string, error: Error) {
@@ -212,6 +214,7 @@ function createPendingCommand(
       worktreeActionTarget: options.worktreeActionTarget,
       kind,
       machineId,
+      ownerUserId: connectorSessionOwnerUserId(machineId),
       onChatEvent,
       reject,
       resolve,
@@ -242,10 +245,16 @@ function failCommandsForMachine(machineId: string) {
   failWorkspaceCommandsForMachine(machineId);
 }
 
-function handleConnectorResult(machineId: string, message: ConnectorHubMessage) {
-  if (handleConnectorRuntimeHubMessage(machineId, message)) return;
-  if (handleCodexSessionsConnectorMessage(machineId, message)) return;
-  if (handleWorkspaceCommandHubMessage(machineId, message)) return;
+function handleConnectorResult(
+  machineId: string,
+  message: ConnectorHubMessage,
+  recordCompatibilityUse = recordSuccessfulConnectorCompatibilityUse
+) {
+  if (handleConnectorRuntimeHubMessage(machineId, message, { recordCompatibilityUse })) return;
+  if (handleCodexSessionsConnectorMessage(machineId, message, { recordCompatibilityUse })) return;
+  if (handleWorkspaceCommandHubMessage(machineId, message, { recordCompatibilityUse })) return;
+  const finish = (id: string, value?: ConnectorCommandResult) =>
+    finishPending(id, value, recordCompatibilityUse);
   if ('id' in message) {
     const pending = pendingCommands.get(message.id);
     if (pending && pending.machineId !== machineId) {
@@ -281,7 +290,7 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
       );
       return;
     }
-    finishPending(message.id, message.payload);
+    finish(message.id, message.payload);
     return;
   }
 
@@ -303,7 +312,7 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
       );
       return;
     }
-    finishPending(message.id, message.payload);
+    finish(message.id, message.payload);
     return;
   }
 
@@ -323,26 +332,26 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
       );
       return;
     }
-    finishPending(message.id, message.payload);
+    finish(message.id, message.payload);
     return;
   }
 
   if (message.type === 'codex.models.result') {
     if (pendingCommands.get(message.id)?.kind === 'models') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
 
   if (message.type === 'terminal.result') {
     if (pendingCommands.get(message.id)?.kind === 'terminal') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
   if (message.type === 'worktrees.result') {
     if (pendingCommands.get(message.id)?.kind === 'worktrees') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
@@ -354,43 +363,43 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
   }
   if (message.type === 'filesystem.root.result') {
     if (pendingCommands.get(message.id)?.kind === 'filesystem-root') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
   if (message.type === 'filesystem.directory.result') {
     if (pendingCommands.get(message.id)?.kind === 'filesystem-directory') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
   if (message.type === 'filesystem.file.result') {
     if (pendingCommands.get(message.id)?.kind === 'filesystem-file') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
   if (message.type === 'filesystem.folder.create.result') {
     if (pendingCommands.get(message.id)?.kind === 'folder-create') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
   if (message.type === 'filesystem.folder.rename.result') {
     if (pendingCommands.get(message.id)?.kind === 'folder-rename') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
   if (message.type === 'filesystem.folder.delete.result') {
     if (pendingCommands.get(message.id)?.kind === 'folder-delete') {
-      finishPending(message.id, message.payload);
+      finish(message.id, message.payload);
     }
     return;
   }
 
   if (message.type === 'codex.chat.complete') {
-    finishPending(message.id);
+    finish(message.id);
     return;
   }
 
@@ -398,8 +407,10 @@ function handleConnectorResult(machineId: string, message: ConnectorHubMessage) 
     const pending = pendingCommands.get(message.id);
     refreshCommandTimeout(message.id);
     pending?.onChatEvent?.(message.payload);
-    if (message.payload.type === 'done' || message.payload.type === 'error') {
-      finishPending(message.id);
+    if (message.payload.type === 'done') {
+      finish(message.id);
+    } else if (message.payload.type === 'error') {
+      failPending(message.id, new Error('The connector Codex command failed.'));
     }
   }
 }
@@ -485,12 +496,8 @@ export function requestConnectorDevServerInspect(
   actor: ConnectorDevServerActor,
   options?: ConnectorDevServerRequestOptions
 ) {
-  return requestConnectorDevServerCommand(
-    'inspect',
-    request,
-    actor,
-    options
-  ) as Promise<ConnectorDevServerResult>;
+  return requestConnectorDevServerCommand('inspect', request, actor, options) as
+    Promise<ConnectorDevServerResult>;
 }
 
 export function requestConnectorDevServerList(
@@ -498,12 +505,8 @@ export function requestConnectorDevServerList(
   actor: ConnectorDevServerActor,
   options?: ConnectorDevServerRequestOptions
 ) {
-  return requestConnectorDevServerCommand(
-    'list',
-    request,
-    actor,
-    options
-  ) as Promise<ConnectorDevServerListResult>;
+  return requestConnectorDevServerCommand('list', request, actor, options) as
+    Promise<ConnectorDevServerListResult>;
 }
 
 export function requestConnectorDevServerStart(
@@ -511,12 +514,8 @@ export function requestConnectorDevServerStart(
   actor: ConnectorDevServerActor,
   options?: ConnectorDevServerRequestOptions
 ) {
-  return requestConnectorDevServerCommand(
-    'start',
-    request,
-    actor,
-    options
-  ) as Promise<ConnectorDevServerResult>;
+  return requestConnectorDevServerCommand('start', request, actor, options) as
+    Promise<ConnectorDevServerResult>;
 }
 
 export function requestConnectorDevServerStop(
@@ -524,12 +523,8 @@ export function requestConnectorDevServerStop(
   actor: ConnectorDevServerActor,
   options?: ConnectorDevServerRequestOptions
 ) {
-  return requestConnectorDevServerCommand(
-    'stop',
-    request,
-    actor,
-    options
-  ) as Promise<ConnectorDevServerResult>;
+  return requestConnectorDevServerCommand('stop', request, actor, options) as
+    Promise<ConnectorDevServerResult>;
 }
 
 export async function requestConnectorWorktreeAction(
@@ -692,8 +687,14 @@ export async function streamConnectorCodexChat(
 export function createConnectorCommandUpgradeHandler(
   options: ConnectorCommandUpgradeHandlerOptions = {}
 ) {
+  const recordCompatibilityUse = options.recordCompatibilityUse ??
+    recordSuccessfulConnectorCompatibilityUse;
   return createConnectorCommandUpgradeHandlerCore(
-    { failCommandsForMachine, handleConnectorResult },
+    {
+      failCommandsForMachine,
+      handleConnectorResult: (machineId, message) =>
+        handleConnectorResult(machineId, message, recordCompatibilityUse)
+    },
     options
   );
 }

@@ -10,11 +10,63 @@ import {
   codexMachineTasksMigrationId,
   codexMachineTasksMigrationSql
 } from '../server/database/codex-machine-tasks-migration';
+import {
+  codexMachineTaskMessageDeliveryMigrationId,
+  codexMachineTaskMessageDeliveryMigrationSql
+} from '../server/database/codex-machine-task-message-delivery-migration';
 import { computeInventoryMigrationSql } from '../server/database/compute-inventory-migration';
 import {
   computeEnvironmentIdentityResolutionMigrationId,
   computeEnvironmentIdentityResolutionMigrationSql
 } from '../server/database/compute-environment-identity-resolution-migration';
+import {
+  environmentCatalogMigrationId,
+  environmentCatalogMigrationSql
+} from '../server/database/environment-catalog-migration';
+import {
+  privateNetworkAccessRoutesMigrationId,
+  privateNetworkAccessRoutesMigrationSql
+} from '../server/database/private-network-access-routes-migration';
+import {
+  sshControlGatewayMigrationId,
+  sshControlGatewayMigrationSql
+} from '../server/database/ssh-control-gateway-migration';
+import {
+  workspaceRuntimeControlMigrationId,
+  workspaceRuntimeControlMigrationSql
+} from '../server/database/workspace-runtime-control-migration';
+import {
+  workspaceRuntimeSessionMigrationId,
+  workspaceRuntimeSessionMigrationSql
+} from '../server/database/workspace-runtime-session-migration';
+import {
+  projectHostdMigrationId,
+  projectHostdMigrationSql
+} from '../server/database/project-hostd-migration';
+import {
+  hostControlMigrationId,
+  hostControlMigrationSql
+} from '../server/database/host-control-migration';
+import {
+  hostControlHardeningMigrationId,
+  hostControlHardeningMigrationSql
+} from '../server/database/host-control-hardening-migration';
+import {
+  workspaceRuntimeCapabilityPromotionMigrationId,
+  workspaceRuntimeCapabilityPromotionMigrationSql
+} from '../server/database/workspace-runtime-capability-promotion-migration';
+import {
+  connectorCompatibilityUsageMigrationId,
+  connectorCompatibilityUsageMigrationSql
+} from '../server/database/connector-compatibility-usage-migration';
+import {
+  canonicalRuntimeControlMigrationId,
+  canonicalRuntimeControlMigrationSql
+} from '../server/database/canonical-runtime-control-migration';
+import {
+  canonicalRuntimeMutationMigrationId,
+  canonicalRuntimeMutationMigrationSql
+} from '../server/database/canonical-runtime-mutation-migration';
 
 interface QueryCall {
   sql: string;
@@ -46,6 +98,25 @@ class MigrationTestClient implements DatabaseQueryClient {
 }
 
 describe('database migrations', () => {
+  test('adds Environment definitions and backfills every concrete instance', () => {
+    expect(environmentCatalogMigrationId).toBe('0039_environment_catalog');
+    expect(environmentCatalogMigrationSql).toContain(
+      'create table compute_environment_definitions'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'add column environment_definition_id uuid'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'alter column environment_definition_id set not null'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'foreign key (environment_definition_id, owner_user_id)'
+    );
+    expect(environmentCatalogMigrationSql).toContain(
+      'create or replace function project_space_ensure_connector_environment()'
+    );
+  });
+
   test('repairs compute-environment identity resolution after the original migration', () => {
     expect(computeEnvironmentIdentityResolutionMigrationId).toBe(
       '0031_compute_environment_identity_resolution'
@@ -69,6 +140,235 @@ describe('database migrations', () => {
     expect(
       computeInventoryMigrationSql.match(/identity_key ~ '\^\[A-Za-z0-9:_-\]\+\$'/g)
     ).toHaveLength(2);
+  });
+
+  test('keeps private-network routes owner-scoped, typed, and private-only', () => {
+    expect(privateNetworkAccessRoutesMigrationId).toBe('0040_private_network_access_routes');
+    expect(privateNetworkAccessRoutesMigrationSql).toContain('create table private_networks');
+    expect(privateNetworkAccessRoutesMigrationSql).toContain('create table access_routes');
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      'foreign key (private_network_id, owner_user_id, provider_kind)'
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      'foreign key (environment_id, owner_user_id)'
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      'check ((environment_id is null) <> (host_id is null))'
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain(
+      "route_kind <> 'ssh_private_network'"
+    );
+    expect(privateNetworkAccessRoutesMigrationSql).toContain("private_address ~ '^100\\.(");
+    expect(privateNetworkAccessRoutesMigrationSql).toContain("credential_reference ~ '^op://");
+  });
+
+  test('binds SSH gateway operations to one owner, Environment, route, and typed result', () => {
+    expect(sshControlGatewayMigrationId).toBe('0041_ssh_control_gateway_operations');
+    expect(sshControlGatewayMigrationSql).toContain('create table ssh_gateway_operations');
+    expect(sshControlGatewayMigrationSql).toContain(
+      'create unique index access_routes_ssh_credential_unique'
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      "credential_purpose = 'project_control_gateway_v1'"
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      'foreign key (route_id, owner_user_id, environment_id, route_kind, target_identity_revision)'
+    );
+    expect(sshControlGatewayMigrationSql).toContain("capability = 'project_cli'");
+    expect(sshControlGatewayMigrationSql).toContain("operation = 'status.v1'");
+    expect(sshControlGatewayMigrationSql).toContain(
+      "safe_result->>'operationId' = operation_id"
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      "safe_result->>'targetIdentityRevision' = target_identity_revision"
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      "where state in ('reserved', 'dispatching', 'uncertain')"
+    );
+    expect(sshControlGatewayMigrationSql).toContain('reserved_until timestamptz');
+    expect(sshControlGatewayMigrationSql).toContain('dispatch_lease_until timestamptz');
+    expect(sshControlGatewayMigrationSql).toContain("'reservation_expired'");
+    expect(sshControlGatewayMigrationSql).toContain("'reconciled_succeeded'");
+    expect(sshControlGatewayMigrationSql).toContain('create table ssh_gateway_operation_events');
+    const operationLedgerSql = sshControlGatewayMigrationSql
+      .split('create table ssh_gateway_operations')[1]!
+      .split('create unique index ssh_gateway_operations_unresolved_target_idx')[0]!;
+    for (const secretField of [
+      'private_address', 'ssh_user', 'host_key', 'credential_reference', 'stdout', 'stderr'
+    ]) expect(operationLedgerSql).not.toContain(secretField);
+    expect(workspaceRuntimeControlMigrationId).toBe('0042_workspace_runtime_control');
+    expect(workspaceRuntimeControlMigrationSql).toContain(
+      'drop constraint ssh_gateway_operations_operation_check'
+    );
+    expect(workspaceRuntimeControlMigrationSql).toContain(
+      'ssh_gateway_operations_safe_result_v2_check'
+    );
+    expect(workspaceRuntimeControlMigrationSql).toContain('workspace-runtime.start.v1');
+    expect(databaseMigrations.find((migration) => migration.id === sshControlGatewayMigrationId)?.id)
+      .toBe(sshControlGatewayMigrationId);
+  });
+
+  test('binds hostd credentials and telemetry to one immutable owner target', () => {
+    expect(projectHostdMigrationId).toBe('0046_project_hostd_telemetry');
+    expect(projectHostdMigrationSql).toContain('create table project_hostd_devices');
+    expect(projectHostdMigrationSql).toContain('create table project_hostd_credentials');
+    expect(projectHostdMigrationSql).toContain('create table project_hostd_observations');
+    expect(projectHostdMigrationSql).toContain('foreign key (environment_id, owner_user_id)');
+    expect(projectHostdMigrationSql).toContain('foreign key (host_id, owner_user_id)');
+    expect(projectHostdMigrationSql).toContain(
+      'foreign key (owner_user_id, device_id, current_credential_id)'
+    );
+    expect(projectHostdMigrationSql).toContain('unique (owner_user_id, operation_id)');
+    expect(projectHostdMigrationSql).toContain('unique (owner_user_id, device_id, sequence)');
+    expect(projectHostdMigrationSql).toContain("retain_until timestamptz not null default now() + interval '24 hours'");
+    expect(projectHostdMigrationSql).not.toContain(' token text');
+    expect(databaseMigrations.find(({ id }) => id === projectHostdMigrationId)?.id)
+      .toBe(projectHostdMigrationId);
+  });
+
+  test('durably binds Host control replay and audit evidence to one owner and Host', () => {
+    expect(hostControlMigrationId).toBe('0047_host_control_operations');
+    expect(migrationChecksum({ id: hostControlMigrationId, sql: hostControlMigrationSql })).toBe(
+      '795b0f4ebef9b0091c8c760aa69c2a50f2240bbea1b8bb47ad3551e56072912f'
+    );
+    expect(hostControlMigrationSql).toContain('create table host_control_operations');
+    expect(hostControlMigrationSql).toContain('primary key (owner_user_id, operation_id)');
+    expect(hostControlMigrationSql).toContain('foreign key (host_id, owner_user_id)');
+    expect(hostControlMigrationSql).toContain("actor_type text not null");
+    expect(hostControlMigrationSql).toContain('result jsonb');
+    expect(hostControlHardeningMigrationId).toBe('0048_host_control_hardening');
+    expect(hostControlHardeningMigrationSql).toContain(
+      'alter table host_control_operations rename to host_control_operations_v1_retained'
+    );
+    expect(hostControlHardeningMigrationSql).toContain('create table host_control_operations');
+    expect(hostControlHardeningMigrationSql).toContain('attempt_id uuid not null');
+    expect(hostControlMigrationSql).toContain(
+      "state in ('reserved', 'completed', 'failed', 'rejected', 'uncertain')"
+    );
+    expect(hostControlHardeningMigrationSql).toContain('host_control_one_dispatch_per_host');
+    expect(hostControlHardeningMigrationSql).toContain('policy_decision_id text not null');
+    expect(hostControlHardeningMigrationSql).toContain('binding_revision text not null');
+    expect(hostControlHardeningMigrationSql).toContain('result_message text check');
+    expect(hostControlHardeningMigrationSql).toContain(
+      "state in ('failed', 'uncertain') and result_code = 'provider_unavailable'"
+    );
+    expect(hostControlHardeningMigrationSql).not.toContain('result jsonb');
+    expect(databaseMigrations.find(({ id }) => id === hostControlHardeningMigrationId)?.id)
+      .toBe(hostControlHardeningMigrationId);
+  });
+
+  test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
+    expect(databaseMigrations.find((migration) => migration.id === workspaceRuntimeSessionMigrationId)?.id)
+      .toBe(workspaceRuntimeSessionMigrationId);
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'create unique index workspace_runtime_generations_current_idx'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'where superseded_at is null'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'foreign key (environment_id, owner_user_id)'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'unique (owner_user_id, workspace_id, environment_id, generation, credential_id)'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'foreign key (owner_user_id, workspace_id, environment_id, generation, current_credential_id)'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain('token_hash text not null unique');
+    expect(workspaceRuntimeSessionMigrationSql).toContain('operation_id text not null');
+    expect(workspaceRuntimeSessionMigrationSql).toContain('unique (owner_user_id, operation_id)');
+    expect(workspaceRuntimeSessionMigrationSql).not.toContain(' token text');
+    expect(workspaceRuntimeSessionMigrationSql).not.toContain('runtime.codex.v1');
+    expect(workspaceRuntimeCapabilityPromotionMigrationSql).toContain(
+      "requested_capabilities <@ array['runtime.codex.v1']::text[]"
+    );
+    expect(databaseMigrations.find(({ id }) => (
+      id === workspaceRuntimeCapabilityPromotionMigrationId
+    ))?.id).toBe(workspaceRuntimeCapabilityPromotionMigrationId);
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'unique (owner_user_id, workspace_id, generation, sequence)'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'pg_column_size(safe_payload) <= 65536'
+    );
+  });
+
+  test('durably binds canonical Runtime control to one owner and exact Runtime session', () => {
+    expect(canonicalRuntimeControlMigrationId).toBe('0050_canonical_runtime_control_operations');
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'add column last_control_command_sequence bigint not null default 0'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'add column last_control_event_sequence bigint not null default 0'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'create table canonical_runtime_control_operations'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'primary key (owner_user_id, operation_id)'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'foreign key (owner_user_id, workspace_id, environment_id, generation)'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      "state in ('reserved', 'dispatching', 'completed', 'failed', 'uncertain')"
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain(
+      'canonical_runtime_control_command_sequence_idx'
+    );
+    expect(canonicalRuntimeControlMigrationSql).toContain('pg_column_size(safe_result) <= 262144');
+    expect(canonicalRuntimeControlMigrationSql).not.toMatch(
+      /password|credential_reference|private_key|request_body|stdout|stderr/i
+    );
+    expect(databaseMigrations.at(-2)?.id).toBe(canonicalRuntimeControlMigrationId);
+  });
+
+  test('extends canonical control additively with safe mutation replay and ownership fences', () => {
+    expect(canonicalRuntimeMutationMigrationId).toBe('0051_canonical_runtime_mutations');
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'drop constraint workspace_runtime_requested_capabilities_v2_check'
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain("'runtime.mutation.v1'");
+    expect(canonicalRuntimeMutationMigrationSql).toContain('add column safe_input jsonb');
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "safe_input - array['expectedHead', 'operation', 'scope'] = '{}'::jsonb"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "safe_input->>'expectedServerGeneration' ~ '^[A-Za-z0-9:._-]{1,256}$'"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "add column access_mode text not null default 'read'"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'canonical_runtime_control_one_unresolved_mutation_idx'
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "where access_mode = 'mutation' and state in ('reserved', 'dispatching', 'uncertain')"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).not.toContain("'worktree.prepare'");
+    expect(canonicalRuntimeMutationMigrationSql).toContain("'worktree.prepare.v1'");
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'drop constraint ssh_gateway_operations_operation_v2_check'
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'add constraint ssh_gateway_operations_operation_v3_check'
+    );
+    expect(databaseMigrations.at(-1)?.id).toBe(canonicalRuntimeMutationMigrationId);
+  });
+
+  test('persists explicit Codex message delivery and durable queue state', () => {
+    expect(databaseMigrations.find((migration) => (
+      migration.id === codexMachineTaskMessageDeliveryMigrationId
+    ))?.id).toBe(codexMachineTaskMessageDeliveryMigrationId);
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain(
+      "state in ('pending', 'queued', 'completed', 'uncertain')"
+    );
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain(
+      "where state in ('pending', 'queued', 'uncertain')"
+    );
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain('dispatch_attempt integer');
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain('request_fingerprint_sha256');
   });
 
   test('preserves the original machine-task migration and backfills durability conservatively', () => {
@@ -122,8 +422,35 @@ describe('database migrations', () => {
       '0035_task_handoff_artifacts',
       '0036_workspace_commands',
       '0037_task_delivery',
-      '0038_dev_server_managed_states'
+      '0038_dev_server_managed_states',
+      '0039_environment_catalog',
+      '0040_private_network_access_routes',
+      '0041_ssh_control_gateway_operations',
+      '0042_workspace_runtime_control',
+      '0043_workspace_runtime_sessions',
+      '0044_codex_machine_task_message_delivery',
+      '0045_workspace_runtime_capability_promotions',
+      '0046_project_hostd_telemetry',
+      '0047_host_control_operations',
+      '0048_host_control_hardening',
+      '0049_connector_compatibility_usage',
+      '0050_canonical_runtime_control_operations',
+      '0051_canonical_runtime_mutations'
     ]);
+
+    expect(connectorCompatibilityUsageMigrationId).toBe('0049_connector_compatibility_usage');
+    expect(connectorCompatibilityUsageMigrationSql).toContain(
+      'create table if not exists connector_compatibility_usage'
+    );
+    expect(connectorCompatibilityUsageMigrationSql).toContain(
+      'create table if not exists connector_compatibility_observations'
+    );
+    expect(connectorCompatibilityUsageMigrationSql).toContain(
+      "recorder_state text not null check (recorder_state in ('active', 'clean'))"
+    );
+    expect(connectorCompatibilityUsageMigrationSql).not.toMatch(
+      /request_body|target_id|path|token|secret|content/i
+    );
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
 

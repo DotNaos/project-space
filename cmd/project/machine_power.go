@@ -87,6 +87,9 @@ func newMachineCommand() *cobra.Command {
 		Short: "Manage exact physical machines",
 	}
 	command.AddCommand(newMachinePowerCommand(defaultMachinePowerDependencies()))
+	inventory := defaultComputeInventoryCommandDependencies()
+	command.AddCommand(newHostListCommand(inventory, true))
+	command.AddCommand(newHostShowCommand(inventory, true))
 	return command
 }
 

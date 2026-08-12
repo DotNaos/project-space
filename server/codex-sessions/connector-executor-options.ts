@@ -32,5 +32,6 @@ export interface CodexSessionsConnectorExecutorOptions {
   startTurn?(input: CodexStartTurnInput): Promise<{ turn: { id: string } }>;
   steerTurn?(input: CodexSteerTurnInput): Promise<{ turnId: string }>;
   transcript?: LocalCodexTranscriptSource;
-  verificationKey: KeyLike;
+  /** Required only by the signed connector wire wrapper. */
+  verificationKey?: KeyLike;
 }

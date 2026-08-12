@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-
 import type {
   CodexMachineTaskAttachRequest,
   CodexMachineTaskAttachResult,
@@ -20,19 +19,28 @@ import type { CodexSessionOperationResult, CodexSessionStreamEvent } from '../..
 import { canonicalJson } from '../codex-sessions/canonical-json';
 import {
   CodexMachineTaskTargetError,
-  resolveCodexMachineTaskTarget
+  resolveCodexMachineTaskServiceTarget,
+  type CodexMachineTaskTargetSelector
 } from './target-resolver';
 import { CodexMachineTaskIssueError } from './issue-provider';
 import {
   blocked,
+  queuedSendResult,
   readBlocked,
   sendResult,
   sessionSendResult,
   targetAtGeneration,
   uncertain
 } from './results';
+import { createCodexMachineTaskQueueDispatcher } from './queue-dispatcher';
+import {
+  createMessageSendOperation,
+  fingerprintMessageRequest,
+  fingerprintMessageTarget,
+  reconcileMessageSend,
+  resolveMessageDelivery
+} from './message-delivery';
 import type {
-  CodexMachineTaskSendOperation,
   CodexMachineTasksServiceOptions,
   CodexMachineTaskStartPayload,
   CodexMachineTaskStartOperation
@@ -47,60 +55,18 @@ export type {
   CodexMachineTaskStartPayload,
   CodexMachineTaskStartReservation
 } from './contracts';
-
 export class CodexMachineTasksConflictError extends Error {
   constructor() {
     super('The operation ID was already used for different input.');
     this.name = 'CodexMachineTasksConflictError';
   }
 }
-
 export const codexAttachToken = Symbol('codexAttachToken');
-
 export function createCodexMachineTasksService(options: CodexMachineTasksServiceOptions) {
-  async function target(
-    userId: string,
-    selector: Pick<
-      CodexMachineTaskReadRequest,
-      'connectorId' | 'environmentId' | 'physicalMachineId' | 'physicalMachineName'
-    >,
-    callerMachineId?: string
-  ) {
-    const inventory = await options.inventory(userId);
-    const callerPhysicalMachine = !selector.environmentId && !selector.physicalMachineId && !selector.physicalMachineName &&
-      callerMachineId
-      ? inventory.physicalMachines.find((machine) => machine.connectorIds.includes(callerMachineId))
-      : undefined;
-    return resolveCodexMachineTaskTarget({
-      ...selector,
-      connectorId: selector.connectorId ?? (callerPhysicalMachine ? callerMachineId : undefined),
-      physicalMachineId: selector.physicalMachineId ?? callerPhysicalMachine?.id,
-      ...inventory,
-      generationFor: options.generationFor,
-      userCanUseConnector: options.userCanUseConnector
-        ? (connectorId) => options.userCanUseConnector!(userId, connectorId)
-        : undefined
-    });
-  }
-
-  function reconcileSend(
-    generation: number,
-    durableOperations: boolean,
-    selected: CodexMachineTaskTarget,
-    userId: string,
-    request: CodexMachineTaskSendRequest
-  ) {
-    return options.sessions.reconcileSend?.({
-      connectorId: selected.connector.id,
-      durableOperations,
-      generation,
-      message: request.message,
-      operationId: request.operationId,
-      threadId: request.threadId,
-      userId
-    });
-  }
-
+  const queueDispatcher = createCodexMachineTaskQueueDispatcher(options);
+  void queueDispatcher.start().catch(() => undefined);
+  const target = (userId: string, selector: CodexMachineTaskTargetSelector, callerMachineId?: string) =>
+    resolveCodexMachineTaskServiceTarget(options, userId, selector, callerMachineId);
   return {
     async existing(
       actor: { userId: string },
@@ -468,34 +434,75 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       actor: { userId: string },
       request: CodexMachineTaskSendRequest
     ): Promise<CodexMachineTaskSendResult> {
+      const requestedDelivery = request.delivery ?? 'auto';
+      const requestFingerprint = fingerprintMessageRequest(actor.userId, request);
+      const earlyLookup = await options.store.lookupSendRequest({
+        fingerprint: requestFingerprint,
+        operationId: request.operationId,
+        userId: actor.userId
+      });
+      if (earlyLookup.kind === 'conflict') throw new CodexMachineTasksConflictError();
+      if (earlyLookup.kind === 'replayed') return earlyLookup.result;
+      if (earlyLookup.kind === 'queued') {
+        await queueDispatcher.resume();
+        return earlyLookup.result;
+      }
       let selected: CodexMachineTaskTarget;
       try {
         selected = await target(actor.userId, request);
       } catch (error) {
         if (!(error instanceof CodexMachineTaskTargetError)) throw error;
+        if (earlyLookup.kind === 'reserved') return uncertain(request.operationId);
         return blocked(request.operationId, error.reason, error.message);
       }
-      const operation: CodexMachineTaskSendOperation = {
-        connectorId: selected.connector.id,
-        durableOperations: options.durableGenerationFor?.(
-          selected.connector.id,
-          selected.connector.generation
-        ) ?? false,
-        fingerprint: fingerprint({
-          connectorId: selected.connector.id,
-          message: request.message,
-          threadId: request.threadId,
-          userId: actor.userId
-        }),
-        generation: selected.connector.generation,
-        operationId: request.operationId,
-        threadId: request.threadId,
-        userId: actor.userId
-      };
+      if (earlyLookup.kind === 'reserved' &&
+          selected.connector.id !== earlyLookup.connectorId) return uncertain(request.operationId);
+      const sendFingerprint = fingerprintMessageTarget(actor.userId, request, selected);
+      const lookup = earlyLookup.kind === 'reserved'
+        ? earlyLookup
+        : await options.store.lookupSend({
+            connectorId: selected.connector.id,
+            fingerprint: sendFingerprint,
+            operationId: request.operationId,
+            threadId: request.threadId,
+            userId: actor.userId
+          });
+      if (lookup.kind === 'conflict') throw new CodexMachineTasksConflictError();
+      if (lookup.kind === 'replayed') return lookup.result;
+      if (lookup.kind === 'queued') {
+        await queueDispatcher.resume();
+        return lookup.result;
+      }
+      const resolvedDelivery = lookup.kind === 'reserved' &&
+        (requestedDelivery !== 'queue' || lookup.state === 'uncertain')
+        ? {
+            delivery: lookup.dispatchDelivery,
+            expectedTurnId: lookup.expectedTurnId,
+            sessionActive: false
+          }
+        : await resolveMessageDelivery({ actor, options, request, target: selected });
+      if ('result' in resolvedDelivery) return resolvedDelivery.result;
+      const { delivery, expectedTurnId, sessionActive } = resolvedDelivery;
+      const queuedResult = requestedDelivery === 'queue'
+        ? queuedSendResult(selected, request, new Date().toISOString())
+        : undefined;
+      const operation = createMessageSendOperation({
+        delivery, expectedTurnId, fingerprint: sendFingerprint, lookup, options, request,
+        queuedResult, requestFingerprint, target: selected, userId: actor.userId
+      });
       const reservation = await options.store.reserveSend(operation);
       if (reservation.kind === 'conflict') throw new CodexMachineTasksConflictError();
       if (reservation.kind === 'replayed') {
         return { ...reservation.result, operationId: request.operationId };
+      }
+      if (reservation.kind === 'queued') {
+        queueDispatcher.schedule({
+          dispatchAttempt: reservation.dispatchAttempt,
+          operation,
+          result: reservation.result,
+          state: reservation.state
+        });
+        return reservation.result;
       }
       if (reservation.kind === 'fenced') {
         return blocked(
@@ -505,25 +512,38 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           selected
         );
       }
+      if (requestedDelivery === 'queue' && sessionActive) {
+        return queueDispatcher.enqueue(operation, queuedResult!);
+      }
       const executionGeneration = reservation.kind === 'pending' || reservation.kind === 'uncertain'
         ? reservation.generation
         : operation.generation;
       const durableOperations = reservation.kind === 'pending' || reservation.kind === 'uncertain'
         ? reservation.durableOperations
         : operation.durableOperations;
+      const executionDelivery = reservation.kind === 'pending' || reservation.kind === 'uncertain'
+        ? reservation.dispatchDelivery
+        : delivery;
+      const executionExpectedTurnId = reservation.kind === 'pending' || reservation.kind === 'uncertain'
+        ? reservation.expectedTurnId
+        : expectedTurnId;
+      const dispatchRequest = {
+        ...request, delivery: executionDelivery, expectedTurnId: executionExpectedTurnId
+      };
       const mustReconcile = reservation.kind === 'uncertain' ||
         reservation.kind === 'pending' && selected.connector.generation !== reservation.generation;
       let resultGeneration = executionGeneration;
       operation.generation = executionGeneration;
       let attempted = false;
       const reconcile = async () => {
-        const reconciliation = await reconcileSend(
-          executionGeneration,
+        const reconciliation = await reconcileMessageSend({
           durableOperations,
-          targetAtGeneration(selected, executionGeneration),
-          actor.userId,
-          request
-        );
+          generation: executionGeneration,
+          options,
+          request: dispatchRequest,
+          target: targetAtGeneration(selected, executionGeneration),
+          userId: actor.userId
+        });
         if (!reconciliation) return {
           operationId: request.operationId,
           replayed: true,
@@ -538,6 +558,8 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         if (mustReconcile) return reconcile();
         return options.sessions.send({
           connectorId: selected.connector.id,
+          delivery: executionDelivery,
+          expectedTurnId: executionExpectedTurnId,
           generation: executionGeneration,
           message: request.message,
           operationId: request.operationId,
@@ -572,6 +594,10 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         }
         if (result.status === 'ambiguous' && !mustReconcile) {
           result = await reconcile();
+        }
+        if (requestedDelivery === 'queue' && result.status === 'rejected' &&
+            (result.reason === 'thread_active' || result.reason === 'unavailable')) {
+          return queueDispatcher.enqueue(operation, queuedResult!);
         }
         if (
           request.wait &&
@@ -663,11 +689,9 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
     }
   };
 }
-
 function fingerprint(value: unknown) {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
-
 function sameStartPayload(
   left: CodexMachineTaskStartPayload,
   right: CodexMachineTaskStartPayload

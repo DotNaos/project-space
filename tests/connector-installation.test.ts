@@ -23,6 +23,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
   createConnectorInstaller,
+  connectorCompatibilityInstallerVersion,
+  connectorCompatibilityPolicy,
   connectorInstallScript,
   connectorInstallerReleaseConfig,
   requestPublicOrigin
@@ -36,6 +38,7 @@ import {
 const originalPublicOrigin = process.env.PROJECT_SPACE_PUBLIC_ORIGIN;
 const temporaryDirectories: string[] = [];
 const manifestNow = Date.parse('2026-07-14T12:00:00.000Z');
+const manifestCompatibilityUntil = String(Math.floor((manifestNow + 30 * 24 * 60 * 60 * 1000) / 1000));
 
 afterEach(() => {
   if (originalPublicOrigin === undefined) {
@@ -212,6 +215,10 @@ function runGeneratedInstaller(entries: TarEntry[], expectedSha256?: string) {
         'project-space-machine-tools-darwin-arm64-v0.3.0.tar.gz',
       PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256: expectedSha256 ?? archiveSha256,
       PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION: 'v0.3.0',
+      PROJECT_SPACE_CONNECTOR_COMPATIBILITY_ACK: connectorCompatibilityInstallerVersion,
+      PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH: String(
+        Math.floor((Date.now() + 30 * 24 * 60 * 60 * 1000) / 1000)
+      ),
       PROJECT_SPACE_CONNECTOR_DIR: installDirectory
     },
     input: connectorInstallScript('https://projects.os-home.net')
@@ -298,7 +305,8 @@ describe('connector installation origin', () => {
       'https://projects.os-home.net',
       {
         environment: {
-          PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID: 'v0.3.0'
+          PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID: 'v0.3.0',
+          PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH: manifestCompatibilityUntil
         },
         manifestPublicKey: keys.publicKey,
         now: manifestNow,
@@ -321,6 +329,29 @@ describe('connector installation origin', () => {
     expect(installer.command).toContain(
       `PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256='${'a'.repeat(64)}'`
     );
+    expect(installer.command).toContain(
+      `PROJECT_SPACE_CONNECTOR_COMPATIBILITY_ACK='${connectorCompatibilityInstallerVersion}'`
+    );
+    expect(installer.compatibility).toEqual({
+      surface: 'legacy-connector-installer',
+      sunsetAt: new Date(Number(manifestCompatibilityUntil) * 1000).toISOString(),
+      sunsetEpochSeconds: Number(manifestCompatibilityUntil),
+      version: connectorCompatibilityInstallerVersion
+    });
+  });
+
+  test('fails closed outside an explicit short compatibility window', () => {
+    expect(() => connectorCompatibilityPolicy({}, manifestNow)).toThrow(
+      'approved connector runtime release is unavailable'
+    );
+    expect(() => connectorCompatibilityPolicy({
+      PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH: String(
+        Math.floor((manifestNow + 91 * 24 * 60 * 60 * 1000) / 1000)
+      )
+    }, manifestNow)).toThrow('approved connector runtime release is unavailable');
+    expect(connectorCompatibilityPolicy({
+      PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH: manifestCompatibilityUntil
+    }, manifestNow).version).toBe(connectorCompatibilityInstallerVersion);
   });
 
   test('rejects missing trust configuration and a tampered approved manifest', async () => {
@@ -341,7 +372,8 @@ describe('connector installation origin', () => {
     await expect(
       createConnectorInstaller('https://projects.os-home.net', {
         environment: {
-          PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID: 'v0.3.0'
+          PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID: 'v0.3.0',
+          PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH: manifestCompatibilityUntil
         },
         releases
       })
@@ -351,7 +383,8 @@ describe('connector installation origin', () => {
     await expect(
       createConnectorInstaller('https://projects.os-home.net', {
         environment: {
-          PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID: 'v0.3.0'
+          PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID: 'v0.3.0',
+          PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH: manifestCompatibilityUntil
         },
         manifestPublicKey: keys.publicKey,
         now: manifestNow,

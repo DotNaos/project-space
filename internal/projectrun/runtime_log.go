@@ -68,6 +68,32 @@ func readRuntimeSupervisorAck(reader io.Reader) (runtimeSupervisorAck, error) {
 // SuperviseRuntime starts the managed command only after the parent has
 // persisted this supervisor's identity and sent the command over reader.
 func SuperviseRuntime(ctx context.Context, reader io.Reader, acknowledgements io.Writer, path string) error {
+	file, err := managedOutput(path)
+	if err != nil {
+		err = fmt.Errorf("open managed runtime log: %w", err)
+		_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Error: err.Error()})
+		return err
+	}
+	defer file.Close()
+	return superviseRuntime(ctx, reader, acknowledgements, file)
+}
+
+// SuperviseRuntimeWithInheritedLog uses descriptor 3 inherited from the
+// ownership-checking parent. It never resolves a filesystem path.
+func SuperviseRuntimeWithInheritedLog(ctx context.Context, reader io.Reader, acknowledgements io.Writer) error {
+	file := os.NewFile(3, "workspace-runtime.log")
+	if file == nil {
+		return fmt.Errorf("inherited managed runtime log is unavailable")
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("inherited managed runtime log is not a private regular file")
+	}
+	return superviseRuntime(ctx, reader, acknowledgements, file)
+}
+
+func superviseRuntime(ctx context.Context, reader io.Reader, acknowledgements io.Writer, file *os.File) error {
 	if group := syscall.Getpgrp(); group != os.Getpid() {
 		err := fmt.Errorf("runtime supervisor PID %d is not its process-group leader", os.Getpid())
 		_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Error: err.Error()})
@@ -91,18 +117,6 @@ func SuperviseRuntime(ctx context.Context, reader io.Reader, acknowledgements io
 	}
 	cmd, err := prepareCommand(command)
 	if err != nil {
-		_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Error: err.Error()})
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
-	if err != nil {
-		err = fmt.Errorf("open managed runtime log: %w", err)
-		_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Error: err.Error()})
-		return err
-	}
-	defer file.Close()
-	if err := file.Chmod(0o600); err != nil {
-		err = fmt.Errorf("protect managed runtime log: %w", err)
 		_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Error: err.Error()})
 		return err
 	}

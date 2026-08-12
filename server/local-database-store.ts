@@ -27,6 +27,9 @@ import type {
   UpsertProjectRunSettingsInput
 } from './database/models';
 import { ProjectSpaceDatabaseRepository } from './database/repository';
+import { PostgresPrivateNetworkStore, type PrivateNetworkStore } from './private-network/store';
+import { PostgresConnectorCompatibilityUsageStore } from './connector-retirement/postgres-store';
+import type { ConnectorCompatibilityUsageStore } from './connector-retirement/contracts';
 
 export type {
   AuthenticateConnectorCredentialInput,
@@ -78,6 +81,8 @@ let projectChatRepository: PostgresProjectChatRepository | null = null;
 let connectorMachineSnapshotStore: ConnectorMachineSnapshotStore | null = null;
 let connectorRuntimeOperationStore: PostgresConnectorRuntimeOperationStore | null = null;
 let roadmapPlanStore: RoadmapPlanStore | null = null;
+let privateNetworkStore: PrivateNetworkStore | null = null;
+let connectorCompatibilityUsageStore: ConnectorCompatibilityUsageStore | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -259,6 +264,14 @@ export async function getRoadmapPlanStore() {
   return roadmapPlanStore;
 }
 
+export async function getPrivateNetworkStore() {
+  const databasePool = getPool();
+  if (!databasePool) return null;
+  await ensureDatabaseSchema();
+  privateNetworkStore ??= new PostgresPrivateNetworkStore(createPoolQueryClient(databasePool));
+  return privateNetworkStore;
+}
+
 export async function getConnectorMachineSnapshotStore() {
   const databasePool = getPool();
   if (!databasePool) {
@@ -279,6 +292,16 @@ export async function getConnectorRuntimeOperationStore() {
     createPoolQueryClient(databasePool)
   );
   return connectorRuntimeOperationStore;
+}
+
+export async function getConnectorCompatibilityUsageStore() {
+  const databasePool = getPool();
+  if (!databasePool) return null;
+  await ensureDatabaseSchema();
+  connectorCompatibilityUsageStore ??= new PostgresConnectorCompatibilityUsageStore(
+    createPoolQueryClient(databasePool)
+  );
+  return connectorCompatibilityUsageStore;
 }
 
 export async function readGitHubOAuthToken(

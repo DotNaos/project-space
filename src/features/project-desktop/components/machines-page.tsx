@@ -174,105 +174,69 @@ function HostRow({ row }: { row: ComputeRow }) {
         <span className="block truncate text-sm font-medium text-neutral-200">{row.name}</span>
         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-600">
           {row.resourcesSummary ? <span className="truncate">{row.resourcesSummary}</span> : null}
-          {row.connectorCount > 0 ? (
-            <span className="shrink-0">
-              {row.resourcesSummary ? '· ' : ''}
-              {row.onlineConnectorCount} of {row.connectorCount} connector{row.connectorCount === 1 ? '' : 's'} online
-            </span>
-          ) : null}
+          {!row.resourcesSummary ? <span>Host capability record</span> : null}
         </span>
       </span>
+      <StatusChip isOnline={row.isOnline} />
     </div>
   );
 }
 
 function EnvironmentRow({
-  defaultExpanded,
-  onEditConnector,
-  onRefresh,
   row
 }: {
-  defaultExpanded: boolean;
-  onEditConnector(instance: SettingsConnectorInstance): void;
-  onRefresh(): Promise<unknown>;
   row: ComputeRow;
 }) {
   const verified = row.hostAssociationLabel !== undefined &&
     (row.hostAssociationLabel.startsWith('Verified') || row.hostAssociationLabel === 'Manually assigned');
 
   return (
-    <Disclosure defaultExpanded={defaultExpanded}>
-      <Disclosure.Heading>
-        <Disclosure.Trigger
-          className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5 pr-1 text-left outline-none transition hover:bg-neutral-900/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400/50"
-          style={{ paddingLeft: `${0.25 + row.depth * 1.25}rem` }}
-        >
-          <span className="flex min-w-0 items-center gap-3">
-            <Disclosure.Indicator className="ms-0 size-3.5 shrink-0 text-neutral-600 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none">
-              <ChevronRight />
-            </Disclosure.Indicator>
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
-              <Boxes className="size-4 text-violet-300" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="truncate text-sm font-medium text-neutral-200">{row.name}</span>
-                {row.environmentKind ? (
-                  <Chip size="sm" className="shrink-0 gap-1 text-neutral-500">
-                    <Boxes className="size-3" />
-                    {computeEnvironmentKindLabels[row.environmentKind]}
-                  </Chip>
-                ) : null}
-                {row.hostAssociationLabel ? (
-                  <Chip
-                    size="sm"
-                    className={cn('hidden shrink-0 gap-1 sm:inline-flex', verified ? 'text-sky-300' : 'text-neutral-600')}
-                  >
-                    <Link2 className="size-3" />
-                    {row.hostAssociationLabel}
-                  </Chip>
-                ) : null}
-                {row.hasIdentityConflict ? (
-                  <Chip size="sm" className="shrink-0 gap-1 text-amber-300">
-                    <ShieldAlert className="size-3" />
-                    Identity conflict
-                  </Chip>
-                ) : null}
-              </span>
-              <span className="mt-1 block truncate text-[11px] text-neutral-600">
-                {row.resourcesSummary ?? `${row.connectorCount} connector${row.connectorCount === 1 ? '' : 's'}`}
-              </span>
-            </span>
+    <div
+      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5 pr-1"
+      style={{ paddingLeft: `${0.25 + row.depth * 1.25}rem` }}
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
+          <Boxes className="size-4 text-violet-300" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-neutral-200">{row.name}</span>
+            {row.environmentKind ? (
+              <Chip size="sm" className="shrink-0 gap-1 text-neutral-500">
+                <Boxes className="size-3" />
+                {computeEnvironmentKindLabels[row.environmentKind]}
+              </Chip>
+            ) : null}
+            {row.hostAssociationLabel ? (
+              <Chip
+                size="sm"
+                className={cn('hidden shrink-0 gap-1 sm:inline-flex', verified ? 'text-sky-300' : 'text-neutral-600')}
+              >
+                <Link2 className="size-3" />
+                {row.hostAssociationLabel}
+              </Chip>
+            ) : null}
+            {row.hasIdentityConflict ? (
+              <Chip size="sm" className="shrink-0 gap-1 text-amber-300">
+                <ShieldAlert className="size-3" />
+                Identity conflict
+              </Chip>
+            ) : null}
           </span>
-          <StatusChip isOnline={row.isOnline} />
-        </Disclosure.Trigger>
-      </Disclosure.Heading>
-      <Disclosure.Content>
-        <Disclosure.Body
-          className="pb-1 pr-1"
-          style={{ paddingLeft: `${2.25 + row.depth * 1.25}rem` }}
-        >
-          {row.instances.map((instance) => (
-            <ConnectorRow
-              key={instance.id}
-              instance={instance}
-              onEdit={() => onEditConnector(instance)}
-              onRefresh={onRefresh}
-            />
-          ))}
-        </Disclosure.Body>
-      </Disclosure.Content>
-    </Disclosure>
+          <span className="mt-1 block truncate text-[11px] text-neutral-600">
+            {row.resourcesSummary ?? 'Environment Instance'}
+          </span>
+        </span>
+      </span>
+      <StatusChip isOnline={row.isOnline} />
+    </div>
   );
 }
 
 function ComputePlatformSectionView({
-  onEditConnector,
-  onRefresh,
   section
 }: {
-  onEditConnector(instance: SettingsConnectorInstance): void;
-  onRefresh(): Promise<unknown>;
   section: ComputePlatformSection;
 }) {
   return (
@@ -283,7 +247,7 @@ function ComputePlatformSectionView({
           {section.name} · {section.platformKindLabel}
         </Text>
         <span className="ml-auto shrink-0 text-[11px] text-neutral-600">
-          {section.onlineConnectorCount} of {section.connectorCount} online
+          {section.rows.filter((row) => row.isOnline).length} of {section.rows.length} targets online
         </span>
       </div>
       <div className="divide-y divide-neutral-800/50">
@@ -293,9 +257,6 @@ function ComputePlatformSectionView({
             : (
               <EnvironmentRow
                 key={row.id}
-                defaultExpanded={section.rows.length <= 4}
-                onEditConnector={onEditConnector}
-                onRefresh={onRefresh}
                 row={row}
               />
             )
@@ -391,10 +352,10 @@ function InstallerPanel({
 }) {
   return (
     <div className="shrink-0 border-b border-neutral-800/70 py-4">
-      <Text className="block text-sm font-medium text-neutral-200">Add a machine</Text>
+      <Text className="block text-sm font-medium text-neutral-200">Legacy Connector enrollment</Text>
       <Text className="mt-1 block text-sm text-neutral-500">
-        Run this command on the machine. It installs the pinned managed bundle and then opens
-        Project Space approval to create the connector&apos;s protected identity.
+        Compatibility only. This installs the existing managed Connector while Environment
+        bootstrap and canonical runtime routing complete their measured migration window.
       </Text>
 
       {installCommand ? (
@@ -447,7 +408,7 @@ function InstallerPanel({
       <div className="mt-4">
         <div className="flex items-center justify-between gap-3">
           <Text className="text-[11px] font-medium uppercase tracking-[.08em] text-neutral-600">
-            Installer credentials
+            Legacy enrollment credentials
           </Text>
           <Button
             aria-label="Refresh connector credentials"
@@ -496,7 +457,7 @@ function InstallerPanel({
             })}
           </div>
         ) : (
-          <Text className="mt-1 block text-xs text-neutral-600">No connector credentials yet.</Text>
+          <Text className="mt-1 block text-xs text-neutral-600">No legacy credentials yet.</Text>
         )}
         {credentials.length > 10 ? (
           <Text className="mt-2 block text-xs text-neutral-600">
@@ -597,12 +558,11 @@ export function MachinesPage({
     () => filterComputePlatformSections(platformSections, query, filter),
     [filter, platformSections, query]
   );
-  const totalConnectorCount = useMemo(
-    () => platformSections.reduce((sum, section) => sum + section.connectorCount, 0),
-    [platformSections]
-  );
-  const onlineConnectorCount = useMemo(
-    () => platformSections.reduce((sum, section) => sum + section.onlineConnectorCount, 0),
+  const onlineTargetCount = useMemo(
+    () => platformSections.reduce(
+      (sum, section) => sum + section.rows.filter((row) => row.isOnline).length,
+      0
+    ),
     [platformSections]
   );
   const archivedInstances = useMemo(
@@ -643,10 +603,10 @@ export function MachinesPage({
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <Text as="h1" className="block text-2xl font-semibold tracking-[-.02em] text-neutral-50">
-              Machines
+              Compute
             </Text>
             <Text className="mt-1 block text-sm text-neutral-500">
-              Every machine that runs a connector and makes its projects reachable here.
+              Platforms, Hosts, and Environment Instances available to Project Space.
             </Text>
           </div>
           {!localSimulation ? (
@@ -656,7 +616,7 @@ export function MachinesPage({
               onPress={() => (isInstallerOpen ? setIsInstallerOpen(false) : openInstaller())}
             >
               <Plus className="size-4" />
-              Add machine
+              Legacy setup
             </Button>
           ) : null}
         </div>
@@ -681,14 +641,14 @@ export function MachinesPage({
 
       <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-800/70 py-4 lg:flex-row lg:items-center lg:justify-between">
         <SearchField
-          aria-label="Search machines and connectors"
+          aria-label="Search compute targets"
           className="w-full lg:max-w-sm"
           onChange={setQuery}
           value={query}
         >
           <SearchFieldGroup className="h-10 rounded-full bg-neutral-900/80">
             <SearchFieldSearchIcon />
-            <SearchFieldInput placeholder="Search machines and connectors" spellCheck={false} />
+            <SearchFieldInput placeholder="Search Platforms, Hosts, and Environments" spellCheck={false} />
             <SearchFieldClearButton />
           </SearchFieldGroup>
         </SearchField>
@@ -706,7 +666,7 @@ export function MachinesPage({
             </Button>
           ))}
           <Button
-            aria-label="Refresh machines"
+            aria-label="Refresh compute inventory"
             isIconOnly
             size="sm"
             variant="ghost"
@@ -731,59 +691,47 @@ export function MachinesPage({
         {presentation.showBlockingLoading ? (
           <div className="flex min-h-48 items-center justify-center gap-2 text-neutral-500">
             <LoaderCircle className="size-4 animate-spin" />
-            <Text className="text-sm">Loading machines…</Text>
+            <Text className="text-sm">Loading compute inventory…</Text>
           </div>
         ) : presentation.showBlockingError ? (
           <div className="grid min-h-48 place-items-center gap-3 px-6 text-center">
             <Text className="max-w-md text-sm text-red-300/80">
-              {loadError || 'Machines could not be loaded.'}
+              {loadError || 'Compute inventory could not be loaded.'}
             </Text>
             <Button size="sm" variant="ghost" onPress={() => void onRefresh()}>
               Retry
             </Button>
           </div>
-        ) : (isComputeMode ? platformSections.length === 0 : rows.length === 0) ? (
+        ) : !isComputeMode ? (
           <div className="grid min-h-48 place-items-center gap-3 px-6 text-center">
             <MonitorCog className="size-6 text-neutral-700" />
             <Text className="text-sm text-neutral-500">
-              {isComputeMode ? 'No platform reports a machine yet.' : 'No machine runs a connector yet.'}
+              Canonical compute inventory is unavailable. Legacy compatibility remains below.
             </Text>
-            <Button size="sm" variant="secondary" onPress={openInstaller}>
-              <Plus className="size-4" />
-              Add your first machine
-            </Button>
           </div>
-        ) : (isComputeMode ? visibleSections.length === 0 : visibleRows.length === 0) ? (
+        ) : platformSections.length === 0 ? (
+          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center">
+            <MonitorCog className="size-6 text-neutral-700" />
+            <Text className="text-sm text-neutral-500">
+              No Platform reports a Host or Environment Instance yet.
+            </Text>
+          </div>
+        ) : visibleSections.length === 0 ? (
           <div className="grid min-h-48 place-items-center px-6 text-center">
             <Text className="text-sm text-neutral-500">
-              No machines match this search and filter.
+              No compute targets match this search and filter.
             </Text>
           </div>
-        ) : isComputeMode ? (
+        ) : (
           visibleSections.map((section) => (
             <ComputePlatformSectionView
               key={section.id}
-              onEditConnector={setEditingConnector}
-              onRefresh={onRefresh}
               section={section}
             />
           ))
-        ) : (
-          <div className="divide-y divide-neutral-800/70">
-            {visibleRows.map((row) => (
-              <MachineRow
-                key={row.id}
-                defaultExpanded={visibleRows.length <= 3}
-                onEditConnector={setEditingConnector}
-                onRefresh={onRefresh}
-                row={row}
-                showGrouping={hasGroupedMachine}
-              />
-            ))}
-          </div>
         )}
 
-        {archivedCount > 0 && presentation.showContent ? (
+        {presentation.showContent ? (
           <Disclosure className="mt-2 border-t border-neutral-800/70">
             <Disclosure.Heading>
               <Disclosure.Trigger className="group flex items-center gap-2 px-1 py-3 text-xs text-neutral-600 transition hover:text-neutral-400">
@@ -791,11 +739,24 @@ export function MachinesPage({
                   <ChevronRight />
                 </Disclosure.Indicator>
                 <Archive className="size-3.5" />
-                Archived connector history ({archivedCount})
+                Legacy Connector compatibility ({connectors.length} installation{connectors.length === 1 ? '' : 's'})
               </Disclosure.Trigger>
             </Disclosure.Heading>
             <Disclosure.Content>
               <Disclosure.Body className="space-y-1 pb-3 pl-8">
+                <Text className="block pb-2 text-xs text-amber-300/80">
+                  Deprecated compatibility surface. These installation identities are not Hosts or Environment Instances.
+                </Text>
+                {!isComputeMode ? visibleRows.map((row) => (
+                  <MachineRow
+                    key={row.id}
+                    defaultExpanded={false}
+                    onEditConnector={setEditingConnector}
+                    onRefresh={onRefresh}
+                    row={row}
+                    showGrouping={hasGroupedMachine}
+                  />
+                )) : null}
                 {archivedInstances.map((instance) => (
                   <div
                     key={instance.id}
@@ -826,8 +787,8 @@ export function MachinesPage({
       <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-neutral-800/70 py-3 text-xs text-neutral-600">
         <span>
           {isComputeMode
-            ? `${countComputePlatformRows(visibleSections)} of ${countComputePlatformRows(platformSections)} machines · ${onlineConnectorCount} of ${totalConnectorCount} connectors online`
-            : `${visibleRows.length} of ${rows.length} ${rows.length === 1 ? 'machine' : 'machines'}`}
+            ? `${countComputePlatformRows(visibleSections)} of ${countComputePlatformRows(platformSections)} compute targets · ${onlineTargetCount} online`
+            : 'Canonical compute inventory unavailable'}
         </span>
         {!localSimulation ? <span className="flex min-w-0 items-center gap-1.5">
           <Network

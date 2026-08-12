@@ -14,6 +14,18 @@ class InventoryClient implements DatabaseQueryClient {
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
+    if (sql.includes('from compute_environment_definitions') && sql.includes('order by lower')) {
+      return { rows: [{
+        bootstrap_strategy: 'ssh',
+        id: 'definition-linux',
+        kind: 'native_linux',
+        name: 'Linux',
+        operating_system_family: 'linux',
+        ownership: 'built_in',
+        slug: 'linux',
+        supported_architectures: []
+      }] as Row[] };
+    }
     if (sql.includes('from compute_platforms') && sql.includes('order by lower')) {
       return { rows: [{ id: 'platform-local', kind: 'local', name: 'Local & self-hosted' }] as Row[] };
     }
@@ -26,6 +38,7 @@ class InventoryClient implements DatabaseQueryClient {
         host_id: null,
         host_resolution: 'unresolved',
         id: 'environment-one',
+        environment_definition_id: 'definition-linux',
         identity_key: 'account:0123456789abcdef',
         identity_resolution: 'resolved',
         identity_version: 1,
@@ -49,6 +62,9 @@ class InventoryClient implements DatabaseQueryClient {
     }
     if (sql.includes('insert into compute_platforms')) {
       return { rows: [{ id: 'platform-local' }] as Row[] };
+    }
+    if (sql.includes('insert into compute_environment_definitions')) {
+      return { rows: [{ id: `definition-${String(values[4])}` }] as Row[] };
     }
     if (sql.includes('from connector_compute_environments association') && sql.includes('for update')) {
       return { rows: (this.rejectAssociationMove || this.hasCurrentAssociation ? [{
@@ -99,6 +115,17 @@ describe('compute inventory repository', () => {
       connectorId: 'connector-one',
       environmentId: 'environment-one'
     }]);
+    expect(inventory.environmentDefinitions).toEqual([{
+      bootstrapStrategy: 'ssh',
+      id: 'definition-linux',
+      kind: 'native_linux',
+      name: 'Linux',
+      operatingSystemFamily: 'linux',
+      ownership: 'built_in',
+      slug: 'linux',
+      supportedArchitectures: []
+    }]);
+    expect(inventory.environments[0]?.environmentDefinitionId).toBe('definition-linux');
     expect(inventory.environments[0]?.identityResolution).toBe('resolved');
   });
 
@@ -111,9 +138,16 @@ describe('compute inventory repository', () => {
       name: 'connector-one'
     }]);
     const environmentInsert = client.calls.find(({ sql }) => sql.includes('insert into compute_environments'));
+    const definitionInsert = client.calls.find(({ sql }) => (
+      sql.includes('insert into compute_environment_definitions')
+    ));
+    expect(definitionInsert?.values.slice(2)).toEqual([
+      'linux', 'Linux', 'native_linux', 'linux', [], 'ssh'
+    ]);
     expect(environmentInsert?.values[6]).toMatch(/^account:[0-9a-f]{64}$/);
     expect(environmentInsert?.values[6]).not.toContain(reported.environmentIdentity.key);
     expect(environmentInsert?.values[12]).toBeNull();
+    expect(environmentInsert?.values[13]).toBe('definition-native_linux');
   });
 
   test('persists missing exclusive resources as SQL null', async () => {

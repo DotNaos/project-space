@@ -59,6 +59,7 @@ afterEach(() => {
 
 describe('connector runtime stop routing', () => {
   test('routes through the authenticated generation and resolves only the exact binding', async () => {
+    const recorded: unknown[] = [];
     const sent: string[] = [];
     const socket = {
       readyState: WebSocket.OPEN,
@@ -94,8 +95,24 @@ describe('connector runtime stop routing', () => {
       type: 'runtime.stop.result'
     };
     expect(isConnectorHubMessage(result)).toBe(true);
-    expect(handleConnectorRuntimeStopMessage(machineId, result)).toBe(true);
+    expect(handleConnectorRuntimeStopMessage(machineId, result, {
+      recordCompatibilityUse: async (...input) => {
+        recorded.push(input);
+        return true;
+      }
+    })).toBe(true);
     await expect(pending).resolves.toEqual(result.payload);
+    await Promise.resolve();
+    expect(recorded).toEqual([
+      ['user-owner', 'connector.runtime-stop.websocket.v1']
+    ]);
+    handleConnectorRuntimeStopMessage(machineId, result, {
+      recordCompatibilityUse: async (...input) => {
+        recorded.push(input);
+        return true;
+      }
+    });
+    expect(recorded).toHaveLength(1);
   });
 
   test('fails closed when the acknowledgement comes from another machine', async () => {

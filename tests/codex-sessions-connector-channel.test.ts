@@ -248,6 +248,7 @@ describe('Codex sessions connector channel', () => {
 
   test('accepts only typed commands and results bound to the exact request', async () => {
     const { sent, socket } = fakeSocket();
+    const usage: unknown[] = [];
     try {
       const pending = requestConnectorCodexSessions('list', {
         includeArchived: true,
@@ -287,9 +288,18 @@ describe('Codex sessions connector channel', () => {
 
       const tampered = structuredClone(result);
       tampered.payload.binding.userId = 'different-user';
-      expect(handleCodexSessionsConnectorMessage(machineId, tampered)).toBe(true);
-      handleCodexSessionsConnectorMessage(machineId, result);
+      const options = {
+        recordCompatibilityUse: async (...input: unknown[]) => {
+          usage.push(input);
+          return true;
+        }
+      };
+      expect(handleCodexSessionsConnectorMessage(machineId, tampered, options)).toBe(true);
+      handleCodexSessionsConnectorMessage(machineId, result, options);
       expect((await pending).operation).toBe('list');
+      expect(usage).toEqual([
+        ['user-owner', 'connector.codex-sessions-control.websocket.v1']
+      ]);
 
       const arbitrary = structuredClone(command) as unknown as { payload: Record<string, unknown> };
       arbitrary.payload.method = 'shell/execute';

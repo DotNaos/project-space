@@ -76,20 +76,71 @@ export type CodexMachineTaskAssociationLookup =
 
 export interface CodexMachineTaskSendOperation {
   connectorId: string;
+  delivery: 'auto' | 'new-turn' | 'queue' | 'steer';
+  dispatchDelivery: 'new-turn' | 'steer';
   durableOperations: boolean;
+  expectedTurnId?: string;
   fingerprint: string;
   generation: number;
+  message: string;
   operationId: string;
+  queuedResult?: Extract<CodexMachineTaskSendResult, { state: 'queued' }>;
+  requestFingerprint: string;
   threadId: string;
   userId: string;
+}
+
+export interface CodexMachineTaskQueuedSend {
+  dispatchAttempt: number;
+  operation: CodexMachineTaskSendOperation;
+  result: Extract<CodexMachineTaskSendResult, { state: 'queued' }>;
+  state: 'pending' | 'queued' | 'uncertain';
 }
 
 export type CodexMachineTaskSendReservation =
   | { kind: 'new' }
   | { kind: 'conflict' }
   | { kind: 'fenced' }
-  | { durableOperations: boolean; generation: number; kind: 'pending' }
-  | { durableOperations: boolean; generation: number; kind: 'uncertain' }
+  | {
+      dispatchDelivery: 'new-turn' | 'steer';
+      durableOperations: boolean;
+      expectedTurnId?: string;
+      generation: number;
+      kind: 'pending';
+    }
+  | {
+      dispatchDelivery: 'new-turn' | 'steer';
+      durableOperations: boolean;
+      expectedTurnId?: string;
+      generation: number;
+      kind: 'uncertain';
+    }
+  | {
+      dispatchAttempt: number;
+      kind: 'queued';
+      result: Extract<CodexMachineTaskSendResult, { state: 'queued' }>;
+      state: 'pending' | 'queued' | 'uncertain';
+    }
+  | { kind: 'replayed'; result: CodexMachineTaskSendResult };
+
+export type CodexMachineTaskSendLookup =
+  | { kind: 'missing' }
+  | { kind: 'conflict' }
+  | {
+      dispatchAttempt: number;
+      kind: 'queued';
+      result: Extract<CodexMachineTaskSendResult, { state: 'queued' }>;
+      state: 'pending' | 'queued' | 'uncertain';
+    }
+  | {
+      connectorId: string;
+      dispatchDelivery: 'new-turn' | 'steer';
+      durableOperations: boolean;
+      expectedTurnId?: string;
+      generation: number;
+      kind: 'reserved';
+      state: 'pending' | 'uncertain';
+    }
   | { kind: 'replayed'; result: CodexMachineTaskSendResult };
 
 export interface CodexMachineTasksStore {
@@ -103,11 +154,28 @@ export interface CodexMachineTasksStore {
   ): Promise<void>;
   markStartUncertain(operation: CodexMachineTaskStartOperation): Promise<void>;
   markSendUncertain(operation: CodexMachineTaskSendOperation): Promise<void>;
+  queueSend(
+    operation: CodexMachineTaskSendOperation,
+    result: CodexMachineTaskSendResult
+  ): Promise<void>;
   lookupStart(input: {
     fingerprint: string;
     operationId: string;
     userId: string;
   }): Promise<CodexMachineTaskStartLookup>;
+  lookupSend(input: {
+    connectorId: string;
+    fingerprint: string;
+    operationId: string;
+    threadId: string;
+    userId: string;
+  }): Promise<CodexMachineTaskSendLookup>;
+  lookupSendRequest(input: {
+    fingerprint: string;
+    operationId: string;
+    userId: string;
+  }): Promise<CodexMachineTaskSendLookup>;
+  listQueuedSends(): Promise<CodexMachineTaskQueuedSend[]>;
   findStart?(input: {
     connectorId: string;
     issue: number;
@@ -120,6 +188,11 @@ export interface CodexMachineTasksStore {
     userId: string;
   }): Promise<'conflict' | 'missing' | 'not_uncertain' | 'released'>;
   releaseSend(operation: CodexMachineTaskSendOperation): Promise<void>;
+  resumeQueuedSend(operation: CodexMachineTaskSendOperation): Promise<number | undefined>;
+  rebindQueuedSend(
+    operation: CodexMachineTaskSendOperation,
+    generation: number
+  ): Promise<boolean>;
   releaseStart(operation: CodexMachineTaskStartOperation): Promise<void>;
   reserveStart(operation: CodexMachineTaskStartOperation): Promise<CodexMachineTaskStartReservation>;
   reserveSend(operation: CodexMachineTaskSendOperation): Promise<CodexMachineTaskSendReservation>;
@@ -152,6 +225,7 @@ export interface CodexMachineTasksServiceOptions {
     repositoryId?: string;
     userId: string;
   }): Promise<CodexMachineTaskStartPayload>;
+  queueRetryDelay?(): Promise<void>;
   sessions: {
     read(input: {
       connectorId: string;
@@ -161,7 +235,9 @@ export interface CodexMachineTasksServiceOptions {
     }): Promise<CodexSessionReadResult>;
     reconcileSend?(input: {
       connectorId: string;
+      delivery: 'new-turn' | 'steer';
       durableOperations: boolean;
+      expectedTurnId?: string;
       generation: number;
       message: string;
       operationId: string;
@@ -173,6 +249,8 @@ export interface CodexMachineTasksServiceOptions {
     }>;
     send(input: {
       connectorId: string;
+      delivery: 'new-turn' | 'steer';
+      expectedTurnId?: string;
       generation: number;
       message: string;
       operationId: string;

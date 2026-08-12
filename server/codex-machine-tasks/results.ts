@@ -69,6 +69,21 @@ export function sendResult(
   };
 }
 
+export function queuedSendResult(
+  target: CodexMachineTaskTarget,
+  request: CodexMachineTaskSendRequest,
+  queuedAt: string
+): Extract<CodexMachineTaskSendResult, { state: 'queued' }> {
+  return {
+    apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+    operationId: request.operationId,
+    queuedAt,
+    state: 'queued',
+    target,
+    threadId: request.threadId
+  };
+}
+
 export function sessionSendResult(
   target: CodexMachineTaskTarget,
   request: CodexMachineTaskSendRequest,

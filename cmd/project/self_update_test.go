@@ -80,7 +80,8 @@ func TestSelfUpdateInteractiveConfirmationDefaultsToNo(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if service.applyCalls != 0 || !strings.Contains(output, "y/N") || !strings.Contains(output, "Update cancelled") {
+		if service.applyCalls != 0 || !strings.Contains(output, "verified Project CLI release") ||
+			strings.Contains(strings.ToLower(output), "connector") || !strings.Contains(output, "Update cancelled") {
 			t.Fatalf("answer %q: output = %q, calls = %d", answer, output, service.applyCalls)
 		}
 	}

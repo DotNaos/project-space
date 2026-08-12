@@ -33,18 +33,23 @@ project
 | [`completion`](#project-completion) | - | Generate the autocompletion script for the specified shell |
 | [`connect`](#project-connect) | - | Connect this machine to Project Space |
 | [`connector`](#project-connector) | - | Set up Project Space machine connector links |
+| [`control`](#project-control) | - | Run typed control-gateway operations |
 | [`create`](#project-create) | `new` | Create and initialize a new project |
 | [`deploy`](#project-deploy) | - | Deploy this project to the VPS |
 | [`dev-build`](#project-dev-build) | - | Build short-lived development tools for an exact pull request head |
 | [`disconnect`](#project-disconnect) | - | Disconnect this machine from Project Space |
 | [`doctor`](#project-doctor) | - | Diagnose local or managed-machine Project Space readiness |
+| [`environment`](#project-environment) | - | Discover Environment definitions and instances |
 | [`help`](#project-help) | - | Help about any command |
+| [`host`](#project-host) | - | Discover physical or virtual hosts |
 | [`init`](#project-init) | - | Initialize a project template lock |
+| [`inventory`](#project-inventory) | - | Discover the complete compute inventory |
 | [`list`](#project-list) | - | List account projects and local availability |
 | [`machine`](#project-machine) | - | Manage exact physical machines |
 | [`module`](#project-module) | - | Manage project template modules |
 | [`open`](#project-open) | - | Open a local project in the system's selected terminal |
 | [`path`](#project-path) | - | Print a project's canonical local path |
+| [`platform`](#project-platform) | - | Discover compute capacity providers |
 | [`prepare`](#project-prepare) | - | Run trusted repository setup steps |
 | [`roadmap`](#project-roadmap) | - | Read and update the issue dependency roadmap |
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
@@ -54,6 +59,7 @@ project
 | [`template`](#project-template) | - | Manage the local project template snapshot |
 | [`token`](#project-token) | - | Manage the Project 1Password token |
 | [`validate`](#project-validate) | - | Validate a project against its template |
+| [`workspace`](#project-workspace) | - | Manage one exact repository Workspace |
 | [`worktree`](#project-worktree) | - | Prepare and validate isolated Codex worktrees |
 
 ## Command Reference
@@ -502,6 +508,45 @@ project connector status
 | `-h`, `--help` | `bool` | local | help for status |
 | `--json` | `bool` | local | print machine-readable output |
 
+<h3 id="project-control" className="scroll-m-28"><code>project control</code></h3>
+
+Run typed control-gateway operations
+
+```sh
+project control
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for control |
+
+<h3 id="project-control-handshake" className="scroll-m-28"><code>project control handshake</code></h3>
+
+Describe the installed control protocol
+
+```sh
+project control handshake
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for handshake |
+
+<h3 id="project-control-status" className="scroll-m-28"><code>project control status</code></h3>
+
+Verify one Environment through the typed SSH gateway
+
+```sh
+project control status <environment-instance>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for status |
+| `--json` | `bool` | local | print machine-readable JSON |
+| `--operation-id` | `string` | local | reuse one exact idempotent operation ID |
+
 <h3 id="project-create" className="scroll-m-28"><code>project create</code></h3>
 
 Create and initialize a new project
@@ -744,6 +789,108 @@ project doctor
 | `--machine-id` | `string` | local | exact physical machine ID |
 | `--yes` | `bool` | local | confirm the current exact repair plan non-interactively |
 
+<h3 id="project-environment" className="scroll-m-28"><code>project environment</code></h3>
+
+Discover Environment definitions and instances
+
+```sh
+project environment
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for environment |
+
+<h3 id="project-environment-bootstrap" className="scroll-m-28"><code>project environment bootstrap</code></h3>
+
+Start a pinned Workspace Runtime without installing a permanent Connector
+
+```sh
+project environment bootstrap <environment-instance>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--branch` | `string` | local | expected Workspace branch |
+| `--commit` | `string` | local | expected immutable Workspace commit |
+| `--format` | `string` | local | output format: text or json |
+| `--generation` | `string` | local | new exact Runtime generation UUID |
+| `-h`, `--help` | `bool` | local | help for bootstrap |
+| `--manifest-digest` | `string` | local | pinned Runtime manifest SHA-256 |
+| `--mode` | `string` | local | Runtime isolation: process or devcontainer |
+| `--operation-id` | `string` | local | stable idempotency identity |
+| `--profile` | `string` | local | Runtime profile: codex, inspection, or mutation |
+| `--runtime-version` | `string` | local | pinned Project Runtime version |
+| `--workspace` | `string` | local | exact canonical Workspace ID |
+| `--worktree-owner-thread` | `string` | local | exact managed Worktree owner task UUID (mutation profile only) |
+
+<h3 id="project-environment-instance" className="scroll-m-28"><code>project environment instance</code></h3>
+
+Discover concrete Environment Instances
+
+```sh
+project environment instance
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for instance |
+
+<h3 id="project-environment-instance-list" className="scroll-m-28"><code>project environment instance list</code></h3>
+
+List concrete Environment Instances
+
+```sh
+project environment instance list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--environment` | `string` | local | exact Environment definition selector |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+| `--host` | `string` | local | exact host selector |
+| `--platform` | `string` | local | exact platform selector |
+
+<h3 id="project-environment-instance-show" className="scroll-m-28"><code>project environment instance show</code></h3>
+
+Show one concrete Environment Instance
+
+```sh
+project environment instance show <instance-ref>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
+
+<h3 id="project-environment-list" className="scroll-m-28"><code>project environment list</code></h3>
+
+List reusable Environment definitions
+
+```sh
+project environment list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-environment-show" className="scroll-m-28"><code>project environment show</code></h3>
+
+Show one Environment definition
+
+```sh
+project environment show <environment-definition>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
+
 <h3 id="project-help" className="scroll-m-28"><code>project help</code></h3>
 
 Help about any command
@@ -755,6 +902,45 @@ project help [command]
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for help |
+
+<h3 id="project-host" className="scroll-m-28"><code>project host</code></h3>
+
+Discover physical or virtual hosts
+
+```sh
+project host
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for host |
+
+<h3 id="project-host-list" className="scroll-m-28"><code>project host list</code></h3>
+
+List inventory hosts
+
+```sh
+project host list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+| `--platform` | `string` | local | exact platform ID, name, kind, or alias |
+
+<h3 id="project-host-show" className="scroll-m-28"><code>project host show</code></h3>
+
+Show one exact inventory host
+
+```sh
+project host show <host>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
 
 <h3 id="project-init" className="scroll-m-28"><code>project init</code></h3>
 
@@ -772,6 +958,20 @@ project init [directory]
 | `--template` | `string` | local | template repository |
 | `--template-path` | `string` | local | template path |
 | `--version` | `string` | local | template version |
+
+<h3 id="project-inventory" className="scroll-m-28"><code>project inventory</code></h3>
+
+Discover the complete compute inventory
+
+```sh
+project inventory
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for inventory |
+| `--json` | `bool` | local | print machine-readable JSON |
 
 <h3 id="project-list" className="scroll-m-28"><code>project list</code></h3>
 
@@ -797,6 +997,20 @@ project machine
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for machine |
+
+<h3 id="project-machine-list" className="scroll-m-28"><code>project machine list</code></h3>
+
+Deprecated compatibility: list inventory hosts
+
+```sh
+project machine list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+| `--platform` | `string` | local | exact platform ID, name, kind, or alias |
 
 <h3 id="project-machine-power" className="scroll-m-28"><code>project machine power</code></h3>
 
@@ -856,6 +1070,19 @@ project machine power status
 | `-h`, `--help` | `bool` | local | help for status |
 | `--machine` | `string` | local | exact physical machine name |
 | `--machine-id` | `string` | local | exact physical machine ID |
+
+<h3 id="project-machine-show" className="scroll-m-28"><code>project machine show</code></h3>
+
+Deprecated compatibility: show one inventory host
+
+```sh
+project machine show <host>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
 
 <h3 id="project-module" className="scroll-m-28"><code>project module</code></h3>
 
@@ -953,6 +1180,44 @@ project path <project>
 | --- | --- | --- | --- |
 | `--format` | `string` | local | output format: path or json |
 | `-h`, `--help` | `bool` | local | help for path |
+
+<h3 id="project-platform" className="scroll-m-28"><code>project platform</code></h3>
+
+Discover compute capacity providers
+
+```sh
+project platform
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for platform |
+
+<h3 id="project-platform-list" className="scroll-m-28"><code>project platform list</code></h3>
+
+List configured compute platforms
+
+```sh
+project platform list
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for list |
+
+<h3 id="project-platform-show" className="scroll-m-28"><code>project platform show</code></h3>
+
+Show one exact compute platform
+
+```sh
+project platform show <platform>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for show |
 
 <h3 id="project-prepare" className="scroll-m-28"><code>project prepare</code></h3>
 
@@ -1342,6 +1607,163 @@ project validate [directory|file]
 | `--status-color-only` | `bool` | local | color only the status text |
 | `--view` | `string` | local | pretty output view |
 | `-y`, `--yes` | `bool` | local | apply the quarantine plan without prompting |
+
+<h3 id="project-workspace" className="scroll-m-28"><code>project workspace</code></h3>
+
+Manage one exact repository Workspace
+
+```sh
+project workspace
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for workspace |
+
+<h3 id="project-workspace-runtime" className="scroll-m-28"><code>project workspace runtime</code></h3>
+
+Manage the Workspace's ephemeral runtime
+
+```sh
+project workspace runtime
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for runtime |
+
+<h3 id="project-workspace-runtime-clean" className="scroll-m-28"><code>project workspace runtime clean</code></h3>
+
+Remove only stopped generation-owned runtime state
+
+```sh
+project workspace runtime clean [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for clean |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-inspect" className="scroll-m-28"><code>project workspace runtime inspect</code></h3>
+
+Inspect exact runtime ownership
+
+```sh
+project workspace runtime inspect [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for inspect |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-reconcile" className="scroll-m-28"><code>project workspace runtime reconcile</code></h3>
+
+Repair an interrupted runtime only from exact ownership evidence
+
+```sh
+project workspace runtime reconcile [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for reconcile |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-resume" className="scroll-m-28"><code>project workspace runtime resume</code></h3>
+
+Resume the exact Workspace runtime
+
+```sh
+project workspace runtime resume [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for resume |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-start" className="scroll-m-28"><code>project workspace runtime start</code></h3>
+
+Start or reuse an exact Workspace runtime
+
+```sh
+project workspace runtime start [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for start |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-stop" className="scroll-m-28"><code>project workspace runtime stop</code></h3>
+
+Stop the exact Workspace runtime without deleting its checkout
+
+```sh
+project workspace runtime stop [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for stop |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
+
+<h3 id="project-workspace-runtime-suspend" className="scroll-m-28"><code>project workspace runtime suspend</code></h3>
+
+Suspend the exact Workspace runtime
+
+```sh
+project workspace runtime suspend [directory]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--expected-commit` | `string` | local | exact approved Workspace HEAD |
+| `--expected-digest` | `string` | local | exact resolved runtime manifest digest |
+| `--expected-generation` | `string` | local | exact runtime generation for lifecycle fencing |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for suspend |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--mode` | `string` | local | runtime provider: process or devcontainer |
+| `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
 
 <h3 id="project-worktree" className="scroll-m-28"><code>project worktree</code></h3>
 

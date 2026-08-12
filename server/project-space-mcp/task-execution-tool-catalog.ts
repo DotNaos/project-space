@@ -13,6 +13,7 @@ const operationIdJsonPattern = '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$';
 const agentSchema = z.literal('codex');
 const executionIdSchema = z.string().uuid();
 const operationIdSchema = z.string().regex(operationIdPattern);
+const messageDeliverySchema = z.enum(['auto', 'new-turn', 'queue', 'steer']);
 const taskExecutionStates = [
   'planned', 'preparing_environment', 'waiting_for_connector',
   'waiting_for_authorization', 'preparing_workspace', 'starting_agent', 'running',
@@ -77,11 +78,20 @@ export const taskExecutionToolSchemas = {
     timeoutSeconds: z.number().int().min(0).max(30).optional()
   }).strict(),
   send_task_execution_message: z.object({
+    delivery: messageDeliverySchema.optional(),
     executionId: executionIdSchema,
+    expectedTurnId: z.string().trim().min(1).max(256).optional(),
     message: z.string().trim().min(1).max(100_000),
     operationId: operationIdSchema,
     wait: z.boolean().optional()
-  }).strict(),
+  }).strict().superRefine((value, context) => {
+    if (value.delivery === 'steer' && !value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'Steer delivery requires expectedTurnId.' });
+    }
+    if (value.delivery !== 'steer' && value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'expectedTurnId is only valid for steer delivery.' });
+    }
+  }),
   respond_task_execution_approval: z.object({
     approvalId: z.string().trim().min(1).max(256).optional(),
     decision: z.enum(['allow-once', 'deny']),
@@ -234,7 +244,10 @@ export const taskExecutionTools = [
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true }, undefined, waitOutput),
   defineOAuthTool('send_task_execution_message', 'Send task execution message', 'Send one idempotent follow-up message to the executor bound to an exact Task Execution.', {
     type: 'object', required: ['executionId', 'message', 'operationId'], additionalProperties: false, properties: {
-      ...mutationProperties, message: { type: 'string', minLength: 1, maxLength: 100_000 }, wait: { type: 'boolean' }
+      ...mutationProperties,
+      delivery: { type: 'string', enum: ['auto', 'new-turn', 'queue', 'steer'], description: 'Choose a new turn, exact active-turn steering, durable queueing, or automatic new-turn/steer selection.' },
+      expectedTurnId: { type: 'string', minLength: 1, maxLength: 256, description: 'Required exact active turn for steer delivery.' },
+      message: { type: 'string', minLength: 1, maxLength: 100_000 }, wait: { type: 'boolean' }
     }
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }, writeScopes, executionOutput),
   defineOAuthTool('respond_task_execution_approval', 'Respond to task execution approval', 'Respond only to the exact pending approval request, turn, and item identities. No default approval is invented.', {

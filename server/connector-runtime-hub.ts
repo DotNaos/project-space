@@ -7,6 +7,7 @@ import {
   failConnectorRuntimeStopsForMachine,
   handleConnectorRuntimeStopMessage
 } from './connector-runtime-stop-routing';
+import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
 
 export function failConnectorRuntimeHubCommandsForMachine(machineId: string) {
   failConnectorRuntimeCommandsForMachine(machineId);
@@ -15,17 +16,20 @@ export function failConnectorRuntimeHubCommandsForMachine(machineId: string) {
 
 export function handleConnectorRuntimeHubMessage(
   machineId: string,
-  message: ConnectorHubMessage
+  message: ConnectorHubMessage,
+  options: {
+    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
+  } = {}
 ) {
   if (message.type === 'runtime.stop.result') {
-    handleConnectorRuntimeStopMessage(machineId, message);
+    handleConnectorRuntimeStopMessage(machineId, message, options);
     return true;
   }
   if (
     message.type === 'runtime.maintenance.progress' ||
     message.type === 'runtime.maintenance.result'
   ) {
-    handleConnectorRuntimeCommandMessage(machineId, message);
+    handleConnectorRuntimeCommandMessage(machineId, message, options);
     return true;
   }
   return false;

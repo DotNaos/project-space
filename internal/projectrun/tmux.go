@@ -13,18 +13,20 @@ import (
 const TmuxRuntimeCommandName = "__runtime-tmux"
 
 type TmuxSessionSpec struct {
-	Name           string
-	ServerID       string
-	RepositoryPath string
-	WorktreePath   string
-	ServerKey      string
-	Generation     string
-	OwnershipToken string
-	Mode           ServeMode
-	APIs           APIsMode
-	Data           DataMode
-	LocalPort      int
-	PublicPort     int
+	Name              string
+	ServerID          string
+	RepositoryPath    string
+	WorktreePath      string
+	ServerKey         string
+	Generation        string
+	OwnershipToken    string
+	WorkspaceID       string
+	RuntimeGeneration string
+	Mode              ServeMode
+	APIs              APIsMode
+	Data              DataMode
+	LocalPort         int
+	PublicPort        int
 }
 
 type TmuxObservation struct {
@@ -130,6 +132,7 @@ func (tmux TmuxCLI) Inspect(ctx context.Context, name string) (TmuxObservation, 
 		"#{@project-serve-server-id}", "#{@project-serve-repository}",
 		"#{@project-serve-worktree}", "#{@project-serve-server-key}",
 		"#{@project-serve-generation}", "#{@project-serve-token}",
+		"#{@project-serve-workspace-id}", "#{@project-serve-runtime-generation}",
 		"#{@project-serve-mode}", "#{@project-serve-apis}",
 		"#{@project-serve-data}", "#{@project-serve-local-port}",
 		"#{@project-serve-public-port}",
@@ -142,19 +145,20 @@ func (tmux TmuxCLI) Inspect(ctx context.Context, name string) (TmuxObservation, 
 	// have no public port. Trimming all whitespace would remove the trailing
 	// tab and make a valid observation look malformed.
 	fields := strings.Split(strings.TrimSuffix(body, "\n"), "\t")
-	if len(fields) != 14 {
-		return TmuxObservation{}, fmt.Errorf("inspect tmux session %q: expected 14 ownership fields, got %d", name, len(fields))
+	if len(fields) != 16 {
+		return TmuxObservation{}, fmt.Errorf("inspect tmux session %q: expected 16 ownership fields, got %d", name, len(fields))
 	}
-	apis, data := normalizeTmuxBindings(APIsMode(fields[10]), DataMode(fields[11]))
+	apis, data := normalizeTmuxBindings(APIsMode(fields[12]), DataMode(fields[13]))
 	pid, _ := strconv.Atoi(fields[1])
-	localPort, _ := strconv.Atoi(fields[12])
-	publicPort, _ := strconv.Atoi(fields[13])
+	localPort, _ := strconv.Atoi(fields[14])
+	publicPort, _ := strconv.Atoi(fields[15])
 	observation := TmuxObservation{
 		Exists: true,
 		Dead:   fields[2] == "1",
 		Spec: TmuxSessionSpec{
 			Name: fields[0], ServerID: fields[3], RepositoryPath: fields[4], WorktreePath: fields[5],
-			ServerKey: fields[6], Generation: fields[7], OwnershipToken: fields[8], Mode: ServeMode(fields[9]),
+			ServerKey: fields[6], Generation: fields[7], OwnershipToken: fields[8],
+			WorkspaceID: fields[9], RuntimeGeneration: fields[10], Mode: ServeMode(fields[11]),
 			APIs: APIsMode(apis), Data: DataMode(data),
 			LocalPort: localPort, PublicPort: publicPort,
 		},
@@ -226,17 +230,19 @@ func (tmux TmuxCLI) output(ctx context.Context, args ...string) (string, error) 
 
 func tmuxOptions(spec TmuxSessionSpec) map[string]string {
 	return map[string]string{
-		"@project-serve-server-id":   spec.ServerID,
-		"@project-serve-repository":  spec.RepositoryPath,
-		"@project-serve-worktree":    spec.WorktreePath,
-		"@project-serve-server-key":  spec.ServerKey,
-		"@project-serve-generation":  spec.Generation,
-		"@project-serve-token":       spec.OwnershipToken,
-		"@project-serve-mode":        string(spec.Mode),
-		"@project-serve-apis":        string(spec.APIs),
-		"@project-serve-data":        string(spec.Data),
-		"@project-serve-local-port":  strconv.Itoa(spec.LocalPort),
-		"@project-serve-public-port": strconv.Itoa(spec.PublicPort),
+		"@project-serve-server-id":          spec.ServerID,
+		"@project-serve-repository":         spec.RepositoryPath,
+		"@project-serve-worktree":           spec.WorktreePath,
+		"@project-serve-server-key":         spec.ServerKey,
+		"@project-serve-generation":         spec.Generation,
+		"@project-serve-token":              spec.OwnershipToken,
+		"@project-serve-workspace-id":       spec.WorkspaceID,
+		"@project-serve-runtime-generation": spec.RuntimeGeneration,
+		"@project-serve-mode":               string(spec.Mode),
+		"@project-serve-apis":               string(spec.APIs),
+		"@project-serve-data":               string(spec.Data),
+		"@project-serve-local-port":         strconv.Itoa(spec.LocalPort),
+		"@project-serve-public-port":        strconv.Itoa(spec.PublicPort),
 	}
 }
 

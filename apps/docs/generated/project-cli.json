@@ -1078,6 +1078,79 @@
         ]
       },
       {
+        "path": "project control",
+        "name": "control",
+        "usage": "control",
+        "short": "Run typed control-gateway operations",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for control",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project control handshake",
+            "name": "handshake",
+            "usage": "handshake",
+            "short": "Describe the installed control protocol",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for handshake",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project control status",
+            "name": "status",
+            "usage": "status <environment-instance>",
+            "short": "Verify one Environment through the typed SSH gateway",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable JSON",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "reuse one exact idempotent operation ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project create",
         "name": "create",
         "usage": "create [directory]",
@@ -1821,6 +1894,242 @@
         "commands": []
       },
       {
+        "path": "project environment",
+        "name": "environment",
+        "usage": "environment",
+        "short": "Discover Environment definitions and instances",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for environment",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project environment bootstrap",
+            "name": "bootstrap",
+            "usage": "bootstrap <environment-instance>",
+            "short": "Start a pinned Workspace Runtime without installing a permanent Connector",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "branch",
+                "type": "string",
+                "description": "expected Workspace branch",
+                "inherited": false
+              },
+              {
+                "name": "commit",
+                "type": "string",
+                "description": "expected immutable Workspace commit",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "generation",
+                "type": "string",
+                "description": "new exact Runtime generation UUID",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for bootstrap",
+                "inherited": false
+              },
+              {
+                "name": "manifest-digest",
+                "type": "string",
+                "description": "pinned Runtime manifest SHA-256",
+                "inherited": false
+              },
+              {
+                "name": "mode",
+                "type": "string",
+                "description": "Runtime isolation: process or devcontainer",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "stable idempotency identity",
+                "inherited": false
+              },
+              {
+                "name": "profile",
+                "type": "string",
+                "description": "Runtime profile: codex, inspection, or mutation",
+                "inherited": false
+              },
+              {
+                "name": "runtime-version",
+                "type": "string",
+                "description": "pinned Project Runtime version",
+                "inherited": false
+              },
+              {
+                "name": "workspace",
+                "type": "string",
+                "description": "exact canonical Workspace ID",
+                "inherited": false
+              },
+              {
+                "name": "worktree-owner-thread",
+                "type": "string",
+                "description": "exact managed Worktree owner task UUID (mutation profile only)",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project environment instance",
+            "name": "instance",
+            "usage": "instance",
+            "short": "Discover concrete Environment Instances",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for instance",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project environment instance list",
+                "name": "list",
+                "usage": "list",
+                "short": "List concrete Environment Instances",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "environment",
+                    "type": "string",
+                    "description": "exact Environment definition selector",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for list",
+                    "inherited": false
+                  },
+                  {
+                    "name": "host",
+                    "type": "string",
+                    "description": "exact host selector",
+                    "inherited": false
+                  },
+                  {
+                    "name": "platform",
+                    "type": "string",
+                    "description": "exact platform selector",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project environment instance show",
+                "name": "show",
+                "usage": "show <instance-ref>",
+                "short": "Show one concrete Environment Instance",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: text or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for show",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          },
+          {
+            "path": "project environment list",
+            "name": "list",
+            "usage": "list",
+            "short": "List reusable Environment definitions",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project environment show",
+            "name": "show",
+            "usage": "show <environment-definition>",
+            "short": "Show one Environment definition",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project help",
         "name": "help",
         "usage": "help [command]",
@@ -1837,6 +2146,79 @@
           }
         ],
         "commands": []
+      },
+      {
+        "path": "project host",
+        "name": "host",
+        "usage": "host",
+        "short": "Discover physical or virtual hosts",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for host",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project host list",
+            "name": "list",
+            "usage": "list",
+            "short": "List inventory hosts",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              },
+              {
+                "name": "platform",
+                "type": "string",
+                "description": "exact platform ID, name, kind, or alias",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project host show",
+            "name": "show",
+            "usage": "show <host>",
+            "short": "Show one exact inventory host",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
       },
       {
         "path": "project init",
@@ -1887,6 +2269,36 @@
         "commands": []
       },
       {
+        "path": "project inventory",
+        "name": "inventory",
+        "usage": "inventory",
+        "short": "Discover the complete compute inventory",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "format",
+            "type": "string",
+            "description": "output format: text or json",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for inventory",
+            "inherited": false
+          },
+          {
+            "name": "json",
+            "type": "bool",
+            "description": "print machine-readable JSON",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
         "path": "project list",
         "name": "list",
         "usage": "list",
@@ -1927,6 +2339,36 @@
           }
         ],
         "commands": [
+          {
+            "path": "project machine list",
+            "name": "list",
+            "usage": "list",
+            "short": "Deprecated compatibility: list inventory hosts",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              },
+              {
+                "name": "platform",
+                "type": "string",
+                "description": "exact platform ID, name, kind, or alias",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
           {
             "path": "project machine power",
             "name": "power",
@@ -2065,6 +2507,30 @@
                 "commands": []
               }
             ]
+          },
+          {
+            "path": "project machine show",
+            "name": "show",
+            "usage": "show <host>",
+            "short": "Deprecated compatibility: show one inventory host",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
           }
         ]
       },
@@ -2264,6 +2730,73 @@
           }
         ],
         "commands": []
+      },
+      {
+        "path": "project platform",
+        "name": "platform",
+        "usage": "platform",
+        "short": "Discover compute capacity providers",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for platform",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project platform list",
+            "name": "list",
+            "usage": "list",
+            "short": "List configured compute platforms",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for list",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project platform show",
+            "name": "show",
+            "usage": "show <platform>",
+            "short": "Show one exact compute platform",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for show",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
       },
       {
         "path": "project prepare",
@@ -3258,6 +3791,464 @@
           }
         ],
         "commands": []
+      },
+      {
+        "path": "project workspace",
+        "name": "workspace",
+        "usage": "workspace",
+        "short": "Manage one exact repository Workspace",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for workspace",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project workspace runtime",
+            "name": "runtime",
+            "usage": "runtime",
+            "short": "Manage the Workspace's ephemeral runtime",
+            "aliases": [],
+            "runnable": false,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for runtime",
+                "inherited": false
+              }
+            ],
+            "commands": [
+              {
+                "path": "project workspace runtime clean",
+                "name": "clean",
+                "usage": "clean [directory]",
+                "short": "Remove only stopped generation-owned runtime state",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for clean",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime inspect",
+                "name": "inspect",
+                "usage": "inspect [directory]",
+                "short": "Inspect exact runtime ownership",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for inspect",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime reconcile",
+                "name": "reconcile",
+                "usage": "reconcile [directory]",
+                "short": "Repair an interrupted runtime only from exact ownership evidence",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for reconcile",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime resume",
+                "name": "resume",
+                "usage": "resume [directory]",
+                "short": "Resume the exact Workspace runtime",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for resume",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime start",
+                "name": "start",
+                "usage": "start [directory]",
+                "short": "Start or reuse an exact Workspace runtime",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for start",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime stop",
+                "name": "stop",
+                "usage": "stop [directory]",
+                "short": "Stop the exact Workspace runtime without deleting its checkout",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for stop",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              },
+              {
+                "path": "project workspace runtime suspend",
+                "name": "suspend",
+                "usage": "suspend [directory]",
+                "short": "Suspend the exact Workspace runtime",
+                "aliases": [],
+                "runnable": true,
+                "flags": [
+                  {
+                    "name": "expected-commit",
+                    "type": "string",
+                    "description": "exact approved Workspace HEAD",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-digest",
+                    "type": "string",
+                    "description": "exact resolved runtime manifest digest",
+                    "inherited": false
+                  },
+                  {
+                    "name": "expected-generation",
+                    "type": "string",
+                    "description": "exact runtime generation for lifecycle fencing",
+                    "inherited": false
+                  },
+                  {
+                    "name": "format",
+                    "type": "string",
+                    "description": "output format: pretty or json",
+                    "inherited": false
+                  },
+                  {
+                    "name": "help",
+                    "shorthand": "h",
+                    "type": "bool",
+                    "description": "help for suspend",
+                    "inherited": false
+                  },
+                  {
+                    "name": "json",
+                    "type": "bool",
+                    "description": "print machine-readable JSON output",
+                    "inherited": false
+                  },
+                  {
+                    "name": "mode",
+                    "type": "string",
+                    "description": "runtime provider: process or devcontainer",
+                    "inherited": false
+                  },
+                  {
+                    "name": "thread-id",
+                    "type": "string",
+                    "description": "exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID)",
+                    "inherited": false
+                  }
+                ],
+                "commands": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "project worktree",

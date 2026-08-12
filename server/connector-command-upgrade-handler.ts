@@ -22,6 +22,7 @@ import {
   type ConnectorHubMessage
 } from './connector-command-protocol';
 import {
+  connectorSessionOwnerUserId,
   connectorSocket,
   registerConnectorSession,
   removeConnectorSession,
@@ -33,6 +34,7 @@ import {
   connectorRuntimeMaintenanceEvidence,
   type ConnectorRuntimeMaintenanceDecision
 } from './connector-runtime-registration-decision';
+import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
 
 const connectorSocketPath = '/api/connectors/socket';
 const defaultCredentialRevalidationIntervalMs = 30_000;
@@ -40,6 +42,7 @@ const defaultCredentialRevalidationIntervalMs = 30_000;
 export interface AuthenticatedConnectorIdentity {
   connectorProfile?: MachineConnectorProfile;
   machineId: string;
+  userId?: string;
 }
 
 export type AuthenticateConnectorCredential = (
@@ -55,6 +58,7 @@ export interface ConnectorCommandUpgradeHandlerOptions {
     machine: MachineRecord;
     registry: ConnectorProjectRegistryResult;
   }): Promise<ConnectorRuntimeMaintenanceDecision | undefined>;
+  recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
 }
 
 interface ConnectorCommandUpgradeHandlerDependencies {
@@ -87,6 +91,8 @@ export function createConnectorCommandUpgradeHandlerCore(
   options: ConnectorCommandUpgradeHandlerOptions = {}
 ) {
   const authenticate = options.authenticateConnectorCredential ?? authenticateConnectorCredential;
+  const recordCompatibilityUse = options.recordCompatibilityUse ??
+    recordSuccessfulConnectorCompatibilityUse;
   const revalidationIntervalMs =
     options.credentialRevalidationIntervalMs ?? defaultCredentialRevalidationIntervalMs;
   if (!Number.isSafeInteger(revalidationIntervalMs) || revalidationIntervalMs <= 0) {
@@ -215,7 +221,8 @@ export function createConnectorCommandUpgradeHandlerCore(
           machineId,
           socket,
           registrationToken,
-          message.payload.connector.capabilities ?? []
+          message.payload.connector.capabilities ?? [],
+          identity.userId
         );
         if (previous && previous !== socket) {
           previous.close(1012, 'Connector replaced.');
@@ -229,6 +236,9 @@ export function createConnectorCommandUpgradeHandlerCore(
           ...(maintenance ? { maintenance } : {}),
           type: 'connector.registered'
         });
+        for (const surface of registryCompatibilitySurfaces(message.payload)) {
+          void recordCompatibilityUse(identity.userId, surface);
+        }
         return;
       }
 
@@ -263,6 +273,12 @@ export function createConnectorCommandUpgradeHandlerCore(
           return;
         }
         updateConnectorCapabilities(machineId, message.payload.connector.capabilities ?? []);
+        for (const surface of registryCompatibilitySurfaces(message.payload)) {
+          void recordCompatibilityUse(
+            connectorSessionOwnerUserId(machineId),
+            surface
+          );
+        }
         return;
       }
 
@@ -310,4 +326,22 @@ export function createConnectorCommandUpgradeHandlerCore(
       return true;
     }
   };
+}
+
+export function registryCompatibilitySurfaces(payload: ConnectorProjectRegistryResult) {
+  return [
+    'connector.presence.websocket.v2',
+    'connector.project-registry.websocket.v2',
+    ...(meaningfulNetworkEvidence(payload.connector.network)
+      ? ['connector.private-network.websocket.v2'] as const
+      : []),
+    ...(payload.connector.battery || payload.connector.compute?.resources
+      ? ['connector.resource-report.websocket.v2'] as const
+      : [])
+  ] as const;
+}
+
+export function meaningfulNetworkEvidence(network: MachineRecord['network'] | undefined) {
+  return Boolean(network && [network.localName, network.sshUser, network.tailscaleIp]
+    .some((value) => typeof value === 'string' && value.trim().length > 0));
 }

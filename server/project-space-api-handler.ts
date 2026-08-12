@@ -28,22 +28,36 @@ import type {
   createConfiguredProjectCatalogCliHandler
 } from './project-catalog/project-catalog-cli-runtime';
 import type {
+  createConfiguredComputeInventoryCliHandler
+} from './compute-inventory-cli/configured-runtime';
+import type {
   createConfiguredMachinePowerHandler
 } from './machine-power/configured-runtime';
 import type { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
+import type {
+  createConfiguredSshControlGatewayHandler
+} from './ssh-control-gateway/configured-runtime';
+import type { createConfiguredProjectHostdRuntime } from './project-hostd/configured-runtime';
+import type { createHostControlHttpApi } from './host-control/http';
+import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
 
 interface ProjectSpaceApiHandlerOptions {
+  canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
   githubCodespaceRunner?: ReturnType<typeof createGitHubCodespaceRunnerHttpHandler>;
+  hostControl?: ReturnType<typeof createHostControlHttpApi>;
   machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
   machinePower?: ReturnType<typeof createConfiguredMachinePowerHandler>;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
   projectChat?: Pick<ProjectChatRuntime, 'handleRequest'>;
   projectCatalogCli?: ReturnType<typeof createConfiguredProjectCatalogCliHandler>;
+  computeInventoryCli?: ReturnType<typeof createConfiguredComputeInventoryCliHandler>;
   projectTopology?: ProjectTopologyInventoryHttpHandler;
+  projectHostd?: ReturnType<typeof createConfiguredProjectHostdRuntime>['handleRequest'];
   roadmapCli?: ReturnType<typeof createConfiguredRoadmapCliHandler>;
+  sshControlGateway?: ReturnType<typeof createConfiguredSshControlGatewayHandler>;
 }
 
 export function createProjectSpaceApiHandler(
@@ -96,7 +110,25 @@ export function createProjectSpaceApiHandler(
         return true;
       }
 
+      if (options.hostControl && await options.hostControl(request, response, url)) {
+        return true;
+      }
+
+      if (options.canonicalRuntimeControl &&
+          await options.canonicalRuntimeControl(request, response, url)) {
+        return true;
+      }
+
       if (options.machinePower && await options.machinePower(request, response, url)) {
+        return true;
+      }
+
+      if (options.sshControlGateway &&
+          await options.sshControlGateway(request, response, url)) {
+        return true;
+      }
+
+      if (options.projectHostd && await options.projectHostd(request, response, url)) {
         return true;
       }
 
@@ -107,6 +139,13 @@ export function createProjectSpaceApiHandler(
       if (
         options.projectCatalogCli &&
         await options.projectCatalogCli(request, response, url)
+      ) {
+        return true;
+      }
+
+      if (
+        options.computeInventoryCli &&
+        await options.computeInventoryCli(request, response, url)
       ) {
         return true;
       }
