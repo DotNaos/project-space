@@ -11,9 +11,15 @@ implements CanonicalRuntimeControlOperationStore {
   async reserve(input: Parameters<CanonicalRuntimeControlOperationStore['reserve']>[0]) {
     const record = this.records.get(recordKey(input.identity.ownerUserId, input.identity.operationId));
     if (record) {
-      if (record.fingerprint !== input.fingerprint || JSON.stringify(record.identity) !== JSON.stringify(input.identity)) {
+      if (record.fingerprint !== input.fingerprint ||
+          JSON.stringify({ ...record.identity, sessionId: '' }) !==
+            JSON.stringify({ ...input.identity, sessionId: '' })) {
         return { kind: 'conflict' as const };
       }
+      if (record.state === 'completed' || record.state === 'failed') {
+        return { kind: 'replayed' as const, record };
+      }
+      if (record.identity.sessionId !== input.identity.sessionId) return { kind: 'conflict' as const };
       if (record.state === 'reserved' || record.state === 'dispatching') {
         return { kind: 'in_progress' as const };
       }

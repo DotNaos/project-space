@@ -70,7 +70,11 @@ implements CanonicalRuntimeControlOperationStore {
       const existing = await selectForUpdate(client, input.identity.ownerUserId, input.identity.operationId);
       if (existing) {
         if (existing.fingerprint_sha256 !== input.fingerprint ||
-          !sameIdentity(existing, input.identity)) return { kind: 'conflict' as const };
+          !sameIdentityExceptSession(existing, input.identity)) return { kind: 'conflict' as const };
+        if (existing.state === 'completed' || existing.state === 'failed') {
+          return { kind: 'replayed' as const, record: rowToRecord(existing) };
+        }
+        if (!sameIdentity(existing, input.identity)) return { kind: 'conflict' as const };
         if (existing.state === 'reserved') {
           if (instant(existing.reserved_until) > Date.parse(input.reservedAt)) {
             return { kind: 'in_progress' as const };
@@ -447,14 +451,20 @@ function reservationValues(input: CanonicalRuntimeControlReservationInput) {
 }
 
 function sameIdentity(row: OperationRow, identity: CanonicalRuntimeControlOperationIdentity) {
+  return sameIdentityExceptSession(row, identity) && row.session_id === identity.sessionId;
+}
+
+function sameIdentityExceptSession(
+  row: OperationRow,
+  identity: CanonicalRuntimeControlOperationIdentity
+) {
   return row.owner_user_id === identity.ownerUserId && row.operation_id === identity.operationId &&
     row.actor_user_id === identity.actorUserId && row.actor_id === identity.actorId &&
     row.actor_kind === identity.actorKind && row.compatibility_alias === identity.compatibilityAlias &&
     row.operation === identity.operation && row.diff_staged === (identity.diffStaged ?? null) &&
     row.environment_id === identity.environmentId &&
     row.target_identity_revision === identity.targetIdentityRevision &&
-    row.workspace_id === identity.workspaceId && row.generation === identity.generation &&
-    row.session_id === identity.sessionId;
+    row.workspace_id === identity.workspaceId && row.generation === identity.generation;
 }
 
 function rowToRecord(row: OperationRow): CanonicalRuntimeControlOperationRecord {
