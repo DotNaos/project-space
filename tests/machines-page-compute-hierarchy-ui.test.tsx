@@ -154,9 +154,13 @@ describe('machines page compute hierarchy', () => {
     expect(html).toContain('GitHub Codespace');
     expect(html).toContain('Provider managed');
     expect(html).toContain('4 CPU · 8.0 GB · 32 GB');
+    expect(html).toContain('Compute');
+    expect(html).toContain('1 of 1 compute targets · 1 online');
+    expect(html).not.toContain('codespace-one');
+    expect(html).not.toContain('1 connector');
   });
 
-  test('falls back to the flat machine list without a compute inventory', () => {
+  test('fails closed to a labelled compatibility surface without canonical inventory', () => {
     const html = renderToStaticMarkup(createElement(MachinesPage, {
       ...baseProps,
       connectors: [{
@@ -170,6 +174,9 @@ describe('machines page compute hierarchy', () => {
       }]
     }));
 
+    expect(html).toContain('Canonical compute inventory is unavailable');
+    expect(html).toContain('Legacy Connector compatibility');
+    expect(html).toContain('Deprecated compatibility surface');
     expect(html).toContain('os-macbook');
     expect(html).not.toContain('Provider managed');
   });
