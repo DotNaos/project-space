@@ -67,6 +67,7 @@ export class PostgresProjectHostdStore implements ProjectHostdStore {
     return this.transaction(async (client) => {
       await lock(client, `project-hostd-operation:${input.ownerUserId}:${input.operationId}`);
       await lock(client, `project-hostd-device:${input.ownerUserId}:${input.deviceId}`);
+      await requireCurrentTarget(client, input);
       const operation = await client.query<IssuedOperationRow>(
         `select c.device_id::text, d.environment_id::text, d.host_id::text
            from project_hostd_credentials c join project_hostd_devices d
@@ -229,7 +230,7 @@ export class PostgresProjectHostdStore implements ProjectHostdStore {
     const result = await this.client.query(
       `delete from project_hostd_observations o using project_hostd_devices d
         where o.owner_user_id = d.owner_user_id and o.device_id = d.device_id and
-              o.sequence < d.last_sequence and o.retain_until < $1::timestamptz`,
+              o.sequence < d.last_sequence and o.received_at < $1::timestamptz`,
       [retainAfter]
     );
     return result.rowCount ?? 0;
@@ -277,6 +278,7 @@ async function currentForUpdate(
   client: DatabaseQueryClient,
   scopeValue: ProjectHostdCredentialScope
 ) {
+  await requireCurrentTarget(client, scopeValue);
   const result = await client.query<DeviceRow>(
     `${selectDevice}
       where d.owner_user_id = $1 and d.device_id = $2::uuid and
@@ -290,6 +292,31 @@ async function currentForUpdate(
     throw new ProjectHostdError('authentication_failed', 'project-hostd authority changed or expired.');
   }
   return result.rows[0];
+}
+
+async function requireCurrentTarget(
+  client: DatabaseQueryClient,
+  target: Pick<ProjectHostdCredentialScope, 'environmentId' | 'hostId' | 'ownerUserId'>
+) {
+  const result = await client.query<{ matched: boolean }>(
+    `select true as matched
+       from compute_environments e
+       left join compute_hosts h
+         on h.id = e.host_id and h.owner_user_id = e.owner_user_id
+      where e.id = $1::uuid and e.owner_user_id = $2 and
+            e.identity_resolution = 'resolved' and (
+              ($3::uuid is null and e.host_id is null and
+                e.host_resolution in ('unresolved', 'not_applicable')) or
+              ($3::uuid is not null and e.host_id = $3::uuid and
+                e.host_resolution in ('verified', 'manual') and
+                h.identity_resolution = 'resolved')
+            )
+      for update of e`,
+    [target.environmentId, target.ownerUserId, target.hostId ?? null]
+  );
+  if (!result.rows[0]) {
+    throw new ProjectHostdError('target_conflict', 'project-hostd target binding changed.');
+  }
 }
 
 function snapshot(row: DeviceRow): ProjectHostdSnapshot {

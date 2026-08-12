@@ -200,6 +200,7 @@ describe('database migrations', () => {
     );
     expect(projectHostdMigrationSql).toContain('unique (owner_user_id, operation_id)');
     expect(projectHostdMigrationSql).toContain('unique (owner_user_id, device_id, sequence)');
+    expect(projectHostdMigrationSql).toContain("retain_until timestamptz not null default now() + interval '24 hours'");
     expect(projectHostdMigrationSql).not.toContain(' token text');
     expect(databaseMigrations.at(-1)?.id).toBe(projectHostdMigrationId);
   });

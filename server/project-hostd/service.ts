@@ -42,6 +42,9 @@ export class ProjectHostdService {
       observation.environmentId !== scope.environmentId || observation.hostId !== scope.hostId) {
       throw new ProjectHostdError('authentication_failed', 'project-hostd target identity changed.');
     }
+    if (await this.targets.resolve(scope) !== 'matched') {
+      throw new ProjectHostdError('target_conflict', 'project-hostd target binding changed.');
+    }
     const replayed = await this.store.replay(scope, observation);
     if (replayed) return { replayed: true, snapshot: replayed };
     const receivedAt = this.now();

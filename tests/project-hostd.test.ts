@@ -122,6 +122,24 @@ describe('project-hostd telemetry boundary', () => {
     }))).rejects.toMatchObject({ code: 'stale_observation' });
   });
 
+  test('revokes observation authority when the current compute target changes', async () => {
+    let target: 'matched' | 'conflict' = 'matched';
+    const store = new MemoryProjectHostdStore(
+      () => new Date('2026-08-12T10:00:01.000Z'), () => credentialId, () => token
+    );
+    const service = new ProjectHostdService(store, {
+      async resolve() { return target; }
+    }, { async registered() { return true; } },
+    () => new Date('2026-08-12T10:00:01.000Z'));
+    await issue(service);
+    const scope = await service.authenticate(token);
+    if (!scope) throw new Error('missing scope');
+    target = 'conflict';
+    await expect(service.append(scope, observation()))
+      .rejects.toMatchObject({ code: 'target_conflict' });
+    expect(await service.list(ownerUserId)).toEqual([]);
+  });
+
   test('requires degraded health for partial evidence and retains the latest replay proof', async () => {
     const { service, store } = setup();
     expect(() => parseObservation(observation({ partialMetrics: ['memory'] })))
