@@ -47,12 +47,10 @@ export function createWorkspaceRuntimeControlDispatcher(
         identity: record.identity,
         sessionId: registration.sessionId
       });
-      if (record.command.commandSequence > registration.resumeAfterCommandSequence) {
-        sessions.dispatchControl(
-          registration.ownerUserId,
-          createStoredCommand(rebound.identity, record.command.commandSequence)
-        );
-      }
+      sessions.dispatchControl(
+        registration.ownerUserId,
+        createStoredCommand(rebound.identity, record.command.commandSequence)
+      );
     }
   });
 

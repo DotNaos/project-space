@@ -297,6 +297,57 @@ describe('canonical runtime control', () => {
     sessions.close();
   });
 
+  test('resends an unresolved command after reconnect even when the Runtime already accepted its sequence', async () => {
+    const sessionStore = new MemoryRuntimeSessionStore();
+    const operations = new MemoryCanonicalRuntimeControlOperationStore();
+    const sessions = new WorkspaceRuntimeSessionService(
+      sessionStore,
+      undefined,
+      undefined,
+      { read: (...args) => operations.watermarks(...args) }
+    );
+    const identity = {
+      actorId: actor.actorId, actorKind: actor.actorKind, actorUserId: actor.ownerUserId,
+      compatibilityAlias: false, environmentId, generation, operation: 'git.status' as const,
+      operationId: 'runtime:crash-after-accept', ownerUserId: actor.ownerUserId,
+      sessionId: 'session-before-crash', targetIdentityRevision: '7:environment:canonical', workspaceId
+    };
+    const reservedAt = new Date().toISOString();
+    await operations.reserve({
+      fingerprint: 'c'.repeat(64), identity, reservedAt,
+      reservedUntil: new Date(Date.now() + 10_000).toISOString()
+    });
+    await operations.markDispatchAttempted({
+      commandId: identity.operationId, dispatchedAt: reservedAt,
+      dispatchedUntil: new Date(Date.now() + 30_000).toISOString(),
+      fingerprint: 'c'.repeat(64), identity
+    });
+    const dispatcher = createWorkspaceRuntimeControlDispatcher(sessions, operations);
+    const issued = await sessionStore.issue({
+      branch: 'issue-657', capabilities: [...workspaceRuntimeBaseCapabilities], commit: 'a'.repeat(40),
+      environmentId, generation, manifestDigest: 'b'.repeat(64), operationId: 'runtime-reconnect',
+      ownerUserId: actor.ownerUserId, requestedCapabilities: [workspaceRuntimeControlCapability],
+      runtimeVersion: '1.0.0', workspaceId
+    });
+    const scope = await sessionStore.authenticate(issued.credential.token);
+    const socket = {
+      close() {}, messages: [] as string[], send(value: string) { this.messages.push(value); }
+    };
+    await sessions.register(socket, scope!, {
+      branch: 'issue-657', commit: 'a'.repeat(40), environmentId, generation,
+      manifestDigest: 'b'.repeat(64), readyCapabilities: [workspaceRuntimeControlCapability],
+      resumeAfterControlCommandSequence: 1, resumeAfterControlEventSequence: 0,
+      resumeAfterSequence: 0, runtimeVersion: '1.0.0', schemaVersion: 1,
+      type: 'runtime.register', workspaceId
+    });
+    expect(socket.messages.map((value) => JSON.parse(value))).toContainEqual(expect.objectContaining({
+      commandSequence: 1, operationId: identity.operationId, sessionId: expect.any(String),
+      type: 'runtime.control.command'
+    }));
+    dispatcher.close();
+    sessions.close();
+  });
+
   test('rejects result schema leaks and mismatched full socket bindings', async () => {
     const store = new MemoryRuntimeSessionStore();
     const issued = await store.issue({
