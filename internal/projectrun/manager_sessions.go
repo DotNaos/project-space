@@ -69,6 +69,17 @@ func (manager *Manager) Status(ctx context.Context, directory, scriptName string
 }
 
 func (manager *Manager) Stop(ctx context.Context, directory, scriptName string) (ServeResult, error) {
+	return manager.stopExpected(ctx, directory, scriptName, "", "")
+}
+
+func (manager *Manager) StopExpected(ctx context.Context, directory, scriptName, workspaceID, runtimeGeneration string) (ServeResult, error) {
+	if workspaceID == "" || runtimeGeneration == "" {
+		return manager.runtimeErrorResult("stop", directory, scriptName, errors.New("expected Workspace runtime binding is required")), errors.New("expected Workspace runtime binding is required")
+	}
+	return manager.stopExpected(ctx, directory, scriptName, workspaceID, runtimeGeneration)
+}
+
+func (manager *Manager) stopExpected(ctx context.Context, directory, scriptName, workspaceID, runtimeGeneration string) (ServeResult, error) {
 	identity, resolutionErr := manager.resolveSessionIdentity(ctx, directory, scriptName)
 	if resolutionErr != nil && identity.ServerID == "" {
 		return manager.unavailableResult("stop", identity.WorktreePath, scriptName, resolutionErr), nil
@@ -95,11 +106,23 @@ func (manager *Manager) Stop(ctx context.Context, directory, scriptName string) 
 			manager.stoppedResult("stop", identity.WorktreePath, scriptName, capability), identity,
 		), nil
 	}
+	if workspaceID != "" && (state.WorkspaceID != workspaceID || state.RuntimeGeneration != runtimeGeneration) {
+		err := errors.New("serve session belongs to a different Workspace runtime generation")
+		return manager.resultFromState("stop", capability, state, err), err
+	}
+	if workspaceID == "" && state.WorkspaceID != "" {
+		err := errors.New("serve session belongs to a Workspace runtime and must be stopped through its owning runtime")
+		return manager.resultFromState("stop", capability, state, err), err
+	}
 
 	state.State = StateStopping
 	state.CheckedAt = manager.timestamp()
 	_ = manager.store.save(state)
-	if cleanupErr := manager.cleanupRuntime(state); cleanupErr != nil {
+	cleanupErr := manager.cleanupRuntime(state)
+	if workspaceID != "" {
+		cleanupErr = manager.cleanupRuntimeExpected(state, workspaceID, runtimeGeneration)
+	}
+	if cleanupErr != nil {
 		return manager.persistCleanupFailure("stop", capability, state, cleanupErr)
 	}
 	stopped := state

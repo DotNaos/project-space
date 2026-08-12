@@ -6,9 +6,13 @@ import type {
   ComputeInventorySnapshot,
   ComputePlatformRecord,
   ConnectorComputeMetadata,
-  ConnectorEnvironmentAssociation
+  ConnectorEnvironmentAssociation,
+  EnvironmentDefinitionRecord
 } from '../src/shared/compute-environment-api';
-import { validateComputeInventory } from '../src/shared/compute-environment-api';
+import {
+  builtInEnvironmentDefinition,
+  validateComputeInventory
+} from '../src/shared/compute-environment-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../src/shared/project-space-api';
 
 function stableId(namespace: string, value: string) {
@@ -50,7 +54,9 @@ export function computeInventoryFromConnectors(input: {
 }): ComputeInventorySnapshot {
   const platformsByKey = new Map<string, ComputePlatformRecord>();
   const hostsById = new Map<string, ComputeHostRecord>();
+  const environmentDefinitionsByKind = new Map<string, EnvironmentDefinitionRecord>();
   const environmentsByKey = new Map<string, ComputeEnvironmentRecord>();
+  const placeholderEnvironmentKeys = new Set<string>();
   const connectors: ConnectorEnvironmentAssociation[] = [];
   const physicalByConnector = new Map<string, PhysicalMachineRecord[]>();
 
@@ -64,6 +70,10 @@ export function computeInventoryFromConnectors(input: {
 
   for (const connector of input.connectors) {
     const metadata = connector.compute ?? legacyMetadata(connector);
+    const environmentDefinition = definitionForKind(
+      metadata.environmentKind,
+      environmentDefinitionsByKind
+    );
     const platformKey = `${metadata.platformKind}:${metadata.platformName}`;
     let platform = platformsByKey.get(platformKey);
     if (!platform) {
@@ -80,12 +90,16 @@ export function computeInventoryFromConnectors(input: {
       hostAssociation = { evidence: metadata.hostEvidence === 'provider' ? 'provider' : 'none', resolution: 'not_applicable' };
     } else if (metadata.hostIdentity && metadata.hostName && metadata.hostResolution === 'verified') {
       const hostId = stableId('host', `${platform.id}:${identityKey(metadata.hostIdentity.version, metadata.hostIdentity.key)}`);
+      const currentHost = hostsById.get(hostId);
       hostsById.set(hostId, {
         id: hostId,
         identity: metadata.hostIdentity,
         name: metadata.hostName,
         platformId: platform.id,
-        resources: metadata.resourceMode === 'exclusive' ? metadata.resources : undefined
+        resources: preferredResources(
+          currentHost?.resources,
+          metadata.resourceMode === 'exclusive' ? metadata.resources : undefined
+        )
       });
       hostAssociation = { evidence: metadata.hostEvidence as 'provider' | 'tpm' | 'smbios' | 'host_broker', hostId, resolution: 'verified' };
     } else {
@@ -120,6 +134,10 @@ export function computeInventoryFromConnectors(input: {
       let parent = environmentsByKey.get(parentKey);
       if (!parent) {
         parent = {
+          environmentDefinitionId: definitionForKind(
+            'other',
+            environmentDefinitionsByKind
+          ).id,
           hostAssociation,
           id: stableId('environment', parentKey),
           identity: metadata.parentEnvironmentIdentity,
@@ -129,12 +147,14 @@ export function computeInventoryFromConnectors(input: {
           resourceMode: 'shared'
         };
         environmentsByKey.set(parentKey, parent);
+        placeholderEnvironmentKeys.add(parentKey);
       }
       parentEnvironmentId = parent.id;
     }
     let environment = environmentsByKey.get(environmentKey);
     if (!environment) {
       environment = {
+        environmentDefinitionId: environmentDefinition.id,
         hostAssociation,
         id: stableId('environment', environmentKey),
         identity: metadata.environmentIdentity,
@@ -146,6 +166,15 @@ export function computeInventoryFromConnectors(input: {
         resources: metadata.resourceMode === 'exclusive' ? undefined : metadata.resources
       };
       environmentsByKey.set(environmentKey, environment);
+    } else if (placeholderEnvironmentKeys.has(environmentKey)) {
+      environment.environmentDefinitionId = environmentDefinition.id;
+      environment.hostAssociation = hostAssociation;
+      environment.kind = metadata.environmentKind;
+      environment.name = metadata.environmentName;
+      environment.parentEnvironmentId = parentEnvironmentId;
+      environment.resourceMode = metadata.resourceMode;
+      environment.resources = metadata.resourceMode === 'exclusive' ? undefined : metadata.resources;
+      placeholderEnvironmentKeys.delete(environmentKey);
     } else if (JSON.stringify(environment.hostAssociation) !== JSON.stringify(hostAssociation)) {
       environment.hostAssociation = { evidence: 'user', resolution: 'conflict' };
     }
@@ -156,11 +185,42 @@ export function computeInventoryFromConnectors(input: {
     });
   }
 
+  const referencedDefinitionIds = new Set(
+    [...environmentsByKey.values()].map(({ environmentDefinitionId }) => environmentDefinitionId)
+  );
   const snapshot = {
     connectors,
+    environmentDefinitions: [...environmentDefinitionsByKind.values()].filter(
+      ({ id }) => referencedDefinitionIds.has(id)
+    ),
     environments: [...environmentsByKey.values()],
     hosts: [...hostsById.values()],
     platforms: [...platformsByKey.values()]
   };
   return { ...snapshot, violations: validateComputeInventory(snapshot) };
+}
+
+function preferredResources(
+  current: ComputeHostRecord['resources'],
+  candidate: ComputeHostRecord['resources']
+) {
+  if (!current) return candidate;
+  if (!candidate) return current;
+  const currentKey = `${current.reportedAt}\u0000${JSON.stringify(current)}`;
+  const candidateKey = `${candidate.reportedAt}\u0000${JSON.stringify(candidate)}`;
+  return candidateKey > currentKey ? candidate : current;
+}
+
+function definitionForKind(
+  kind: ComputeEnvironmentRecord['kind'],
+  definitions: Map<string, EnvironmentDefinitionRecord>
+) {
+  const current = definitions.get(kind);
+  if (current) return current;
+  const definition = {
+    ...builtInEnvironmentDefinition(kind),
+    id: stableId('environment-definition', kind)
+  };
+  definitions.set(kind, definition);
+  return definition;
 }

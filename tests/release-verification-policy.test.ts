@@ -26,6 +26,7 @@ describe('release verification policy', () => {
       docs: false,
       go: false,
       mobile: false,
+      rust: false,
       workflow: false,
     });
   });
@@ -44,6 +45,7 @@ describe('release verification policy', () => {
     ['Windows test', { ...patch, changedPaths: ['cmd/project/prepare_windows_test.go'] }],
     ['Darwin architecture source', { ...patch, changedPaths: ['cmd/project/example_darwin_arm64.go'] }],
     ['connector source', { ...patch, changedPaths: ['server/connector-example.ts'] }],
+    ['hostd source', { ...patch, changedPaths: ['project-hostd/src/main.rs'] }],
     ['ambiguous paths', { ...patch, changedPaths: [] }],
     ['on-demand verification', { ...patch, eventName: 'workflow_dispatch' }],
     ['tag verification', { ...patch, eventName: 'push' }],
@@ -137,10 +139,12 @@ describe('release verification policy', () => {
       quality.indexOf('  mobile:'),
       quality.indexOf('  go:'),
     );
-    const go = quality.slice(quality.indexOf('  go:'));
+    const go = quality.slice(quality.indexOf('  go:'), quality.indexOf('  rust:'));
+    const rust = quality.slice(quality.indexOf('  rust:'));
     expect(typescript).not.toContain('needs:');
     expect(mobile).not.toContain('needs:');
     expect(go).not.toContain('needs:');
+    expect(rust).not.toContain('needs:');
     expect(typescript).toContain('bun run check');
     expect(typescript).toContain('bun test --isolate');
     expect(typescript).toContain('bun run build:web');
@@ -151,6 +155,8 @@ describe('release verification policy', () => {
     expect(mobile).toContain('bun run build:prototype');
     expect(go).toContain('go test -race ./...');
     expect(go).toContain('go vet ./...');
+    expect(rust).toContain('cargo +1.90.0 clippy --locked -- -D warnings');
+    expect(rust).toContain('cargo +1.90.0 test --locked');
 
     const exactCacheKey =
       "key: bun-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock') }}";

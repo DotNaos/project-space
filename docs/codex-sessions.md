@@ -25,8 +25,10 @@ thread IDs and live state.
 - Opening history is read-only. It uses `thread/read` and never resumes or subscribes to the task.
 - Loaded state comes from the owning machine's shared daemon and is never inferred from another
   connector or a stale registry snapshot.
-- Starting a new turn while one is active is rejected until the current turn becomes idle. Project
-  Space does not silently queue or steer work.
+- Message delivery is explicit. `new-turn` rejects while a turn is active, `steer` requires the
+  exact active turn ID, `queue` persists one unresolved follow-up and dispatches it when the thread
+  becomes idle, and `auto` selects an exact steer only when live evidence identifies the active
+  turn. Operation replays never create a second turn.
 - The task workspace contains the stored conversation, live streaming, composer, approval and
   input handling without a second task list or a redundant details inspector.
 - On desktop, live agent-browser activity opens a resizable chat/browser split. A manual collapse
@@ -45,6 +47,12 @@ thread IDs and live state.
    environment data, credentials, Git origins with credentials, and unknown extension fields.
 6. Resume and turn start use a durable operation ID. Retries return or reconcile the original
    outcome; an ambiguous crash window is shown honestly and is never retried as a fresh turn.
+   Queued follow-ups retain the owner, target generation, message fingerprint, and operation ID.
+   Their initial reservation also retains the normalized request fingerprint and queued result, so
+   startup can reconcile a crash before dispatch and exact completed replays do not need live target
+   discovery.
+   A reconnect may rebind an undispatched queue entry only when both generations advertise durable
+   operations; otherwise the stale entry is blocked without dispatch.
 7. Approval and input requests retain their App Server request, task, turn, and item IDs until the
    server resolves them. No default human choice is invented.
 8. Connector disconnects, App Server restarts, missing tasks, and offline machines fail closed and
@@ -63,7 +71,8 @@ thread IDs and live state.
 
 1. List stored, archived, and Project-Space-loaded tasks by machine; read history without loading.
 2. Resume an idle task, start one idempotent turn, and stream task, turn, item, and text updates.
-3. Preserve approvals, permission prompts, user-input requests, interruption, and reject-until-idle.
+3. Preserve approvals, permission prompts, user-input requests, interruption, exact active-turn
+   steering, explicit reject-until-idle, and durable idle dispatch.
 4. Open the exact machine/thread origin from the project Codex tab or Project Chat and support
    direct canonical task URLs and legacy URL canonicalization.
 5. Mirror the authenticated active browser safely, including reconnect and lifecycle states.

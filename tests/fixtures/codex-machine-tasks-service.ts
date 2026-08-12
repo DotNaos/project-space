@@ -25,16 +25,50 @@ export function connector(): MachineRecord {
   };
 }
 
+export function taskSession(status: 'active' | 'idle' = 'idle') {
+  return {
+    archived: false,
+    id: threadId,
+    lastActivityAt: '2026-07-17T00:00:00.000Z',
+    loadedByProjectSpace: false,
+    machineId: 'connector-local',
+    machineName: 'Local macOS',
+    status,
+    title: '#262'
+  };
+}
+
 export function memoryStore(): CodexMachineTasksStore & {
   operations: Map<string, CodexMachineTaskStartOperation>;
+  sends: Map<string, CodexMachineTaskSendOperation & {
+    dispatchAttempt?: number;
+    result?: Awaited<ReturnType<ReturnType<typeof service>['send']>>;
+    state: 'completed' | 'pending' | 'queued' | 'uncertain';
+  }>;
 } {
   const operations = new Map<string, CodexMachineTaskStartOperation>();
   const sends = new Map<string, CodexMachineTaskSendOperation & {
+    dispatchAttempt?: number;
     result?: Awaited<ReturnType<ReturnType<typeof service>['send']>>;
-    state: 'completed' | 'pending' | 'uncertain';
+    state: 'completed' | 'pending' | 'queued' | 'uncertain';
   }>();
   return {
     operations,
+    sends,
+    async listQueuedSends() {
+      return [...sends.values()].flatMap((operation) =>
+        (operation.state === 'queued' ||
+          (operation.state === 'pending' || operation.state === 'uncertain') &&
+            operation.delivery === 'queue') &&
+        operation.result?.state === 'queued'
+        ? [{
+            dispatchAttempt: operation.dispatchAttempt ?? 0,
+            operation,
+            result: operation.result,
+            state: operation.state
+          }]
+        : []);
+    },
     async findStart(input) {
       const current = [...operations.values()].find((candidate) => (
         candidate.userId === input.userId
@@ -66,6 +100,61 @@ export function memoryStore(): CodexMachineTasksStore & {
         state: current.state === 'uncertain' ? 'uncertain' : 'pending'
       };
     },
+    async lookupSend(input) {
+      const current = sends.get(input.operationId);
+      if (!current) return { kind: 'missing' };
+      if (current.fingerprint !== input.fingerprint ||
+          current.connectorId !== input.connectorId || current.threadId !== input.threadId) {
+        return { kind: 'conflict' };
+      }
+      if (current.state === 'completed' && current.result) {
+        return { kind: 'replayed', result: current.result };
+      }
+      if ((current.state === 'queued' ||
+          (current.state === 'pending' || current.state === 'uncertain') &&
+            current.delivery === 'queue') &&
+          current.result?.state === 'queued') {
+        return {
+          dispatchAttempt: current.dispatchAttempt ?? 0,
+          kind: 'queued',
+          result: current.result,
+          state: current.state
+        };
+      }
+      return {
+        dispatchDelivery: current.dispatchDelivery,
+        durableOperations: current.durableOperations,
+        ...(current.expectedTurnId ? { expectedTurnId: current.expectedTurnId } : {}),
+        generation: current.generation,
+        kind: 'reserved',
+        state: current.state === 'uncertain' ? 'uncertain' : 'pending'
+      };
+    },
+    async lookupSendRequest(input) {
+      const current = sends.get(input.operationId);
+      if (!current || !current.requestFingerprint) return { kind: 'missing' };
+      if (current.requestFingerprint !== input.fingerprint) return { kind: 'conflict' };
+      if (current.state === 'completed' && current.result) {
+        return { kind: 'replayed', result: current.result };
+      }
+      if ((current.state === 'queued' ||
+          (current.state === 'pending' || current.state === 'uncertain') &&
+            current.delivery === 'queue') && current.result?.state === 'queued') {
+        return {
+          dispatchAttempt: current.dispatchAttempt ?? 0,
+          kind: 'queued', result: current.result, state: current.state
+        };
+      }
+      return {
+        connectorId: current.connectorId,
+        dispatchDelivery: current.dispatchDelivery,
+        durableOperations: current.durableOperations,
+        ...(current.expectedTurnId ? { expectedTurnId: current.expectedTurnId } : {}),
+        generation: current.generation,
+        kind: 'reserved',
+        state: current.state === 'uncertain' ? 'uncertain' : 'pending'
+      };
+    },
     async releaseUncertainStart(input) {
       const current = operations.get(input.operationId);
       if (!current) return 'missing';
@@ -86,14 +175,44 @@ export function memoryStore(): CodexMachineTasksStore & {
         if (current.state === 'completed' && current.result) {
           return { kind: 'replayed', result: current.result };
         }
+        if (current.state === 'queued' && current.result?.state === 'queued') {
+          return {
+            dispatchAttempt: current.dispatchAttempt ?? 0,
+            kind: 'queued',
+            result: current.result,
+            state: 'queued'
+          };
+        }
+        if (current.state === 'pending' && current.delivery === 'queue' &&
+            current.result?.state === 'queued') {
+          return {
+            dispatchAttempt: current.dispatchAttempt ?? 0,
+            kind: 'queued',
+            result: current.result,
+            state: 'pending'
+          };
+        }
+        if (current.state === 'uncertain' && current.delivery === 'queue' &&
+            current.result?.state === 'queued') {
+          return {
+            dispatchAttempt: current.dispatchAttempt ?? 0,
+            kind: 'queued',
+            result: current.result,
+            state: 'uncertain'
+          };
+        }
         return current.state === 'uncertain'
           ? {
+              dispatchDelivery: current.dispatchDelivery,
               durableOperations: current.durableOperations,
+              ...(current.expectedTurnId ? { expectedTurnId: current.expectedTurnId } : {}),
               generation: current.generation,
               kind: 'uncertain'
             }
           : {
+              dispatchDelivery: current.dispatchDelivery,
               durableOperations: current.durableOperations,
+              ...(current.expectedTurnId ? { expectedTurnId: current.expectedTurnId } : {}),
               generation: current.generation,
               kind: 'pending'
             };
@@ -111,8 +230,26 @@ export function memoryStore(): CodexMachineTasksStore & {
     async markSendUncertain(operation) {
       sends.set(operation.operationId, { ...operation, state: 'uncertain' });
     },
+    async queueSend(operation, result) {
+      sends.set(operation.operationId, { ...operation, result, state: 'queued' });
+    },
     async releaseSend(operation) {
       sends.delete(operation.operationId);
+    },
+    async resumeQueuedSend(operation) {
+      const current = sends.get(operation.operationId);
+      if (!current || current.state !== 'queued') return undefined;
+      const dispatchAttempt = (current.dispatchAttempt ?? 0) + 1;
+      sends.set(operation.operationId, {
+        ...current, ...operation, dispatchAttempt, state: 'pending'
+      });
+      return dispatchAttempt;
+    },
+    async rebindQueuedSend(operation, generation) {
+      const current = sends.get(operation.operationId);
+      if (!current || current.state !== 'queued') return false;
+      sends.set(operation.operationId, { ...current, generation });
+      return true;
     },
     async reserveStart(operation) {
       const current = operations.get(operation.operationId);
@@ -205,15 +342,35 @@ export function service(options: {
     issue: { number: number; url: string };
     repository: { id: string; nameWithOwner: string };
   }>;
-  send?: (input: { generation: number }) => Promise<{
+  read?: () => Promise<{
+    openedReadOnly: true;
+    session: ReturnType<typeof taskSession> & {
+      activity?: { currentTurnId?: string };
+    };
+    turns: Array<{ id: string; status: 'in-progress' }>;
+  }>;
+  queueRetryDelay?: () => Promise<void>;
+  send?: (input: {
+    delivery: 'new-turn' | 'steer';
+    expectedTurnId?: string;
+    generation: number;
     operationId: string;
+  }) => Promise<{
+    operationId: string;
+    reason?: 'thread_active' | 'unavailable';
     replayed: boolean;
     status: 'accepted' | 'ambiguous' | 'completed' | 'rejected';
     threadId: string;
     turnId?: string;
   }>;
-  reconcileSend?: (input: { generation: number }) => Promise<{
+  reconcileSend?: (input: {
+    delivery: 'new-turn' | 'steer';
+    expectedTurnId?: string;
+    generation: number;
     operationId: string;
+  }) => Promise<{
+    operationId: string;
+    reason?: 'thread_active' | 'unavailable';
     replayed: boolean;
     status: 'accepted' | 'ambiguous' | 'completed' | 'rejected';
     threadId: string;
@@ -258,22 +415,11 @@ export function service(options: {
     generationFor: options.generationFor ?? (() => 7),
     durableGenerationFor: options.durableGenerationFor ?? (() => true),
     sessions: {
-      async read() {
-        return {
-          openedReadOnly: true as const,
-          session: {
-            archived: false,
-            id: threadId,
-            lastActivityAt: '2026-07-17T00:00:00.000Z',
-            loadedByProjectSpace: false,
-            machineId: 'connector-local',
-            machineName: 'Local macOS',
-            status: 'idle' as const,
-            title: '#262'
-          },
-          turns: []
-        };
-      },
+      read: options.read ?? (async () => ({
+        openedReadOnly: true as const,
+        session: taskSession(),
+        turns: []
+      })),
       send: options.send ?? (async () => ({
         operationId: 'send-one',
         replayed: false,
@@ -296,6 +442,7 @@ export function service(options: {
           : { event: { eventId: 'done-one', turnId: 'turn-one', type: 'turn-completed' as const } })
       })
     },
+    ...(options.queueRetryDelay ? { queueRetryDelay: options.queueRetryDelay } : {}),
     async start(input) {
       return {
         generation: options.startedGeneration?.(input) ?? input.generation,

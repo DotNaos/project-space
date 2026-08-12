@@ -8,6 +8,7 @@ const sockets = new Map<string, WebSocket>();
 const capabilities = new Map<string, Set<string>>();
 const credentialHashes = new Map<string, Buffer>();
 const generations = new Map<string, number>();
+const ownerUserIds = new Map<string, string>();
 
 export function sendConnectorJson(socket: WebSocket, payload: ConnectorMachineMessage) {
   if (socket.readyState === WebSocket.OPEN) {
@@ -25,6 +26,10 @@ export function connectorHasCapability(machineId: string, capability: string) {
 
 export function connectorSessionGeneration(machineId: string) {
   return generations.get(machineId);
+}
+
+export function connectorSessionOwnerUserId(machineId: string) {
+  return ownerUserIds.get(machineId);
 }
 
 export function isConnectorCommandChannelAvailable(machineId: string) {
@@ -50,13 +55,16 @@ export function registerConnectorSession(
   machineId: string,
   socket: WebSocket,
   token: string,
-  advertisedCapabilities: string[]
+  advertisedCapabilities: string[],
+  ownerUserId?: string
 ) {
   const generation = randomInt(1, 2 ** 48);
   sockets.set(machineId, socket);
   credentialHashes.set(machineId, createHash('sha256').update(token, 'utf8').digest());
   capabilities.set(machineId, new Set(advertisedCapabilities));
   generations.set(machineId, generation);
+  if (ownerUserId) ownerUserIds.set(machineId, ownerUserId);
+  else ownerUserIds.delete(machineId);
   return generation;
 }
 
@@ -88,6 +96,7 @@ export function removeConnectorSession(machineId: string, expected?: WebSocket) 
   credentialHashes.delete(machineId);
   capabilities.delete(machineId);
   generations.delete(machineId);
+  ownerUserIds.delete(machineId);
   return current;
 }
 

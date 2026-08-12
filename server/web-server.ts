@@ -18,6 +18,16 @@ import {
 const version = connectorRuntimeRecord().version;
 const command = process.argv[2] ?? 'serve';
 
+if (command === 'workspace-codex-host') {
+  const [flag, bootstrapPath, ...extra] = process.argv.slice(3);
+  if (flag !== '--bootstrap' || !bootstrapPath || extra.length > 0) {
+    throw new Error('The Workspace Runtime Codex host arguments are invalid.');
+  }
+  const { runWorkspaceRuntimeCodexHost } = await import('./workspace-runtime-codex-host/process');
+  await runWorkspaceRuntimeCodexHost(bootstrapPath);
+  process.exit(0);
+}
+
 if (command === '--help' || command === '-h' || command === 'help') {
   console.log(`Project Space Connector ${version}
 

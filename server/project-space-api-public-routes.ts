@@ -21,11 +21,20 @@ import type {
 import { createPullRequestDevServerConnectorRoutes } from './pr-test-surfaces/connector-http';
 import { readExactPullRequestChangelogSource } from './pr-preview-changelog-source';
 import { releaseChangelogForVersion } from './release-changelog';
+import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
+import { meaningfulNetworkEvidence } from './connector-command-upgrade-handler';
 
 const exactSourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) {
-  const handlePullRequestDevServer = createPullRequestDevServerConnectorRoutes();
+export function createProjectSpacePublicApiRoutes(
+  backend: ProjectSpaceBackend,
+  options: { recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse } = {}
+) {
+  const recordCompatibilityUse = options.recordCompatibilityUse ??
+    recordSuccessfulConnectorCompatibilityUse;
+  const handlePullRequestDevServer = createPullRequestDevServerConnectorRoutes({
+    recordUse: recordCompatibilityUse
+  });
   return async function handleProjectSpacePublicApiRoute(
     request: IncomingMessage,
     response: ServerResponse,
@@ -107,6 +116,17 @@ export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) 
 
       await registerConnectorProjectRegistry(payload, identity.connectorProfile);
       writeJson(response, 200, { ok: true });
+      await Promise.allSettled(([
+        'connector.project-registry.http.v1',
+        ...(meaningfulNetworkEvidence(payload.connector.network)
+          ? ['connector.private-network.http.v1'] as const
+          : []),
+        ...(payload.connector.battery || payload.connector.compute?.resources
+          ? ['connector.resource-report.http.v1'] as const
+          : [])
+      ] as const).map((surface) =>
+        recordCompatibilityUse(identity.userId, surface)
+      ));
       return true;
     }
 

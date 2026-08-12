@@ -97,7 +97,11 @@ export function createPullRequestPrototypeIterationRoute(backend: ProjectSpaceBa
     const service = createConfiguredPullRequestPrototypeIterationService(backend, userId);
     let result: PullRequestPrototypeIterationResult;
     if (request.method === 'POST') {
-      result = await service.start(payload);
+      writeJson(response, 409, {
+        code: 'canonical_runtime_required',
+        error: 'Prototype development servers must be started through the canonical Workspace Runtime.'
+      });
+      return true;
     } else {
       const surfaces = await readConfiguredPullRequestTestSurfaces({
         backend,

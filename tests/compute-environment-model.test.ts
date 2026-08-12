@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   groupComputeInventory,
+  builtInEnvironmentDefinition,
   hostAssociationLabel,
   resolveDerivedIdentity,
   resourceCapacityOwner,
   validateComputeInventory,
   type ComputeEnvironmentRecord,
+  type ComputeEnvironmentKind,
   type ComputeHostRecord,
   type ComputeInventoryInput,
   type ComputePlatformRecord,
@@ -25,11 +27,13 @@ function environment(
   id: string,
   overrides: Partial<ComputeEnvironmentRecord> = {}
 ): ComputeEnvironmentRecord {
+  const kind = overrides.kind ?? 'native_linux';
   return {
+    environmentDefinitionId: `definition-${kind}`,
     hostAssociation: { evidence: 'smbios', hostId: 'pc', resolution: 'verified' },
     id,
     identity: { key: `account-derived-${id}`, version: 1 },
-    kind: 'native_linux',
+    kind,
     name: id,
     platformId: 'local',
     resourceMode: 'exclusive',
@@ -42,12 +46,22 @@ function connector(connectorId: string, environmentId: string): ConnectorEnviron
 }
 
 function inventory(overrides: Partial<ComputeInventoryInput> = {}): ComputeInventoryInput {
+  const environments = overrides.environments ?? [];
+  const kinds = [...new Set(environments.map(({ kind }) => kind))];
   return {
     connectors: [],
-    environments: [],
+    environmentDefinitions: kinds.map((kind) => definition(kind)),
+    environments,
     hosts: [pc],
     platforms: [local],
     ...overrides
+  };
+}
+
+function definition(kind: ComputeEnvironmentKind) {
+  return {
+    ...builtInEnvironmentDefinition(kind),
+    id: `definition-${kind}`
   };
 }
 
@@ -83,6 +97,42 @@ describe('compute identity resolution', () => {
 });
 
 describe('compute hierarchy and connector invariants', () => {
+  test('separates reusable definitions from concrete execution targets', () => {
+    const first = environment('windows-01', { kind: 'native_windows' });
+    const second = environment('windows-02', {
+      hostAssociation: { evidence: 'none', resolution: 'unresolved' },
+      kind: 'native_windows'
+    });
+    const input = inventory({ environments: [first, second] });
+
+    expect(input.environmentDefinitions).toHaveLength(1);
+    expect(first.environmentDefinitionId).toBe(second.environmentDefinitionId);
+    expect(first.id).not.toBe(second.id);
+    expect(validateComputeInventory(input)).toEqual([]);
+  });
+
+  test('fails closed when a concrete instance has no matching definition', () => {
+    const windows = environment('windows', { kind: 'native_windows' });
+    expect(validateComputeInventory(inventory({
+      environmentDefinitions: [],
+      environments: [windows]
+    }))).toEqual([{
+      code: 'environment_definition_missing',
+      id: 'windows'
+    }]);
+
+    expect(validateComputeInventory(inventory({
+      environmentDefinitions: [definition('native_linux')],
+      environments: [{
+        ...windows,
+        environmentDefinitionId: 'definition-native_linux'
+      }]
+    }))).toEqual([{
+      code: 'environment_definition_kind_mismatch',
+      id: 'windows'
+    }]);
+  });
+
   test('models dual boot as one host with separate exclusive native environments', () => {
     const windows = environment('windows', { kind: 'native_windows', name: 'Windows' });
     const ubuntu = environment('ubuntu', { kind: 'native_linux', name: 'Ubuntu' });

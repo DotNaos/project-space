@@ -54,6 +54,13 @@ func TestPrepareCreatesStandardOwnedWorktreeAndCheckAcceptsOwner(t *testing.T) {
 	if checked.Status != "ready" || checked.Owner != firstThread || checked.Issue != 123 {
 		t.Fatalf("unexpected check result: %#v", checked)
 	}
+	inspected, err := InspectManaged(result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkspaceID == "" || checked.WorkspaceID != result.WorkspaceID || inspected.WorkspaceID != result.WorkspaceID {
+		t.Fatalf("immutable Workspace ID changed: prepare=%#v check=%#v inspect=%#v", result, checked, inspected)
+	}
 }
 
 func TestPrepareReusesOneWorktreeForSameThread(t *testing.T) {
@@ -77,6 +84,9 @@ func TestPrepareReusesOneWorktreeForSameThread(t *testing.T) {
 	}
 	if reused.Status != "ready" || reused.Path != created.Path || reused.Branch != created.Branch {
 		t.Fatalf("same thread did not reuse its worktree: created=%#v reused=%#v", created, reused)
+	}
+	if reused.WorkspaceID == "" || reused.WorkspaceID != created.WorkspaceID {
+		t.Fatalf("reused worktree changed Workspace ID: created=%#v reused=%#v", created, reused)
 	}
 }
 
@@ -104,6 +114,55 @@ func TestClaimOwnsExistingStandardWorktreeAndThenConfirmsIt(t *testing.T) {
 	}
 	if _, err := Check(CheckOptions{StartPath: worktreePath, ThreadID: firstThread}); err != nil {
 		t.Fatalf("claimed worktree did not pass check: %v", err)
+	}
+}
+
+func TestClaimExactBindsServerIssuedWorkspaceAndRejectsReplacement(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-exact-worktree")
+	workspaceID := "123e4567-e89b-42d3-a456-426614174000"
+	claimed, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-worktree",
+		ThreadID: firstThread, WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Owner != firstThread || claimed.WorkspaceID != workspaceID || claimed.Status != "claimed" {
+		t.Fatalf("unexpected exact claim: %#v", claimed)
+	}
+	replayed, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-worktree",
+		ThreadID: firstThread, WorkspaceID: workspaceID,
+	})
+	if err != nil || replayed.Status != "ready" {
+		t.Fatalf("exact replay failed: %#v, %v", replayed, err)
+	}
+	if _, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-worktree",
+		ThreadID: secondThread, WorkspaceID: workspaceID,
+	}); err == nil {
+		t.Fatal("expected conflicting exact owner to be rejected")
+	}
+}
+
+func TestClaimExactResumesMatchingPartialOwnershipBeforeManagedMarker(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-exact-crash")
+	workspaceID := "123e4567-e89b-42d3-a456-426614174000"
+	command(t, worktreePath, "git", "config", "extensions.worktreeConfig", "true")
+	command(t, worktreePath, "git", "config", "--worktree", taskConfigKey, "task-exact-crash")
+	command(t, worktreePath, "git", "config", "--worktree", workspaceConfigKey, workspaceID)
+
+	claimed, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-crash",
+		ThreadID: firstThread, WorkspaceID: workspaceID,
+	})
+	if err != nil || claimed.Status != "claimed" || claimed.Owner != firstThread {
+		t.Fatalf("partial exact ownership was not resumed: %#v, %v", claimed, err)
+	}
+	if managed := commandOutput(t, worktreePath, "git", "config", "--worktree", "--get", managedConfigKey); managed != "true" {
+		t.Fatalf("managed commit marker = %q", managed)
 	}
 }
 

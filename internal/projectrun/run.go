@@ -11,6 +11,16 @@ func (manager *Manager) Run(
 	scriptName string,
 	streams Streams,
 ) (RunResult, error) {
+	return manager.RunWithOptions(ctx, directory, scriptName, streams, RunOptions{InheritEnv: true})
+}
+
+func (manager *Manager) RunWithOptions(
+	ctx context.Context,
+	directory string,
+	scriptName string,
+	streams Streams,
+	options RunOptions,
+) (RunResult, error) {
 	root, script, err := LoadCommand(directory, scriptName)
 	if err != nil {
 		return manager.runErrorResult(root, scriptName, nil, 0, err), err
@@ -24,7 +34,8 @@ func (manager *Manager) Run(
 		return manager.runErrorResult(root, scriptName, script.Command, 0, err), err
 	}
 	command := commandFor(script, root, "127.0.0.1", port, nil)
-	command.InheritEnv = true
+	command.InheritEnv = options.InheritEnv
+	command.Env = mergeEnvironment(command.Env, environmentMap(options.Environment))
 	startedAt := manager.timestamp()
 	exitCode, runErr := manager.processes.RunForeground(ctx, command, streams, nil)
 	finishedAt := manager.timestamp()

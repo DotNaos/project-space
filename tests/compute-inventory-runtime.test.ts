@@ -22,7 +22,20 @@ describe('runtime compute inventory', () => {
     const snapshot = computeInventoryFromConnectors({ connectors: [connector('legacy-one')] });
     expect(snapshot.violations).toEqual([]);
     expect(snapshot.connectors).toHaveLength(1);
+    expect(snapshot.environmentDefinitions).toEqual([{
+      bootstrapStrategy: 'custom',
+      id: expect.stringMatching(/^environment-definition-/),
+      kind: 'other',
+      name: 'Other',
+      operatingSystemFamily: 'other',
+      ownership: 'built_in',
+      slug: 'other',
+      supportedArchitectures: []
+    }]);
+    expect(snapshot.environments[0]?.environmentDefinitionId)
+      .toBe(snapshot.environmentDefinitions[0]?.id);
     expect(snapshot.environments).toHaveLength(1);
+    expect(snapshot.environmentDefinitions).toHaveLength(1);
     expect(snapshot.environments[0]?.hostAssociation).toEqual({
       evidence: 'none',
       resolution: 'unresolved'

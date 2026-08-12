@@ -732,18 +732,15 @@ describe('Project Space remote MCP server', () => {
         operationId: 'workspace:start:integration'
       }
     });
-    expect(workspaceCommand.structuredContent).toMatchObject({
-      result: { scope: 'workspace', state: 'running' }
+    expect(workspaceCommand.isError).toBe(true);
+    expect(workspaceCommand.structuredContent).toEqual({
+      result: {
+        code: 'canonical_runtime_required',
+        message: 'Free-form Workspace commands are no longer started through a Connector.',
+        state: 'unsupported'
+      }
     });
-    expect(calls).toContainEqual({
-      kind: 'workspace-start',
-      request: {
-        command: 'git status --short',
-        executionId: '44444444-4444-4444-8444-444444444444',
-        operationId: 'workspace:start:integration'
-      },
-      userId: 'local-development-user'
-    });
+    expect(calls.filter(({ kind }) => kind === 'workspace-start')).toHaveLength(0);
 
     const projects = await client.callTool({ name: 'list_projects', arguments: {} });
     expect(projects.structuredContent).toMatchObject({

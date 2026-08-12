@@ -105,6 +105,32 @@ func TestSingleAllowedHostUsesViteCompatibilityVariable(t *testing.T) {
 	}
 }
 
+func TestWorkspaceOwnedServeSessionRequiresExactRuntimeBindingToStop(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, _, _ := newTestManager(t)
+	const workspaceID = "ws_0123456789abcdef01234567"
+	const generation = "123e4567-e89b-42d3-a456-426614174000"
+	started, err := manager.StartWithOptions(context.Background(), project, "dev", StartOptions{
+		LocalOnly: true, APIs: APIsModeSimulated, Data: DataModeLocal,
+		WorkspaceID: workspaceID, RuntimeGeneration: generation,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Stop(context.Background(), project, "dev"); err == nil {
+		t.Fatal("ordinary serve stop reached a Workspace-owned session")
+	}
+	if len(processes.stopped) != 0 {
+		t.Fatal("ordinary serve stop mutated a Workspace-owned process")
+	}
+	if _, err := manager.StopExpected(context.Background(), project, "dev", workspaceID, generation); err != nil {
+		t.Fatalf("exact Workspace stop: %v", err)
+	}
+	if len(processes.stopped) != 1 || started.WorkspaceID != workspaceID || started.RuntimeGeneration != generation {
+		t.Fatalf("exact Workspace stop evidence = %#v, stopped=%d", started, len(processes.stopped))
+	}
+}
+
 func TestStatusCleansRuntimeWhenScriptsConfigDisappears(t *testing.T) {
 	project := writeTestScripts(t)
 	manager, processes, tailnet, _ := newTestManager(t)
@@ -305,6 +331,41 @@ func TestLocalOnlyRequiresExplicitModeAndNeverPublishesTailnet(t *testing.T) {
 	}
 }
 
+func TestPublishExpectedReplacesOnlyExactOwnedLocalGeneration(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	workspaceID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	runtimeGeneration := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	started, err := manager.StartWithOptions(context.Background(), project, "dev", StartOptions{
+		LocalOnly: true, WorkspaceID: workspaceID, RuntimeGeneration: runtimeGeneration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.PublishExpected(context.Background(), project, "dev", workspaceID,
+		runtimeGeneration, "wrong-generation", nil); err == nil {
+		t.Fatal("wrong server generation was published")
+	}
+	if len(processes.stopped) != 0 || len(tailnet.routes) != 0 {
+		t.Fatalf("wrong generation mutated resources: stopped=%#v routes=%#v", processes.stopped, tailnet.routes)
+	}
+	published, err := manager.PublishExpected(context.Background(), project, "dev", workspaceID,
+		runtimeGeneration, started.ServerGeneration, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Operation != "publish" || published.State != StateRunning ||
+		published.Mode != ServeModeManaged || published.ServerGeneration == started.ServerGeneration ||
+		published.PublicPort == nil || tailnet.routes[*published.PublicPort] != *published.LocalPort {
+		t.Fatalf("published result = %#v routes=%#v", published, tailnet.routes)
+	}
+	replayed, err := manager.PublishExpected(context.Background(), project, "dev", workspaceID,
+		runtimeGeneration, published.ServerGeneration, nil)
+	if err != nil || replayed.Disposition != ServeDispositionReused || replayed.ServerGeneration != published.ServerGeneration {
+		t.Fatalf("publish replay = %#v err=%v", replayed, err)
+	}
+}
+
 func TestExternalBindingsFailBeforeStartingProcessesOrTailnet(t *testing.T) {
 	project := writeTestScripts(t)
 	for _, data := range []DataMode{DataModeLocal, DataModeRemote} {
@@ -387,6 +448,28 @@ func TestListRevalidatesRuntimeAndLeavesForeignOwnershipUntouched(t *testing.T) 
 	if len(processes.stopped) != 0 || len(tailnet.stopped) != 0 ||
 		tailnet.routes[*started.PublicPort] != *started.LocalPort {
 		t.Fatalf("runtime list mutated foreign ownership: %#v %#v", processes.stopped, tailnet.stopped)
+	}
+}
+
+func TestObserveSessionsNeverRunsHealthChecksOrCleanup(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	started, err := manager.Start(context.Background(), project, "dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux := manager.tmux.(*fakeTmux)
+	observation := tmux.sessions[started.TmuxSession]
+	observation.Spec.OwnershipToken = "foreign-generation"
+	tmux.sessions[started.TmuxSession] = observation
+
+	result, err := manager.ObserveSessions(context.Background())
+	if err != nil || len(result.Sessions) != 1 || result.Sessions[0].State != StateRunning {
+		t.Fatalf("read-only observation = %#v, %v", result, err)
+	}
+	if len(processes.stopped) != 0 || len(tailnet.stopped) != 0 ||
+		tailnet.routes[*started.PublicPort] != *started.LocalPort {
+		t.Fatalf("read-only observation mutated runtime: %#v %#v", processes.stopped, tailnet.stopped)
 	}
 }
 

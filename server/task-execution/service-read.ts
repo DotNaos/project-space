@@ -34,12 +34,13 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
   ): Promise<TaskExecutionResult> {
     let execution = await dependencies.store.read(actor.userId, request.executionId);
     if (!execution) throw new TaskExecutionNotFoundError();
-    const binding = await dependencies.store.readExecutorBinding(actor.userId, execution.id);
+    let binding = await dependencies.store.readExecutorBinding(actor.userId, execution.id);
     let activity: TaskExecutionActivityProjection | undefined;
     if (binding && !terminalStates.has(execution.state)) {
-      const refreshed = await refreshCodexExecution(actor, execution, binding.externalId, request.limit);
+      const refreshed = await refreshCodexExecution(actor, execution, binding, request.limit);
       execution = refreshed.execution;
       activity = refreshed.activity;
+      binding = refreshed.binding ?? binding;
     }
     const [workspace, events] = await Promise.all([
       dependencies.store.readWorkspace(actor.userId, execution.id),
@@ -126,7 +127,9 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
   async function refreshCodexExecution(
     actor: TaskExecutionActor,
     execution: StoredTaskExecution,
-    threadId: string,
+    executorBinding: NonNullable<Awaited<ReturnType<
+      TaskExecutionServiceDependencies['store']['readExecutorBinding']
+    >>>,
     limit?: number
   ) {
     let read: CodexMachineTaskReadResult;
@@ -135,7 +138,7 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
         connectorId: execution.connectorBinding?.connectorId,
         environmentId: execution.environmentId,
         last: limit,
-        threadId
+        threadId: executorBinding.externalId
       });
     } catch {
       const blocked = await transitionTaskExecution({
@@ -153,6 +156,17 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
       return { execution: blocked };
     }
     const attention = read.result.session.attention;
+    const currentTurnId = read.result.session.activity?.currentTurnId ??
+      read.result.turns.find((turn) => turn.status === 'in-progress')?.id;
+    const binding = currentTurnId && currentTurnId !== executorBinding.turnId
+      ? await dependencies.store.updateExecutorTurn({
+          executionId: execution.id,
+          expectedVersion: executorBinding.version,
+          ownerUserId: actor.userId,
+          turnId: currentTurnId,
+          updatedAt: now().toISOString()
+        })
+      : undefined;
     const nextState = attention === 'approval'
       ? 'waiting_for_approval' as const
       : attention === 'input'
@@ -169,7 +183,7 @@ export function createTaskExecutionReader(dependencies: TaskExecutionServiceDepe
           state: nextState,
           store: dependencies.store
         });
-    return { activity: projectActivity(read.result, now()), execution: refreshed };
+    return { activity: projectActivity(read.result, now()), binding, execution: refreshed };
   }
 
   return { get, list, readByExecutor, wait };

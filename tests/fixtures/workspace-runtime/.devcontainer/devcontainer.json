@@ -1,0 +1,6 @@
+{
+  "image": "ghcr.io/example/project-runtime-fixture@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "remoteUser": "workspace",
+  "workspaceFolder": "/workspace",
+  "runArgs": ["--init"]
+}

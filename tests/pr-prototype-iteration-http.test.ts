@@ -81,4 +81,23 @@ describe('trusted PR prototype iteration HTTP route', () => {
     expect(response.status).toBe(400);
     expect(startIteration).not.toHaveBeenCalled();
   });
+
+  test('fails predictably instead of starting a prototype through the Connector', async () => {
+    const response = await request('/api/pull-request-previews/prototype-iteration', {
+      body: JSON.stringify({
+        headSha: 'a'.repeat(40),
+        pullRequestNumber: 395,
+        repositoryFullName: 'DotNaos/project-space',
+        surface: 'desktop-prototype'
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      code: 'canonical_runtime_required',
+      error: 'Prototype development servers must be started through the canonical Workspace Runtime.'
+    });
+    expect(startIteration).not.toHaveBeenCalled();
+  });
 });

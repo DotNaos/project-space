@@ -52,9 +52,12 @@ export async function callWorkspaceCommandTool(input: {
   const actor = { userId: input.userId };
   switch (input.name) {
     case 'start_workspace_command':
-      return toolResult(await input.service.startWorkspace(
-        actor, toolSchemas.start_workspace_command.parse(input.rawArguments)
-      ));
+      toolSchemas.start_workspace_command.parse(input.rawArguments);
+      return toolResult({
+        code: 'canonical_runtime_required',
+        message: 'Free-form Workspace commands are no longer started through a Connector.',
+        state: 'unsupported'
+      }, true);
     case 'start_environment_recovery_command':
       {
         const request = toolSchemas.start_environment_recovery_command.parse(input.rawArguments);

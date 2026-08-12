@@ -74,6 +74,10 @@ type ExecutableOperation = Exclude<
   CodexSessionsConnectorOperation,
   'attach' | 'authorization' | 'daemon' | 'stream'
 >;
+export type CodexSessionsBoundOperation = Exclude<
+  ExecutableOperation,
+  'browser' | 'start'
+>;
 export class CodexSessionsExecutorError extends Error {
   readonly code = 'codex_sessions_executor_rejected';
 
@@ -101,83 +105,82 @@ export class CodexSessionsConnectorExecutor {
     signal?: AbortSignal
   ): Promise<CodexSessionsWireResult> {
     const request = this.verify(value, operation);
+    return this.executeVerified(
+      operation,
+      request.payload,
+      request.grant.generation,
+      request.grant.userId,
+      signal
+    );
+  }
+
+  /**
+   * Executes a request whose authority was already verified by another local,
+   * typed transport. This is deliberately narrower than the connector wire
+   * protocol: it cannot open the browser or start an arbitrary machine task.
+   */
+  executeBound(
+    operation: CodexSessionsBoundOperation,
+    payload: unknown,
+    generation: number,
+    actorUserId: string,
+    signal?: AbortSignal
+  ) {
+    return this.executeVerified(operation, payload, generation, actorUserId, signal);
+  }
+
+  private async executeVerified(
+    operation: ExecutableOperation,
+    payload: unknown,
+    generation: number,
+    actorUserId: string,
+    signal?: AbortSignal
+  ): Promise<CodexSessionsWireResult> {
     switch (operation) {
       case 'browser':
-        return {
-          operation,
-          result: await waitForCodexExecution(
-            this.browser(request.payload as CodexSessionBrowserRequest),
-            signal
-          )
-        };
+        return wireResult(operation, await waitForCodexExecution(
+          this.browser(payload as CodexSessionBrowserRequest), signal
+        ));
       case 'list':
-        return {
-          operation,
-          result: await waitForCodexExecution(
-            this.list(request.payload as CodexSessionListRequest, signal),
-            signal
-          )
-        };
+        return wireResult(operation, await waitForCodexExecution(
+          this.list(payload as CodexSessionListRequest, signal), signal
+        ));
       case 'read':
-        return {
-          operation,
-          result: await waitForCodexExecution(
-            this.read(request.payload as CodexSessionReadRequest, signal),
-            signal
-          )
-        };
+        return wireResult(operation, await waitForCodexExecution(
+          this.read(payload as CodexSessionReadRequest, signal), signal
+        ));
       case 'inspect':
-        return {
-          operation,
-          result: await waitForCodexExecution(
-            this.inspect(
-              request.payload as CodexSessionInspectRequest,
-              request.grant.generation,
-              signal
-            ),
-            signal
-          )
-        };
+        return wireResult(operation, await waitForCodexExecution(
+          this.inspect(payload as CodexSessionInspectRequest, generation, signal), signal
+        ));
       case 'continue':
-        return {
-          operation,
-          result: await this.continue(request.payload as CodexSessionContinueRequest)
-        };
+        return wireResult(operation, await this.continue(payload as CodexSessionContinueRequest));
       case 'settings':
-        return {
-          operation,
-          result: await this.settings(request.payload as CodexSessionSettingsRequest)
-        };
+        return wireResult(operation, await this.settings(payload as CodexSessionSettingsRequest));
       case 'start':
         if (!this.options.startTask) throw new CodexSessionsExecutorError();
-        return {
-          operation,
-          result: await this.options.startTask(
-            request.payload as CodexMachineTaskConnectorStartRequest,
-            { generation: request.grant.generation, userId: request.grant.userId }
-          )
-        };
+        return wireResult(operation, await this.options.startTask(
+          payload as CodexMachineTaskConnectorStartRequest,
+          { generation, userId: actorUserId }
+        ));
       case 'interrupt':
-        return {
-          operation,
-          result: await this.interrupt(request.payload as CodexSessionInterruptRequest)
-        };
+        return wireResult(operation, await this.interrupt(payload as CodexSessionInterruptRequest));
       case 'approval':
-        return {
-          operation,
-          result: await this.approve(request.payload as CodexSessionApprovalRequest)
-        };
+        return wireResult(operation, await this.approve(payload as CodexSessionApprovalRequest));
       case 'input':
-        return {
-          operation,
-          result: await this.respondToInput(request.payload as CodexSessionUserInputResponse)
-        };
+        return wireResult(operation, await this.respondToInput(payload as CodexSessionUserInputResponse));
     }
   }
 
   stream(value: unknown, emit: (event: CodexSessionStreamEvent) => void) {
     const request = this.verify(value, 'stream');
-    const payload = request.payload as CodexSessionReadRequest;
+    return this.streamBound(request.payload as CodexSessionReadRequest, emit);
+  }
+
+  streamBound(
+    payload: CodexSessionReadRequest,
+    emit: (event: CodexSessionStreamEvent) => void
+  ) {
     const listeners = this.subscribers.get(payload.threadId) ?? new Set();
     listeners.add(emit);
     this.subscribers.set(payload.threadId, listeners);
@@ -240,7 +243,9 @@ export class CodexSessionsConnectorExecutor {
   }
 
   private verify(value: unknown, operation: CodexSessionsConnectorOperation) {
-    if (!isCodexSessionsWireRequest(value)) throw new CodexSessionsExecutorError();
+    if (!this.options.verificationKey || !isCodexSessionsWireRequest(value)) {
+      throw new CodexSessionsExecutorError();
+    }
     verifyCodexSessionsWireRequest(value, operation, this.options.verificationKey, {
       expectedGeneration: typeof this.options.expectedGeneration === 'function'
         ? this.options.expectedGeneration()
@@ -635,6 +640,10 @@ export class CodexSessionsConnectorExecutor {
     if (!presented || !threadId) return;
     for (const listener of this.subscribers.get(threadId) ?? []) listener(presented);
   }
+}
+
+function wireResult(operation: ExecutableOperation, result: unknown) {
+  return { operation, result } as CodexSessionsWireResult;
 }
 
 async function mapWithConcurrency<Input, Result>(

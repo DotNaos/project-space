@@ -35,15 +35,20 @@ import type {
   ProjectsState
 } from '../../src/shared/project-space-api';
 import type {
+  ComputeEnvironmentKind,
   ComputeEnvironmentRecord,
   ComputeHostRecord,
   ComputeInventorySnapshot,
   ComputePlatformRecord,
   ConnectorEnvironmentAssociation,
   ConnectorComputeMetadata,
+  EnvironmentDefinitionRecord,
   ResourceProfile
 } from '../../src/shared/compute-environment-api';
-import { validateComputeInventory } from '../../src/shared/compute-environment-api';
+import {
+  builtInEnvironmentDefinition,
+  validateComputeInventory
+} from '../../src/shared/compute-environment-api';
 
 interface MachineMembershipRow {
   created_at: Date | string;
@@ -118,7 +123,19 @@ interface ComputeHostRow {
   resources: ResourceProfile | null;
 }
 
+interface EnvironmentDefinitionRow {
+  bootstrap_strategy: EnvironmentDefinitionRecord['bootstrapStrategy'];
+  id: string;
+  kind: EnvironmentDefinitionRecord['kind'];
+  name: string;
+  operating_system_family: EnvironmentDefinitionRecord['operatingSystemFamily'];
+  ownership: EnvironmentDefinitionRecord['ownership'];
+  slug: string;
+  supported_architectures: string[];
+}
+
 interface ComputeEnvironmentRow {
+  environment_definition_id: string;
   host_evidence: ComputeEnvironmentRecord['hostAssociation']['evidence'];
   host_id: string | null;
   host_resolution: ComputeEnvironmentRecord['hostAssociation']['resolution'];
@@ -261,7 +278,14 @@ export class ProjectSpaceDatabaseRepository {
 
   async listComputeInventory(userId: string): Promise<ComputeInventorySnapshot> {
     const ownerUserId = requireValue(userId, 'userId');
-    const [platformResult, hostResult, environmentResult, connectorResult] = await Promise.all([
+    const [definitionResult, platformResult, hostResult, environmentResult, connectorResult] = await Promise.all([
+      this.client.query<EnvironmentDefinitionRow>(
+        `select id, slug, name, kind, operating_system_family, supported_architectures,
+                bootstrap_strategy, ownership
+           from compute_environment_definitions
+          where owner_user_id = $1 order by lower(name), id`,
+        [ownerUserId]
+      ),
       this.client.query<ComputePlatformRow>(
         `select id, kind, name from compute_platforms
           where owner_user_id = $1 order by lower(name), id`,
@@ -273,7 +297,8 @@ export class ProjectSpaceDatabaseRepository {
         [ownerUserId]
       ),
       this.client.query<ComputeEnvironmentRow>(
-        `select id, platform_id, host_id, parent_environment_id, identity_version,
+        `select id, environment_definition_id, platform_id, host_id,
+                parent_environment_id, identity_version,
                 identity_key, identity_resolution, kind, name, host_resolution, host_evidence,
                 resource_mode, resources
            from compute_environments where owner_user_id = $1 order by lower(name), id`,
@@ -286,6 +311,16 @@ export class ProjectSpaceDatabaseRepository {
         [ownerUserId]
       )
     ]);
+    const environmentDefinitions: EnvironmentDefinitionRecord[] = definitionResult.rows.map((row) => ({
+      bootstrapStrategy: row.bootstrap_strategy,
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      operatingSystemFamily: row.operating_system_family,
+      ownership: row.ownership,
+      slug: row.slug,
+      supportedArchitectures: row.supported_architectures
+    }));
     const platforms: ComputePlatformRecord[] = platformResult.rows;
     const hosts: ComputeHostRecord[] = hostResult.rows.map((row) => ({
       id: row.id,
@@ -295,6 +330,7 @@ export class ProjectSpaceDatabaseRepository {
       resources: row.resources ?? undefined
     }));
     const environments: ComputeEnvironmentRecord[] = environmentResult.rows.map((row) => ({
+      environmentDefinitionId: row.environment_definition_id,
       hostAssociation: row.host_resolution === 'verified'
         ? { evidence: row.host_evidence as 'provider' | 'tpm' | 'smbios' | 'host_broker', hostId: row.host_id!, resolution: 'verified' }
         : row.host_resolution === 'manual'
@@ -319,7 +355,7 @@ export class ProjectSpaceDatabaseRepository {
       connectorId: row.connector_id,
       environmentId: row.environment_id
     }));
-    const input = { connectors, environments, hosts, platforms };
+    const input = { connectors, environmentDefinitions, environments, hosts, platforms };
     return { ...input, violations: validateComputeInventory(input) };
   }
 
@@ -351,6 +387,11 @@ export class ProjectSpaceDatabaseRepository {
         );
         const platformId = platform.rows[0]?.id;
         if (!platformId) throw new Error('The compute platform could not be reconciled.');
+        const environmentDefinitionId = await this.ensureBuiltInEnvironmentDefinition(
+          client,
+          ownerUserId,
+          metadata.environmentKind
+        );
         const environmentIdentityKey = accountScopedIdentity(
           ownerUserId,
           metadata.environmentIdentity.key
@@ -434,6 +475,11 @@ export class ProjectSpaceDatabaseRepository {
 
         let parentEnvironmentId: string | null = null;
         if (metadata.parentEnvironmentIdentity) {
+          const parentDefinitionId = await this.ensureBuiltInEnvironmentDefinition(
+            client,
+            ownerUserId,
+            'other'
+          );
           const parentIdentityKey = accountScopedIdentity(
             ownerUserId,
             metadata.parentEnvironmentIdentity.key
@@ -441,14 +487,16 @@ export class ProjectSpaceDatabaseRepository {
           const parent = await client.query<{ id: string }>(
             `insert into compute_environments (
                id, owner_user_id, platform_id, host_id, identity_version, identity_key,
-               kind, name, host_resolution, host_evidence, resource_mode
-             ) values ($1, $2, $3, $4, $5, $6, 'other', $7, $8, $9, 'shared')
+               kind, name, host_resolution, host_evidence, resource_mode,
+               environment_definition_id
+             ) values ($1, $2, $3, $4, $5, $6, 'other', $7, $8, $9, 'shared', $10)
              on conflict (owner_user_id, platform_id, identity_version, identity_key) do update set
                updated_at = now()
              returning id`,
             [this.createId(), ownerUserId, platformId, hostId,
               metadata.parentEnvironmentIdentity.version, parentIdentityKey,
-              `${metadata.environmentName} parent`, metadata.hostResolution, metadata.hostEvidence]
+              `${metadata.environmentName} parent`, metadata.hostResolution, metadata.hostEvidence,
+              parentDefinitionId]
           );
           parentEnvironmentId = parent.rows[0]?.id ?? null;
         }
@@ -456,8 +504,9 @@ export class ProjectSpaceDatabaseRepository {
         const environment = await client.query<{ id: string }>(
           `insert into compute_environments (
              id, owner_user_id, platform_id, host_id, parent_environment_id, identity_version, identity_key,
-             kind, name, host_resolution, host_evidence, resource_mode, resources
-           ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+             kind, name, host_resolution, host_evidence, resource_mode, resources,
+             environment_definition_id
+           ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
            on conflict (owner_user_id, platform_id, identity_version, identity_key) do update set
              host_id = excluded.host_id, identity_resolution = 'resolved',
              parent_environment_id = excluded.parent_environment_id,
@@ -470,7 +519,8 @@ export class ProjectSpaceDatabaseRepository {
             hostResolution, hostEvidence, metadata.resourceMode,
             metadata.resourceMode !== 'exclusive' && metadata.resources
               ? JSON.stringify(metadata.resources)
-              : null]
+              : null,
+            environmentDefinitionId]
         );
         const environmentId = environment.rows[0]?.id;
         if (!environmentId) throw new Error('The compute environment could not be reconciled.');
@@ -507,6 +557,37 @@ export class ProjectSpaceDatabaseRepository {
       }
     };
     return this.client.transaction ? this.client.transaction(operation) : operation(this.client);
+  }
+
+  private async ensureBuiltInEnvironmentDefinition(
+    client: DatabaseQueryClient,
+    ownerUserId: string,
+    kind: ComputeEnvironmentKind
+  ) {
+    const definition = builtInEnvironmentDefinition(kind);
+    const result = await client.query<{ id: string }>(
+      `insert into compute_environment_definitions (
+         id, owner_user_id, slug, name, kind, operating_system_family,
+         supported_architectures, bootstrap_strategy, ownership
+       ) values ($1, $2, $3, $4, $5, $6, $7::text[], $8, 'built_in')
+       on conflict (owner_user_id, slug) do update set updated_at = now()
+         where compute_environment_definitions.ownership = 'built_in'
+           and compute_environment_definitions.kind = excluded.kind
+       returning id`,
+      [
+        this.createId(),
+        ownerUserId,
+        definition.slug,
+        definition.name,
+        definition.kind,
+        definition.operatingSystemFamily,
+        definition.supportedArchitectures,
+        definition.bootstrapStrategy
+      ]
+    );
+    const id = result.rows[0]?.id;
+    if (!id) throw new Error(`The ${kind} Environment definition could not be reconciled.`);
+    return id;
   }
 
   async listPhysicalMachines(userId: string): Promise<PhysicalMachineRecord[]> {

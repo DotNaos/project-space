@@ -388,20 +388,20 @@ export function createProjectSpaceIntegrationApiRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/git/stage') {
-      const payload = await readJson<GitStageRequest>(request);
-      writeJson(response, 200, await backend.stageGitPaths(payload));
+      await readJson<GitStageRequest>(request);
+      canonicalRuntimeRequired(response);
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/git/unstage') {
-      const payload = await readJson<GitStageRequest>(request);
-      writeJson(response, 200, await backend.unstageGitPaths(payload));
+      await readJson<GitStageRequest>(request);
+      canonicalRuntimeRequired(response);
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/git/commit') {
-      const payload = await readJson<GitCommitRequest>(request);
-      writeJson(response, 200, await backend.commitGitChanges(payload));
+      await readJson<GitCommitRequest>(request);
+      canonicalRuntimeRequired(response);
       return true;
     }
 
@@ -413,4 +413,14 @@ export function createProjectSpaceIntegrationApiRoutes(
 
     return false;
   };
+}
+
+function canonicalRuntimeRequired(response: ServerResponse) {
+  response.setHeader('Cache-Control', 'private, no-store');
+  writeJson(response, 409, {
+    error: {
+      code: 'canonical_runtime_required',
+      message: 'This legacy mutation requires the canonical Workspace Runtime API.'
+    }
+  });
 }

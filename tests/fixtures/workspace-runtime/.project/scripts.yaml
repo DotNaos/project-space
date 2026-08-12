@@ -1,0 +1,10 @@
+version: 3
+setup:
+  - id: dependencies
+    command: ["bun", "install", "--frozen-lockfile"]
+commands:
+  check:
+    command: ["bun", "run", "check"]
+servers:
+  prototype-desktop:
+    command: ["bun", "run", "dev", "--host", "{host}", "--port", "{port}"]

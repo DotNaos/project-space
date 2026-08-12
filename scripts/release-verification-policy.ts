@@ -12,6 +12,7 @@ export type FastCiSelection = {
   docs: boolean;
   go: boolean;
   mobile: boolean;
+  rust: boolean;
   workflow: boolean;
 };
 
@@ -19,6 +20,7 @@ const releaseCriticalPaths = [
   /^\.github\/actions\/release-quality\//,
   /^\.github\/workflows\/release(?:-|\.yml)/,
   /^packaging\//,
+  /^project-hostd\//,
   /^internal\/machineconnect\//,
   /^internal\/selfupdate\//,
   /^server\/connector-/,
@@ -41,6 +43,7 @@ const releaseWorkflowPaths = [
   /^(?:go\.mod|go\.sum|package\.json|bun\.lock)$/,
   /^internal\/(?:machineconnect|projectrun|selfupdate)\//,
   /^packaging\//,
+  /^project-hostd\//,
   /^server\//,
   /^scripts\/(?:ci-preflight|publish-merged-release|release-handoff-state|release-queue-state|release-verification-policy)\.ts$/,
   /^tests\//,
@@ -63,6 +66,7 @@ export function fastCiSelection(
       docs: true,
       go: true,
       mobile: true,
+      rust: true,
       workflow: true,
     };
   }
@@ -77,6 +81,7 @@ export function fastCiSelection(
       /^(?:cmd\/|internal\/|go\.mod$|go\.sum$)|\.go$/.test(path),
     ),
     mobile: changedPaths.some((path) => /^apps\/mobile\//.test(path)),
+    rust: changedPaths.some((path) => /^project-hostd\//.test(path)),
     workflow: changedPaths.some((path) =>
       /^(?:\.github\/(?!release-intents\/)|deploy\/|packaging\/|scripts\/.*\.(?:sh|ts)$)/.test(path),
     ),

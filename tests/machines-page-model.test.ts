@@ -9,7 +9,10 @@ import type {
   EnvironmentHostAssociation,
   ResourceProfile
 } from '../src/shared/compute-environment-api';
-import { groupComputeInventory } from '../src/shared/compute-environment-api';
+import {
+  builtInEnvironmentDefinition,
+  groupComputeInventory
+} from '../src/shared/compute-environment-api';
 import { groupSettingsMachines } from '../src/features/project-desktop/components/settings-machine-group-model';
 import {
   computePlatformSections,
@@ -108,6 +111,7 @@ function environment({
     ? { evidence: 'provider', hostId, resolution: 'verified' }
     : { evidence: 'none', resolution: 'not_applicable' };
   return {
+    environmentDefinitionId: 'definition-macos',
     hostAssociation,
     id,
     identity: identity(`env-${id}`),
@@ -119,6 +123,11 @@ function environment({
     ...(resources ? { resources } : {})
   };
 }
+
+const environmentDefinitions = [{
+  ...builtInEnvironmentDefinition('native_macos'),
+  id: 'definition-macos'
+}];
 
 function connectorAssociation(
   connectorId: string,
@@ -225,6 +234,7 @@ describe('computePlatformSections', () => {
         connectorAssociation('connector-a', 'env-hosted'),
         connectorAssociation('connector-b', 'env-hostless')
       ],
+      environmentDefinitions,
       environments: [
         environment({ hostId: 'host-1', id: 'env-hosted', platformId: 'local', resources }),
         environment({ id: 'env-hostless', platformId: 'local' })
@@ -249,6 +259,7 @@ describe('computePlatformSections', () => {
   test('nests a child environment one level deeper than its parent', () => {
     const inventory = groupComputeInventory({
       connectors: [connectorAssociation('connector-a', 'env-child')],
+      environmentDefinitions,
       environments: [
         environment({ id: 'env-parent', platformId: 'local' }),
         environment({ id: 'env-child', parentEnvironmentId: 'env-parent', platformId: 'local' })
@@ -270,6 +281,7 @@ describe('computePlatformSections', () => {
         connectorAssociation('connector-a', 'env-a'),
         connectorAssociation('connector-b', 'env-b')
       ],
+      environmentDefinitions,
       environments: [
         environment({ hostId: 'host-1', id: 'env-a', platformId: 'local' }),
         environment({ hostId: 'host-1', id: 'env-b', platformId: 'local' })
@@ -294,6 +306,7 @@ describe('computePlatformSections', () => {
   test('sums section totals from environment rows only, not the host roll-up', () => {
     const inventory = groupComputeInventory({
       connectors: [connectorAssociation('connector-a', 'env-a')],
+      environmentDefinitions,
       environments: [environment({ hostId: 'host-1', id: 'env-a', platformId: 'local' })],
       hosts: [host('host-1', 'local')],
       platforms: [platform('local')]
@@ -311,6 +324,7 @@ describe('filterComputePlatformSections', () => {
         connectorAssociation('connector-mac', 'env-macbook'),
         connectorAssociation('connector-pc', 'env-yoga')
       ],
+      environmentDefinitions,
       environments: [
         environment({ hostId: 'host-macbook', id: 'env-macbook', platformId: 'local' }),
         environment({ hostId: 'host-yoga', id: 'env-yoga', platformId: 'local' })

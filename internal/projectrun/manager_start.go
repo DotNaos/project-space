@@ -18,10 +18,13 @@ func (manager *Manager) startLocalRuntime(
 	root string,
 	apis APIsMode,
 	data DataMode,
+	workspaceID string,
+	runtimeGeneration string,
+	environment []string,
 ) (runtimeState, ServeResult, error) {
 	for attempt := 1; attempt <= maximumPortRaceAttempts; attempt++ {
 		state, err := manager.reserveSession(
-			ctx, identity, requestedDirectory, mode, allowedHosts, apis, data,
+			ctx, identity, requestedDirectory, mode, allowedHosts, apis, data, workspaceID, runtimeGeneration, environment,
 		)
 		if err != nil {
 			return runtimeState{}, manager.runtimeErrorResult("start", root, identity.ServerKey, err), err
@@ -40,6 +43,7 @@ func (manager *Manager) startLocalRuntime(
 			state.APIs,
 			state.Data,
 		)
+		command.Env = mergeEnvironment(command.Env, environmentMap(environment))
 		if state.APIs == APIsModeSimulated && state.Data == DataModeLocal {
 			command.Env = mergeEnvironment(command.Env, map[string]string{
 				"PROJECT_SPACE_SIMULATION_STATE": manager.store.simulationStatePath(state.ServerID),
