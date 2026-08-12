@@ -16,10 +16,7 @@ import {
   legacyReleaseIntentMigrationPath,
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
-import {
-  compareStableSemver,
-  parseStableSemver,
-} from '../apps/docs/lib/releases/semver';
+import { parseStableSemver } from '../apps/docs/lib/releases/semver';
 import { connectorReleaseSensitivePaths } from
   '../packaging/release/connector-release-paths';
 import { verifyConnectorRuntimeReleaseManifest } from
@@ -36,8 +33,12 @@ import {
   releaseQueueDecision,
   type PublishedRelease,
   type QueuedMerge,
-  type ReservedTag,
 } from './release-queue-state';
+import {
+  activeReleaseTombstones,
+  manifestIssuedAt,
+  tagReservations,
+} from './release-queue-evidence';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEntryDirectory = 'apps/docs/content/docs/releases/entries';
@@ -62,12 +63,23 @@ try {
     );
   }
   const merges = await queuedMerges(published.commit, head);
-  const reservations = tagReservations(published.version, head);
+  const reservations = tagReservations({
+    currentMain: head,
+    gitOutput,
+    publishedVersion: published.version,
+  });
+  const tombstones = await activeReleaseTombstones({
+    currentMain: head,
+    githubFetch: (path) => githubFetch(`/repos/${repository}${path}`),
+    gitOutput,
+    published,
+  });
   const decision = releaseQueueDecision({
     currentMain: head,
     merges,
     published,
     reservations,
+    tombstones,
   });
 
   writeOutput('deploy_required', 'false');
@@ -337,32 +349,6 @@ function readIntent(commit: string, path: string): ReleaseIntent {
   return parsed.intent.intent;
 }
 
-function tagReservations(
-  publishedVersion: string,
-  currentMain: string,
-): ReservedTag[] {
-  return gitOutput(['tag', '--merged', currentMain, '--list', 'v*'])
-    .split('\n')
-    .filter(Boolean)
-    .flatMap((tag) => {
-      const version = tag.startsWith('v') ? tag.slice(1) : '';
-      if (
-        !parseStableSemver(version) ||
-        compareStableSemver(version, publishedVersion) <= 0
-      ) return [];
-      return [{
-        commit: requiredCommit(
-          gitOutput(['rev-list', '-n', '1', tag]),
-          `${tag} target`,
-        ),
-        tag,
-      }];
-    })
-    .sort((left, right) =>
-      compareStableSemver(left.tag.slice(1), right.tag.slice(1))
-    );
-}
-
 async function reconcileRelease(decision: Extract<
   ReturnType<typeof releaseQueueDecision>,
   { kind: 'release' }
@@ -620,18 +606,6 @@ async function mutateGithub(path: string, body: Record<string, unknown>) {
       }`,
     );
   }
-}
-
-function manifestIssuedAt(value: unknown) {
-  if (
-    !isRecord(value) || !isRecord(value.manifest) ||
-    typeof value.manifest.issuedAt !== 'string'
-  ) throw new Error('Signed release manifest has no issuance time.');
-  const issuedAt = Date.parse(value.manifest.issuedAt);
-  if (!Number.isFinite(issuedAt)) {
-    throw new Error('Signed release manifest has an invalid issuance time.');
-  }
-  return issuedAt;
 }
 
 function isFirstParentAncestor(ancestor: string, descendant: string) {

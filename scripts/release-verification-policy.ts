@@ -24,7 +24,7 @@ const releaseCriticalPaths = [
   /^internal\/machineconnect\//,
   /^internal\/selfupdate\//,
   /^server\/connector-/,
-  /^scripts\/(?:publish-merged-release|release-handoff-state|release-queue-state)\.ts$/,
+  /^scripts\/(?:publish-merged-release|release-handoff-state|release-queue-(?:evidence|state)|release-tombstone(?:-github)?|verify-release-tombstone)\.ts$/,
   /^scripts\/validate-release-pr\.ts$/,
   /^apps\/docs\/lib\/(?:changelog\/pr-(?:file|source)|releases\/pull-request-gate)\.ts$/,
   /^tests\/connector-/,
@@ -45,7 +45,7 @@ const releaseWorkflowPaths = [
   /^packaging\//,
   /^project-hostd\//,
   /^server\//,
-  /^scripts\/(?:ci-preflight|publish-merged-release|release-handoff-state|release-queue-state|release-verification-policy)\.ts$/,
+  /^scripts\/(?:ci-preflight|publish-merged-release|release-handoff-state|release-queue-(?:evidence|state)|release-tombstone(?:-github)?|release-verification-policy|verify-release-tombstone)\.ts$/,
   /^tests\//,
 ];
 
