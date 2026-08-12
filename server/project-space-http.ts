@@ -83,6 +83,7 @@ import { PostgresProjectHostdStore } from './project-hostd/postgres-store';
 import {
   createConfiguredProjectHostdRuntime
 } from './project-hostd/configured-runtime';
+import { createConfiguredHostControlHandler } from './host-control/configured-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -249,6 +250,10 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   const machinePower = createConfiguredMachinePowerHandler({
     machineConnection: options.machineConnectionRuntime
   });
+  const hostControl = createConfiguredHostControlHandler({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
   const roadmapCli = createConfiguredRoadmapCliHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
@@ -277,6 +282,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       codexMachineTasks,
       computeInventoryCli,
       githubCodespaceRunner,
+      hostControl,
       machineReadiness,
       machinePower,
       machineConnection: options.machineConnectionRuntime,

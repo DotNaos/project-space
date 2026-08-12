@@ -48,6 +48,10 @@ import {
   hostControlMigrationSql
 } from '../server/database/host-control-migration';
 import {
+  hostControlHardeningMigrationId,
+  hostControlHardeningMigrationSql
+} from '../server/database/host-control-hardening-migration';
+import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from '../server/database/workspace-runtime-capability-promotion-migration';
@@ -212,12 +216,32 @@ describe('database migrations', () => {
 
   test('durably binds Host control replay and audit evidence to one owner and Host', () => {
     expect(hostControlMigrationId).toBe('0047_host_control_operations');
+    expect(migrationChecksum({ id: hostControlMigrationId, sql: hostControlMigrationSql })).toBe(
+      '795b0f4ebef9b0091c8c760aa69c2a50f2240bbea1b8bb47ad3551e56072912f'
+    );
     expect(hostControlMigrationSql).toContain('create table host_control_operations');
     expect(hostControlMigrationSql).toContain('primary key (owner_user_id, operation_id)');
     expect(hostControlMigrationSql).toContain('foreign key (host_id, owner_user_id)');
-    expect(hostControlMigrationSql).toContain("state in ('reserved', 'completed', 'failed', 'rejected', 'uncertain')");
-    expect(hostControlMigrationSql).toContain('pg_column_size(result) <= 65536');
-    expect(databaseMigrations.at(-1)?.id).toBe(hostControlMigrationId);
+    expect(hostControlMigrationSql).toContain("actor_type text not null");
+    expect(hostControlMigrationSql).toContain('result jsonb');
+    expect(hostControlHardeningMigrationId).toBe('0048_host_control_hardening');
+    expect(hostControlHardeningMigrationSql).toContain(
+      'alter table host_control_operations rename to host_control_operations_v1_retained'
+    );
+    expect(hostControlHardeningMigrationSql).toContain('create table host_control_operations');
+    expect(hostControlHardeningMigrationSql).toContain('attempt_id uuid not null');
+    expect(hostControlMigrationSql).toContain(
+      "state in ('reserved', 'completed', 'failed', 'rejected', 'uncertain')"
+    );
+    expect(hostControlHardeningMigrationSql).toContain('host_control_one_dispatch_per_host');
+    expect(hostControlHardeningMigrationSql).toContain('policy_decision_id text not null');
+    expect(hostControlHardeningMigrationSql).toContain('binding_revision text not null');
+    expect(hostControlHardeningMigrationSql).toContain('result_message text check');
+    expect(hostControlHardeningMigrationSql).toContain(
+      "state in ('failed', 'uncertain') and result_code = 'provider_unavailable'"
+    );
+    expect(hostControlHardeningMigrationSql).not.toContain('result jsonb');
+    expect(databaseMigrations.at(-1)?.id).toBe(hostControlHardeningMigrationId);
   });
 
   test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
@@ -331,7 +355,8 @@ describe('database migrations', () => {
       '0044_codex_machine_task_message_delivery',
       '0045_workspace_runtime_capability_promotions',
       '0046_project_hostd_telemetry',
-      '0047_host_control_operations'
+      '0047_host_control_operations',
+      '0048_host_control_hardening'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');
