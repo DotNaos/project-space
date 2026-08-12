@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/DotNaos/project-space/internal/computecontrol"
 	"github.com/DotNaos/project-space/internal/computeinventory"
+	"github.com/DotNaos/project-space/internal/workspacerun"
 )
 
 func TestControlHandshakeAndStatusAreTypedJSON(t *testing.T) {
@@ -130,6 +132,98 @@ func TestControlGatewayBindsTypedStatusResult(t *testing.T) {
 	}
 }
 
+func TestControlGatewayRunsWorkspaceLifecycleThroughTheSharedManager(t *testing.T) {
+	previous := projectMachineClientVersion
+	projectMachineClientVersion = "0.5.0-test"
+	t.Cleanup(func() { projectMachineClientVersion = previous })
+	const workspaceID = "ws_0123456789abcdef01234567"
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	manager := &fakeWorkspaceRuntimeManager{result: workspacerun.Result{
+		SchemaVersion: workspacerun.SchemaVersion, Operation: "start", Disposition: workspacerun.DispositionCreated,
+		WorkspaceID: workspaceID, Generation: "123e4567-e89b-42d3-a456-426614174000",
+		Directory: "/private/owned/worktree", Repository: "/private/repository", ManifestDigest: digest,
+		SourceHead: commit, Mode: workspacerun.ModeProcess, State: workspacerun.StateRunning,
+		CheckedAt: "2026-08-12T10:00:00Z",
+	}}
+	identity := controlTestIdentity()
+	identity.Workspaces = map[string]string{workspaceID: "/private/owned/worktree"}
+	request := fmt.Sprintf(`{"environmentId":"%s","expectedCliVersion":"0.5.0-test","expectedCommit":"%s","expectedManifestDigest":"%s","expectedProtocolVersion":1,"mode":"process","operation":"workspace-runtime.start.v1","operationId":"op-runtime-1","schemaVersion":1,"targetIdentityRevision":"%s","type":"operation","workspaceId":"%s"}`+"\n", identity.EnvironmentID, commit, digest, identity.TargetIdentityRevision, workspaceID)
+	output := &bytes.Buffer{}
+	if err := serveControlGatewayWithRuntime(strings.NewReader(request), output, identity, func() (workspaceRuntimeManager, error) {
+		return manager, nil
+	}); err != nil {
+		t.Fatalf("serve Workspace runtime operation: %v", err)
+	}
+	if manager.operation != "start" || manager.directory != "/private/owned/worktree" ||
+		manager.options.ExpectedWorkspaceID != workspaceID || manager.options.ExpectedCommit != commit || manager.options.ExpectedDigest != digest || !manager.options.TrustedGateway {
+		t.Fatalf("shared manager dispatch = %#v", manager)
+	}
+	for _, forbidden := range []string{"/private/owned/worktree", "/private/repository", "ownershipToken", "localUrl", "secret"} {
+		if strings.Contains(output.String(), forbidden) {
+			t.Fatalf("gateway output exposed %q: %s", forbidden, output.String())
+		}
+	}
+	var result controlWorkspaceRuntimeResult
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil || result.WorkspaceID != workspaceID ||
+		result.Operation != "workspace-runtime.start.v1" || result.State != workspacerun.StateRunning {
+		t.Fatalf("Workspace runtime gateway result = %#v, err = %v", result, err)
+	}
+}
+
+func TestControlGatewayRejectsUnregisteredWorkspaceAndRemotePathInjection(t *testing.T) {
+	previous := projectMachineClientVersion
+	projectMachineClientVersion = "0.5.0-test"
+	t.Cleanup(func() { projectMachineClientVersion = previous })
+	identity := controlTestIdentity()
+	identity.Workspaces = map[string]string{"ws_0123456789abcdef01234567": "/trusted/worktree"}
+	input := `{"environmentId":"11111111-1111-4111-8111-111111111111","expectedCliVersion":"0.5.0-test","expectedCommit":"0123456789abcdef0123456789abcdef01234567","expectedManifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expectedProtocolVersion":1,"mode":"process","operation":"workspace-runtime.start.v1","operationId":"op-runtime-1","path":"/tmp/foreign","schemaVersion":1,"targetIdentityRevision":"1:environment:test","type":"operation","workspaceId":"ws_ffffffffffffffffffffffff"}` + "\n"
+	called := false
+	err := serveControlGatewayWithRuntime(strings.NewReader(input), &bytes.Buffer{}, identity, func() (workspaceRuntimeManager, error) {
+		called = true
+		return &fakeWorkspaceRuntimeManager{}, nil
+	})
+	if err == nil || called {
+		t.Fatalf("unregistered/path-injected Workspace reached manager: error=%v called=%v", err, called)
+	}
+}
+
+func TestWorkspaceControlDispatchesEveryTypedLifecycleOperation(t *testing.T) {
+	const workspaceID = "ws_0123456789abcdef01234567"
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const generation = "123e4567-e89b-42d3-a456-426614174000"
+	identity := controlTestIdentity()
+	identity.Workspaces = map[string]string{workspaceID: "/private/owned/worktree"}
+	for remoteOperation, localOperation := range workspaceControlOperations {
+		t.Run(localOperation, func(t *testing.T) {
+			expectedGeneration := generation
+			if localOperation == "start" {
+				expectedGeneration = ""
+			}
+			manager := &fakeWorkspaceRuntimeManager{result: workspacerun.Result{
+				SchemaVersion: workspacerun.SchemaVersion, Operation: localOperation,
+				WorkspaceID: workspaceID, Generation: generation, ManifestDigest: digest,
+				SourceHead: commit, Mode: workspacerun.ModeProcess, State: workspacerun.StateRunning,
+				CheckedAt: "2026-08-12T10:00:00Z",
+			}}
+			request := controlGatewayOperationRequest{
+				Operation: remoteOperation, OperationID: "operation-fixture", WorkspaceID: workspaceID,
+				ExpectedCommit: commit, ExpectedManifestDigest: digest,
+				ExpectedGeneration: expectedGeneration, Mode: string(workspacerun.ModeProcess),
+			}
+			if err := executeWorkspaceRuntimeControl(&bytes.Buffer{}, identity, request, func() (workspaceRuntimeManager, error) {
+				return manager, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if manager.operation != localOperation || manager.options.ExpectedGeneration != expectedGeneration || !manager.options.TrustedGateway {
+				t.Fatalf("dispatch = %#v", manager)
+			}
+		})
+	}
+}
+
 func TestControlGatewayRejectsUnknownAndFreeFormOperations(t *testing.T) {
 	for _, input := range []string{
 		`{"schemaVersion":1,"type":"handshake","secret":"no"}` + "\n",
@@ -190,7 +284,7 @@ func TestWriteControlGatewayIdentityIsAtomicIdempotentAndExplicitOnReplacement(t
 	}
 	loaded := controlGatewayIdentity{}
 	encoded, err := os.ReadFile(path)
-	if err != nil || json.Unmarshal(encoded, &loaded) != nil || loaded != changed {
+	if err != nil || json.Unmarshal(encoded, &loaded) != nil || !reflect.DeepEqual(loaded, changed) {
 		t.Fatalf("loaded identity = %#v, err = %v", loaded, err)
 	}
 	linked := filepath.Join(t.TempDir(), "linked-identity.json")

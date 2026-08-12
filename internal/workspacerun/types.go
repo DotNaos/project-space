@@ -205,11 +205,13 @@ type IdentityResolver interface {
 }
 
 type OperationOptions struct {
-	Mode               Mode
-	ExpectedCommit     string
-	ExpectedDigest     string
-	ExpectedGeneration string
-	ThreadID           string
+	Mode                Mode
+	ExpectedWorkspaceID string
+	ExpectedCommit      string
+	ExpectedDigest      string
+	ExpectedGeneration  string
+	ThreadID            string
+	TrustedGateway      bool
 }
 
 type Clock func() time.Time

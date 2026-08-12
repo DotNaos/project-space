@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -15,6 +16,7 @@ func newControlGatewayInstallIdentityCommand() *cobra.Command {
 	environmentID := ""
 	revision := ""
 	replace := false
+	workspaceValues := []string{}
 	command := &cobra.Command{
 		Use:   "install-identity",
 		Short: "Install the root-owned Environment identity binding",
@@ -23,9 +25,14 @@ func newControlGatewayInstallIdentityCommand() *cobra.Command {
 			if os.Geteuid() != 0 {
 				return fmt.Errorf("control gateway identity installation requires root")
 			}
+			workspaces, err := parseWorkspaceBindings(workspaceValues)
+			if err != nil {
+				return err
+			}
 			identity := controlGatewayIdentity{
 				EnvironmentID:          environmentID,
 				TargetIdentityRevision: revision,
+				Workspaces:             workspaces,
 			}
 			if !validControlGatewayIdentity(identity) {
 				return fmt.Errorf("control gateway identity is invalid")
@@ -36,6 +43,7 @@ func newControlGatewayInstallIdentityCommand() *cobra.Command {
 	command.Flags().StringVar(&environmentID, "environment-id", "", "exact Environment Instance UUID")
 	command.Flags().StringVar(&revision, "target-identity-revision", "", "exact inventory identity revision")
 	command.Flags().BoolVar(&replace, "replace", false, "replace a different installed identity")
+	command.Flags().StringArrayVar(&workspaceValues, "workspace", nil, "trusted Workspace binding as ws_id=/absolute/path")
 	_ = command.MarkFlagRequired("environment-id")
 	_ = command.MarkFlagRequired("target-identity-revision")
 	return command
@@ -121,5 +129,27 @@ func ownedByCurrentUser(info os.FileInfo) bool {
 
 func validControlGatewayIdentity(identity controlGatewayIdentity) bool {
 	return controlEnvironmentIDPattern.MatchString(identity.EnvironmentID) &&
-		controlRevisionPattern.MatchString(identity.TargetIdentityRevision)
+		controlRevisionPattern.MatchString(identity.TargetIdentityRevision) &&
+		validWorkspaceBindings(identity.Workspaces)
+}
+
+func parseWorkspaceBindings(values []string) (map[string]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	bindings := make(map[string]string, len(values))
+	for _, value := range values {
+		workspaceID, path, ok := strings.Cut(value, "=")
+		if !ok || workspaceID == "" || path == "" {
+			return nil, fmt.Errorf("Workspace binding must use ws_id=/absolute/path")
+		}
+		if _, exists := bindings[workspaceID]; exists {
+			return nil, fmt.Errorf("Workspace binding %q is duplicated", workspaceID)
+		}
+		bindings[workspaceID] = path
+	}
+	if !validWorkspaceBindings(bindings) {
+		return nil, fmt.Errorf("Workspace binding is invalid")
+	}
+	return bindings, nil
 }

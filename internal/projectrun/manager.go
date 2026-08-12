@@ -182,12 +182,12 @@ func (manager *Manager) StartWithOptions(
 	if existing, ok, loadErr := manager.store.load(identity); loadErr != nil {
 		return manager.runtimeErrorResult("start", root, scriptName, loadErr), loadErr
 	} else if ok {
+		if existing.WorkspaceID != options.WorkspaceID || existing.RuntimeGeneration != options.RuntimeGeneration {
+			err := fmt.Errorf("serve session belongs to a different Workspace runtime generation; stop it through its owning runtime")
+			return manager.resultFromState("start", CapabilityConfigured, existing, err), err
+		}
 		if existing.State == StateRunning || existing.State == StateLocalOnly {
 			if healthErr := manager.checkRuntime(ctx, existing, script); healthErr == nil {
-				if existing.WorkspaceID != options.WorkspaceID || existing.RuntimeGeneration != options.RuntimeGeneration {
-					err := fmt.Errorf("serve session belongs to a different Workspace runtime generation; stop it through its owning runtime")
-					return manager.resultFromState("start", CapabilityConfigured, existing, err), err
-				}
 				if existing.APIs != apis || existing.Data != data {
 					err := fmt.Errorf(
 						"serve session is already running with APIs=%s and data=%s; stop it before requesting APIs=%s and data=%s",
@@ -220,7 +220,11 @@ func (manager *Manager) StartWithOptions(
 				)
 			}
 		}
-		if cleanupErr := manager.cleanupRuntime(existing); cleanupErr != nil {
+		cleanupErr := manager.cleanupRuntime(existing)
+		if options.WorkspaceID != "" {
+			cleanupErr = manager.cleanupRuntimeExpected(existing, options.WorkspaceID, options.RuntimeGeneration)
+		}
+		if cleanupErr != nil {
 			existing.State = StateError
 			existing.LastError = cleanupErr.Error()
 			existing.CheckedAt = manager.timestamp()
@@ -417,6 +421,20 @@ func (manager *Manager) checkRuntime(ctx context.Context, state runtimeState, sc
 }
 
 func (manager *Manager) cleanupRuntime(state runtimeState) error {
+	if state.WorkspaceID != "" || state.RuntimeGeneration != "" {
+		return fmt.Errorf("serve session belongs to a Workspace runtime and requires its exact generation binding")
+	}
+	return manager.cleanupRuntimeVerified(state)
+}
+
+func (manager *Manager) cleanupRuntimeExpected(state runtimeState, workspaceID, runtimeGeneration string) error {
+	if workspaceID == "" || runtimeGeneration == "" || state.WorkspaceID != workspaceID || state.RuntimeGeneration != runtimeGeneration {
+		return fmt.Errorf("serve session belongs to a different Workspace runtime generation")
+	}
+	return manager.cleanupRuntimeVerified(state)
+}
+
+func (manager *Manager) cleanupRuntimeVerified(state runtimeState) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	observation, err := manager.tmux.Inspect(ctx, state.TmuxSession)
@@ -468,6 +486,9 @@ func (manager *Manager) stopTailnetTCP(ctx context.Context, publicPort, localPor
 
 func (manager *Manager) failStart(state runtimeState, cause error) (ServeResult, error) {
 	cleanupErr := manager.cleanupRuntime(state)
+	if state.WorkspaceID != "" && state.RuntimeGeneration != "" {
+		cleanupErr = manager.cleanupRuntimeExpected(state, state.WorkspaceID, state.RuntimeGeneration)
+	}
 	if cleanupErr != nil {
 		cause = errors.Join(cause, fmt.Errorf("rollback failed: %w", cleanupErr))
 	}

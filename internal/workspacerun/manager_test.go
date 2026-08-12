@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -99,6 +100,22 @@ func TestContainerProviderUsesSameLifecycleAndRejectsForeignEvidence(t *testing.
 		t.Fatalf("foreign container was stopped %d times", provider.stopCount)
 	}
 	provider.mu.Unlock()
+}
+
+func TestExpectedWorkspaceIDFailsBeforeRuntimeMutation(t *testing.T) {
+	directory := t.TempDir()
+	writeRuntimeFixture(t, directory, ModeProcess)
+	provider := newFakeProvider(ModeProcess)
+	manager := newTestManager(t, directory, provider)
+	_, err := manager.Start(context.Background(), directory, OperationOptions{
+		ExpectedWorkspaceID: "ws_ffffffffffffffffffffffff",
+	}, Streams{})
+	if err == nil || !strings.Contains(err.Error(), "Workspace identity mismatch") {
+		t.Fatalf("mismatched Workspace identity error = %v", err)
+	}
+	if provider.startCount != 0 {
+		t.Fatalf("mismatched Workspace identity started %d runtimes", provider.startCount)
+	}
 }
 
 type fakeIdentityResolver struct{ identity WorkspaceIdentity }

@@ -157,7 +157,7 @@ func (manager *Manager) Stop(ctx context.Context, directory string, options Oper
 		if !exists {
 			return fmt.Errorf("Workspace runtime does not exist")
 		}
-		if err := verifyGeneration(record, options.ExpectedGeneration); err != nil {
+		if err := verifyStoredBinding(record, options); err != nil {
 			result = manager.result("stop", "", record, err)
 			return err
 		}
@@ -241,7 +241,7 @@ func (manager *Manager) Clean(ctx context.Context, directory string, options Ope
 		if !exists {
 			return fmt.Errorf("Workspace runtime does not exist")
 		}
-		if err := verifyGeneration(record, options.ExpectedGeneration); err != nil {
+		if err := verifyStoredBinding(record, options); err != nil {
 			return err
 		}
 		if activeState(record.State) || len(record.DevServers) > 0 || record.State != StateStopped && record.State != StateFailed {
@@ -332,8 +332,8 @@ func (manager *Manager) resolveIdentity(ctx context.Context, directory string, o
 	if err := manager.checkout.Verify(ctx, identity, options); err != nil {
 		return WorkspaceIdentity{}, err
 	}
-	if options.ExpectedCommit != "" && identity.Head != options.ExpectedCommit {
-		return WorkspaceIdentity{}, fmt.Errorf("Workspace HEAD mismatch")
+	if options.ExpectedWorkspaceID != "" && identity.WorkspaceID != options.ExpectedWorkspaceID {
+		return WorkspaceIdentity{}, fmt.Errorf("Workspace identity mismatch")
 	}
 	return identity, nil
 }
@@ -355,7 +355,10 @@ func (manager *Manager) preflightOwned(ctx context.Context, provider RuntimeProv
 		if err != nil {
 			return err
 		}
-		if observation.Exists && !observation.Owned {
+		if !observation.Exists {
+			return fmt.Errorf("Workspace runtime resource is missing")
+		}
+		if !observation.Owned {
 			return fmt.Errorf("Workspace runtime process ownership changed")
 		}
 	}

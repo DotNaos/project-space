@@ -110,11 +110,19 @@ func (manager *Manager) stopExpected(ctx context.Context, directory, scriptName,
 		err := errors.New("serve session belongs to a different Workspace runtime generation")
 		return manager.resultFromState("stop", capability, state, err), err
 	}
+	if workspaceID == "" && state.WorkspaceID != "" {
+		err := errors.New("serve session belongs to a Workspace runtime and must be stopped through its owning runtime")
+		return manager.resultFromState("stop", capability, state, err), err
+	}
 
 	state.State = StateStopping
 	state.CheckedAt = manager.timestamp()
 	_ = manager.store.save(state)
-	if cleanupErr := manager.cleanupRuntime(state); cleanupErr != nil {
+	cleanupErr := manager.cleanupRuntime(state)
+	if workspaceID != "" {
+		cleanupErr = manager.cleanupRuntimeExpected(state, workspaceID, runtimeGeneration)
+	}
+	if cleanupErr != nil {
 		return manager.persistCleanupFailure("stop", capability, state, cleanupErr)
 	}
 	stopped := state

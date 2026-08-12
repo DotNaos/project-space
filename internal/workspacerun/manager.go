@@ -32,6 +32,9 @@ func (ManagedCheckoutVerifier) Verify(_ context.Context, identity WorkspaceIdent
 		threadID = strings.TrimSpace(identity.Owner)
 	}
 	if threadID == "" {
+		if options.TrustedGateway {
+			return nil
+		}
 		return fmt.Errorf("managed Worktree owner thread is required")
 	}
 	if checked.Owner != threadID {
@@ -129,6 +132,9 @@ func (manager *Manager) resolve(ctx context.Context, directory string, options O
 	if requireClean && plan.Identity.Dirty {
 		return resolvedPlan{}, fmt.Errorf("Workspace checkout must be clean before runtime launch")
 	}
+	if options.ExpectedWorkspaceID != "" && plan.Identity.WorkspaceID != options.ExpectedWorkspaceID {
+		return resolvedPlan{}, fmt.Errorf("Workspace identity mismatch")
+	}
 	if options.ExpectedCommit != "" && plan.Identity.Head != options.ExpectedCommit {
 		return resolvedPlan{}, fmt.Errorf("Workspace HEAD mismatch: expected %s, received %s", options.ExpectedCommit, plan.Identity.Head)
 	}
@@ -184,6 +190,25 @@ func activeState(state RuntimeState) bool {
 func verifyGeneration(record runtimeRecord, expected string) error {
 	if expected != "" && record.Generation != expected {
 		return fmt.Errorf("runtime generation mismatch: expected %s, received %s", expected, record.Generation)
+	}
+	return nil
+}
+
+func verifyStoredBinding(record runtimeRecord, options OperationOptions) error {
+	if err := verifyGeneration(record, options.ExpectedGeneration); err != nil {
+		return err
+	}
+	if options.ExpectedWorkspaceID != "" && record.WorkspaceID != options.ExpectedWorkspaceID {
+		return fmt.Errorf("runtime Workspace identity mismatch")
+	}
+	if options.ExpectedCommit != "" && record.Head != options.ExpectedCommit {
+		return fmt.Errorf("runtime source HEAD mismatch")
+	}
+	if options.ExpectedDigest != "" && record.ManifestDigest != options.ExpectedDigest {
+		return fmt.Errorf("runtime manifest digest mismatch")
+	}
+	if options.Mode != "" && record.Mode != options.Mode {
+		return fmt.Errorf("runtime mode mismatch")
 	}
 	return nil
 }

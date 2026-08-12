@@ -115,6 +115,63 @@ func TestReconcileFailsClosedForAmbiguousRuntimeOwnership(t *testing.T) {
 	}
 }
 
+func TestStopPreflightsMissingRuntimeBeforeChangingDevServers(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := manager.identity.Resolve(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, exists, err := manager.store.load(identity)
+	if err != nil || !exists {
+		t.Fatalf("load runtime: exists=%v err=%v", exists, err)
+	}
+	record.ExpectedDevServers = []string{"docs"}
+	record.DevServers = []ManagedDevServer{{
+		Name: "docs", ServerID: "server-docs", TmuxSession: "tmux-docs", State: string(projectrun.StateRunning),
+	}}
+	if err := manager.store.save(record); err != nil {
+		t.Fatal(err)
+	}
+	project := &countingLifecycleProject{}
+	manager.project = project
+	provider.exists = false
+	provider.running = false
+
+	result, err := manager.Stop(context.Background(), workspace, OperationOptions{ExpectedGeneration: started.Generation}, Streams{})
+	if err == nil || !strings.Contains(err.Error(), "resource is missing") {
+		t.Fatalf("stop=%#v error=%v", result, err)
+	}
+	if provider.stops != 0 || project.statuses != 0 || project.stops != 0 {
+		t.Fatalf("preflight mutated resources: provider stops=%d statuses=%d dev-server stops=%d", provider.stops, project.statuses, project.stops)
+	}
+}
+
+func TestStopUsesStoredRuntimeBindingAfterCheckoutHeadMoves(t *testing.T) {
+	manager, provider, workspace := newRuntimeTestManager(t)
+	started, err := manager.Start(context.Background(), workspace, OperationOptions{Mode: ModeProcess}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := manager.identity.(lifecycleIdentityResolver).identity
+	moved := original
+	moved.Head = strings.Repeat("c", 40)
+	manager.identity = lifecycleIdentityResolver{identity: moved}
+
+	stopped, err := manager.Stop(context.Background(), workspace, OperationOptions{
+		Mode: ModeProcess, ExpectedCommit: original.Head, ExpectedDigest: started.ManifestDigest, ExpectedGeneration: started.Generation,
+	}, Streams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.SourceHead != original.Head || provider.stops != 1 {
+		t.Fatalf("stop=%#v provider stops=%d", stopped, provider.stops)
+	}
+}
+
 func newRuntimeTestManager(t *testing.T) (*Manager, *lifecycleProvider, string) {
 	t.Helper()
 	workspace := t.TempDir()
@@ -205,6 +262,33 @@ func (*lifecycleProject) Status(context.Context, string, string) (projectrun.Ser
 }
 
 func (*lifecycleProject) StopExpected(context.Context, string, string, string, string) (projectrun.ServeResult, error) {
+	return projectrun.ServeResult{}, errors.New("unexpected dev-server stop")
+}
+
+type countingLifecycleProject struct {
+	statuses int
+	stops    int
+}
+
+func (*countingLifecycleProject) PrepareExpected(context.Context, string, string, projectrun.SetupExpectations, projectrun.Streams) (projectrun.SetupCollectionResult, error) {
+	return projectrun.SetupCollectionResult{}, nil
+}
+
+func (*countingLifecycleProject) RunWithOptions(context.Context, string, string, projectrun.Streams, projectrun.RunOptions) (projectrun.RunResult, error) {
+	return projectrun.RunResult{}, nil
+}
+
+func (*countingLifecycleProject) StartWithOptions(context.Context, string, string, projectrun.StartOptions) (projectrun.ServeResult, error) {
+	return projectrun.ServeResult{}, errors.New("unexpected dev-server start")
+}
+
+func (project *countingLifecycleProject) Status(context.Context, string, string) (projectrun.ServeResult, error) {
+	project.statuses++
+	return projectrun.ServeResult{}, errors.New("unexpected dev-server status")
+}
+
+func (project *countingLifecycleProject) StopExpected(context.Context, string, string, string, string) (projectrun.ServeResult, error) {
+	project.stops++
 	return projectrun.ServeResult{}, errors.New("unexpected dev-server stop")
 }
 

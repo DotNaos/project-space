@@ -15,6 +15,7 @@ import (
 
 	"github.com/DotNaos/project-space/internal/computecontrol"
 	"github.com/DotNaos/project-space/internal/machineconnect"
+	"github.com/DotNaos/project-space/internal/workspacerun"
 	"github.com/spf13/cobra"
 )
 
@@ -59,11 +60,17 @@ type controlGatewayOperationRequest struct {
 	SchemaVersion           int    `json:"schemaVersion"`
 	TargetIdentityRevision  string `json:"targetIdentityRevision"`
 	Type                    string `json:"type"`
+	WorkspaceID             string `json:"workspaceId,omitempty"`
+	ExpectedCommit          string `json:"expectedCommit,omitempty"`
+	ExpectedManifestDigest  string `json:"expectedManifestDigest,omitempty"`
+	ExpectedGeneration      string `json:"expectedGeneration,omitempty"`
+	Mode                    string `json:"mode,omitempty"`
 }
 
 type controlGatewayIdentity struct {
-	EnvironmentID          string `json:"environmentId"`
-	TargetIdentityRevision string `json:"targetIdentityRevision"`
+	EnvironmentID          string            `json:"environmentId"`
+	TargetIdentityRevision string            `json:"targetIdentityRevision"`
+	Workspaces             map[string]string `json:"workspaces,omitempty"`
 }
 
 type controlCommandDependencies struct {
@@ -112,7 +119,7 @@ func newControlCommandWithDependencies(dependencies controlCommandDependencies) 
 		Use: "handshake", Short: "Describe the installed control protocol", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return writeJSON(command.OutOrStdout(), controlHandshakeResult{
-				CLIVersion: projectMachineClientVersion, Operations: []string{"status.v1"},
+				CLIVersion: projectMachineClientVersion, Operations: controlOperations(),
 				ProtocolVersion: 1, SchemaVersion: controlSchemaVersion,
 			})
 		},
@@ -191,6 +198,17 @@ func newControlGatewayCommand() *cobra.Command {
 }
 
 func serveControlGateway(input io.Reader, output io.Writer, identity controlGatewayIdentity) error {
+	return serveControlGatewayWithRuntime(input, output, identity, func() (workspaceRuntimeManager, error) {
+		return workspacerun.NewDefaultManager()
+	})
+}
+
+func serveControlGatewayWithRuntime(
+	input io.Reader,
+	output io.Writer,
+	identity controlGatewayIdentity,
+	runtimeFactory func() (workspaceRuntimeManager, error),
+) error {
 	scanner := bufio.NewScanner(io.LimitReader(input, 16*1024+1))
 	scanner.Buffer(make([]byte, 1024), 8*1024)
 	if !scanner.Scan() {
@@ -215,7 +233,7 @@ func serveControlGateway(input io.Reader, output io.Writer, identity controlGate
 			return fmt.Errorf("read control frame: %w", err)
 		}
 		return writeControlFrame(output, controlHandshakeResult{
-			CLIVersion: projectMachineClientVersion, Operations: []string{"status.v1"},
+			CLIVersion: projectMachineClientVersion, Operations: controlOperations(),
 			ProtocolVersion: 1, SchemaVersion: controlSchemaVersion, Type: "handshake",
 		})
 	}
@@ -227,7 +245,6 @@ func serveControlGateway(input io.Reader, output io.Writer, identity controlGate
 		request.SchemaVersion != controlSchemaVersion || request.Type != "operation" ||
 		request.ExpectedProtocolVersion != 1 ||
 		request.ExpectedCLIVersion != projectMachineClientVersion ||
-		request.Operation != "status.v1" ||
 		!controlEnvironmentIDPattern.MatchString(request.EnvironmentID) ||
 		!controlOperationIDPattern.MatchString(request.OperationID) ||
 		!controlRevisionPattern.MatchString(request.TargetIdentityRevision) ||
@@ -240,6 +257,9 @@ func serveControlGateway(input io.Reader, output io.Writer, identity controlGate
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("read control frame: %w", err)
+	}
+	if request.Operation != "status.v1" {
+		return executeWorkspaceRuntimeControl(output, identity, request, runtimeFactory)
 	}
 	return writeControlFrame(output, controlStatusResult{
 		CheckedAt: time.Now().UTC().Format(time.RFC3339Nano), Operation: "status.v1",
@@ -267,8 +287,8 @@ func loadControlGatewayIdentity(path string) (controlGatewayIdentity, error) {
 	if !ok || stat.Uid != 0 {
 		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is not root-owned")
 	}
-	bounded, err := io.ReadAll(io.LimitReader(file, 1025))
-	if err != nil || len(bounded) > 1024 {
+	bounded, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
+	if err != nil || len(bounded) > 64<<10 {
 		return controlGatewayIdentity{}, fmt.Errorf("control gateway identity is invalid")
 	}
 	var identity controlGatewayIdentity

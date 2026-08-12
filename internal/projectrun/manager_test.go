@@ -105,6 +105,32 @@ func TestSingleAllowedHostUsesViteCompatibilityVariable(t *testing.T) {
 	}
 }
 
+func TestWorkspaceOwnedServeSessionRequiresExactRuntimeBindingToStop(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, _, _ := newTestManager(t)
+	const workspaceID = "ws_0123456789abcdef01234567"
+	const generation = "123e4567-e89b-42d3-a456-426614174000"
+	started, err := manager.StartWithOptions(context.Background(), project, "dev", StartOptions{
+		LocalOnly: true, APIs: APIsModeSimulated, Data: DataModeLocal,
+		WorkspaceID: workspaceID, RuntimeGeneration: generation,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Stop(context.Background(), project, "dev"); err == nil {
+		t.Fatal("ordinary serve stop reached a Workspace-owned session")
+	}
+	if len(processes.stopped) != 0 {
+		t.Fatal("ordinary serve stop mutated a Workspace-owned process")
+	}
+	if _, err := manager.StopExpected(context.Background(), project, "dev", workspaceID, generation); err != nil {
+		t.Fatalf("exact Workspace stop: %v", err)
+	}
+	if len(processes.stopped) != 1 || started.WorkspaceID != workspaceID || started.RuntimeGeneration != generation {
+		t.Fatalf("exact Workspace stop evidence = %#v, stopped=%d", started, len(processes.stopped))
+	}
+}
+
 func TestStatusCleansRuntimeWhenScriptsConfigDisappears(t *testing.T) {
 	project := writeTestScripts(t)
 	manager, processes, tailnet, _ := newTestManager(t)

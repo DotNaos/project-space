@@ -22,7 +22,7 @@ func (manager *Manager) Reconcile(ctx context.Context, directory string, options
 		if !exists {
 			return fmt.Errorf("Workspace runtime does not exist")
 		}
-		if err := verifyGeneration(record, options.ExpectedGeneration); err != nil {
+		if err := verifyStoredBinding(record, options); err != nil {
 			result = manager.result("reconcile", "", record, err)
 			return err
 		}
@@ -59,16 +59,13 @@ func (manager *Manager) Reconcile(ctx context.Context, directory string, options
 				result = manager.result("reconcile", "", record, cause)
 				return cause
 			}
-			if err := manager.preflightOwned(ctx, provider, record); err != nil {
+			if len(record.DevServers) > 0 {
+				cause := fmt.Errorf("runtime process is absent while dev-server resources remain; no resource was changed")
 				record.State = StateStale
-				record.LastError = err.Error()
+				record.LastError = cause.Error()
 				_ = manager.store.save(record)
-				result = manager.result("reconcile", "", record, err)
-				return err
-			}
-			_, cleanupErr := manager.stopServers(ctx, &record)
-			if cleanupErr != nil {
-				return cleanupErr
+				result = manager.result("reconcile", "", record, cause)
+				return cause
 			}
 			record.State = StateFailed
 			record.Handle = RuntimeHandle{}

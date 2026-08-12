@@ -74,4 +74,4 @@ flowchart LR
 
 The process driver creates a private HOME and `CODEX_HOME` inside the generation state directory and does not inherit ambient credentials. The container boundary uses an immutable container ID plus exact Workspace, generation, manifest, image, and ownership labels. A container driver is deliberately pluggable; there is no fallback from a requested container runtime to process mode.
 
-The next stacked delivery exposes this same manager through typed SSH operations. It must not create a second lifecycle implementation or accept caller-selected shell commands or host paths. Public results omit ownership tokens, credentials, logs, and raw provider data.
+The root-owned SSH control-gateway identity can register bounded mappings from a Workspace ID to its Project-managed Worktree. Remote operations accept only that ID plus the expected commit, manifest digest, mode, generation, and operation ID; they invoke this same manager and never accept caller-selected shell commands or host paths. The manager rechecks the resolved Workspace ID before any mutation. Public results omit ownership tokens, credentials, logs, and raw provider data.
