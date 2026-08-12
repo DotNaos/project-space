@@ -108,6 +108,18 @@ func TestClientAcceptsVersionThreePartialHostdTelemetry(t *testing.T) {
 	}
 }
 
+func TestHostdAvailabilityOmitsStaleDetailsWhenStateHasNoEvidence(t *testing.T) {
+	encoded, err := json.Marshal(HostdAvailability{
+		Health: "healthy", HostdVersion: "must-not-leak", State: "unknown",
+	})
+	if err != nil {
+		t.Fatalf("marshal hostd: %v", err)
+	}
+	if string(encoded) != `{"state":"unknown"}` {
+		t.Fatalf("hostd = %s", encoded)
+	}
+}
+
 func TestInventoryJSONPreservesVersionedRouteShape(t *testing.T) {
 	v1, err := json.Marshal(testInventory())
 	if err != nil {
