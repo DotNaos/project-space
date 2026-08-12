@@ -20,6 +20,7 @@ const retiredApiPaths = new Set([
 
 const retiredPullRequestDevServerPrefix = '/api/pull-request-previews/dev-server/';
 const retiredSocketPath = '/api/connectors/socket';
+const retiredMachineRuntime = /^\/api\/machines\/[^/]+\/runtime(?:\/(?:operations|stop))?$/;
 
 export function handleRetiredConnectorHttp(
   request: IncomingMessage,
@@ -39,7 +40,8 @@ export function handleRetiredConnectorHttp(
 
   const retiredCredentialPath = /^\/api\/connectors\/credentials\/[^/]+$/.test(url.pathname);
   const retiredPullRequestDevServer = url.pathname.startsWith(retiredPullRequestDevServerPrefix);
-  if (!retiredApiPaths.has(url.pathname) && !retiredCredentialPath && !retiredPullRequestDevServer) {
+  if (!retiredApiPaths.has(url.pathname) && !retiredCredentialPath && !retiredPullRequestDevServer &&
+      !retiredMachineRuntime.test(url.pathname)) {
     return false;
   }
 
