@@ -13,6 +13,11 @@ import type {
   RuntimeSessionStore
 } from './contracts';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
+import type {
+  WorkspaceRuntimeControlCommand,
+  WorkspaceRuntimeControlMessage
+} from '../../src/shared/workspace-runtime-control-api';
+import { workspaceRuntimeControlCapability } from '../../src/shared/workspace-runtime-session-api';
 import { RuntimeSessionError } from './contracts';
 
 const heartbeatIntervalSeconds = 15;
@@ -26,6 +31,7 @@ interface ActiveConnection {
 
 export class WorkspaceRuntimeSessionService {
   private readonly connections = new Map<string, ActiveConnection>();
+  private readonly controlListeners = new Set<(message: WorkspaceRuntimeControlMessage) => void>();
 
   constructor(
     private readonly store: RuntimeSessionStore,
@@ -41,8 +47,15 @@ export class WorkspaceRuntimeSessionService {
     return this.store.issue(input);
   }
 
-  list(ownerUserId: string) {
-    return this.store.list(ownerUserId);
+  async list(ownerUserId: string) {
+    const snapshots = await this.store.list(ownerUserId);
+    return snapshots.map((snapshot) => {
+      const active = this.connections.get(workspaceKey(ownerUserId, snapshot.workspaceId));
+      return active?.sessionId === snapshot.sessionId &&
+        active.scope.generation === snapshot.generation
+        ? { ...snapshot, capabilities: [...active.scope.capabilities] }
+        : snapshot;
+    });
   }
 
   async revoke(ownerUserId: string, workspaceId: string, credentialId: string) {
@@ -62,10 +75,13 @@ export class WorkspaceRuntimeSessionService {
   ) {
     const readyCapabilities = registration.readyCapabilities ?? [];
     const codexReady = readyCapabilities.includes('runtime.codex.v1');
+    const controlReady = readyCapabilities.includes(workspaceRuntimeControlCapability);
     if (scope.capabilities.includes('runtime.codex.v1') ||
         readyCapabilities.some((capability) => !scope.requestedCapabilities.includes(capability)) ||
         codexReady !== (registration.resumeAfterCodexCommandSequence !== undefined) ||
-        codexReady !== (registration.resumeAfterCodexEventSequence !== undefined)) {
+        codexReady !== (registration.resumeAfterCodexEventSequence !== undefined) ||
+        controlReady !== (registration.resumeAfterControlCommandSequence !== undefined) ||
+        controlReady !== (registration.resumeAfterControlEventSequence !== undefined)) {
       throw new RuntimeSessionError(
         'invalid_message',
         'Workspace Runtime ready authority was not requested by this credential.'
@@ -123,6 +139,22 @@ export class WorkspaceRuntimeSessionService {
     return message;
   }
 
+  acceptControl(
+    active: { scope: RuntimeCredentialScope; sessionId: string },
+    message: WorkspaceRuntimeControlMessage
+  ) {
+    if (!active.scope.capabilities.includes(workspaceRuntimeControlCapability)) {
+      throw new RuntimeSessionError('invalid_message', 'Workspace Runtime control authority is unavailable.');
+    }
+    for (const listener of this.controlListeners) listener(message);
+    return message;
+  }
+
+  onControlMessage(listener: (message: WorkspaceRuntimeControlMessage) => void) {
+    this.controlListeners.add(listener);
+    return () => this.controlListeners.delete(listener);
+  }
+
   dispatchCodex(ownerUserId: string, command: WorkspaceRuntimeCodexCommand) {
     const active = this.connections.get(workspaceKey(ownerUserId, command.workspaceId));
     if (!active || !active.scope.capabilities.includes('runtime.codex.v1') ||
@@ -130,6 +162,20 @@ export class WorkspaceRuntimeSessionService {
         command.environmentId !== active.scope.environmentId ||
         command.generation !== active.scope.generation || command.sessionId !== active.sessionId) {
       throw new RuntimeSessionError('generation_replaced', 'Workspace Runtime Codex generation is unavailable.');
+    }
+    active.connection.send(JSON.stringify(command));
+  }
+
+  dispatchControl(ownerUserId: string, command: WorkspaceRuntimeControlCommand) {
+    const active = this.connections.get(workspaceKey(ownerUserId, command.workspaceId));
+    if (!active || !active.scope.capabilities.includes(workspaceRuntimeControlCapability) ||
+        active.scope.ownerUserId !== ownerUserId || command.actorUserId !== ownerUserId ||
+        command.environmentId !== active.scope.environmentId ||
+        command.generation !== active.scope.generation || command.sessionId !== active.sessionId) {
+      throw new RuntimeSessionError(
+        'generation_replaced',
+        'Workspace Runtime control generation is unavailable.'
+      );
     }
     active.connection.send(JSON.stringify(command));
   }
@@ -156,6 +202,7 @@ export class WorkspaceRuntimeSessionService {
       active.connection.close(1001, 'Project Space is shutting down.');
     }
     this.connections.clear();
+    this.controlListeners.clear();
   }
 
   closeExpired(scope: RuntimeCredentialScope, connection: RuntimeSessionConnection) {
