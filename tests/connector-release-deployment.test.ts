@@ -355,8 +355,9 @@ describe('connector release and production deployment contract', () => {
       '/usr/bin/install -m 0755 /dev/null "$staging_directory/project-approval-signer"'
     );
     expect(macos).toContain('project-approval-signer:0:0');
+    expect(macos).not.toContain('connector-command-signing-public-key.pem');
     expect(macos).toContain(
-      '502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1'
+      'aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451'
     );
   });
 

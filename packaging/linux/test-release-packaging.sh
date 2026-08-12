@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-unset PROJECT_SPACE_MACHINE_TOOLS_SERVICE_MODE
-
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 temporary_root=$(mktemp -d)
 trap 'rm -rf -- "$temporary_root"' EXIT
@@ -47,30 +45,10 @@ fi
 write_project_fixture() {
   local path=$1
   local label=$2
-  local fail_start=${3:-0}
   cat > "$path" <<EOF
 #!/bin/sh
 if [ "\${1:-}" = --version ]; then
   printf '%s\n' 'project $version'
-  exit 0
-fi
-if [ "\${1:-}" = connector ] && [ "\${2:-}" = service ]; then
-  if [ -n "\${PROJECT_FIXTURE_SERVICE_LOG:-}" ]; then
-    printf '%s:%s\\n' '$label' "\$*" >> "\$PROJECT_FIXTURE_SERVICE_LOG"
-  fi
-  if [ "\${3:-}" = start-if-connected ] && \
-    { [ '$fail_start' = 1 ] || [ "\${PROJECT_FIXTURE_FAIL_START_LABEL:-}" = '$label' ]; }; then
-    exit 1
-  fi
-  if [ "\${3:-}" = stop ] && [ -n "\${PROJECT_FIXTURE_POINTER_ON_STOP:-}" ]; then
-    pointer_temp="\${PROJECT_FIXTURE_POINTER_ON_STOP}.fixture-next"
-    ln -s -- "\${PROJECT_FIXTURE_POINTER_TARGET:?}" "\$pointer_temp"
-    mv -Tf -- "\$pointer_temp" "\$PROJECT_FIXTURE_POINTER_ON_STOP"
-  fi
-  if [ "\${3:-}" = stop ] && [ -n "\${PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP:-}" ]; then
-    mkdir -p -- "\$(dirname -- "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP")"
-    printf '{}\\n' > "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP"
-  fi
   exit 0
 fi
 printf '%s\\n' '$label'
@@ -96,11 +74,6 @@ EOF
 
 write_trust_roots() {
   local directory=$1
-  cat > "$directory/connector-command-signing-public-key.pem" <<'EOF'
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAUIg0xh2Ct72E0oH+zXpiBUKZUnWMzFZh+3JIgPBFqDA=
------END PUBLIC KEY-----
-EOF
   cat > "$directory/release-manifest-signing-public-key.pem" <<'EOF'
 -----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAZ6dwH3rgOZmzwfnAtimmzeo3aiSbJ7G9o43xh6aTDFQ=
@@ -140,7 +113,7 @@ cmp -- "$first_archive" "$second_archive"
 mkdir -p -- "$temporary_root/extracted"
 tar -xzf "$first_archive" -C "$temporary_root/extracted"
 bundle_root="$temporary_root/extracted/project-space-machine-tools-linux-x64-v${version}"
-expected_members=$'CODEX-LICENSE\nCODEX-NOTICE\nCODEX-VERSION\nSHA256SUMS.txt\nVERSION\ncodex\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
+expected_members=$'CODEX-LICENSE\nCODEX-NOTICE\nCODEX-VERSION\nSHA256SUMS.txt\nVERSION\ncodex\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_root" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
 if [[ $actual_members != "$expected_members" ]]; then
   echo "Unexpected archive members:" >&2
@@ -168,8 +141,6 @@ PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
 [[ $(readlink "$install_root/project") == '.project-space-machine-tools/current/project' ]]
 [[ $(readlink "$install_root/project-codex-host") == '.project-space-machine-tools/current/project-codex-host' ]]
 [[ $("$install_root/.project-space-machine-tools/current/codex" --version) == 'codex-cli 0.145.0' ]]
-cmp "$temporary_root/source/connector-command-signing-public-key.pem" \
-  "$install_root/.project-space-machine-tools/current/connector-command-signing-public-key.pem"
 cmp "$temporary_root/source/release-manifest-signing-public-key.pem" \
   "$install_root/.project-space-machine-tools/current/release-manifest-signing-public-key.pem"
 first_current=$(readlink "$install_root/.project-space-machine-tools/current")
@@ -177,17 +148,6 @@ first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ ! -e $service_log ]]
 grep -Fx -- '--user stop project-space-machine-connector-supervisor.service' "$systemctl_log"
 grep -Fx -- '--user stop project-space-connector.service' "$systemctl_log"
-
-# Containers such as GitHub Codespaces own the foreground connector lifecycle.
-# Installing there must switch the verified tools without touching systemd.
-external_root="$temporary_root/external-installed"
-external_service_log="$temporary_root/external-service.log"
-PROJECT_FIXTURE_SERVICE_LOG="$external_service_log" \
-  "$bundle_root/install.sh" --install-dir "$external_root" \
-  --external-connector-supervisor >/dev/null
-[[ $($external_root/project) == 'project fixture v1' ]]
-[[ $($external_root/project-codex-host) == 'connector fixture' ]]
-[[ ! -e $external_service_log ]]
 
 # An upgrade stops the retired service and never starts it again.
 upgrade_source="$temporary_root/upgrade-source"
@@ -221,76 +181,6 @@ set -e
 "$upgrade_bundle/install.sh" --install-dir "$missing_link_root" >/dev/null
 [[ -L $missing_link_root/project ]]
 [[ $($missing_link_root/project) == 'project fixture v2' ]]
-
-# An installer must never switch the managed pointer while a named maintenance
-# operation or its unresolved result is still present.
-maintenance_root="$install_root/.project-space-machine-tools/maintenance"
-mkdir -m 0700 -p -- "$maintenance_root"
-maintenance_current_before=$(readlink "$install_root/.project-space-machine-tools/current")
-maintenance_versions_before=$(find "$install_root/.project-space-machine-tools/versions" -mindepth 1 -maxdepth 1 -type d | wc -l)
-maintenance_systemctl_lines_before=$(wc -l < "$systemctl_log")
-for maintenance_marker in state.json control.json decision.json; do
-  printf '{}\n' > "$maintenance_root/$maintenance_marker"
-  maintenance_error="$temporary_root/${maintenance_marker}.error"
-  set +e
-  "$upgrade_bundle/install.sh" --install-dir "$install_root" \
-    >/dev/null 2>"$maintenance_error"
-  maintenance_status=$?
-  set -e
-  [[ $maintenance_status -eq 75 ]]
-  grep -Fx 'Connector maintenance is still active or unresolved; recover it before installing.' \
-    "$maintenance_error"
-  rm -f -- "$maintenance_root/$maintenance_marker"
-  [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$maintenance_current_before" ]]
-  [[ $(find "$install_root/.project-space-machine-tools/versions" -mindepth 1 -maxdepth 1 -type d | wc -l) == "$maintenance_versions_before" ]]
-  [[ $(wc -l < "$systemctl_log") == "$maintenance_systemctl_lines_before" ]]
-done
-
-# Repeat the guard after stopping the old service so a maintenance operation
-# that races the initial preflight cannot reach the pointer switch.
-maintenance_race_error="$temporary_root/maintenance-race.error"
-raced_release="$install_root/.project-space-machine-tools/versions/raced-release"
-mkdir -m 0700 -- "$raced_release"
-cp -- "$temporary_root/source/project" "$raced_release/project"
-cp -- "$temporary_root/source/project-codex-host" "$raced_release/project-codex-host"
-cp -- "$temporary_root/source/codex" "$raced_release/codex"
-cp -- "$temporary_root/source/CODEX-LICENSE" "$raced_release/CODEX-LICENSE"
-cp -- "$temporary_root/source/CODEX-NOTICE" "$raced_release/CODEX-NOTICE"
-cp -- "$temporary_root/source/CODEX-VERSION" "$raced_release/CODEX-VERSION"
-set +e
-PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP="$maintenance_root/control.json" \
-PROJECT_FIXTURE_POINTER_ON_STOP="$install_root/.project-space-machine-tools/current" \
-PROJECT_FIXTURE_POINTER_TARGET='versions/raced-release' \
-  "$upgrade_bundle/install.sh" --install-dir "$install_root" \
-  >/dev/null 2>"$maintenance_race_error"
-maintenance_race_status=$?
-set -e
-[[ $maintenance_race_status -eq 75 ]]
-grep -Fx 'Connector maintenance is still active or unresolved; recover it before installing.' \
-  "$maintenance_race_error"
-rm -f -- "$maintenance_root/control.json"
-[[ $(readlink "$install_root/.project-space-machine-tools/current") == 'versions/raced-release' ]]
-grep -Fx -- '--user stop project-space-machine-connector-supervisor.service' "$systemctl_log"
-pointer_restore="$temporary_root/current.restore"
-ln -s -- "$maintenance_current_before" "$pointer_restore"
-mv -Tf -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
-
-# If a racing update finishes before the second check, a later verification
-# failure must roll back to that newly completed pointer without restarting the
-# retired service.
-set +e
-PROJECT_FIXTURE_CONNECTOR_VERSION=0.4.7 \
-PROJECT_FIXTURE_POINTER_ON_STOP="$install_root/.project-space-machine-tools/current" \
-PROJECT_FIXTURE_POINTER_TARGET='versions/raced-release' \
-  "$upgrade_bundle/install.sh" --install-dir "$install_root" >/dev/null 2>&1
-completed_race_status=$?
-set -e
-[[ $completed_race_status -eq 70 ]]
-[[ $(readlink "$install_root/.project-space-machine-tools/current") == 'versions/raced-release' ]]
-[[ ! -e $service_log ]]
-ln -s -- "$maintenance_current_before" "$pointer_restore"
-mv -Tf -- "$pointer_restore" "$install_root/.project-space-machine-tools/current"
-rm -rf -- "$raced_release"
 
 "$upgrade_bundle/install.sh" --install-dir "$install_root" >/dev/null
 [[ $($install_root/project) == 'project fixture v2' ]]

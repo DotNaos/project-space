@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: ./install.sh [--install-dir <absolute-path>] [--external-connector-supervisor]
+Usage: ./install.sh [--install-dir <absolute-path>]
 
 Installs the Project CLI and versioned compatibility tools for the current user.
 Fresh installs do not create or start a Connector service.
@@ -11,7 +11,6 @@ EOF
 }
 
 install_directory="${HOME}/.local/bin"
-connector_service_mode=${PROJECT_SPACE_MACHINE_TOOLS_SERVICE_MODE:-auto}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install-dir)
@@ -21,10 +20,6 @@ while [[ $# -gt 0 ]]; do
       fi
       install_directory=$2
       shift 2
-      ;;
-    --external-connector-supervisor)
-      connector_service_mode=external
-      shift
       ;;
     -h|--help)
       usage
@@ -36,17 +31,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-case $connector_service_mode in
-  auto)
-    connector_service_mode=managed
-    ;;
-  managed|external) ;;
-  *)
-    echo "Invalid connector service mode: $connector_service_mode" >&2
-    exit 64
-    ;;
-esac
 
 if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
   echo "This bundle supports Linux x86_64 only." >&2
@@ -69,7 +53,7 @@ bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 for required in \
   SHA256SUMS.txt VERSION project project-codex-host codex \
   CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
-  connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
+  release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
     echo "The release bundle is incomplete: $required is missing." >&2
     exit 66
@@ -122,23 +106,6 @@ if [[ -e $current_link && ! -L $current_link ]]; then
   echo "The machine-tools current pointer is not a symbolic link: $current_link" >&2
   exit 73
 fi
-
-maintenance_root="${tools_root}/maintenance"
-assert_connector_maintenance_idle() {
-  if [[ -L $maintenance_root || ( -e $maintenance_root && ! -d $maintenance_root ) ]]; then
-    echo "The connector maintenance path is unsafe: $maintenance_root" >&2
-    return 73
-  fi
-  local maintenance_marker marker_path
-  for maintenance_marker in state.json control.json decision.json; do
-    marker_path="${maintenance_root}/${maintenance_marker}"
-    if [[ -e $marker_path || -L $marker_path ]]; then
-      echo "Connector maintenance is still active or unresolved; recover it before installing." >&2
-      return 75
-    fi
-  done
-}
-assert_connector_maintenance_idle
 
 bundle_digest=$(sha256sum "${bundle_root}/SHA256SUMS.txt" | awk '{print $1}')
 release_id="${version}-${bundle_digest:0:16}"
@@ -206,8 +173,6 @@ install -m 0755 -- "${bundle_root}/codex" "${staged_release}/codex"
 install -m 0644 -- "${bundle_root}/CODEX-LICENSE" "${staged_release}/CODEX-LICENSE"
 install -m 0644 -- "${bundle_root}/CODEX-NOTICE" "${staged_release}/CODEX-NOTICE"
 install -m 0600 -- "${bundle_root}/CODEX-VERSION" "${staged_release}/CODEX-VERSION"
-install -m 0644 -- "${bundle_root}/connector-command-signing-public-key.pem" \
-  "${staged_release}/connector-command-signing-public-key.pem"
 install -m 0644 -- "${bundle_root}/release-manifest-signing-public-key.pem" \
   "${staged_release}/release-manifest-signing-public-key.pem"
 install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
@@ -215,7 +180,7 @@ install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 if [[ -d $release_directory ]]; then
   for member in \
     project project-codex-host codex CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
-    connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
+    release-manifest-signing-public-key.pem \
     VERSION; do
     if ! cmp -s -- "${staged_release}/${member}" "${release_directory}/${member}"; then
       echo "The existing machine-tools release directory does not match this bundle." >&2
@@ -234,19 +199,7 @@ for name in project project-codex-host; do
   fi
 done
 
-existing_project="${install_directory}/project"
-managed_current_project="${current_link}/project"
-previous_service_project=""
-if [[ -x $managed_current_project ]]; then
-  previous_service_project=$managed_current_project
-elif [[ -x $existing_project ]]; then
-  previous_service_project=$existing_project
-fi
 installation_started=1
-if [[ $connector_service_mode == managed && -n $previous_service_project ]]; then
-  systemctl --user stop project-space-machine-connector-supervisor.service
-fi
-assert_connector_maintenance_idle
 if [[ -L $current_link ]]; then
   previous_current_target=$(readlink -- "$current_link")
 fi
@@ -282,7 +235,7 @@ if ! verify_installed_pair; then
   exit 70
 fi
 
-if [[ $connector_service_mode == managed ]] && command -v systemctl >/dev/null 2>&1; then
+if command -v systemctl >/dev/null 2>&1; then
   for retired_unit in \
     project-space-machine-connector-supervisor.service \
     project-space-connector.service; do

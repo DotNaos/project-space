@@ -44,7 +44,7 @@ fi
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 for required in \
   SHA256SUMS.txt VERSION project project-codex-host \
-  connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
+  release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
     echo "The release bundle is incomplete: $required is missing." >&2
     exit 66
@@ -95,53 +95,15 @@ if [[ -e $current_link && ! -L $current_link ]]; then
   exit 73
 fi
 
-maintenance_root="${tools_root}/maintenance"
-assert_connector_maintenance_idle() {
-  if [[ -L $maintenance_root || ( -e $maintenance_root && ! -d $maintenance_root ) ]]; then
-    echo "The connector maintenance path is unsafe: $maintenance_root" >&2
-    return 73
-  fi
-  local maintenance_marker marker_path
-  for maintenance_marker in state.json control.json decision.json; do
-    marker_path="${maintenance_root}/${maintenance_marker}"
-    if [[ -e $marker_path || -L $marker_path ]]; then
-      echo "Connector maintenance is still active or unresolved; recover it before installing." >&2
-      return 75
-    fi
-  done
-}
-assert_connector_maintenance_idle
-
 legacy_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space-connector.plist"
 modern_plist="${HOME}/Library/LaunchAgents/net.os-home.project-space.machine-connector-supervisor.plist"
 if [[ -L $legacy_plist || -L $modern_plist ]]; then
   echo "Refusing to migrate a connector LaunchAgent through a symbolic link." >&2
   exit 73
 fi
-service_mode=none
-[[ ! -f $legacy_plist ]] || service_mode=legacy
-[[ ! -f $modern_plist ]] || service_mode=managed
-migrate_legacy_service=0
-if [[ -f $legacy_plist && -f $modern_plist ]]; then
-  migrate_legacy_service=1
-fi
 launch_domain="gui/$(id -u)"
 legacy_service="${launch_domain}/net.os-home.project-space-connector"
 modern_service="${launch_domain}/net.os-home.project-space.machine-connector-supervisor"
-existing_project="${install_directory}/project"
-previous_managed_project=""
-if [[ $service_mode == managed && ! -x $existing_project ]]; then
-  previous_managed_project=$(
-    /usr/bin/plutil -extract ProgramArguments.0 raw -o - "$modern_plist" 2>/dev/null || true
-  )
-  if [[ $previous_managed_project != /* || ! -f $previous_managed_project ||
-    ! -x $previous_managed_project || $previous_managed_project == *$'\n'* ||
-    $previous_managed_project == *$'\r'* ]]; then
-    echo "The existing managed connector executable could not be preserved." >&2
-    exit 73
-  fi
-fi
-
 bundle_digest=$(shasum -a 256 "${bundle_root}/SHA256SUMS.txt" | awk '{print $1}')
 release_id="${version}-${bundle_digest:0:16}"
 release_directory="${versions_root}/${release_id}"
@@ -204,14 +166,14 @@ mkdir -m 0700 -- "$staged_release"
 for name in project project-codex-host; do
   install -m 0755 -- "${bundle_root}/${name}" "${staged_release}/${name}"
 done
-for name in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
+for name in release-manifest-signing-public-key.pem; do
   install -m 0644 -- "${bundle_root}/${name}" "${staged_release}/${name}"
 done
 install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 if [[ -d $release_directory ]]; then
   for member in \
     project project-codex-host \
-    connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
+    release-manifest-signing-public-key.pem \
     VERSION; do
     if ! files_match "${staged_release}/${member}" "${release_directory}/${member}"; then
       echo "The existing machine-tools release directory does not match this bundle." >&2
@@ -231,19 +193,12 @@ for name in project project-codex-host; do
 done
 
 installation_started=1
-if [[ $migrate_legacy_service -eq 1 ]] && launchctl print "$legacy_service" >/dev/null 2>&1; then
+if launchctl print "$legacy_service" >/dev/null 2>&1; then
   launchctl bootout "$legacy_service"
 fi
-if [[ $service_mode == legacy ]]; then
-  if launchctl print "$legacy_service" >/dev/null 2>&1; then
-    launchctl bootout "$legacy_service"
-  fi
-elif [[ $service_mode == managed ]]; then
-  if launchctl print "$modern_service" >/dev/null 2>&1; then
-    launchctl bootout "$modern_service"
-  fi
+if launchctl print "$modern_service" >/dev/null 2>&1; then
+  launchctl bootout "$modern_service"
 fi
-assert_connector_maintenance_idle
 [[ ! -L $current_link ]] || previous_current_target=$(readlink "$current_link")
 
 for name in project project-codex-host; do
@@ -286,7 +241,5 @@ committed=1
 rm -rf -- "$transaction_root"
 trap - EXIT
 printf 'Installed Project Space machine tools %s in %s\n' "$version" "$install_directory"
-if [[ $service_mode == none ]]; then
-  printf 'Next: run %s/project environment list --format json\n' "$install_directory"
-  printf 'Then launch a pinned Runtime with project environment bootstrap.\n'
-fi
+printf 'Next: run %s/project environment list --format json\n' "$install_directory"
+printf 'Then launch a pinned Runtime with project environment bootstrap.\n'

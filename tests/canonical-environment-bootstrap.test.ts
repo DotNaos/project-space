@@ -30,13 +30,15 @@ describe('canonical Environment bootstrap', () => {
     const macos = source('packaging/macos/install-machine-tools.sh');
     const selfUpdate = source('cmd/project/self_update.go');
 
-    expect(linux).toContain('auto)\n    connector_service_mode=managed');
+    expect(linux).not.toContain('connector_service_mode');
+    expect(linux).not.toContain('external-connector-supervisor');
     expect(linux).toContain('systemctl --user stop "$retired_unit"');
     expect(linux).not.toContain('connector service start-if-connected');
     expect(linux).toContain('project environment bootstrap');
     expect(linux).not.toContain('Next: run %s/project connect');
-    expect(macos).toContain('elif [[ $service_mode == managed ]]');
-    expect(macos).toContain('if [[ $service_mode == none ]]');
+    expect(macos).not.toContain('service_mode');
+    expect(macos).toContain('launchctl bootout "$legacy_service"');
+    expect(macos).toContain('launchctl bootout "$modern_service"');
     expect(macos).toContain('project environment bootstrap');
     expect(macos).not.toContain('connector service start-if-connected');
     expect(selfUpdate).toContain('verified Project CLI release');
