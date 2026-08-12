@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { generateKeyPairSync } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -187,7 +187,8 @@ describe('managed shared Codex daemon', () => {
     expect(ensured[0]).toEqual(ensured[1]);
     expect(restarted[0]).toEqual(restarted[1]);
     expect(fixture.commands).not.toContain('disable-remote-control');
-    expect(fixture.commands).not.toContain('enable-remote-control');
+    expect(fixture.commands.filter((command) => command === 'enable-remote-control'))
+      .toHaveLength(2);
     expect(fixture.commands.filter((command) => command === 'start')).toHaveLength(1);
     expect(fixture.commands.filter((command) => command === 'restart')).toHaveLength(1);
     await fixture.close();
@@ -216,8 +217,311 @@ describe('managed shared Codex daemon', () => {
 
     expect(ensured.evidence).toMatchObject({ compatible: true, state: 'ready' });
     expect(restarted.evidence).toMatchObject({ compatible: true, state: 'ready' });
-    expect(fixture.commands.filter((command) => command === 'restart')).toHaveLength(2);
+    expect(fixture.commands.filter((command) => command === 'restart')).toHaveLength(1);
     expect(fixture.maximumConcurrentCommands()).toBe(1);
+    await fixture.close();
+  });
+
+  test('replaces daemon auto-update drift with the exact signed bundled runtime', async () => {
+    const fixture = await daemonFixture({
+      initialAppServerVersion: '0.147.0',
+      initialManagedCodexVersion: '0.147.0',
+      managedBinaryLayout: 'packaged-symlink'
+    });
+    const updaterPid = 4_100_001;
+    await mkdir(join(fixture.environment.CODEX_HOME!, 'app-server-daemon'), {
+      recursive: true
+    });
+    await writeFile(
+      join(fixture.environment.CODEX_HOME!, 'app-server-daemon', 'app-server-updater.pid'),
+      JSON.stringify({ pid: updaterPid, processStartTime: 'fixture' })
+    );
+    const running = new Set([updaterPid]);
+    const terminated: number[] = [];
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      processExists: (pid) => running.has(pid),
+      readManagedProcess: async (pid) => pid === updaterPid ? {
+        arguments: [
+          '/managed/codex', 'app-server', 'daemon', 'pid-update-loop'
+        ],
+        executable: join(
+          fixture.environment.CODEX_HOME!,
+          'packages', 'standalone', 'releases', '0.147.0', 'bin', 'codex'
+        ),
+        processStartTime: 'fixture'
+      } : undefined,
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run,
+      sleep: async () => undefined,
+      terminateProcess: (pid) => {
+        terminated.push(pid);
+        running.delete(pid);
+      }
+    });
+
+    const result = await manager.execute('ensure', 'doctor-repair-auto-update-drift');
+
+    expect(result.evidence).toMatchObject({
+      appServerVersion: '0.146.0',
+      cliVersion: '0.146.0',
+      compatible: true,
+      state: 'ready'
+    });
+    expect(terminated).toEqual([updaterPid]);
+    expect(fixture.commands).toContain('stop');
+    expect(fixture.commands).toContain('enable-remote-control');
+    expect(await realpath(join(
+      fixture.environment.CODEX_HOME!, 'packages', 'standalone', 'current'
+    ))).toContain('0.146.0-project-space-');
+    await expect(manager.execute('status', 'doctor-stable-recheck')).resolves.toMatchObject({
+      evidence: {
+        appServerVersion: '0.146.0',
+        cliVersion: '0.146.0',
+        compatible: true,
+        state: 'ready'
+      },
+      state: 'completed'
+    });
+    await fixture.close();
+  });
+
+  test('replaces a same-version managed binary that differs from the signed bundle', async () => {
+    const fixture = await daemonFixture({ managedBinaryContents: 'different runtime\n' });
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run
+    });
+
+    await expect(manager.execute('ensure', 'doctor-replace-same-version-runtime'))
+      .resolves.toMatchObject({ evidence: { compatible: true, state: 'ready' } });
+    expect(fixture.commands).toContain('stop');
+    expect(await Bun.file(join(
+      fixture.environment.CODEX_HOME!, 'packages', 'standalone', 'current', 'codex'
+    )).text()).toBe('#!/bin/sh\nexit 0\n');
+    await fixture.close();
+  });
+
+  test('stops an exact orphaned managed app-server when lifecycle stop is unavailable', async () => {
+    const fixture = await daemonFixture({
+      initialAppServerVersion: '0.147.0',
+      initialManagedCodexVersion: '0.147.0',
+      managedBinaryLayout: 'packaged-symlink',
+      stopFails: true
+    });
+    const appServerPid = 4_100_002;
+    await mkdir(join(fixture.environment.CODEX_HOME!, 'app-server-daemon'), {
+      recursive: true
+    });
+    await writeFile(
+      join(fixture.environment.CODEX_HOME!, 'app-server-daemon', 'app-server.pid'),
+      JSON.stringify({ pid: appServerPid, processStartTime: 'fixture' })
+    );
+    let running = true;
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      processExists: () => running,
+      readManagedProcess: async (pid) => pid === appServerPid ? {
+        arguments: [
+          '/managed/codex', 'app-server', '--remote-control', '--listen', 'unix://'
+        ],
+        executable: join(
+          fixture.environment.CODEX_HOME!,
+          'packages', 'standalone', 'releases', '0.147.0', 'bin', 'codex'
+        ),
+        processStartTime: 'fixture'
+      } : undefined,
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run,
+      sleep: async () => undefined,
+      terminateProcess: () => {
+        running = false;
+      }
+    });
+
+    const result = await manager.execute('ensure', 'doctor-repair-orphan');
+
+    expect(result.evidence).toMatchObject({ compatible: true, state: 'ready' });
+    expect(running).toBe(false);
+    expect(fixture.commands.filter((command) => command === 'stop')).toHaveLength(1);
+    await fixture.close();
+  });
+
+  test('refuses to terminate an updater process outside the managed package tree', async () => {
+    const fixture = await daemonFixture({
+      initialAppServerVersion: '0.147.0',
+      initialManagedCodexVersion: '0.147.0'
+    });
+    const updaterPid = 4_100_003;
+    await mkdir(join(fixture.environment.CODEX_HOME!, 'app-server-daemon'), {
+      recursive: true
+    });
+    await writeFile(
+      join(fixture.environment.CODEX_HOME!, 'app-server-daemon', 'app-server-updater.pid'),
+      JSON.stringify({ pid: updaterPid, processStartTime: 'fixture' })
+    );
+    let terminated = false;
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      readManagedProcess: async () => ({
+        arguments: ['/usr/bin/codex', 'app-server', 'daemon', 'pid-update-loop'],
+        executable: '/usr/bin/codex',
+        processStartTime: 'fixture'
+      }),
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run,
+      terminateProcess: () => {
+        terminated = true;
+      }
+    });
+
+    await expect(manager.execute('ensure', 'doctor-refuse-unrelated-updater'))
+      .rejects.toThrow('outside the managed Codex package tree');
+    expect(terminated).toBe(false);
+    await fixture.close();
+  });
+
+  test('repairs drift safely when updater PID metadata is stale', async () => {
+    const fixture = await daemonFixture({
+      initialAppServerVersion: '0.147.0',
+      initialManagedCodexVersion: '0.147.0'
+    });
+    await mkdir(join(fixture.environment.CODEX_HOME!, 'app-server-daemon'), {
+      recursive: true
+    });
+    await writeFile(
+      join(fixture.environment.CODEX_HOME!, 'app-server-daemon', 'app-server-updater.pid'),
+      JSON.stringify({ pid: 4_100_004, processStartTime: 'stale fixture' })
+    );
+    let terminated = false;
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      readManagedProcess: async () => undefined,
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run,
+      terminateProcess: () => {
+        terminated = true;
+      }
+    });
+
+    await expect(manager.execute('ensure', 'doctor-stale-updater-pid')).resolves.toMatchObject({
+      evidence: { compatible: true, state: 'ready' }
+    });
+    expect(terminated).toBe(false);
+    await fixture.close();
+  });
+
+  test('refuses to terminate a managed process after PID reuse', async () => {
+    const fixture = await daemonFixture({
+      initialAppServerVersion: '0.147.0',
+      initialManagedCodexVersion: '0.147.0'
+    });
+    await mkdir(join(fixture.environment.CODEX_HOME!, 'app-server-daemon'), {
+      recursive: true
+    });
+    await writeFile(
+      join(fixture.environment.CODEX_HOME!, 'app-server-daemon', 'app-server-updater.pid'),
+      JSON.stringify({ pid: 4_100_005, processStartTime: 'old fixture' })
+    );
+    let terminated = false;
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      readManagedProcess: async () => ({
+        arguments: ['/managed/codex', 'app-server', 'daemon', 'pid-update-loop'],
+        executable: join(
+          fixture.environment.CODEX_HOME!,
+          'packages', 'standalone', 'releases', '0.147.0', 'bin', 'codex'
+        ),
+        processStartTime: 'new fixture'
+      }),
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run,
+      terminateProcess: () => {
+        terminated = true;
+      }
+    });
+
+    await expect(manager.execute('ensure', 'doctor-refuse-reused-pid'))
+      .rejects.toThrow('reused PID');
+    expect(terminated).toBe(false);
+    await fixture.close();
+  });
+
+  test('rolls the managed runtime pointer back when daemon activation fails', async () => {
+    const fixture = await daemonFixture({
+      failCommand: 'enable-remote-control',
+      initialAppServerVersion: '0.147.0',
+      initialManagedCodexVersion: '0.147.0',
+      managedBinaryLayout: 'packaged-symlink'
+    });
+    const current = join(
+      fixture.environment.CODEX_HOME!, 'packages', 'standalone', 'current'
+    );
+    const previousRelease = await realpath(current);
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run
+    });
+
+    await expect(manager.execute('ensure', 'doctor-rollback-failed-activation'))
+      .rejects.toThrow('enable-remote-control operation could not be confirmed');
+    expect(await realpath(current)).toBe(previousRelease);
+    expect(fixture.commands.filter((command) => command === 'stop')).toHaveLength(2);
+    await fixture.close();
+  });
+
+  test('bounds post-repair readiness verification and rolls back on timeout', async () => {
+    const fixture = await daemonFixture({
+      emitRemoteStatus: false,
+      initialAppServerVersion: '0.147.0',
+      initialManagedCodexVersion: '0.147.0',
+      managedBinaryLayout: 'packaged-symlink'
+    });
+    const current = join(
+      fixture.environment.CODEX_HOME!, 'packages', 'standalone', 'current'
+    );
+    const previousRelease = await realpath(current);
+    let sleepCount = 0;
+    const manager = new CodexDaemonManager({
+      environment: fixture.environment,
+      manager: {
+        executeManagedOperation: async (_operationId, _fingerprint, action) => action()
+      },
+      resolveBinary: () => fixture.binaryPath,
+      run: fixture.run,
+      sleep: async () => {
+        sleepCount++;
+      }
+    });
+
+    await expect(manager.execute('ensure', 'doctor-bounded-readiness'))
+      .rejects.toThrow('readiness was not established before the repair timeout');
+    expect(sleepCount).toBe(9);
+    expect(fixture.connectionCount()).toBe(10);
+    expect(await realpath(current)).toBe(previousRelease);
     await fixture.close();
   });
 
@@ -421,13 +725,17 @@ async function daemonFixture(options: {
   backend?: string;
   commandDelayMs?: number;
   emitRemoteStatus?: boolean;
+  failCommand?: string;
   ignoreInitialize?: boolean;
   initialAppServerVersion?: string;
+  initialManagedCodexVersion?: string;
   installSource?: string;
   managedBinary?: boolean;
+  managedBinaryContents?: string;
   managedBinaryLayout?: 'direct' | 'external-symlink' | 'packaged-symlink';
   managedBinaryMode?: number;
   remoteControlEnabled?: boolean;
+  stopFails?: boolean;
   unmaterializedRead?: boolean;
 } = {}) {
   const fixtureRoot = await mkdtemp(join(unixSocketFixtureRoot, 'ps-daemon-'));
@@ -450,7 +758,7 @@ async function daemonFixture(options: {
       const release = join(standalone, 'releases', '0.146.0-test');
       const managed = join(release, 'bin', 'codex');
       await mkdir(join(release, 'bin'), { recursive: true });
-      await writeFile(managed, '#!/bin/sh\nexit 0\n');
+      await writeFile(managed, options.managedBinaryContents ?? '#!/bin/sh\nexit 0\n');
       await chmod(managed, options.managedBinaryMode ?? 0o755);
       await symlink(release, current);
       await symlink('bin/codex', join(release, 'codex'));
@@ -463,7 +771,7 @@ async function daemonFixture(options: {
     } else {
       const managed = join(current, 'codex');
       await mkdir(current, { recursive: true });
-      await writeFile(managed, '#!/bin/sh\nexit 0\n');
+      await writeFile(managed, options.managedBinaryContents ?? '#!/bin/sh\nexit 0\n');
       await chmod(managed, options.managedBinaryMode ?? 0o755);
     }
   }
@@ -543,6 +851,7 @@ async function daemonFixture(options: {
   const commands: string[] = [];
   let activeCommands = 0;
   let appServerVersion = options.initialAppServerVersion ?? '0.146.0';
+  let managedCodexVersion = options.initialManagedCodexVersion ?? '0.146.0';
   let maximumConcurrentCommands = 0;
   const run = async (_binary: string, args: string[]) => {
     if (args[0] === '--version') {
@@ -556,14 +865,20 @@ async function daemonFixture(options: {
       }
       const command = args.at(-1)!;
       commands.push(command);
-      if (command === 'restart') appServerVersion = '0.146.0';
+      if ((command === 'stop' && options.stopFails) || command === options.failCommand) {
+        return { exitCode: 1, stdout: '' };
+      }
+      if (command === 'start' || command === 'restart') {
+        appServerVersion = '0.146.0';
+        managedCodexVersion = '0.146.0';
+      }
       return {
         exitCode: 0,
         stdout: JSON.stringify({
           appServerVersion,
           ...('backend' in options ? { backend: options.backend } : { backend: 'pid' }),
           cliVersion: '0.146.0',
-          managedCodexVersion: '0.146.0',
+          managedCodexVersion,
           remoteControlEnabled: options.remoteControlEnabled ?? true,
           socketPath,
           status: command === 'version' ? 'running' : 'started'
