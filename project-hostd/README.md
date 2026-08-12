@@ -10,7 +10,9 @@ dev-server, or arbitrary filesystem API.
 
 The configuration contains `schemaVersion`, `deviceId`, `environmentId`, optional `hostId`,
 `endpoint`, `token`, an absolute `statePath`, optional `intervalSeconds`, and an optional
-`runtimes` list containing `workspaceId`, `generation`, and `processGroupId`. The state file
+`runtimes` list containing `workspaceId`, `generation`, `processGroupId`,
+`processGroupLeaderPid`, and `processGroupLeaderStartedAtSeconds`. The leader PID plus kernel start
+time prevents a recycled process-group number from being attributed to an earlier runtime. The state file
 contains only sequence/retry data; it never contains the credential.
 
 ## Measurement contract

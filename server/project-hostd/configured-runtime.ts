@@ -38,7 +38,7 @@ export function createConfiguredProjectHostdRuntime(options: {
         const sessions = await options.runtimeSessions.list(ownerUserId);
         return runtimes.every((runtime) => sessions.some((session) =>
           session.environmentId === environmentId && session.generation === runtime.generation &&
-          session.workspaceId === runtime.workspaceId && session.connectionState !== 'stopped'
+          session.workspaceId === runtime.workspaceId && session.connectionState === 'online'
         ));
       }
     }

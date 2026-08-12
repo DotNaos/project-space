@@ -58,8 +58,10 @@ mod tests {
         };
         save(&path, &state).unwrap();
         assert_eq!(load(&path).unwrap().last_accepted_sequence, 7);
-        assert!(!String::from_utf8(fs::read(path).unwrap())
-            .unwrap()
-            .contains("token"));
+        assert!(
+            !String::from_utf8(fs::read(path).unwrap())
+                .unwrap()
+                .contains("token")
+        );
     }
 }

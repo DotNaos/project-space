@@ -25,6 +25,8 @@ pub struct Config {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RegisteredRuntime {
     pub generation: String,
+    pub process_group_leader_pid: u32,
+    pub process_group_leader_started_at_seconds: u64,
     pub process_group_id: u32,
     pub workspace_id: String,
 }
@@ -64,6 +66,8 @@ fn validate(config: &mut Config) -> Result<(), String> {
         if !is_uuid(&runtime.workspace_id)
             || !is_uuid(&runtime.generation)
             || runtime.process_group_id == 0
+            || runtime.process_group_leader_pid == 0
+            || runtime.process_group_leader_started_at_seconds == 0
         {
             return Err("hostd runtime registration is invalid".into());
         }
@@ -125,14 +129,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn config_rejects_broad_permissions_and_symlinks() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
         let root = tempfile::tempdir().unwrap();
         let config = root.path().join("hostd.json");
         fs::write(&config, "{}").unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(load(&config)
-            .unwrap_err()
-            .contains("must not be accessible"));
+        assert!(
+            load(&config)
+                .unwrap_err()
+                .contains("must not be accessible")
+        );
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
         let link = root.path().join("hostd-link.json");
         symlink(&config, &link).unwrap();

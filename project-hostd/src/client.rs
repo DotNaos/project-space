@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::time::Duration;
 
 use crate::config::Config;
@@ -24,9 +25,9 @@ pub fn send(config: &Config, observation: &Observation) -> Result<Accepted, Deli
     let response = match response {
         Ok(response) => response,
         Err(ureq::Error::Status(_, response)) => {
-            let payload: ErrorResponse = response
-                .into_json()
-                .map_err(|_| DeliveryError::Unavailable)?;
+            let payload: ErrorResponse =
+                serde_json::from_reader(response.into_reader().take(8 * 1024))
+                    .map_err(|_| DeliveryError::Unavailable)?;
             return if payload.error.code == "stale_observation" {
                 Err(DeliveryError::StaleObservation)
             } else {
@@ -38,8 +39,7 @@ pub fn send(config: &Config, observation: &Observation) -> Result<Accepted, Deli
     if response.status() != 200 {
         return Err(DeliveryError::Unavailable);
     }
-    let accepted: Accepted = response
-        .into_json()
+    let accepted: Accepted = serde_json::from_reader(response.into_reader().take(8 * 1024))
         .map_err(|_| DeliveryError::Unavailable)?;
     if accepted.schema_version != 1
         || accepted.message_type != "hostd.accepted"

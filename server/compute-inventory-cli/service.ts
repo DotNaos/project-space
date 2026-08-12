@@ -107,7 +107,7 @@ export function buildProjectCliComputeInventory(
       environment.id
     ].join('/');
     const hostd = hasHostdInventory
-      ? uniqueHostdSnapshot(input.hostdSnapshots ?? [], environment.id)
+      ? uniqueHostdSnapshot(input.hostdSnapshots ?? [], environment.id, hostId)
       : undefined;
     return {
       accessRoutes: routes,
@@ -170,9 +170,11 @@ export function buildProjectCliComputeInventory(
 
 function uniqueHostdSnapshot(
   snapshots: readonly ProjectHostdSnapshot[],
-  environmentId: string
+  environmentId: string,
+  hostId: string | undefined
 ) {
-  const matches = snapshots.filter((snapshot) => snapshot.environmentId === environmentId);
+  const matches = snapshots.filter((snapshot) => snapshot.environmentId === environmentId &&
+    snapshot.hostId === hostId);
   return matches.length === 1 ? matches[0] : undefined;
 }
 

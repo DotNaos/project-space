@@ -272,11 +272,16 @@ describe('agent-safe compute inventory', () => {
     const snapshot = computeInventoryFromConnectors({ connectors });
     const environment = snapshot.environments.find(({ kind }) => kind === 'native_macos') ??
       snapshot.environments[0]!;
+    const environmentHostId = environment.hostAssociation.resolution === 'verified' ||
+      environment.hostAssociation.resolution === 'manual'
+      ? environment.hostAssociation.hostId
+      : undefined;
     const inventory = buildProjectCliComputeInventory({
       checkedAt: '2026-08-11T10:01:00.000Z', connectors,
       hostdSnapshots: [{
         connectionState: 'online', credentialId: 'private-credential-id',
         deviceId: '10000000-0000-4000-8000-000000000001', environmentId: environment.id,
+        ...(environmentHostId ? { hostId: environmentHostId } : {}),
         health: 'degraded', hostdVersion: '0.1.0', lastSeenAt: '2026-08-11T10:00:59.000Z',
         observedAt: '2026-08-11T10:00:58.000Z', partialMetrics: ['gpu', 'memory'], protocolVersion: 1,
         resources: {

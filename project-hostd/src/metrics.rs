@@ -10,7 +10,7 @@ pub fn collect(config: &Config, sequence: u64) -> Result<Observation, String> {
     std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     system.refresh_all();
     let disks = Disks::new_with_refreshed_list();
-    let (total_storage, available_storage) = storage_for_path(&disks, &config.state_path)
+    let (total_storage, available_storage) = largest_local_storage(&disks)
         .ok_or_else(|| "required storage metrics are unavailable".to_string())?;
     if system.cpus().is_empty() || system.total_memory() == 0 || total_storage == 0 {
         return Err("required host metrics are unavailable".into());
@@ -22,7 +22,9 @@ pub fn collect(config: &Config, sequence: u64) -> Result<Observation, String> {
         .filter_map(|runtime| match runtime_telemetry(&system, runtime) {
             Some(telemetry) => Some(telemetry),
             None => {
-                partial.push("runtime".to_string());
+                if !partial.iter().any(|metric| metric == "runtime") {
+                    partial.push("runtime".to_string());
+                }
                 None
             }
         })
@@ -74,6 +76,16 @@ pub fn collect(config: &Config, sequence: u64) -> Result<Observation, String> {
 }
 
 fn runtime_telemetry(system: &System, runtime: &RegisteredRuntime) -> Option<RuntimeTelemetry> {
+    let leader = system.process(sysinfo::Pid::from_u32(runtime.process_group_leader_pid))?;
+    if leader.start_time() != runtime.process_group_leader_started_at_seconds {
+        return None;
+    }
+    #[cfg(unix)]
+    if (unsafe { libc::getpgid(runtime.process_group_leader_pid as libc::pid_t) })
+        != runtime.process_group_id as libc::pid_t
+    {
+        return None;
+    }
     let processes: Vec<_> = system
         .processes()
         .values()
@@ -114,17 +126,12 @@ fn rounded_percent(value: f64) -> f64 {
     (value * 1_000.0).round() / 1_000.0
 }
 
-fn storage_for_path(disks: &Disks, path: &Path) -> Option<(u64, u64)> {
-    let mut existing = path;
-    while !existing.exists() {
-        existing = existing.parent()?;
-    }
-    let target = existing.canonicalize().ok()?;
+fn largest_local_storage(disks: &Disks) -> Option<(u64, u64)> {
     let disk = disks
         .list()
         .iter()
-        .filter(|disk| target.starts_with(disk.mount_point()))
-        .max_by_key(|disk| disk.mount_point().components().count())?;
+        .filter(|disk| !disk.is_removable())
+        .max_by_key(|disk| disk.total_space())?;
     Some((disk.total_space(), disk.available_space()))
 }
 
@@ -161,8 +168,16 @@ mod tests {
     fn attributes_only_an_explicitly_registered_process_group() {
         // SAFETY: getpgid(0) reads the calling test process group.
         let process_group_id = unsafe { libc::getpgid(0) } as u32;
+        let pid = std::process::id();
+        let system = System::new_all();
+        let started_at = system
+            .process(sysinfo::Pid::from_u32(pid))
+            .expect("current process")
+            .start_time();
         let config = test_config(vec![RegisteredRuntime {
             generation: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".into(),
+            process_group_leader_pid: pid,
+            process_group_leader_started_at_seconds: started_at,
             process_group_id,
             workspace_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".into(),
         }]);
@@ -170,6 +185,24 @@ mod tests {
         assert_eq!(observation.runtimes.len(), 1);
         assert_eq!(observation.runtimes[0].boundary_kind, "process_group");
         assert!(observation.runtimes[0].memory_bytes > 0);
+    }
+
+    #[test]
+    fn multiple_missing_boundaries_emit_one_partial_marker() {
+        let config = test_config(vec![missing_runtime(91), missing_runtime(92)]);
+        let observation = collect(&config, 1).expect("collect partial metrics");
+        assert_eq!(observation.partial_metrics, vec!["runtime"]);
+        assert!(observation.runtimes.is_empty());
+    }
+
+    fn missing_runtime(suffix: u32) -> RegisteredRuntime {
+        RegisteredRuntime {
+            generation: format!("cccccccc-cccc-4ccc-8ccc-{suffix:012}"),
+            process_group_id: u32::MAX - suffix,
+            process_group_leader_pid: u32::MAX - suffix,
+            process_group_leader_started_at_seconds: 1,
+            workspace_id: format!("dddddddd-dddd-4ddd-8ddd-{suffix:012}"),
+        }
     }
 
     fn test_config(runtimes: Vec<RegisteredRuntime>) -> Config {
