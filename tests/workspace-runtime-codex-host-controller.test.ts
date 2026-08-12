@@ -108,7 +108,7 @@ describe('Workspace Runtime Codex host controller', () => {
       method: 'item/agentMessage/delta',
       params: { delta: 'safe update', itemId: 'item-one', threadId: 'thread-one', turnId: 'turn-one' }
     });
-    await Bun.sleep(5);
+    await waitForMessage(fixture.messages, 'runtime.codex.event');
     expect(fixture.messages.at(-1)).toMatchObject({
       eventSequence: 1,
       type: 'runtime.codex.event'
@@ -189,4 +189,13 @@ function fakeManager(overrides: Record<string, unknown> = {}) {
     subscribe: () => () => true,
     ...overrides
   } as unknown as CodexSessionManager;
+}
+
+async function waitForMessage(messages: WorkspaceRuntimeCodexMessage[], type: WorkspaceRuntimeCodexMessage['type']) {
+  const deadline = performance.now() + 1_000;
+  while (performance.now() < deadline) {
+    if (messages.at(-1)?.type === type) return;
+    await Bun.sleep(1);
+  }
+  throw new Error(`Timed out waiting for ${type}.`);
 }
