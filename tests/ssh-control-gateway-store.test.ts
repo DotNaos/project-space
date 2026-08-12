@@ -85,9 +85,62 @@ describe('SSH control gateway durable store', () => {
     expect(client.events).toEqual(['reservation_expired', 'reserved']);
   });
 
+  test('does not renew an expired operation onto a different durable route', async () => {
+    const client = new GatewayStoreClient();
+    client.row = operationRow({ reserved_until: '2026-08-12T00:00:00.000Z' });
+    client.renewExpired = true;
+    await expect(new PostgresSshGatewayOperationStore(client).reserve({
+      audit: { ...audit(), routeId: '44444444-4444-4444-8444-444444444444' },
+      fingerprint, operationId: 'op-1', ownerUserId: owner,
+      targetEnvironmentId: environmentId
+    })).rejects.toMatchObject({ code: 'operation_conflict' });
+    expect(client.events).toEqual([]);
+  });
+
+  test('replays a terminal exact caller operation without rebinding its historical route', async () => {
+    const client = new GatewayStoreClient();
+    client.row = operationRow({
+      completed_at: '2026-08-12T00:00:01.000Z', safe_result: statusResult(), state: 'succeeded'
+    });
+    const replay = await new PostgresSshGatewayOperationStore(client).reserve({
+      audit: { ...audit(), routeId: '44444444-4444-4444-8444-444444444444' },
+      fingerprint, operationId: 'op-1', ownerUserId: owner,
+      targetEnvironmentId: environmentId
+    });
+    expect(replay.replayed).toBe(true);
+    expect(replay.record.result).toEqual(statusResult());
+  });
+
+  test('does not reconcile a live dispatcher without an uncertain terminal fence', async () => {
+    const client = new GatewayStoreClient();
+    client.row = operationRow({
+      dispatch_lease_until: new Date(Date.now() + 60_000).toISOString(),
+      state: 'dispatching'
+    });
+    await expect(new PostgresSshGatewayOperationStore(client).reconcile({
+      audit: { ...audit(), outcome: 'failed' }, fingerprint,
+      operationId: 'op-1', ownerUserId: owner, state: 'failed'
+    })).rejects.toMatchObject({ code: 'operation_conflict' });
+    expect(client.events).toEqual([]);
+  });
+
+  test('reconciles a crashed dispatcher only after its bounded lease expires', async () => {
+    const client = new GatewayStoreClient();
+    client.row = operationRow({
+      dispatch_lease_until: new Date(Date.now() - 1_000).toISOString(),
+      state: 'dispatching'
+    });
+    const reconciled = await new PostgresSshGatewayOperationStore(client).reconcile({
+      audit: { ...audit(), outcome: 'failed' }, fingerprint,
+      operationId: 'op-1', ownerUserId: owner, state: 'failed'
+    });
+    expect(reconciled.state).toBe('failed');
+    expect(client.events).toEqual(['reconciled_failed']);
+  });
+
   test('explicit reconciliation resolves a crashed dispatch without redispatching it', async () => {
     const client = new GatewayStoreClient();
-    client.row = operationRow({ state: 'dispatching' });
+    client.row = operationRow({ state: 'uncertain' });
     const store = new PostgresSshGatewayOperationStore(client);
 
     const reconciled = await store.reconcile({
@@ -98,7 +151,7 @@ describe('SSH control gateway durable store', () => {
     expect(reconciled.state).toBe('failed');
     expect(client.events).toEqual(['reconciled_failed']);
     expect(client.calls.some(({ sql }) =>
-      sql.includes("state in ('dispatching', 'uncertain')"))).toBe(true);
+      sql.includes('dispatch_lease_until <= now()'))).toBe(true);
   });
 });
 
@@ -149,6 +202,9 @@ class GatewayStoreClient implements DatabaseQueryClient {
       return { rows: [{ operation_id: 'op-1' }] as Row[] };
     }
     if (sql.includes('set state = $3')) {
+      if (sql.includes('dispatch_lease_until <= now()') && this.row?.state === 'dispatching' &&
+        (!this.row.dispatch_lease_until ||
+          Date.parse(this.row.dispatch_lease_until) > Date.now())) return { rows: [] as Row[] };
       const state = String(values[2]) as ReturnType<typeof operationRow>['state'];
       this.row = operationRow({
         completed_at: new Date().toISOString(),
@@ -185,6 +241,7 @@ function operationRow(overrides: Record<string, unknown> = {}) {
   return {
     actor_id: 'actor-1', actor_kind: 'machine' as const, capability: 'project_cli' as const,
     completed_at: null as string | null, environment_id: environmentId,
+    dispatch_lease_until: null as string | null,
     fingerprint_sha256: fingerprint, gateway_id: 'gateway-1', operation: 'status.v1' as const,
     operation_id: 'op-1', route_id: routeId, safe_result: null as unknown,
     reserved_until: null as string | null,

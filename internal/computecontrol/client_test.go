@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestStatusUsesMachineAuthenticationAndIdempotency(t *testing.T) {
@@ -33,6 +34,9 @@ func TestStatusUsesMachineAuthenticationAndIdempotency(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if client.httpClient.Timeout != 70*time.Second {
+		t.Fatalf("client timeout = %s", client.httpClient.Timeout)
 	}
 	result, err := client.Status(context.Background(), StatusRequest{
 		EnvironmentID: environmentID, OperationID: "operation-one",

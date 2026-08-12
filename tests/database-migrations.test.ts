@@ -146,6 +146,7 @@ describe('database migrations', () => {
       "where state in ('reserved', 'dispatching', 'uncertain')"
     );
     expect(sshControlGatewayMigrationSql).toContain('reserved_until timestamptz');
+    expect(sshControlGatewayMigrationSql).toContain('dispatch_lease_until timestamptz');
     expect(sshControlGatewayMigrationSql).toContain("'reservation_expired'");
     expect(sshControlGatewayMigrationSql).toContain("'reconciled_succeeded'");
     expect(sshControlGatewayMigrationSql).toContain('create table ssh_gateway_operation_events');

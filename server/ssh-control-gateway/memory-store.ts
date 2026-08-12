@@ -8,6 +8,7 @@ import { validateReservation } from './store-validation';
 export class MemorySshGatewayOperationStore implements SshGatewayOperationStore {
   private readonly records = new Map<string, SshGatewayOperationRecord>();
   private readonly activeTargets = new Map<string, string>();
+  private readonly dispatchLeases = new Map<string, number>();
 
   async reserve(input: Parameters<SshGatewayOperationStore['reserve']>[0]) {
     validateReservation(input);
@@ -39,6 +40,7 @@ export class MemorySshGatewayOperationStore implements SshGatewayOperationStore 
       throw new SshGatewayError('operation_conflict', 'Operation cannot be dispatched.');
     }
     record.state = 'dispatching';
+    this.dispatchLeases.set(`${input.ownerUserId}:${input.operationId}`, Date.now() + 60_000);
   }
 
   async complete(input: Parameters<SshGatewayOperationStore['complete']>[0]) {
@@ -62,6 +64,7 @@ export class MemorySshGatewayOperationStore implements SshGatewayOperationStore 
       state: input.state
     };
     this.records.set(key, record);
+    this.dispatchLeases.delete(key);
     if (input.state !== 'uncertain') {
       this.activeTargets.delete(`${input.ownerUserId}:${record.audit.targetEnvironmentId}`);
     }
@@ -71,8 +74,10 @@ export class MemorySshGatewayOperationStore implements SshGatewayOperationStore 
   async reconcile(input: Parameters<SshGatewayOperationStore['reconcile']>[0]) {
     const key = `${input.ownerUserId}:${input.operationId}`;
     const current = this.records.get(key);
+    const dispatchLeaseExpired = current?.state === 'dispatching' &&
+      (this.dispatchLeases.get(key) ?? Number.POSITIVE_INFINITY) <= Date.now();
     if (!current || current.fingerprint !== input.fingerprint ||
-      !['dispatching', 'uncertain'].includes(current.state)) {
+      current.state !== 'uncertain' && !dispatchLeaseExpired) {
       throw new SshGatewayError('operation_conflict', 'Operation cannot be reconciled.');
     }
     assertResultBinding(current, input.result, input.state);
@@ -83,6 +88,7 @@ export class MemorySshGatewayOperationStore implements SshGatewayOperationStore 
       state: input.state
     };
     this.records.set(key, record);
+    this.dispatchLeases.delete(key);
     this.activeTargets.delete(`${input.ownerUserId}:${record.audit.targetEnvironmentId}`);
     return structuredClone(record);
   }

@@ -68,11 +68,11 @@ func NewClient(config Config) (*Client, error) {
 		baseURL.Hostname() != "127.0.0.1" && baseURL.Hostname() != "::1" {
 		return nil, ErrInvalidConfig
 	}
-	httpClient := http.Client{Timeout: 40 * time.Second}
+	httpClient := http.Client{Timeout: 70 * time.Second}
 	if config.HTTPClient != nil {
 		httpClient = *config.HTTPClient
 		if httpClient.Timeout == 0 {
-			httpClient.Timeout = 40 * time.Second
+			httpClient.Timeout = 70 * time.Second
 		}
 	}
 	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {

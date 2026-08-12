@@ -46,6 +46,7 @@ export const sshControlGatewayMigrationSql = `
     ),
     dispatch_attempted boolean not null default false,
     reserved_until timestamptz,
+    dispatch_lease_until timestamptz,
     safe_result jsonb,
     completed_at timestamptz,
     created_at timestamptz not null default now(),
@@ -59,16 +60,17 @@ export const sshControlGatewayMigrationSql = `
       ) on delete restrict,
     check (
       (state = 'reserved' and not dispatch_attempted and safe_result is null and
-        completed_at is null and reserved_until is not null) or
+        completed_at is null and reserved_until is not null and dispatch_lease_until is null) or
       (state = 'dispatching' and dispatch_attempted and reserved_until is null and
-        safe_result is null and completed_at is null) or
+        dispatch_lease_until is not null and safe_result is null and completed_at is null) or
       (state = 'succeeded' and dispatch_attempted and reserved_until is null and
-        safe_result is not null and completed_at is not null) or
-      (state = 'failed' and reserved_until is null and safe_result is null and completed_at is not null) or
-      (state = 'incompatible' and dispatch_attempted and reserved_until is null and
+        dispatch_lease_until is null and safe_result is not null and completed_at is not null) or
+      (state = 'failed' and reserved_until is null and dispatch_lease_until is null and
         safe_result is null and completed_at is not null) or
+      (state = 'incompatible' and dispatch_attempted and reserved_until is null and
+        dispatch_lease_until is null and safe_result is null and completed_at is not null) or
       (state = 'uncertain' and dispatch_attempted and reserved_until is null and
-        safe_result is null and completed_at is not null)
+        dispatch_lease_until is null and safe_result is null and completed_at is not null)
     ),
     check (
       safe_result is null or (

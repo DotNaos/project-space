@@ -151,7 +151,7 @@ func newControlCommandWithDependencies(dependencies controlCommandDependencies) 
 				OperationID:   operationID,
 			})
 			if err != nil {
-				return err
+				return fmt.Errorf("control operation %s: %w", operationID, err)
 			}
 			if format == "json" {
 				return writeJSON(command.OutOrStdout(), result)

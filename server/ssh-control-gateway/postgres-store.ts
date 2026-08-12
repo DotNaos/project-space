@@ -13,6 +13,7 @@ interface OperationRow {
   actor_kind: 'human' | 'machine';
   capability: 'project_cli';
   completed_at: Date | string | null;
+  dispatch_lease_until: Date | string | null;
   fingerprint_sha256: string;
   gateway_id: string;
   operation: 'status.v1';
@@ -51,6 +52,14 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
         if (current.fingerprint_sha256 !== input.fingerprint) {
           throw new SshGatewayError('operation_conflict', 'Operation identity was reused.');
         }
+        if (['reserved', 'dispatching', 'uncertain'].includes(current.state) && (
+          current.route_id !== input.audit.routeId ||
+          current.environment_id !== input.audit.targetEnvironmentId ||
+          current.target_identity_revision !== input.audit.targetIdentityRevision ||
+          current.gateway_id !== input.audit.gatewayId ||
+          current.actor_id !== input.audit.actorId || current.actor_kind !== input.audit.actorKind)) {
+          throw new SshGatewayError('operation_conflict', 'Operation reservation binding changed.');
+        }
         if (current.state === 'reserved') {
           const renewed = await client.query<OperationRow>(
             `update ssh_gateway_operations
@@ -58,7 +67,7 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
               where owner_user_id = $1 and operation_id = $2
                 and fingerprint_sha256 = $3 and state = 'reserved'
                 and reserved_until <= now()
-              returning actor_id, actor_kind, capability, completed_at,
+              returning actor_id, actor_kind, capability, completed_at, dispatch_lease_until,
                         fingerprint_sha256, gateway_id, operation, operation_id,
                         reserved_until, route_id::text, safe_result, state,
                         target_identity_revision, environment_id::text`,
@@ -74,7 +83,7 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
       }
       const expired = await client.query<{ operation_id: string }>(
         `update ssh_gateway_operations
-            set state = 'failed', reserved_until = null,
+            set state = 'failed', reserved_until = null, dispatch_lease_until = null,
                 completed_at = now(), updated_at = now()
           where owner_user_id = $1 and environment_id = $2::uuid
             and state = 'reserved' and reserved_until <= now()
@@ -127,7 +136,8 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
       const updated = await client.query(
         `update ssh_gateway_operations
             set state = 'dispatching', dispatch_attempted = true,
-                reserved_until = null, updated_at = now()
+                reserved_until = null, dispatch_lease_until = now() + interval '1 minute',
+                updated_at = now()
           where owner_user_id = $1 and operation_id = $2
             and fingerprint_sha256 = $3 and state = 'reserved' and reserved_until > now()
           returning operation_id`,
@@ -164,13 +174,14 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
             set state = $3,
                 safe_result = $4::jsonb,
                 reserved_until = null,
+                dispatch_lease_until = null,
                 completed_at = now(),
                 updated_at = now()
           where owner_user_id = $1 and operation_id = $2
             and fingerprint_sha256 = $5
             and state in ('reserved', 'dispatching')
             and ($3 not in ('succeeded', 'incompatible', 'uncertain') or state = 'dispatching')
-          returning actor_id, actor_kind, capability, completed_at,
+          returning actor_id, actor_kind, capability, completed_at, dispatch_lease_until,
                     fingerprint_sha256, gateway_id, operation, operation_id, reserved_until,
                     route_id::text, safe_result, state, target_identity_revision,
                     environment_id::text`,
@@ -206,10 +217,14 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
       const updated = await client.query<OperationRow>(
         `update ssh_gateway_operations
             set state = $3, safe_result = $4::jsonb, reserved_until = null,
+                dispatch_lease_until = null,
                 completed_at = now(), updated_at = now()
           where owner_user_id = $1 and operation_id = $2
-            and fingerprint_sha256 = $5 and state in ('dispatching', 'uncertain')
-          returning actor_id, actor_kind, capability, completed_at,
+            and fingerprint_sha256 = $5 and (
+              state = 'uncertain' or
+              (state = 'dispatching' and dispatch_lease_until <= now())
+            )
+          returning actor_id, actor_kind, capability, completed_at, dispatch_lease_until,
                     fingerprint_sha256, gateway_id, operation, operation_id, reserved_until,
                     route_id::text, safe_result, state, target_identity_revision,
                     environment_id::text`,
@@ -227,7 +242,7 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
   }
 }
 
-const selectColumns = `select actor_id, actor_kind, capability, completed_at,
+const selectColumns = `select actor_id, actor_kind, capability, completed_at, dispatch_lease_until,
   fingerprint_sha256, gateway_id, operation, operation_id, reserved_until, route_id::text,
   safe_result, state, target_identity_revision, environment_id::text`;
 
