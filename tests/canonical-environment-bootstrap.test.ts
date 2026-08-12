@@ -21,17 +21,20 @@ describe('canonical Environment bootstrap', () => {
     expect(command).not.toContain('connector service');
   });
 
-  test('fresh package installs do not create or start a Connector service', () => {
+  test('package installs retire the Connector without starting it', () => {
     const linux = source('packaging/linux/install-machine-tools.sh');
     const macos = source('packaging/macos/install-machine-tools.sh');
     const selfUpdate = source('cmd/project/self_update.go');
 
-    expect(linux).toContain('auto)\n    connector_service_mode=external');
+    expect(linux).toContain('auto)\n    connector_service_mode=managed');
+    expect(linux).toContain('systemctl --user stop "$retired_unit"');
+    expect(linux).not.toContain('connector service start-if-connected');
     expect(linux).toContain('project environment bootstrap');
     expect(linux).not.toContain('Next: run %s/project connect');
     expect(macos).toContain('elif [[ $service_mode == managed ]]');
     expect(macos).toContain('if [[ $service_mode == none ]]');
     expect(macos).toContain('project environment bootstrap');
+    expect(macos).not.toContain('connector service start-if-connected');
     expect(selfUpdate).toContain('verified Project CLI release');
     expect(selfUpdate).not.toContain('CLI and connector release');
   });
