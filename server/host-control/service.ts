@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import {
   hostControlSchemaVersion,
+  type HostConsoleFrame,
   type HostConsoleInput,
   type HostControlOperationRequest,
   type HostControlOperationResult,
@@ -10,12 +11,19 @@ import {
 import {
   HostControlError,
   type HostControlActor,
+  type HostControlAuditIdentity,
   type HostControlBinding,
   type HostControlInventory,
   type HostControlOperationStore,
   type HostControlPolicy,
-  type HostControlProvider
+  type HostControlPolicyDecision,
+  type HostControlProvider,
+  type HostControlReservationInput
 } from './contracts';
+import { validFrame } from './png';
+
+export { MemoryHostControlOperationStore } from './memory-store';
+export { pngDimensions } from './png';
 
 const operationIdPattern = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/;
 const selectorPattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
@@ -23,7 +31,11 @@ const keyPattern = /^[A-Za-z0-9][A-Za-z0-9_+-]{0,31}$/;
 const risks = new Set<HostControlRisk>([
   'standard', 'boot', 'disk', 'firmware', 'installer', 'recovery', 'secure_boot'
 ]);
-const bootKeys = new Set(['DELETE', 'F2', 'F8', 'F9', 'F10', 'F11', 'F12']);
+const riskRank: Record<HostControlRisk, number> = {
+  standard: 0, boot: 1, recovery: 2, installer: 3, disk: 4, secure_boot: 5, firmware: 6
+};
+const reservationLeaseMs = 30_000;
+const maximumBindingAgeMs = 90_000;
 
 export function createHostControlService(options: {
   bindings(): Promise<HostControlBinding[]>;
@@ -35,10 +47,14 @@ export function createHostControlService(options: {
   rateLimit?: number;
 }) {
   const now = options.now ?? (() => new Date());
-  const recent = new Map<string, number[]>();
+
+  async function admit(actor: HostControlActor, capability: string) {
+    if (!actor.userId || !await options.policy.admit({ actor, capability })) {
+      throw new HostControlError('unauthorized', 'Host control policy denied this capability.');
+    }
+  }
 
   async function target(actor: HostControlActor, selector: string) {
-    if (!actor.userId) throw new HostControlError('unauthorized', 'Authentication is required.');
     if (!selectorPattern.test(selector)) throw invalid();
     const host = await options.inventory.resolve(actor.userId, selector);
     if (host.resolution !== 'resolved') {
@@ -54,97 +70,217 @@ export function createHostControlService(options: {
     return { binding: bindings[0]!, host };
   }
 
-  async function authorize(
-    actor: HostControlActor,
-    hostId: string,
-    capability: string,
-    risk: HostControlRisk,
-    approvalId?: string
-  ) {
-    if (risk !== 'standard' && !approvalId) {
+  async function authorize(input: {
+    actor: HostControlActor;
+    approvalId?: string;
+    binding: HostControlBinding;
+    capability: string;
+    phase: 'route_resolution' | 'execution';
+    risk: HostControlRisk;
+  }) {
+    if (input.risk !== 'standard' && !input.approvalId) {
       throw new HostControlError('approval_required', 'This Host action requires explicit approval.');
     }
-    if (!await options.policy.authorize({ actor, approvalId, capability, hostId, risk })) {
-      throw new HostControlError('unauthorized', 'Host control policy denied this action.');
-    }
+    const decision = await options.policy.authorize({
+      actor: input.actor,
+      ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+      bindingRevision: input.binding.bindingRevision,
+      capability: input.capability,
+      hostId: input.binding.capabilities.hostId,
+      phase: input.phase,
+      risk: input.risk
+    });
+    validateDecision(decision, now());
+    return decision;
   }
 
-  function rateLimit(actor: HostControlActor, hostId: string) {
-    const key = `${actor.userId}\0${hostId}`;
-    const cutoff = now().getTime() - 60_000;
-    const entries = (recent.get(key) ?? []).filter((time) => time > cutoff);
-    if (entries.length >= (options.rateLimit ?? 30)) {
-      throw new HostControlError('rate_limited', 'Host console input rate limit exceeded.');
+  async function retarget(
+    actor: HostControlActor,
+    selector: string,
+    expected: HostControlBinding
+  ) {
+    const current = await target(actor, selector);
+    if (current.binding.bindingRevision !== expected.bindingRevision ||
+      current.binding.capabilities.provider.id !== expected.capabilities.provider.id) {
+      throw new HostControlError('host_conflict', 'Host control binding changed before execution.');
     }
-    entries.push(now().getTime());
-    recent.set(key, entries);
+    return current.binding;
   }
 
   return {
     async status(actor: HostControlActor, selector: string) {
+      const capability = 'host.status';
+      await admit(actor, capability);
       const { binding } = await target(actor, selector);
-      await authorize(actor, binding.capabilities.hostId, 'host.status', 'standard');
-      const status = await options.provider.status(binding);
-      if (!validStatus(status, binding)) {
+      await authorize({ actor, binding, capability, phase: 'route_resolution', risk: 'standard' });
+      const current = await retarget(actor, selector, binding);
+      await authorize({ actor, binding: current, capability, phase: 'execution', risk: 'standard' });
+      const status = await options.provider.status(current);
+      if (!validStatus(status, current, now(), false)) {
         throw new HostControlError('provider_unavailable', 'Host status evidence is invalid.');
       }
-      return status;
+      return statusProjection(status);
     },
 
     async screenshot(actor: HostControlActor, selector: string) {
+      const capability = 'host.console.screenshot';
+      await admit(actor, capability);
       const { binding } = await target(actor, selector);
-      await authorize(actor, binding.capabilities.hostId, 'host.console.screenshot', 'standard');
-      const frame = await options.provider.screenshot(binding);
-      if (!validFrame(frame, now())) throw new HostControlError('provider_unavailable', 'Console frame is invalid.');
+      if (!binding.capabilities.console.includes('screenshot')) unavailable();
+      await authorize({ actor, binding, capability, phase: 'route_resolution', risk: 'standard' });
+      const current = await retarget(actor, selector, binding);
+      await authorize({ actor, binding: current, capability, phase: 'execution', risk: 'standard' });
+      const frame = await options.provider.screenshot(current);
+      if (!validFrame(frame, now())) unavailable('Console frame is invalid.');
       return frame;
     },
 
     async operate(actor: HostControlActor, selector: string, request: HostControlOperationRequest) {
       validateRequest(request);
-      const { binding } = await target(actor, selector);
-      const hostId = binding.capabilities.hostId;
-      const capability = request.input ? `host.console.${request.input.kind}` : `host.power.${request.powerState}`;
-      if ((request.input && !binding.capabilities.console.includes(request.input.kind)) ||
-        (request.powerState && !binding.capabilities.power.includes(request.powerState))) {
-        throw new HostControlError('capability_unavailable', 'Host capability is not configured.');
-      }
+      const capability = request.input
+        ? `host.console.${request.input.kind}`
+        : `host.power.${request.powerState}`;
       const risk = inferredRisk(request.input, request.powerState, request.risk);
-      await authorize(actor, hostId, capability, risk, request.approvalId);
-      if (request.input) rateLimit(actor, hostId);
-      const fingerprint = operationFingerprint(hostId, request, risk);
-      const reserved = await options.operations.reserve({
-        actor, fingerprint, hostId, operationId: request.operationId
+      await admit(actor, capability);
+      const { binding } = await target(actor, selector);
+      if ((request.input && !binding.capabilities.console.includes(request.input.kind)) ||
+        (request.powerState && !binding.capabilities.power.includes(request.powerState))) unavailable();
+      const first = await authorize({
+        actor, approvalId: request.approvalId, binding, capability,
+        phase: 'route_resolution', risk
       });
-      if (reserved === 'conflict') throw new HostControlError('replay_conflict', 'Operation replay changed.');
-      if (reserved !== 'new') return { ...reserved, replayed: true };
+      const audit = auditIdentity(actor, binding, request, capability, risk, first);
+      const fingerprint = operationFingerprint(audit, request);
+      const reservedAt = now();
+      const reservation: HostControlReservationInput = {
+        audit,
+        attemptId: randomUUID(),
+        fingerprint,
+        rateLimit: options.rateLimit ?? 30,
+        reservedAt: reservedAt.toISOString(),
+        reservedUntil: new Date(reservedAt.getTime() + reservationLeaseMs).toISOString()
+      };
+      const reserved = await options.operations.reserve(reservation);
+      if (reserved.kind === 'conflict') replayConflict();
+      if (reserved.kind === 'replayed') return { ...reserved.result, replayed: true };
+      if (reserved.kind === 'rate_limited') {
+        throw new HostControlError('rate_limited', 'Host console input rate limit exceeded.');
+      }
+      if (reserved.kind === 'in_progress') {
+        throw new HostControlError('operation_in_progress', 'Host operation is already reserved.');
+      }
 
       if (request.input && 'frameId' in request.input) {
-        const frame = await options.provider.screenshot(binding);
-        if (!validFrame(frame, now()) || frame.frameId !== request.input.frameId) {
-          throw new HostControlError('stale_frame', 'Console frame is stale.');
+        let frame: HostConsoleFrame;
+        try {
+          frame = await options.provider.screenshot(binding);
+        } catch {
+          return finishResult(options.operations, audit, reservation.attemptId, fingerprint,
+            operationResult(audit, now(), 'failed', 'provider_unavailable',
+              'Console frame preflight failed before dispatch.'));
         }
-        if (request.input.x < 0 || request.input.y < 0 ||
-          request.input.x >= frame.width || request.input.y >= frame.height) throw invalid();
+        if (!validFrame(frame, now()) || frame.frameId !== request.input.frameId ||
+          request.input.x < 0 || request.input.y < 0 ||
+          request.input.x >= frame.width || request.input.y >= frame.height) {
+          return finishResult(options.operations, audit, reservation.attemptId, fingerprint,
+            operationResult(audit, now(), 'rejected', 'stale_frame',
+              'The referenced console frame or coordinates are no longer valid.'));
+        }
       }
-      const result: HostControlOperationResult = {
-        auditId: randomUUID(), completedAt: now().toISOString(), hostId,
-        operationId: request.operationId, provider: binding.capabilities.provider,
-        replayed: false, schemaVersion: hostControlSchemaVersion,
-        state: 'completed' as const
-      };
+
+      let current: HostControlBinding;
       try {
-        if (request.input) await options.provider.input(binding, request.input);
-        else await options.provider.power(binding, request.powerState!);
-        await options.operations.finish({ actor, fingerprint, result });
-        return result;
+        current = await retarget(actor, selector, binding);
+        const status = await options.provider.status(current);
+        if (!validStatus(status, current, now(), true)) unavailable('Host control evidence is stale.');
+        const second = await authorize({
+          actor, approvalId: request.approvalId, binding: current, capability,
+          phase: 'execution', risk
+        });
+        if (second.decisionId !== first.decisionId) {
+          throw new HostControlError('unauthorized', 'Host control approval changed before execution.');
+        }
+        validateDecision(second, now());
+        audit.policyExpiresAt = second.expiresAt;
       } catch (error) {
-        const uncertain = { ...result, state: 'uncertain' as const };
-        await options.operations.finish({ actor, fingerprint, result: uncertain }).catch(() => undefined);
-        if (error instanceof HostControlError) throw error;
-        return uncertain;
+        if (error instanceof HostControlError &&
+          (error.code === 'approval_required' || error.code === 'unauthorized')) {
+          return finishResult(options.operations, audit, reservation.attemptId, fingerprint,
+            operationResult(audit, now(), 'rejected', 'unauthorized',
+              'Host control authorization changed before dispatch.'));
+        }
+        return finishResult(options.operations, audit, reservation.attemptId, fingerprint,
+          operationResult(audit, now(), 'failed', 'provider_unavailable',
+            'Host control preflight failed before dispatch.'));
+      }
+
+      const dispatchedAt = now();
+      if (await options.operations.markDispatchAttempted({
+        audit,
+        attemptId: reservation.attemptId,
+        dispatchedAt: dispatchedAt.toISOString(),
+        dispatchedUntil: new Date(dispatchedAt.getTime() + reservationLeaseMs).toISOString(),
+        fingerprint
+      }) === 'fenced') {
+        throw new HostControlError('operation_in_progress', 'Another Host operation is already being dispatched.');
+      }
+      try {
+        const outcome = request.input
+          ? await options.provider.input(current, request.input, { actor, operationId: request.operationId })
+          : await options.provider.power(current, request.powerState!, { actor, operationId: request.operationId });
+        return finishResult(options.operations, audit, reservation.attemptId, fingerprint,
+          operationResult(audit, now(), outcome === 'completed' ? 'completed' : 'uncertain',
+            outcome === 'completed' ? undefined : 'provider_unavailable',
+            outcome === 'completed'
+              ? 'Host operation completed.'
+              : 'Host operation may have completed and will not be sent again.'));
+      } catch {
+        return finishResult(options.operations, audit, reservation.attemptId, fingerprint,
+          operationResult(audit, now(), 'uncertain', 'provider_unavailable',
+            'Host operation may have completed and will not be sent again.'));
       }
     }
   };
+}
+
+function validateDecision(decision: HostControlPolicyDecision, now: Date) {
+  if (!decision.allowed || !operationIdPattern.test(decision.decisionId) ||
+    !Number.isFinite(Date.parse(decision.expiresAt)) || Date.parse(decision.expiresAt) <= now.getTime()) {
+    throw new HostControlError('unauthorized', 'Host control policy denied this action.');
+  }
+}
+
+function auditIdentity(
+  actor: HostControlActor,
+  binding: HostControlBinding,
+  request: HostControlOperationRequest,
+  capability: string,
+  risk: HostControlRisk,
+  decision: HostControlPolicyDecision
+): HostControlAuditIdentity {
+  return {
+    actorId: actor.callerMachineId ?? actor.userId,
+    actorKind: actor.callerMachineId ? 'machine' : 'human',
+    ...(request.approvalId ? { approvalId: request.approvalId } : {}),
+    auditId: auditUuid(actor.userId, request.operationId),
+    bindingRevision: binding.bindingRevision,
+    capability,
+    effectiveRisk: risk,
+    hostId: binding.capabilities.hostId,
+    operationId: request.operationId,
+    ownerUserId: actor.userId,
+    policyDecisionId: decision.decisionId,
+    policyExpiresAt: decision.expiresAt,
+    providerId: binding.capabilities.provider.id
+  };
+}
+
+function auditUuid(ownerUserId: string, operationId: string) {
+  const bytes = createHash('sha256').update(`host-control:${ownerUserId}:${operationId}`).digest();
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.subarray(0, 16).toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function inferredRisk(
@@ -152,31 +288,57 @@ function inferredRisk(
   powerState: 'on' | 'off' | undefined,
   requested: HostControlRisk
 ) {
-  if (powerState === 'off') return 'boot' as const;
-  if (!input) return requested;
-  if (input.kind === 'key' && bootKeys.has(input.key.toUpperCase()) ||
-    input.kind === 'chord' && input.keys.some((key) => bootKeys.has(key.toUpperCase()))) {
-    return 'boot' as const;
-  }
-  return requested;
+  const minimum: HostControlRisk = input ? 'boot' : powerState === 'off' ? 'boot' : 'standard';
+  return riskRank[requested] >= riskRank[minimum] ? requested : minimum;
 }
 
-function operationFingerprint(
-  hostId: string,
-  request: HostControlOperationRequest,
-  risk: HostControlRisk
-) {
-  const input = request.input;
-  const canonicalInput = !input ? null
-    : input.kind === 'key' ? ['key', input.key]
-      : input.kind === 'chord' ? ['chord', ...input.keys]
-        : input.kind === 'text' ? ['text', input.text]
-          : input.kind === 'mouse_move'
-            ? ['mouse_move', input.frameId, input.x, input.y]
-            : ['mouse_click', input.frameId, input.x, input.y, input.button];
+function operationFingerprint(audit: HostControlAuditIdentity, request: HostControlOperationRequest) {
   return createHash('sha256').update(JSON.stringify([
-    hostId, canonicalInput, request.powerState ?? null, risk, request.approvalId ?? null
+    audit.actorKind, audit.actorId, audit.ownerUserId, audit.hostId, audit.bindingRevision,
+    audit.providerId, audit.capability, audit.effectiveRisk, audit.approvalId ?? null,
+    audit.policyDecisionId, canonicalInput(request.input), request.powerState ?? null
   ])).digest('hex');
+}
+
+function canonicalInput(input: HostConsoleInput | undefined) {
+  if (!input) return null;
+  if (input.kind === 'key') return ['key', input.key];
+  if (input.kind === 'chord') return ['chord', ...input.keys];
+  if (input.kind === 'text') return ['text', input.text];
+  if (input.kind === 'mouse_move') return ['mouse_move', input.frameId, input.x, input.y];
+  return ['mouse_click', input.frameId, input.x, input.y, input.button];
+}
+
+function operationResult(
+  audit: HostControlAuditIdentity,
+  completedAt: Date,
+  state: HostControlOperationResult['state'],
+  code: HostControlOperationResult['code'],
+  message: string
+): HostControlOperationResult {
+  return {
+    auditId: audit.auditId,
+    ...(code ? { code } : {}),
+    completedAt: completedAt.toISOString(),
+    hostId: audit.hostId,
+    message,
+    operationId: audit.operationId,
+    provider: { id: audit.providerId, kind: 'jetkvm' },
+    replayed: false,
+    schemaVersion: hostControlSchemaVersion,
+    state
+  };
+}
+
+async function finishResult(
+  operations: HostControlOperationStore,
+  audit: HostControlAuditIdentity,
+  attemptId: string,
+  fingerprint: string,
+  result: HostControlOperationResult
+) {
+  await operations.finish({ audit, attemptId, fingerprint, result });
+  return result;
 }
 
 function validateRequest(request: HostControlOperationRequest) {
@@ -201,55 +363,43 @@ function validateRequest(request: HostControlOperationRequest) {
       /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(request.input.text)) ||
     'frameId' in request.input && (!operationIdPattern.test(request.input.frameId) ||
       !Number.isSafeInteger(request.input.x) || !Number.isSafeInteger(request.input.y)) ||
-    request.input.kind === 'mouse_click' && !['left', 'middle', 'right'].includes(request.input.button)) {
-    throw invalid();
-  }
-}
-
-function validFrame(frame: {
-  capturedAt: string; frameId: string; height: number; png: Uint8Array; staleAfter: string; width: number;
-}, now: Date) {
-  const capturedAt = Date.parse(frame.capturedAt);
-  const staleAfter = Date.parse(frame.staleAfter);
-  return operationIdPattern.test(frame.frameId) &&
-    Number.isSafeInteger(frame.width) && Number.isSafeInteger(frame.height) &&
-    frame.width > 0 && frame.width <= 7680 && frame.height > 0 && frame.height <= 4320 &&
-    frame.png.length >= 8 && frame.png.length <= 16 * 1024 * 1024 &&
-    Buffer.from(frame.png.subarray(0, 8)).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
-    Number.isFinite(capturedAt) && Number.isFinite(staleAfter) &&
-    capturedAt <= now.getTime() && capturedAt < staleAfter && staleAfter > now.getTime();
+    request.input.kind === 'mouse_click' && !['left', 'middle', 'right'].includes(request.input.button)) throw invalid();
 }
 
 function validStatus(
   status: Awaited<ReturnType<HostControlProvider['status']>>,
-  binding: HostControlBinding
+  binding: HostControlBinding,
+  now: Date,
+  requireReady: boolean
 ) {
   const expected = binding.capabilities;
-  return status.schemaVersion === hostControlSchemaVersion && status.hostId === expected.hostId &&
+  const verifiedAt = status.lastVerifiedAt ? Date.parse(status.lastVerifiedAt) : Number.NaN;
+  const matching = status.schemaVersion === hostControlSchemaVersion && status.hostId === expected.hostId &&
     status.provider.kind === 'jetkvm' && status.provider.id === expected.provider.id &&
-    status.available === expected.available && ['on', 'off', 'unknown'].includes(status.powerState) &&
+    ['on', 'off', 'unknown'].includes(status.powerState) &&
     status.power.every((capability) => expected.power.includes(capability)) &&
     status.console.every((capability) => expected.console.includes(capability));
+  return matching && (!requireReady || status.available && Number.isFinite(verifiedAt) &&
+    verifiedAt <= now.getTime() && verifiedAt >= now.getTime() - maximumBindingAgeMs);
+}
+
+function statusProjection(status: Awaited<ReturnType<HostControlProvider['status']>>) {
+  return {
+    available: status.available,
+    console: [...status.console],
+    hostId: status.hostId,
+    ...(status.lastVerifiedAt ? { lastVerifiedAt: status.lastVerifiedAt } : {}),
+    power: [...status.power],
+    powerState: status.powerState,
+    provider: { id: status.provider.id, kind: status.provider.kind },
+    schemaVersion: status.schemaVersion
+  };
 }
 
 function invalid() { return new HostControlError('invalid_request', 'Host control request is invalid.'); }
-
-export class MemoryHostControlOperationStore implements HostControlOperationStore {
-  private readonly values = new Map<string, {
-    fingerprint: string;
-    result?: HostControlOperationResult;
-  }>();
-  async reserve(input: { actor: HostControlActor; fingerprint: string; hostId: string; operationId: string }) {
-    const key = `${input.actor.userId}\0${input.operationId}`;
-    const prior = this.values.get(key);
-    if (!prior) { this.values.set(key, { fingerprint: input.fingerprint }); return 'new' as const; }
-    if (prior.fingerprint !== input.fingerprint) return 'conflict' as const;
-    return prior.result && prior.result !== 'new' && prior.result !== 'conflict'
-      ? prior.result : 'conflict' as const;
-  }
-  async finish(input: { actor: HostControlActor; fingerprint: string; result: HostControlOperationResult }) {
-    this.values.set(`${input.actor.userId}\0${input.result.operationId}`, {
-      fingerprint: input.fingerprint, result: input.result
-    });
-  }
+function unavailable(message = 'Host capability is not configured.'): never {
+  throw new HostControlError('capability_unavailable', message);
+}
+function replayConflict(): never {
+  throw new HostControlError('replay_conflict', 'Operation replay changed.');
 }

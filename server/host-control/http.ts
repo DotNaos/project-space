@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { HostControlOperationRequest } from '../../src/shared/host-control-api';
 import { writeJson } from '../project-space-http-response';
 import { HostControlError, type HostControlActor } from './contracts';
+import { CodexMachineTasksAuthError } from '../codex-machine-tasks/auth-context';
 
 const route = /^\/api\/compute\/hosts\/([^/]+)\/(status|console\/screenshot|operations)$/;
 const maximumBodyBytes = 16 * 1024;
@@ -50,16 +51,22 @@ export function createHostControlHttpApi(
         if (request.headers['idempotency-key'] !== body.operationId) {
           throw new HostControlError('invalid_request', 'Idempotency-Key must match operationId.');
         }
-        writeJson(response, 200, await service.operate(actor, selector, body));
+        const result = await service.operate(actor, selector, body) as { state?: string };
+        writeJson(response, result.state === 'rejected' ? 409 : 200, result);
       } else {
         writeJson(response, 405, { error: { code: 'method_not_allowed', message: 'Method not allowed.' } });
       }
     } catch (error) {
-      if (error instanceof HostControlError) {
+      if (error instanceof CodexMachineTasksAuthError) {
+        writeJson(response, error.statusCode, {
+          error: { code: 'authentication_failed', message: 'Host control authentication failed.' }
+        });
+      } else if (error instanceof HostControlError) {
         const status = error.code === 'unauthorized' ? 403
           : error.code === 'invalid_request' ? 400
             : error.code === 'rate_limited' ? 429
-              : error.code === 'provider_unavailable' ? 503 : 409;
+              : error.code === 'provider_unavailable' || error.code === 'capability_unavailable'
+                ? 503 : 409;
         writeJson(response, status, { error: { code: error.code, message: error.message } });
       } else {
         writeJson(response, 503, {
