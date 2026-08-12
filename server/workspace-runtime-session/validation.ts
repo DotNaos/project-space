@@ -1,8 +1,10 @@
 import {
   workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeControlCapability,
   workspaceRuntimeReadyCapabilities,
   workspaceRuntimeSessionSchemaVersion,
   type WorkspaceRuntimeBaseCapability,
+  type WorkspaceRuntimeReadyCapability,
   type WorkspaceRuntimeCredentialRequest,
   type WorkspaceRuntimeDevServer,
   type WorkspaceRuntimeEvent,
@@ -11,6 +13,7 @@ import {
 import type { IssueRuntimeCredentialInput } from './contracts';
 import type { RuntimeCredentialScope } from './contracts';
 import type { WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
+import type { WorkspaceRuntimeControlMessage } from '../../src/shared/workspace-runtime-control-api';
 import { RuntimeSessionError } from './contracts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -19,7 +22,10 @@ const digest = /^[a-f0-9]{64}$/;
 const commit = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const eventId = /^[A-Za-z0-9:._-]{1,128}$/;
 const baseCapabilitySet = new Set<string>(workspaceRuntimeBaseCapabilities);
-const readyCapabilitySet = new Set<string>(workspaceRuntimeReadyCapabilities);
+const readyCapabilitySet = new Set<string>([
+  ...workspaceRuntimeReadyCapabilities,
+  workspaceRuntimeControlCapability
+]);
 
 export function validateCredentialIssue(input: IssueRuntimeCredentialInput) {
   const expiresInSeconds = input.expiresInSeconds ?? 300;
@@ -57,12 +63,18 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
   exactKeys(input, [
     'branch', 'commit', 'environmentId', 'generation', 'manifestDigest', 'readyCapabilities',
     'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence', 'resumeAfterSequence',
+    'resumeAfterControlCommandSequence', 'resumeAfterControlEventSequence',
     'runtimeVersion', 'schemaVersion', 'type', 'workspaceId'
-  ], ['readyCapabilities', 'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence']);
+  ], [
+    'readyCapabilities', 'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence',
+    'resumeAfterControlCommandSequence', 'resumeAfterControlEventSequence'
+  ]);
   if (input.type !== 'runtime.register' || input.schemaVersion !== workspaceRuntimeSessionSchemaVersion ||
     !Number.isSafeInteger(input.resumeAfterSequence) || Number(input.resumeAfterSequence) < 0 ||
     !optionalSequence(input.resumeAfterCodexCommandSequence) ||
     !optionalSequence(input.resumeAfterCodexEventSequence) ||
+    !optionalSequence(input.resumeAfterControlCommandSequence) ||
+    !optionalSequence(input.resumeAfterControlEventSequence) ||
     !uuid.test(string(input.environmentId)) ||
     !uuid.test(string(input.generation)) || !workspace.test(string(input.workspaceId)) ||
     !digest.test(string(input.manifestDigest)) || !commit.test(string(input.commit))) invalid();
@@ -70,8 +82,11 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
     ? undefined
     : parseRequestedCapabilities(input.readyCapabilities, false);
   const codexReady = readyCapabilities?.includes('runtime.codex.v1') ?? false;
+  const controlReady = readyCapabilities?.includes(workspaceRuntimeControlCapability) ?? false;
   if (codexReady !== (input.resumeAfterCodexCommandSequence !== undefined) ||
-      codexReady !== (input.resumeAfterCodexEventSequence !== undefined)) invalid();
+      codexReady !== (input.resumeAfterCodexEventSequence !== undefined) ||
+      controlReady !== (input.resumeAfterControlCommandSequence !== undefined) ||
+      controlReady !== (input.resumeAfterControlEventSequence !== undefined)) invalid();
   return {
     branch: safeText(input.branch, 256),
     commit: string(input.commit),
@@ -83,6 +98,12 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
     }),
     ...(input.resumeAfterCodexEventSequence === undefined ? {} : {
       resumeAfterCodexEventSequence: Number(input.resumeAfterCodexEventSequence)
+    }),
+    ...(input.resumeAfterControlCommandSequence === undefined ? {} : {
+      resumeAfterControlCommandSequence: Number(input.resumeAfterControlCommandSequence)
+    }),
+    ...(input.resumeAfterControlEventSequence === undefined ? {} : {
+      resumeAfterControlEventSequence: Number(input.resumeAfterControlEventSequence)
     }),
     resumeAfterSequence: Number(input.resumeAfterSequence), runtimeVersion: safeText(input.runtimeVersion, 64),
     schemaVersion: workspaceRuntimeSessionSchemaVersion, type: 'runtime.register',
@@ -157,6 +178,29 @@ export function parseRuntimeCodexMessage(
   return input as unknown as WorkspaceRuntimeCodexMessage;
 }
 
+export function parseRuntimeControlMessage(
+  value: unknown,
+  scope: RuntimeCredentialScope,
+  sessionId: string
+): WorkspaceRuntimeControlMessage {
+  if (!scope.capabilities.includes(workspaceRuntimeControlCapability)) invalid();
+  const input = object(value);
+  if (![
+    'runtime.control.command-accepted', 'runtime.control.result', 'runtime.control.error'
+  ].includes(string(input.type)) || input.schemaVersion !== 1 ||
+      input.workspaceId !== scope.workspaceId || input.environmentId !== scope.environmentId ||
+      input.generation !== scope.generation || input.sessionId !== sessionId ||
+      input.actorUserId !== scope.ownerUserId || !eventId.test(string(input.actorId)) ||
+      !eventId.test(string(input.commandId)) || !eventId.test(string(input.operationId)) ||
+      !Number.isSafeInteger(input.commandSequence) || Number(input.commandSequence) < 1) invalid();
+  if (input.type === 'runtime.control.command-accepted' &&
+      (!Number.isSafeInteger(input.acceptedCommandSequence) ||
+       Number(input.acceptedCommandSequence) < Number(input.commandSequence))) invalid();
+  if (input.type === 'runtime.control.result' &&
+      !['completed', 'failed'].includes(string(input.state))) invalid();
+  return input as unknown as WorkspaceRuntimeControlMessage;
+}
+
 function parseDevServers(value: unknown): WorkspaceRuntimeDevServer[] {
   if (!Array.isArray(value) || value.length > 32) invalid();
   const names = new Set<string>();
@@ -183,12 +227,12 @@ export function parseCapabilities(value: unknown): WorkspaceRuntimeBaseCapabilit
 }
 
 export function parseRequestedCapabilities(value: unknown, allowEmpty = true) {
-  if (!Array.isArray(value) || value.length > workspaceRuntimeReadyCapabilities.length ||
+  if (!Array.isArray(value) || value.length > readyCapabilitySet.size ||
       !allowEmpty && value.length === 0) invalid();
   const capabilities = value.map(string);
   if (new Set(capabilities).size !== capabilities.length ||
       capabilities.some((entry) => !readyCapabilitySet.has(entry))) invalid();
-  return capabilities.sort() as typeof workspaceRuntimeReadyCapabilities[number][];
+  return capabilities.sort() as WorkspaceRuntimeReadyCapability[];
 }
 
 function safeUrl(value: unknown) {

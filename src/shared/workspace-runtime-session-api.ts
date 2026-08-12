@@ -12,8 +12,12 @@ export const workspaceRuntimeReadyCapabilities = [
   'runtime.codex.v1'
 ] as const;
 
+export const workspaceRuntimeControlCapability = 'runtime.control.v1' as const;
+
 export type WorkspaceRuntimeBaseCapability = typeof workspaceRuntimeBaseCapabilities[number];
-export type WorkspaceRuntimeReadyCapability = typeof workspaceRuntimeReadyCapabilities[number];
+export type WorkspaceRuntimeReadyCapability =
+  | typeof workspaceRuntimeReadyCapabilities[number]
+  | typeof workspaceRuntimeControlCapability;
 export type WorkspaceRuntimeCapability =
   | WorkspaceRuntimeBaseCapability
   | WorkspaceRuntimeReadyCapability;
@@ -60,6 +64,8 @@ export interface WorkspaceRuntimeRegistration {
   resumeAfterSequence: number;
   resumeAfterCodexCommandSequence?: number;
   resumeAfterCodexEventSequence?: number;
+  resumeAfterControlCommandSequence?: number;
+  resumeAfterControlEventSequence?: number;
   runtimeVersion: string;
   schemaVersion: typeof workspaceRuntimeSessionSchemaVersion;
   type: 'runtime.register';
