@@ -6,9 +6,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import { MemoryCanonicalRuntimeControlOperationStore } from '../server/canonical-runtime-control/memory-operation-store';
-import { createCanonicalRuntimeControlService } from '../server/canonical-runtime-control/service';
-import { createWorkspaceRuntimeControlDispatcher } from '../server/canonical-runtime-control/workspace-runtime-dispatcher';
-import { createCanonicalRuntimeControlHttpApi } from '../server/canonical-runtime-control/http';
+import { createCanonicalRuntimeControlRuntime } from '../server/canonical-runtime-control/configured-runtime';
 import { MemoryRuntimeSessionStore } from '../server/workspace-runtime-session/memory-store';
 import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import { createWorkspaceRuntimeSessionUpgradeHandler } from '../server/workspace-runtime-session/upgrade-handler';
@@ -58,22 +56,25 @@ describe('canonical Runtime control real Go path', () => {
       sessionStore, undefined, undefined,
       { read: (...args) => operationStore.watermarks(...args) }
     );
-    const dispatcher = createWorkspaceRuntimeControlDispatcher(sessions, operationStore);
-    const service = createCanonicalRuntimeControlService({
-      authorizer: { async authorize() { return true; } },
-      dispatcher,
+    const control = createCanonicalRuntimeControlRuntime({
       inventory: {
         async compute() { return computeInventory(); },
         async runtimes() { return sessions.list(ownerUserId); }
-      }
+      },
+      machineConnection: {
+        async resolveMachineCredentialIdentity(token, machineId) {
+          return token === 'machine-token' && machineId === 'machine-e2e'
+            ? { machineId, userId: ownerUserId }
+            : null;
+        }
+      },
+      operations: operationStore,
+      runtimeSessions: sessions
     });
-    const http = createCanonicalRuntimeControlHttpApi(service, async () => ({
-      actorId: 'machine-e2e', actorKind: 'agent', ownerUserId
-    }));
     const gateway = createWorkspaceRuntimeSessionUpgradeHandler(sessions);
     const server = createServer(async (request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-      if (!await http(request, response, url)) response.writeHead(404).end();
+      if (!await control.handleRequest(request, response, url)) response.writeHead(404).end();
     });
     server.on('upgrade', (request, socket, head) => {
       if (!gateway.handleUpgrade(request, socket, head)) socket.destroy();
@@ -117,6 +118,21 @@ describe('canonical Runtime control real Go path', () => {
         return snapshot?.connectionState === 'online' && snapshot.lifecycleState === 'running' &&
           snapshot.capabilities.includes(workspaceRuntimeControlCapability);
       });
+      const deniedOperationId = 'e2e:unauthorized';
+      const denied = await fetch(`${origin}/api/runtime-control/v1/operations`, {
+        body: JSON.stringify({
+          apiVersion: 1, environmentId, expectedGeneration: generation,
+          expectedTargetIdentityRevision: '7:environment:canonical', operation: 'git.status',
+          operationId: deniedOperationId, workspaceId
+        }),
+        headers: {
+          Authorization: 'Bearer wrong-token', 'Content-Type': 'application/json',
+          'Idempotency-Key': deniedOperationId, 'X-Project-Machine-ID': 'machine-e2e'
+        },
+        method: 'POST'
+      });
+      expect(denied.status).toBe(401);
+      expect(await operationStore.read(ownerUserId, deniedOperationId)).toBeUndefined();
       for (const operation of ['git.status', 'git.diff', 'worktree.list', 'dev-server.inspect'] as const) {
         const operationId = `e2e:${operation}`;
         currentOperationId = operationId;
@@ -126,7 +142,10 @@ describe('canonical Runtime control real Go path', () => {
             expectedTargetIdentityRevision: '7:environment:canonical', operation, operationId,
             ...(operation === 'git.diff' ? { staged: false } : {}), workspaceId
           }),
-          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationId },
+          headers: {
+            Authorization: 'Bearer machine-token', 'Content-Type': 'application/json',
+            'Idempotency-Key': operationId, 'X-Project-Machine-ID': 'machine-e2e'
+          },
           method: 'POST', signal: AbortSignal.timeout(5_000)
         });
         const body = await response.json();
@@ -142,7 +161,7 @@ describe('canonical Runtime control real Go path', () => {
       const runtimeError = await new Response(runtime.stderr).text();
       await gateway.close();
       server.closeAllConnections();
-      dispatcher.close();
+      control.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       if (failure) throw new Error(`${String(failure)}\nRuntime stderr: ${runtimeError}\nSessions: ${
         JSON.stringify(await sessions.list(ownerUserId))

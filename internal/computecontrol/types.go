@@ -39,26 +39,27 @@ type ExecutionResult struct {
 }
 
 type WorkspaceRuntimeLaunchRequest struct {
-	Branch          string `json:"branch"`
-	Commit          string `json:"commit"`
-	EnvironmentID   string `json:"environmentId"`
-	Generation      string `json:"generation"`
-	ManifestDigest  string `json:"manifestDigest"`
-	Mode            string `json:"mode"`
-	OperationID     string `json:"operationId"`
-	RuntimeVersion  string `json:"runtimeVersion"`
-	WorkspaceID     string `json:"workspaceId"`
+	Branch         string `json:"branch"`
+	Commit         string `json:"commit"`
+	EnvironmentID  string `json:"environmentId"`
+	Generation     string `json:"generation"`
+	ManifestDigest string `json:"manifestDigest"`
+	Mode           string `json:"mode"`
+	OperationID    string `json:"operationId"`
+	Profile        string `json:"profile"`
+	RuntimeVersion string `json:"runtimeVersion"`
+	WorkspaceID    string `json:"workspaceId"`
 }
 
 type WorkspaceRuntimeLaunchResult struct {
-	CheckedAt     string `json:"checkedAt"`
-	Generation    string `json:"generation"`
+	CheckedAt      string `json:"checkedAt"`
+	Generation     string `json:"generation"`
 	ManifestDigest string `json:"manifestDigest"`
-	Operation     string `json:"operation"`
-	OperationID   string `json:"operationId"`
-	SourceHead    string `json:"sourceHead"`
-	State         string `json:"state"`
-	WorkspaceID   string `json:"workspaceId"`
+	Operation      string `json:"operation"`
+	OperationID    string `json:"operationId"`
+	SourceHead     string `json:"sourceHead"`
+	State          string `json:"state"`
+	WorkspaceID    string `json:"workspaceId"`
 }
 
 type WorkspaceRuntimeLaunchExecution struct {

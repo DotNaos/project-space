@@ -13,6 +13,10 @@ import { createWorkspaceRuntimeControlDispatcher } from './workspace-runtime-dis
 import type { CanonicalRuntimeControlOperationStore } from './operation-store-contracts';
 
 export function createCanonicalRuntimeControlRuntime(options: {
+  inventory?: {
+    compute(ownerUserId: string): ReturnType<typeof listComputeInventory>;
+    runtimes(ownerUserId: string): ReturnType<WorkspaceRuntimeSessionService['list']>;
+  };
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   operations: CanonicalRuntimeControlOperationStore;
   runtimeSessions: WorkspaceRuntimeSessionService;
@@ -53,6 +57,10 @@ export function createConfiguredCanonicalRuntimeControlHandler(options: {
 
 function createHandler(options: {
   dispatcher?: ReturnType<typeof createWorkspaceRuntimeControlDispatcher>;
+  inventory?: {
+    compute(ownerUserId: string): ReturnType<typeof listComputeInventory>;
+    runtimes(ownerUserId: string): ReturnType<WorkspaceRuntimeSessionService['list']>;
+  };
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   operations?: CanonicalRuntimeControlOperationStore;
   runtimeSessions: WorkspaceRuntimeSessionService;
@@ -69,8 +77,8 @@ function createHandler(options: {
     },
     dispatcher: options.dispatcher,
     inventory: {
-      compute: listComputeInventory,
-      runtimes: (ownerUserId) => options.runtimeSessions.list(ownerUserId)
+      compute: options.inventory?.compute ?? listComputeInventory,
+      runtimes: options.inventory?.runtimes ?? ((ownerUserId) => options.runtimeSessions.list(ownerUserId))
     }
   });
   const authenticate = createCodexMachineTasksAuthResolver({

@@ -58,7 +58,27 @@ func TestEnvironmentBootstrapUsesCanonicalTypedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if api.request.EnvironmentID != "11111111-1111-4111-8111-111111111111" ||
-		api.request.OperationID != "bootstrap-operation" || strings.Contains(output.String(), "Connector") {
+		api.request.OperationID != "bootstrap-operation" || api.request.Profile != "codex" ||
+		strings.Contains(output.String(), "Connector") {
 		t.Fatalf("request = %#v, output = %q", api.request, output.String())
+	}
+
+	command = newEnvironmentBootstrapCommand(environmentBootstrapDependencies{
+		Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
+			return &fakeComputeInventoryAPI{value: inventory}, nil
+		}},
+		LoadControl:    func(context.Context) (computecontrol.WorkspaceRuntimeAPI, error) { return api, nil },
+		NewOperationID: func(string) (string, error) { return "inspection-operation", nil },
+	})
+	command.SetOut(&bytes.Buffer{})
+	command.SetArgs([]string{
+		"11111111-1111-4111-8111-111111111111", "--workspace", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		"--branch", "issue-648", "--commit", strings.Repeat("a", 40),
+		"--generation", "22222222-2222-4222-8222-222222222222",
+		"--manifest-digest", strings.Repeat("b", 64), "--runtime-version", "0.5.0",
+		"--profile", "inspection",
+	})
+	if err := command.Execute(); err != nil || api.request.Profile != "inspection" {
+		t.Fatalf("inspection request = %#v, err = %v", api.request, err)
 	}
 }

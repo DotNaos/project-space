@@ -23,12 +23,13 @@ type environmentBootstrapOptions struct {
 	manifestDigest string
 	mode           string
 	operationID    string
+	profile        string
 	runtimeVersion string
 	workspaceID    string
 }
 
 func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencies) *cobra.Command {
-	options := environmentBootstrapOptions{format: "text", mode: "process"}
+	options := environmentBootstrapOptions{format: "text", mode: "process", profile: "codex"}
 	command := &cobra.Command{
 		Use:   "bootstrap <environment-instance>",
 		Short: "Start a pinned Workspace Runtime without installing a permanent Connector",
@@ -66,6 +67,7 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 				Branch: options.branch, Commit: options.commit, EnvironmentID: instance.ID,
 				Generation: options.generation, ManifestDigest: options.manifestDigest,
 				Mode: options.mode, OperationID: operationID,
+				Profile:        options.profile,
 				RuntimeVersion: options.runtimeVersion, WorkspaceID: options.workspaceID,
 			})
 			if err != nil {
@@ -90,6 +92,7 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 	flags.StringVar(&options.manifestDigest, "manifest-digest", "", "pinned Runtime manifest SHA-256")
 	flags.StringVar(&options.runtimeVersion, "runtime-version", "", "pinned Project Runtime version")
 	flags.StringVar(&options.mode, "mode", options.mode, "Runtime isolation: process or devcontainer")
+	flags.StringVar(&options.profile, "profile", options.profile, "Runtime profile: codex or inspection")
 	flags.StringVar(&options.operationID, "operation-id", "", "stable idempotency identity")
 	flags.StringVar(&options.format, "format", options.format, "output format: text or json")
 	for _, name := range []string{

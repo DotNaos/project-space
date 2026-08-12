@@ -103,7 +103,7 @@ func TestLaunchWorkspaceRuntimeUsesTypedMachineBoundary(t *testing.T) {
 		EnvironmentID:  "11111111-1111-4111-8111-111111111111",
 		Generation:     "22222222-2222-4222-8222-222222222222",
 		ManifestDigest: strings.Repeat("b", 64), Mode: "process",
-		OperationID: "bootstrap-one", RuntimeVersion: "0.5.0",
+		OperationID: "bootstrap-one", Profile: "inspection", RuntimeVersion: "0.5.0",
 		WorkspaceID: "33333333-3333-4333-8333-333333333333",
 	}
 	result, err := client.LaunchWorkspaceRuntime(context.Background(), input)
@@ -148,7 +148,7 @@ func TestLaunchWorkspaceRuntimeRejectsUnboundInputAndResponse(t *testing.T) {
 		EnvironmentID:  "11111111-1111-4111-8111-111111111111",
 		Generation:     "22222222-2222-4222-8222-222222222222",
 		ManifestDigest: strings.Repeat("b", 64), Mode: "process",
-		OperationID: "bootstrap-one", RuntimeVersion: "0.5.0",
+		OperationID: "bootstrap-one", Profile: "codex", RuntimeVersion: "0.5.0",
 		WorkspaceID: "33333333-3333-4333-8333-333333333333",
 	})
 	if err != ErrInvalidResponse {
