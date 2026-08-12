@@ -17,18 +17,17 @@ import (
 )
 
 type machineConnectionCommandDependencies struct {
-	Backend                machineconnect.Backend
-	Store                  machineconnect.CredentialStore
-	Connector              machineconnect.Connector
-	NewForegroundConnector func(io.Writer, io.Writer) (foregroundMachineConnector, error)
-	Clock                  machineconnect.Clock
-	Hostname               func() (string, error)
-	Headless               func() bool
-	GOOS                   string
-	GOARCH                 string
-	Version                string
-	OpenURL                func(context.Context, string) error
-	Workflow               machineconnect.WorkflowOptions
+	Backend   machineconnect.Backend
+	Store     machineconnect.CredentialStore
+	Connector machineconnect.Connector
+	Clock     machineconnect.Clock
+	Hostname  func() (string, error)
+	Headless  func() bool
+	GOOS      string
+	GOARCH    string
+	Version   string
+	OpenURL   func(context.Context, string) error
+	Workflow  machineconnect.WorkflowOptions
 }
 
 type machineConnectionCommandDependencyFactory func() (machineConnectionCommandDependencies, error)
@@ -74,24 +73,10 @@ func newConnectCommandWithDependencyFactory(
 			}
 			ctx, stopSignals := commandTerminationContext(command.Context())
 			defer stopSignals()
-			var foreground foregroundMachineConnector
 			switch options.ConnectorMode {
 			case "managed":
 			case "foreground":
-				if dependencies.GOOS != "linux" {
-					return errors.New("--connector-mode foreground is supported only on Linux")
-				}
-				if dependencies.NewForegroundConnector == nil {
-					return errors.New("configure foreground machine connector: dependency is missing")
-				}
-				foreground, err = dependencies.NewForegroundConnector(
-					command.OutOrStdout(),
-					command.ErrOrStderr(),
-				)
-				if err != nil {
-					return fmt.Errorf("configure foreground machine connector: %w", err)
-				}
-				dependencies.Connector = foreground
+				return errors.New("canonical_runtime_required: foreground Connector mode has been retired")
 			default:
 				return errors.New("--connector-mode must be managed or foreground")
 			}
@@ -136,10 +121,6 @@ func newConnectCommandWithDependencyFactory(
 				fmt.Fprintf(command.OutOrStdout(), "Machine %s is already connected and online.\n", result.MachineName)
 			} else {
 				fmt.Fprintf(command.OutOrStdout(), "Machine %s is connected and online.\n", result.MachineName)
-			}
-			if foreground != nil && foreground.Running() {
-				fmt.Fprintln(command.ErrOrStderr(), "Foreground connector is running; stop the command to take the machine offline.")
-				return foreground.Wait(ctx)
 			}
 			return nil
 		},
@@ -208,19 +189,13 @@ func defaultMachineConnectionDependencies() (machineConnectionCommandDependencie
 		Backend:   backend,
 		Store:     store,
 		Connector: connector,
-		NewForegroundConnector: func(
-			stdout io.Writer,
-			stderr io.Writer,
-		) (foregroundMachineConnector, error) {
-			return newForegroundMachineConnector(store, stdout, stderr)
-		},
-		Clock:    machineconnect.RealClock{},
-		Hostname: os.Hostname,
-		Headless: isHeadlessMachine,
-		GOOS:     runtime.GOOS,
-		GOARCH:   runtime.GOARCH,
-		Version:  projectMachineClientVersion,
-		OpenURL:  openMachineApprovalURL,
+		Clock:     machineconnect.RealClock{},
+		Hostname:  os.Hostname,
+		Headless:  isHeadlessMachine,
+		GOOS:      runtime.GOOS,
+		GOARCH:    runtime.GOARCH,
+		Version:   projectMachineClientVersion,
+		OpenURL:   openMachineApprovalURL,
 	}, nil
 }
 
