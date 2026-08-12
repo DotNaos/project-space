@@ -13,18 +13,18 @@ func TestInstallDetectorRecognizesExactManagedLayout(t *testing.T) {
 	releaseDir := filepath.Join(installDir, managedToolsDirectory, "versions", releaseID)
 	mustMkdirAll(t, releaseDir)
 	mustWriteDetectorFile(t, filepath.Join(releaseDir, "project"), "project", 0o700)
-	mustWriteDetectorFile(t, filepath.Join(releaseDir, "project-space-connector"), "connector", 0o700)
+	mustWriteDetectorFile(t, filepath.Join(releaseDir, "project-codex-host"), "codex-host", 0o700)
 	mustWriteDetectorFile(t, filepath.Join(releaseDir, "VERSION"), "0.4.8\n", 0o600)
 	mustSymlink(t, "versions/"+releaseID, filepath.Join(installDir, managedToolsDirectory, "current"))
 	mustSymlink(t, ".project-space-machine-tools/current/project", filepath.Join(installDir, "project"))
-	mustSymlink(t, ".project-space-machine-tools/current/project-space-connector", filepath.Join(installDir, "project-space-connector"))
+	mustSymlink(t, ".project-space-machine-tools/current/project-codex-host", filepath.Join(installDir, "project-codex-host"))
 
 	installation, err := NewInstallDetector(InstallDetectorOptions{
 		CurrentVersion: "0.4.8",
 		ExecutablePath: filepath.Join(installDir, "project"),
 		GOARCH:         "arm64",
 		GOOS:           "darwin",
-		ReadVersion:    func(string) (string, error) { return "project-space-connector 0.4.8\n", nil },
+		ReadVersion:    func(string) (string, error) { return "project-codex-host 0.4.8\n", nil },
 	}).Detect()
 	if err != nil {
 		t.Fatal(err)
@@ -42,22 +42,22 @@ func TestInstallDetectorRecognizesExactManagedLayout(t *testing.T) {
 		ExecutablePath: filepath.Join(installDir, "project"),
 		GOARCH:         "arm64",
 		GOOS:           "darwin",
-		ReadVersion:    func(string) (string, error) { return "project-space-connector 0.4.7\n", nil },
+		ReadVersion:    func(string) (string, error) { return "project-codex-host 0.4.7\n", nil },
 	}).Detect()
 	if mismatchErr == nil || mismatched.Source != InstallSourceUnknown {
 		t.Fatalf("mismatched connector installation = %#v, %v", mismatched, mismatchErr)
 	}
 
-	if err := os.Remove(filepath.Join(installDir, "project-space-connector")); err != nil {
+	if err := os.Remove(filepath.Join(installDir, "project-codex-host")); err != nil {
 		t.Fatal(err)
 	}
-	mustSymlink(t, filepath.Join(releaseDir, "project-space-connector"), filepath.Join(installDir, "project-space-connector"))
+	mustSymlink(t, filepath.Join(releaseDir, "project-codex-host"), filepath.Join(installDir, "project-codex-host"))
 	installation, err = NewInstallDetector(InstallDetectorOptions{
 		CurrentVersion: "0.4.8",
 		ExecutablePath: filepath.Join(installDir, "project"),
 		GOARCH:         "arm64",
 		GOOS:           "darwin",
-		ReadVersion:    func(string) (string, error) { return "project-space-connector 0.4.8\n", nil },
+		ReadVersion:    func(string) (string, error) { return "project-codex-host 0.4.8\n", nil },
 	}).Detect()
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestInstallDetectorRecognizesHomebrewAndWindowsBoundaries(t *testing.T) {
 	mustMkdirAll(t, installDir)
 	project := windowsJoin(installDir, "project.exe")
 	mustWriteDetectorFile(t, project, "project", 0o700)
-	mustWriteDetectorFile(t, windowsJoin(installDir, "project-space-connector.exe"), "connector", 0o700)
+	mustWriteDetectorFile(t, windowsJoin(installDir, "project-codex-host.exe"), "codex-host", 0o700)
 	installation, err = NewInstallDetector(InstallDetectorOptions{
 		CurrentVersion: "0.4.8",
 		ExecutablePath: project,
@@ -118,7 +118,7 @@ func TestInstallDetectorRecognizesHomebrewAndWindowsBoundaries(t *testing.T) {
 	if err != nil || installation.Source != InstallSourceWindows || installation.Target != "windows-x64" {
 		t.Fatalf("Windows installation = %#v, %v", installation, err)
 	}
-	if err := os.Remove(windowsJoin(installDir, "project-space-connector.exe")); err != nil {
+	if err := os.Remove(windowsJoin(installDir, "project-codex-host.exe")); err != nil {
 		t.Fatal(err)
 	}
 	installation, _ = NewInstallDetector(InstallDetectorOptions{

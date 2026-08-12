@@ -121,9 +121,9 @@ jobs:
               <<< "$matrix")
           }
 
-          select_platform "$INPUT_LINUX_X64" linux-x64 bun-linux-x64 linux amd64 project-dev project-space-connector-dev
-          select_platform "$INPUT_MACOS_ARM64" macos-arm64 bun-darwin-arm64 darwin arm64 project-dev project-space-connector-dev
-          select_platform "$INPUT_WINDOWS_X64" windows-x64 bun-windows-x64 windows amd64 project-dev.exe project-space-connector-dev.exe
+          select_platform "$INPUT_LINUX_X64" linux-x64 bun-linux-x64 linux amd64 project-dev project-codex-host-dev
+          select_platform "$INPUT_MACOS_ARM64" macos-arm64 bun-darwin-arm64 darwin arm64 project-dev project-codex-host-dev
+          select_platform "$INPUT_WINDOWS_X64" windows-x64 bun-windows-x64 windows amd64 project-dev.exe project-codex-host-dev.exe
 
           has_builds=$(jq -r 'length > 0' <<< "$matrix")
           {
@@ -211,7 +211,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build unsigned CLI and connector for the PR Preview
+      - name: Build unsigned CLI and Codex host for the PR Preview
         shell: bash
         env:
           BUN_TARGET: ${{ matrix.bun_target }}
@@ -233,7 +233,7 @@ jobs:
           mkdir -p "$bundle"
 
           bun build --compile --target="$BUN_TARGET" --no-compile-autoload-dotenv \
-            server/web-server.ts --outfile "$bundle/$CONNECTOR_NAME" \
+            server/workspace-runtime-codex-host/cli.ts --outfile "$bundle/$CONNECTOR_NAME" \
             --define "__PROJECT_SPACE_VERSION__=\"$dev_version\"" \
             --define "__PROJECT_SPACE_RELEASE_ID__=\"$dev_release_id\"" \
             --define "__PROJECT_SPACE_BUILD_ID__=\"$SOURCE_SHA\""

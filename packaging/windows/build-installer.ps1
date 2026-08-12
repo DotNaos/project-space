@@ -15,12 +15,17 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $resolvedSourceDirectory = [System.IO.Path]::GetFullPath($SourceDirectory)
-foreach ($binaryName in @('project.exe', 'project-space-connector.exe')) {
+foreach ($binaryName in @('project.exe', 'project-codex-host.exe')) {
   $binaryPath = Join-Path $resolvedSourceDirectory $binaryName
   if (-not [System.IO.File]::Exists($binaryPath)) {
     throw "Required Windows release binary is missing: $binaryPath"
   }
 }
+$retirementScript = Join-Path $PSScriptRoot 'retire-connector.ps1'
+if (-not [System.IO.File]::Exists($retirementScript)) {
+  throw "The Connector retirement script is missing: $retirementScript"
+}
+Copy-Item -LiteralPath $retirementScript -Destination (Join-Path $resolvedSourceDirectory 'retire-connector.ps1') -Force
 
 if ($CompilerPath -eq '') {
   $compilerCandidates = @()

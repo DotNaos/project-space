@@ -32,7 +32,7 @@ trap 'rm -rf -- "$staging_root"' EXIT
 bundle_root="${staging_root}/${bundle_name}"
 mkdir -p -- "$bundle_root"
 
-for binary in project project-space-connector; do
+for binary in project project-codex-host; do
   source_path="${source_directory}/${binary}"
   if [[ ! -f $source_path || ! -x $source_path ]]; then
     echo "Required executable is missing: $source_path" >&2
@@ -59,7 +59,7 @@ done
 install -m 0755 -- "${script_directory}/install-machine-tools.sh" "${bundle_root}/install.sh"
 printf '%s\n' "$version" > "${bundle_root}/VERSION"
 checksum_members=(
-  project project-space-connector
+  project project-codex-host
   connector-command-signing-public-key.pem
   release-manifest-signing-public-key.pem
   install.sh VERSION

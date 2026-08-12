@@ -115,20 +115,20 @@ jobs:
           go vet ./cmd/project ./internal/selfupdate
           packaging/macos/test-release-packaging.sh '${{ inputs.version }}'
 
-      - name: Build arm64 connector runtime
+      - name: Build arm64 Codex host
         env:
           PROJECT_RELEASE_SOURCE_SHA: ${{ inputs.source-sha }}
           RELEASE_ID: v${{ inputs.version }}
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          bun packaging/release/build-connector.ts \
+          bun packaging/release/build-codex-host.ts \
             bun-darwin-arm64 \
-            dist/project-space-connector
+            dist/project-codex-host
           bash packaging/macos/prepare-unsigned-release-artifact.sh \
             '${{ inputs.version }}' \
             '${{ inputs.source-sha }}' \
-            dist/project-space-connector \
+            dist/project-codex-host \
             "$RUNNER_TEMP/project-space-macos-runtime"
 
       - name: Upload immutable runtime

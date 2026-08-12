@@ -12,15 +12,15 @@ class Project < Formula
   def install
     ldflags = "-X main.projectMachineClientVersion=#{version}"
     system "bun", "install", "--frozen-lockfile"
-    system "bun", "run", "build:connector:native"
+    system "bun", "run", "build:codex-host:native"
     system "go", "build", "-trimpath", "-ldflags=#{ldflags}", "-o", bin/"project", "./cmd/project"
-    bin.install "dist/project-space-connector"
+    bin.install "dist/project-codex-host"
     generate_completions_from_executable bin/"project", "completion", shells: [:zsh]
   end
 
   test do
-    assert_predicate bin/"project-space-connector", :executable?
-    system bin/"project-space-connector", "--help"
+    assert_predicate bin/"project-codex-host", :executable?
+    system bin/"project-codex-host", "--help"
     system bin/"project", "--help"
     system bin/"project", "init", "--help"
   end

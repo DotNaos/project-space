@@ -614,7 +614,7 @@ export const PROJECT_INVENTORY: ProjectInventory = {
         "dev",
         "dev:electron",
         "build",
-        "build:connector:macos-arm64",
+        "build:codex-host:macos-arm64",
         "build:electron",
         "check",
         "connector:serve",

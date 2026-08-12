@@ -67,7 +67,7 @@ fi
 
 bundle_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 for required in \
-  SHA256SUMS.txt VERSION project project-space-connector codex \
+  SHA256SUMS.txt VERSION project project-codex-host codex \
   CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
   connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
   if [[ ! -f ${bundle_root}/${required} ]]; then
@@ -94,7 +94,7 @@ fi
 verify_installed_pair() {
   local binary output version_pattern codex_version_pattern
   version_pattern=${version//./\\.}
-  for binary in project project-space-connector; do
+  for binary in project project-codex-host; do
     if ! output=$("${install_directory}/${binary}" --version 2>&1) ||
       [[ ! $output =~ (^|[[:space:]])v?${version_pattern}($|[[:space:]]) ]]; then
       echo "The installed ${binary} does not report the bundled version." >&2
@@ -148,7 +148,6 @@ backup_root="${transaction_root}/backups"
 mkdir -m 0700 -- "$backup_root"
 
 previous_current_target=""
-stopped_existing=0
 installation_started=0
 committed=0
 pointer_switched=0
@@ -179,13 +178,6 @@ rollback_installation() {
   for ((index=${#changed_entries[@]} - 1; index >= 0; index--)); do
     restore_entry "${changed_entries[$index]}"
   done
-  if [[ $stopped_existing -eq 1 ]]; then
-    if [[ ! -x $previous_service_project ]] || \
-      ! "$previous_service_project" connector service start-if-connected; then
-      echo "The previous connector service could not be restarted after rollback." >&2
-      return 1
-    fi
-  fi
 }
 
 cleanup() {
@@ -199,7 +191,7 @@ cleanup() {
   fi
   rm -rf -- "$transaction_root"
   if [[ $rollback_failed -eq 1 ]]; then
-    echo "The installation failed with status $status and rollback could not restore the previous connector service. Manual recovery is required." >&2
+    echo "The installation failed with status $status and the previous machine tools could not be restored. Manual recovery is required." >&2
     exit 71
   fi
   exit "$status"
@@ -209,7 +201,7 @@ trap cleanup EXIT
 staged_release="${transaction_root}/${release_id}"
 mkdir -m 0700 -- "$staged_release"
 install -m 0755 -- "${bundle_root}/project" "${staged_release}/project"
-install -m 0755 -- "${bundle_root}/project-space-connector" "${staged_release}/project-space-connector"
+install -m 0755 -- "${bundle_root}/project-codex-host" "${staged_release}/project-codex-host"
 install -m 0755 -- "${bundle_root}/codex" "${staged_release}/codex"
 install -m 0644 -- "${bundle_root}/CODEX-LICENSE" "${staged_release}/CODEX-LICENSE"
 install -m 0644 -- "${bundle_root}/CODEX-NOTICE" "${staged_release}/CODEX-NOTICE"
@@ -222,7 +214,7 @@ install -m 0600 -- "${bundle_root}/VERSION" "${staged_release}/VERSION"
 
 if [[ -d $release_directory ]]; then
   for member in \
-    project project-space-connector codex CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
+    project project-codex-host codex CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
     connector-command-signing-public-key.pem release-manifest-signing-public-key.pem \
     VERSION; do
     if ! cmp -s -- "${staged_release}/${member}" "${release_directory}/${member}"; then
@@ -234,7 +226,7 @@ else
   mv -T -- "$staged_release" "$release_directory"
 fi
 
-for name in project project-space-connector; do
+for name in project project-codex-host; do
   destination="${install_directory}/${name}"
   if [[ -d $destination && ! -L $destination ]]; then
     echo "Refusing to replace a directory: $destination" >&2
@@ -252,17 +244,14 @@ elif [[ -x $existing_project ]]; then
 fi
 installation_started=1
 if [[ $connector_service_mode == managed && -n $previous_service_project ]]; then
-  # Treat the old service as needing restoration before stopping it. This also
-  # keeps a partial stop failure fail-safe: rollback retries the idempotent start.
-  stopped_existing=1
-  "$release_directory/project" connector service stop
+  systemctl --user stop project-space-machine-connector-supervisor.service
 fi
 assert_connector_maintenance_idle
 if [[ -L $current_link ]]; then
   previous_current_target=$(readlink -- "$current_link")
 fi
 
-for name in project project-space-connector; do
+for name in project project-codex-host; do
   destination="${install_directory}/${name}"
   expected_target=".project-space-machine-tools/current/${name}"
   if [[ -L $destination && $(readlink -- "$destination") == "$expected_target" ]]; then
@@ -276,6 +265,12 @@ for name in project project-space-connector; do
   mv -Tf -- "$link_temp" "$destination"
   changed_entries+=("$name")
 done
+obsolete_connector="${install_directory}/project-space-connector"
+if [[ -L $obsolete_connector &&
+  $(readlink -- "$obsolete_connector") == '.project-space-machine-tools/current/project-space-connector' ]]; then
+  mv -T -- "$obsolete_connector" "${backup_root}/project-space-connector"
+  changed_entries+=("project-space-connector")
+fi
 
 next_current="${transaction_root}/current.next"
 ln -s -- "versions/${release_id}" "$next_current"
@@ -287,10 +282,17 @@ if ! verify_installed_pair; then
   exit 70
 fi
 
-if [[ $connector_service_mode == managed ]] && \
-  ! "${install_directory}/project" connector service start-if-connected; then
-  echo "The new connector could not be started; the previous machine-tools release was restored." >&2
-  exit 70
+if [[ $connector_service_mode == managed ]] && command -v systemctl >/dev/null 2>&1; then
+  for retired_unit in \
+    project-space-machine-connector-supervisor.service \
+    project-space-connector.service; do
+    if systemctl --user is-active --quiet "$retired_unit"; then
+      systemctl --user stop "$retired_unit" || {
+        echo "The retired Connector service could not be stopped." >&2
+        exit 70
+      }
+    fi
+  done
 fi
 
 committed=1

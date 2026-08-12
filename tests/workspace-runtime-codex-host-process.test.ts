@@ -22,8 +22,7 @@ test('runs the real host process over bounded private stdio without a listener',
     workspaceId: 'ws_0123456789abcdef01234567'
   }), { mode: 0o600 });
   const child = spawn(process.execPath, [
-    'server/web-server.ts',
-    'workspace-codex-host',
+    'server/workspace-runtime-codex-host/cli.ts',
     '--bootstrap',
     bootstrapPath
   ], { stdio: 'pipe' });

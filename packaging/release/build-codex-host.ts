@@ -12,24 +12,24 @@ const targets = new Set([
   'bun-windows-x64'
 ]);
 
-export interface ConnectorBuildIdentity {
+export interface CodexHostBuildIdentity {
   buildId: string;
   releaseId: string;
   version: string;
 }
 
-export function connectorBuildArguments(
+export function codexHostBuildArguments(
   target: string,
   output: string,
-  identity: ConnectorBuildIdentity
+  identity: CodexHostBuildIdentity
 ) {
   if (!targets.has(target) || !output.trim()) {
-    throw new Error('Connector build target or output path is invalid.');
+    throw new Error('Codex host build target or output path is invalid.');
   }
   if (!semanticVersionPattern.test(identity.version) ||
       identity.releaseId !== `v${identity.version}` ||
       !buildIdPattern.test(identity.buildId)) {
-    throw new Error('Connector build identity must be an exact release and full commit SHA.');
+    throw new Error('Codex host build identity must be an exact release and full commit SHA.');
   }
   const define = (name: string, value: string) => [
     '--define', `${name}=${JSON.stringify(value)}`
@@ -39,7 +39,7 @@ export function connectorBuildArguments(
     '--compile',
     `--target=${target}`,
     '--no-compile-autoload-dotenv',
-    'server/web-server.ts',
+    'server/workspace-runtime-codex-host/cli.ts',
     '--outfile',
     output,
     ...define('__PROJECT_SPACE_VERSION__', identity.version),
@@ -70,14 +70,14 @@ async function currentBuildId(environment: NodeJS.ProcessEnv) {
   });
   const buildId = (await new Response(command.stdout).text()).trim();
   if (await command.exited !== 0) {
-    throw new Error('Could not resolve the connector build commit.');
+    throw new Error('Could not resolve the Codex host build commit.');
   }
   return buildId;
 }
 
-export async function connectorBuildIdentity(
+export async function codexHostBuildIdentity(
   environment: NodeJS.ProcessEnv = process.env
-): Promise<ConnectorBuildIdentity> {
+): Promise<CodexHostBuildIdentity> {
   const version = environment.VERSION?.trim() || await packageVersion();
   const identity = {
     buildId: await currentBuildId(environment),
@@ -87,7 +87,7 @@ export async function connectorBuildIdentity(
   if (!semanticVersionPattern.test(identity.version) ||
       identity.releaseId !== `v${identity.version}` ||
       !buildIdPattern.test(identity.buildId)) {
-    throw new Error('Connector build identity must be an exact release and full commit SHA.');
+    throw new Error('Codex host build identity must be an exact release and full commit SHA.');
   }
   return identity;
 }
@@ -95,12 +95,12 @@ export async function connectorBuildIdentity(
 async function main() {
   const [target, output, ...extra] = process.argv.slice(2);
   if (!target || !output || extra.length > 0) {
-    throw new Error('Usage: build-connector.ts <bun-target> <output-path>');
+    throw new Error('Usage: build-codex-host.ts <bun-target> <output-path>');
   }
-  const arguments_ = connectorBuildArguments(
+  const arguments_ = codexHostBuildArguments(
     target,
     output,
-    await connectorBuildIdentity()
+    await codexHostBuildIdentity()
   );
   const build = Bun.spawn([process.execPath, ...arguments_], {
     stderr: 'inherit',

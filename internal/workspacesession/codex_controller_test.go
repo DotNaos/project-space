@@ -10,7 +10,7 @@ import (
 
 func TestCodexControllerRequiresExactReadyHandshakeAndUsesPrivatePipes(t *testing.T) {
 	directory := t.TempDir()
-	controllerPath := filepath.Join(directory, "project-space-connector")
+	controllerPath := filepath.Join(directory, "project-codex-host")
 	script := `#!/bin/sh
 printf '%s\n' '{"acceptedCommandSequence":7,"capability":"runtime.codex.v1","lastEventSequence":11,"state":"ready","type":"controller.ready"}'
 while IFS= read -r line; do

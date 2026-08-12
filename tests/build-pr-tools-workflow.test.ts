@@ -52,7 +52,9 @@ describe('manual PR development tools workflow', () => {
     expect(workflow).toContain('https://pr-${PR_NUMBER}.projects.os-home.net');
     expect(workflow).toContain('project-space.pr-dev-build/v1');
     expect(workflow).toContain('project-dev');
-    expect(workflow).toContain('project-space-connector-dev');
+    expect(workflow).toContain('project-codex-host-dev');
+    expect(workflow).toContain('server/workspace-runtime-codex-host/cli.ts');
+    expect(workflow).not.toContain('server/web-server.ts --outfile "$bundle/$CONNECTOR_NAME"');
     expect(workflow).toContain('productionSigned: false');
     expect(workflow).toContain('productionTrustRootsIncluded: false');
     expect(workflow).toContain('sha256sum');

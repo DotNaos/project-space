@@ -47,7 +47,7 @@ func startCodexController(ctx context.Context, bootstrap Bootstrap) (*codexContr
 		}
 	}
 	command := exec.CommandContext(ctx, bootstrap.CodexControllerBinary,
-		"workspace-codex-host", "--bootstrap", bootstrap.CodexControllerBootstrap)
+		"--bootstrap", bootstrap.CodexControllerBootstrap)
 	generationHome := filepath.Dir(bootstrap.CodexControllerBootstrap)
 	command.Env = []string{
 		"HOME=" + filepath.Join(generationHome, "home"),

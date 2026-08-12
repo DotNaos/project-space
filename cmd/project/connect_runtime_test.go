@@ -38,6 +38,33 @@ func TestResolveAuthenticatedConnectorBinaryFindsPhysicalSibling(t *testing.T) {
 	}
 }
 
+func TestResolveAuthenticatedCodexHostBinaryFindsOnlyTheNewSibling(t *testing.T) {
+	directory := t.TempDir()
+	projectExecutable := filepath.Join(directory, projectExecutableName(runtime.GOOS))
+	if err := os.WriteFile(projectExecutable, []byte("project"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := "project-codex-host"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	host := filepath.Join(directory, name)
+	if err := os.WriteFile(host, []byte("codex host"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := resolveAuthenticatedCodexHostBinary(projectExecutable, runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalHost, err := filepath.EvalSymlinks(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != physicalHost {
+		t.Fatalf("resolved Codex host = %q, want %q", resolved, physicalHost)
+	}
+}
+
 func TestAuthenticatedConnectorResolutionRejectsCWDAndPATHCandidates(t *testing.T) {
 	projectDirectory := t.TempDir()
 	projectExecutable := filepath.Join(projectDirectory, projectExecutableName(runtime.GOOS))

@@ -39,7 +39,7 @@ trap 'rm -rf -- "$staging_root"' EXIT
 bundle_root="${staging_root}/${bundle_name}"
 mkdir -p -- "$bundle_root"
 
-for binary in project project-space-connector codex; do
+for binary in project project-codex-host codex; do
   source_path="${source_directory}/${binary}"
   if [[ ! -f $source_path || ! -x $source_path ]]; then
     echo "Required executable is missing: $source_path" >&2
@@ -69,7 +69,7 @@ printf '%s\n' "$version" > "${bundle_root}/VERSION"
 (
   cd -- "$bundle_root"
   sha256sum \
-    project project-space-connector codex \
+    project project-codex-host codex \
     CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
     connector-command-signing-public-key.pem \
     release-manifest-signing-public-key.pem \
