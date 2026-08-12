@@ -162,6 +162,7 @@ describe('SSH control gateway cross-language contract', () => {
       runtimeSessionCapabilities: ['runtime.lifecycle', 'runtime.heartbeat'],
       runtimeSessionEndpoint: 'wss://projects.os-home.net/api/workspace-runtimes/socket',
       runtimeSessionExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      expectedBranch: 'issue-625', expectedRuntimeVersion: '0.5.0-test',
       runtimeSessionToken: 'A'.repeat(43),
       runtimeSessionVersion: '0.5.0-test',
       workspaceId: '123e4567-e89b-42d3-a456-426614174001'

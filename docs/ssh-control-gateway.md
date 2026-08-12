@@ -28,5 +28,7 @@ operation fails closed if the file is missing, writable by group or others, not 
 not exactly match both the requested Environment UUID and identity revision.
 
 The Project Space server also requires `PROJECT_SPACE_SSH_CONTROL_GATEWAY_ID`. That value must be
-listed in the route's approved gateway IDs. The status API accepts only authenticated Project
-machines, and the SSH command exposes only `status.v1`; it never accepts shell text.
+listed in the route's approved gateway IDs. Production Compose defaults to `project-space-prod-web`
+and Preview Compose defaults to `project-space-preview-web`; override the value when the approved
+route uses a different logical gateway identity. The status API accepts only authenticated Project
+machines, and the SSH command exposes only typed control operations; it never accepts shell text.

@@ -20,6 +20,7 @@ describe('SSH control gateway HTTP boundary', () => {
   test('the productive router admits both typed control endpoints and nothing adjacent', () => {
     expect(isConfiguredSshControlGatewayRoute('/api/compute/control/status')).toBe(true);
     expect(isConfiguredSshControlGatewayRoute('/api/compute/control/workspace-runtime')).toBe(true);
+    expect(isConfiguredSshControlGatewayRoute('/api/compute/control/workspace-runtime/launch')).toBe(true);
     expect(isConfiguredSshControlGatewayRoute('/api/compute/control/shell')).toBe(false);
   });
 

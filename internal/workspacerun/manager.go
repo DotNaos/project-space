@@ -135,6 +135,9 @@ func (manager *Manager) resolve(ctx context.Context, directory string, options O
 	if options.ExpectedWorkspaceID != "" && plan.Identity.WorkspaceID != options.ExpectedWorkspaceID {
 		return resolvedPlan{}, fmt.Errorf("Workspace identity mismatch")
 	}
+	if options.ExpectedBranch != "" && plan.Identity.Branch != options.ExpectedBranch {
+		return resolvedPlan{}, fmt.Errorf("Workspace branch mismatch: expected %s, received %s", options.ExpectedBranch, plan.Identity.Branch)
+	}
 	if options.ExpectedCommit != "" && plan.Identity.Head != options.ExpectedCommit {
 		return resolvedPlan{}, fmt.Errorf("Workspace HEAD mismatch: expected %s, received %s", options.ExpectedCommit, plan.Identity.Head)
 	}
@@ -200,6 +203,9 @@ func verifyStoredBinding(record runtimeRecord, options OperationOptions) error {
 	}
 	if options.ExpectedWorkspaceID != "" && record.WorkspaceID != options.ExpectedWorkspaceID {
 		return fmt.Errorf("runtime Workspace identity mismatch")
+	}
+	if options.ExpectedBranch != "" && record.Branch != options.ExpectedBranch {
+		return fmt.Errorf("stored Workspace branch mismatch")
 	}
 	if options.ExpectedCommit != "" && record.Head != options.ExpectedCommit {
 		return fmt.Errorf("runtime source HEAD mismatch")

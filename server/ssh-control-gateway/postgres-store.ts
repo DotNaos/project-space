@@ -152,6 +152,15 @@ export class PostgresSshGatewayOperationStore implements SshGatewayOperationStor
     await this.client.transaction!(run);
   }
 
+  async read(ownerUserId: string, operationId: string) {
+    const result = await this.client.query<OperationRow>(
+      `${selectColumns} from ssh_gateway_operations
+        where owner_user_id = $1 and operation_id = $2`,
+      [ownerUserId, operationId]
+    );
+    return result.rows[0] ? rowToRecord(result.rows[0]) : undefined;
+  }
+
   async complete(input: Parameters<SshGatewayOperationStore['complete']>[0]) {
     const run = async (client: DatabaseQueryClient) => {
       const existing = await client.query<OperationRow>(

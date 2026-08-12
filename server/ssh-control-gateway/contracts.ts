@@ -31,9 +31,11 @@ export interface SshGatewayRequest {
   environmentId: string;
   operation: SshControlOperation;
   operationId: string;
+  expectedBranch?: string;
   expectedCommit?: string;
   expectedGeneration?: string;
   expectedManifestDigest?: string;
+  expectedRuntimeVersion?: string;
   mode?: 'process' | 'devcontainer';
   runtimeSessionCapabilities?: string[];
   runtimeSessionEndpoint?: string;
@@ -121,6 +123,7 @@ export interface SshGatewayOperationStore {
     operationId: string;
     ownerUserId: string;
   }): Promise<void>;
+  read(ownerUserId: string, operationId: string): Promise<SshGatewayOperationRecord | undefined>;
   reconcile(input: {
     audit: SshGatewayAuditEvidence;
     fingerprint: string;

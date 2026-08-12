@@ -43,6 +43,11 @@ export class MemorySshGatewayOperationStore implements SshGatewayOperationStore 
     this.dispatchLeases.set(`${input.ownerUserId}:${input.operationId}`, Date.now() + 60_000);
   }
 
+  async read(ownerUserId: string, operationId: string) {
+    const record = this.records.get(`${ownerUserId}:${operationId}`);
+    return record ? structuredClone(record) : undefined;
+  }
+
   async complete(input: Parameters<SshGatewayOperationStore['complete']>[0]) {
     const key = `${input.ownerUserId}:${input.operationId}`;
     const current = this.records.get(key);

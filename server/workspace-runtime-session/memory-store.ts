@@ -18,6 +18,7 @@ import { RuntimeSessionError } from './contracts';
 import { validateCredentialIssue } from './validation';
 
 interface StoredCredential extends RuntimeCredentialScope {
+  operationId: string;
   revokedAt?: string;
   tokenHash: string;
 }
@@ -27,6 +28,7 @@ const systemClock: RuntimeSessionClock = { now: () => new Date() };
 export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
   private readonly credentials = new Map<string, StoredCredential>();
   private readonly currentCredentials = new Map<string, string>();
+  private readonly operationCredentials = new Map<string, StoredCredential>();
   private readonly records = new Map<string, RuntimeSessionRecord>();
 
   constructor(
@@ -38,12 +40,24 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
   async issue(input: IssueRuntimeCredentialInput) {
     const now = this.clock.now();
     const expiresAt = new Date(now.getTime() + validateCredentialIssue(input) * 1_000).toISOString();
+    const operationKey = `${input.ownerUserId}\0${input.operationId}`;
+    const operationCredential = this.operationCredentials.get(operationKey);
+    if (operationCredential) {
+      if (!sameIssue(operationCredential, input)) {
+        throw new RuntimeSessionError('replay_conflict', 'Runtime launch operation identity changed.');
+      }
+      throw new RuntimeSessionError('operation_in_progress', 'Runtime launch operation is already in progress.');
+    }
     const token = this.createToken();
     if (!/^[A-Za-z0-9_-]{43}$/.test(token) || Buffer.from(token, 'base64url').byteLength !== 32) {
       throw new Error('Runtime credential token must contain 32 random bytes.');
     }
     const credentialId = this.createCredentialId();
     const key = runtimeKey(input);
+    const activeRecord = this.records.get(key);
+    if (activeRecord?.snapshot.generation === input.generation) {
+      throw new RuntimeSessionError('generation_replaced', 'Runtime generation already has a registered session.');
+    }
     const replacedCredentialId = this.currentCredentials.get(key);
     if (replacedCredentialId) {
       const previous = [...this.credentials.values()].find((entry) => entry.credentialId === replacedCredentialId);
@@ -52,6 +66,9 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
           previous.commit !== input.commit || previous.manifestDigest !== input.manifestDigest ||
           previous.runtimeVersion !== input.runtimeVersion)) {
         throw new RuntimeSessionError('generation_replaced', 'Runtime source binding changed.');
+      }
+      if (previous && previous.generation === input.generation && !previous.revokedAt) {
+        throw new RuntimeSessionError('generation_replaced', 'Runtime generation already has an active session credential.');
       }
       if (previous) previous.revokedAt = now.toISOString();
     }
@@ -62,6 +79,7 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
       tokenHash: tokenHash(token)
     };
     this.credentials.set(scope.tokenHash, scope);
+    this.operationCredentials.set(operationKey, scope);
     this.currentCredentials.set(key, credentialId);
     return {
       credential: publicCredential(scope, token),
@@ -105,6 +123,7 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
         connectionState: 'online',
         expiresAt: scope.expiresAt,
         lastEventAt: receivedAt,
+        lastHeartbeatAt: receivedAt,
         sessionId
       };
       return { replacedSessionId, snapshot: cloneSnapshot(existing.snapshot) };
@@ -185,12 +204,14 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
 
   async markStale(staleBefore: string, checkedAt: string) {
     const cutoff = Date.parse(staleBefore);
-    const changed: WorkspaceRuntimeSessionSnapshot[] = [];
+    const changed: Array<{ ownerUserId: string; snapshot: WorkspaceRuntimeSessionSnapshot }> = [];
     for (const record of this.records.values()) {
       if (!['stopped', 'stale'].includes(record.snapshot.connectionState) &&
         Date.parse(record.snapshot.lastHeartbeatAt) < cutoff) {
         record.snapshot = { ...record.snapshot, connectionState: 'stale', lastEventAt: checkedAt };
-        changed.push(cloneSnapshot(record.snapshot));
+        const ownerUserId = this.ownerFor(record.credentialId);
+        if (!ownerUserId) throw new RuntimeSessionError('generation_replaced', 'Runtime owner is unavailable.');
+        changed.push({ ownerUserId, snapshot: cloneSnapshot(record.snapshot) });
       }
     }
     return changed;
@@ -258,6 +279,13 @@ function safeScope(scope: StoredCredential): RuntimeCredentialScope {
 
 function runtimeKey(input: { environmentId: string; ownerUserId: string; workspaceId: string }) {
   return `${input.ownerUserId}\0${input.workspaceId}`;
+}
+
+function sameIssue(left: StoredCredential, right: IssueRuntimeCredentialInput) {
+  return left.workspaceId === right.workspaceId && left.environmentId === right.environmentId &&
+    left.generation === right.generation && left.branch === right.branch && left.commit === right.commit &&
+    left.manifestDigest === right.manifestDigest && left.runtimeVersion === right.runtimeVersion &&
+    [...left.capabilities].sort().join('\0') === [...right.capabilities].sort().join('\0');
 }
 
 function requireCapability(scope: RuntimeCredentialScope, event: WorkspaceRuntimeEvent) {

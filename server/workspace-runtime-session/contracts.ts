@@ -12,6 +12,7 @@ export type RuntimeSessionErrorCode =
   | 'credential_expired'
   | 'generation_replaced'
   | 'invalid_message'
+  | 'operation_in_progress'
   | 'replay_conflict'
   | 'sequence_conflict';
 
@@ -43,6 +44,7 @@ export interface IssueRuntimeCredentialInput {
   expiresInSeconds?: number;
   generation: string;
   manifestDigest: string;
+  operationId: string;
   ownerUserId: string;
   runtimeVersion: string;
   workspaceId: string;
@@ -59,6 +61,11 @@ export interface RuntimeSessionRecord {
   snapshot: WorkspaceRuntimeSessionSnapshot;
 }
 
+export interface StaleRuntimeSession {
+  ownerUserId: string;
+  snapshot: WorkspaceRuntimeSessionSnapshot;
+}
+
 export interface RuntimeSessionStore {
   append(scope: RuntimeCredentialScope, sessionId: string, receivedAt: string, event: WorkspaceRuntimeEvent): Promise<{
     replayed: boolean;
@@ -71,7 +78,7 @@ export interface RuntimeSessionStore {
     replacedCredentialId?: string;
   }>;
   list(ownerUserId: string): Promise<WorkspaceRuntimeSessionSnapshot[]>;
-  markStale(staleBefore: string, checkedAt: string): Promise<WorkspaceRuntimeSessionSnapshot[]>;
+  markStale(staleBefore: string, checkedAt: string): Promise<StaleRuntimeSession[]>;
   revoke(ownerUserId: string, workspaceId: string, credentialId: string): Promise<void>;
   register(scope: RuntimeCredentialScope, sessionId: string, receivedAt: string, registration: WorkspaceRuntimeRegistration): Promise<{
     replacedSessionId?: string;

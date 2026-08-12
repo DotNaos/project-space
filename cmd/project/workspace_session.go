@@ -61,6 +61,15 @@ func runWorkspaceRuntimeSession(
 	command *cobra.Command,
 	bootstrap workspacesession.Bootstrap,
 ) error {
+	return runWorkspaceRuntimeSessionWithClient(ctx, command, bootstrap, (workspacesession.Client{}).Run)
+}
+
+func runWorkspaceRuntimeSessionWithClient(
+	ctx context.Context,
+	command *cobra.Command,
+	bootstrap workspacesession.Bootstrap,
+	runSession func(context.Context, workspacesession.Bootstrap) error,
+) error {
 	codex := exec.CommandContext(
 		ctx,
 		bootstrap.CodexBinary,
@@ -81,10 +90,16 @@ func runWorkspaceRuntimeSession(
 	if err := waitForRuntimeReady(ctx, bootstrap.ReadyPath, codexDone); err != nil {
 		return err
 	}
+	sessionCtx, cancelSession := context.WithCancel(context.Background())
+	defer cancelSession()
 	sessionDone := make(chan error, 1)
-	go func() { sessionDone <- (workspacesession.Client{}).Run(ctx, bootstrap) }()
+	go func() { sessionDone <- runSession(sessionCtx, bootstrap) }()
 	select {
 	case err := <-codexDone:
+		if runtimeStopRequested(ctx) {
+			waitForRuntimeSessionShutdown(cancelSession, sessionDone)
+			return ctx.Err()
+		}
 		if err == nil {
 			return fmt.Errorf("pinned Codex app-server exited")
 		}
@@ -99,13 +114,32 @@ func runWorkspaceRuntimeSession(
 			return ctx.Err()
 		}
 	case <-ctx.Done():
-		timer := time.NewTimer(1500 * time.Millisecond)
-		defer timer.Stop()
-		select {
-		case <-sessionDone:
-		case <-timer.C:
-		}
+		waitForRuntimeSessionShutdown(cancelSession, sessionDone)
 		return ctx.Err()
+	}
+}
+
+func runtimeStopRequested(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	timer := time.NewTimer(100 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func waitForRuntimeSessionShutdown(cancel context.CancelFunc, sessionDone <-chan error) {
+	cancel()
+	timer := time.NewTimer(2500 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-sessionDone:
+	case <-timer.C:
 	}
 }
 

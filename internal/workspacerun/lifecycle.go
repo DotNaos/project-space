@@ -206,6 +206,9 @@ func (manager *Manager) Stop(ctx context.Context, directory string, options Oper
 			return err
 		}
 		_, stopErr := manager.stopServers(ctx, &record)
+		if stopErr == nil {
+			stopErr = manager.syncRuntimeSessionState(record)
+		}
 		currentPlan, planErr := resolvePlan(ctx, manager.identity, record.Directory, record.Mode)
 		if planErr == nil && sameActivePlan(record, currentPlan) {
 			for _, command := range record.Shutdown {
@@ -340,6 +343,13 @@ func (manager *Manager) transition(
 			return err
 		}
 		if err := action(plan, &record, provider); err != nil {
+			record.LastError = err.Error()
+			record.CheckedAt = manager.timestamp()
+			_ = manager.store.save(record)
+			result = manager.result(operation, "", record, err)
+			return err
+		}
+		if err := manager.syncRuntimeSessionState(record); err != nil {
 			record.LastError = err.Error()
 			record.CheckedAt = manager.timestamp()
 			_ = manager.store.save(record)

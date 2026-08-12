@@ -154,11 +154,6 @@ func (manager *Manager) Start(
 		if _, err := manager.startServers(ctx, &record); err != nil {
 			return manager.failStart(ctx, provider, &record, err, &result)
 		}
-		if options.RuntimeSession != nil {
-			if err := manager.writeRuntimeSessionState(record); err != nil {
-				return manager.failStart(ctx, provider, &record, err, &result)
-			}
-		}
 		if err := manager.inspectResources(ctx, provider, record); err != nil {
 			return manager.failStart(ctx, provider, &record, err, &result)
 		}
@@ -168,6 +163,14 @@ func (manager *Manager) Start(
 		record.LastError = ""
 		if err := manager.store.save(record); err != nil {
 			return manager.failStart(ctx, provider, &record, err, &result)
+		}
+		if options.RuntimeSession != nil {
+			if err := manager.writeRuntimeSessionState(record); err != nil {
+				return manager.failStart(ctx, provider, &record, err, &result)
+			}
+			if err := manager.publishRuntimeSessionReady(record); err != nil {
+				return manager.failStart(ctx, provider, &record, err, &result)
+			}
 		}
 		result = manager.result("start", DispositionCreated, record, nil)
 		return nil

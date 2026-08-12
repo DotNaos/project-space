@@ -47,6 +47,34 @@ describe('SSH control gateway service', () => {
     ]) expect(evidence).not.toContain(forbidden);
   });
 
+  test('reads a completed Workspace start before issuing a replacement session credential', async () => {
+    const calls: string[] = [];
+    const service = gateway({ calls, transport: successfulTransport(calls) });
+    const core = {
+      environmentId, expectedBranch: 'issue-625', expectedCommit: 'a'.repeat(40),
+      expectedGeneration: '55555555-5555-4555-8555-555555555555',
+      expectedManifestDigest: 'b'.repeat(64), expectedRuntimeVersion: '0.4.66', mode: 'process' as const,
+      operation: 'workspace-runtime.start.v1' as const, operationId: 'workspace-start-1',
+      workspaceId: '66666666-6666-4666-8666-666666666666'
+    };
+    await service.execute(actor, {
+      ...core,
+      runtimeSessionCapabilities: ['runtime.lifecycle', 'runtime.heartbeat'],
+      runtimeSessionEndpoint: 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      runtimeSessionExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      runtimeSessionToken: 'A'.repeat(43),
+      runtimeSessionVersion: '0.4.66'
+    });
+    const replay = await service.replaySucceeded(actor, core);
+    expect(replay).toMatchObject({ replayed: true, result: { generation: core.expectedGeneration } });
+    await expect(service.replaySucceeded(actor, { ...core, expectedBranch: 'changed-branch' }))
+      .rejects.toMatchObject({ code: 'operation_conflict' });
+    await expect(service.replaySucceeded(actor, { ...core, expectedRuntimeVersion: 'changed-version' }))
+      .rejects.toMatchObject({ code: 'operation_conflict' });
+    expect(calls.filter((call) => call === 'credential')).toHaveLength(1);
+    expect(calls.filter((call) => call === 'ssh')).toHaveLength(1);
+  });
+
   test('denied first authorization does not load routes, credentials, or network', async () => {
     const calls: string[] = [];
     const service = gateway({
@@ -264,7 +292,7 @@ function successfulTransport(calls: string[]): SshControlTransport {
         exitCode: 0,
         stderr: '',
         stdout: JSON.stringify({
-          cliVersion: '0.5.0', operations: ['status.v1'], protocolVersion: 1,
+          cliVersion: '0.5.0', operations: ['status.v1', 'workspace-runtime.start.v1'], protocolVersion: 1,
           schemaVersion: 1, type: 'handshake'
         }),
         timedOut: false
@@ -272,6 +300,20 @@ function successfulTransport(calls: string[]): SshControlTransport {
     },
     execute: async ({ request: operation }) => {
       calls.push('ssh');
+      if (operation.operation === 'workspace-runtime.start.v1') {
+        return {
+          exitCode: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            checkedAt: new Date().toISOString(), disposition: 'created',
+            generation: operation.expectedGeneration, manifestDigest: operation.expectedManifestDigest,
+            mode: operation.mode, operation: operation.operation, operationId: operation.operationId,
+            schemaVersion: 1, sourceHead: operation.expectedCommit, state: 'running',
+            targetIdentityRevision: revision, type: 'result', workspaceId: operation.workspaceId
+          }),
+          timedOut: false
+        };
+      }
       return {
         exitCode: 0,
         stderr: '',

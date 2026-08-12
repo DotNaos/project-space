@@ -34,6 +34,7 @@ interface RuntimeRow {
   log_pointer: string | null;
   manifest_digest: string;
   owner_user_id: string;
+  revoked_at: Date | string | null;
   runtime_version: string;
   telemetry: WorkspaceRuntimeSessionSnapshot['telemetry'] | null;
   workspace_id: string;
@@ -58,7 +59,23 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
     const credentialId = this.createCredentialId();
     const ttl = validateCredentialIssue(input);
     return this.transaction(async (client) => {
+      await lockLaunchOperation(client, input.ownerUserId, input.operationId);
       await lockWorkspace(client, input.ownerUserId, input.workspaceId);
+      const operation = await client.query<IssuedOperationRow>(
+        `select c.workspace_id, c.environment_id::text, c.generation::text, c.capabilities,
+                g.branch, g.commit, g.manifest_digest, g.runtime_version
+         from workspace_runtime_credentials c join workspace_runtime_generations g
+           on g.owner_user_id = c.owner_user_id and g.workspace_id = c.workspace_id and
+              g.environment_id = c.environment_id and g.generation = c.generation
+         where c.owner_user_id = $1 and c.operation_id = $2 for update`,
+        [input.ownerUserId, input.operationId]
+      );
+      if (operation.rows[0]) {
+        if (!sameIssue(operation.rows[0], input)) {
+          throw new RuntimeSessionError('replay_conflict', 'Runtime launch operation identity changed.');
+        }
+        throw new RuntimeSessionError('operation_in_progress', 'Runtime launch operation is already in progress.');
+      }
       const current = await client.query<RuntimeRow>(
         `${selectRuntime} where g.owner_user_id = $1 and g.workspace_id = $2 and g.superseded_at is null for update`,
         [input.ownerUserId, input.workspaceId]
@@ -69,6 +86,9 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
           prior.commit !== input.commit || prior.manifest_digest !== input.manifestDigest ||
           prior.runtime_version !== input.runtimeVersion)) {
         throw new RuntimeSessionError('generation_replaced', 'Runtime source binding changed.');
+      }
+      if (prior && prior.generation === input.generation && (!prior.revoked_at || prior.current_session_id)) {
+        throw new RuntimeSessionError('generation_replaced', 'Runtime generation already has an active session credential.');
       }
       if (prior && prior.generation !== input.generation) {
         await client.query(
@@ -102,11 +122,11 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
       const issued = await client.query<{ expires_at: Date | string }>(
         `insert into workspace_runtime_credentials (
            owner_user_id, workspace_id, environment_id, generation, credential_id,
-           token_hash, capabilities, expires_at
-         ) values ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6, $7, now() + ($8 * interval '1 second'))
+           operation_id, token_hash, capabilities, expires_at
+         ) values ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8, now() + ($9 * interval '1 second'))
          returning expires_at`,
         [input.ownerUserId, input.workspaceId, input.environmentId, input.generation,
-          credentialId, hash(token), input.capabilities, ttl]
+          credentialId, input.operationId, hash(token), input.capabilities, ttl]
       );
       await client.query(
         `update workspace_runtime_generations set current_credential_id = $4::uuid, updated_at = now()
@@ -153,7 +173,8 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
       const updated = await client.query<RuntimeRow>(
         `${updateRuntimePrefix}
            set current_session_id = $6::uuid, connection_state = 'online', registered_at = coalesce(registered_at, $7::timestamptz),
-               last_event_at = $7::timestamptz, disconnected_at = null, updated_at = $7::timestamptz
+               last_event_at = $7::timestamptz, last_heartbeat_at = $7::timestamptz,
+               disconnected_at = null, updated_at = $7::timestamptz
          where g.owner_user_id = $1 and g.workspace_id = $2 and g.environment_id = $3::uuid and
                g.generation = $4::uuid and g.current_credential_id = $5::uuid and g.superseded_at is null
          returning ${returningRuntime}`,
@@ -224,7 +245,10 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
   }
 
   async list(ownerUserId: string) {
-    const result = await this.client.query<RuntimeRow>(`${selectRuntime} where g.owner_user_id = $1 and g.superseded_at is null`, [ownerUserId]);
+    const result = await this.client.query<RuntimeRow>(
+      `${selectRuntime} where g.owner_user_id = $1 and g.superseded_at is null and g.current_session_id is not null`,
+      [ownerUserId]
+    );
     return result.rows.map(snapshot);
   }
 
@@ -235,7 +259,7 @@ export class PostgresRuntimeSessionStore implements RuntimeSessionStore {
        returning ${returningRuntime}`,
       [staleBefore, checkedAt]
     );
-    return result.rows.map(snapshot);
+    return result.rows.map((row) => ({ ownerUserId: row.owner_user_id, snapshot: snapshot(row) }));
   }
 
   async revoke(ownerUserId: string, workspaceId: string, credentialId: string) {
@@ -255,7 +279,8 @@ async function currentForUpdate(client: DatabaseQueryClient, scope: RuntimeCrede
   await lockWorkspace(client, scope.ownerUserId, scope.workspaceId);
   const result = await client.query<RuntimeRow>(
     `${selectRuntime} where g.owner_user_id = $1 and g.workspace_id = $2 and g.environment_id = $3::uuid and
-       g.generation = $4::uuid and g.current_credential_id = $5::uuid and c.expires_at > now() and g.superseded_at is null
+       g.generation = $4::uuid and g.current_credential_id = $5::uuid and c.revoked_at is null and
+       c.expires_at > now() and g.superseded_at is null
        ${sessionId ? 'and g.current_session_id = $6::uuid' : ''} for update`,
     [scope.ownerUserId, scope.workspaceId, scope.environmentId, scope.generation, scope.credentialId, ...(sessionId ? [sessionId] : [])]
   );
@@ -319,17 +344,45 @@ async function lockWorkspace(client: DatabaseQueryClient, owner: string, workspa
   await client.query('select pg_advisory_xact_lock(hashtext($1))', [`workspace-runtime:${owner}:${workspace}`]);
 }
 
+async function lockLaunchOperation(client: DatabaseQueryClient, owner: string, operationId: string) {
+  await client.query('select pg_advisory_xact_lock(hashtext($1))', [`workspace-runtime-operation:${owner}:${operationId}`]);
+}
+
+interface IssuedOperationRow {
+  branch: string;
+  capabilities: string[];
+  commit: string;
+  environment_id: string;
+  generation: string;
+  manifest_digest: string;
+  runtime_version: string;
+  workspace_id: string;
+}
+
+function sameIssue(left: IssuedOperationRow, right: IssueRuntimeCredentialInput) {
+  return left.workspace_id === right.workspaceId && left.environment_id === right.environmentId &&
+    left.generation === right.generation && left.branch === right.branch && left.commit === right.commit &&
+    left.manifest_digest === right.manifestDigest && left.runtime_version === right.runtimeVersion &&
+    [...left.capabilities].sort().join('\0') === [...right.capabilities].sort().join('\0');
+}
+
 function hash(value: string) { return createHash('sha256').update(value).digest('hex'); }
 function iso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
 
 const selectRuntime = `select g.owner_user_id, g.workspace_id, g.environment_id::text, g.generation::text, g.branch, g.commit,
   g.manifest_digest, g.runtime_version, g.lifecycle_state, g.connection_state, g.current_session_id::text,
   g.current_credential_id::text, g.last_sequence, g.last_event_at, g.last_heartbeat_at, g.dev_servers, g.telemetry,
-  g.log_pointer, c.capabilities, c.expires_at from workspace_runtime_generations g join workspace_runtime_credentials c
-  on c.owner_user_id = g.owner_user_id and c.credential_id = g.current_credential_id`;
+  g.log_pointer, c.capabilities, c.expires_at, c.operation_id, c.revoked_at from workspace_runtime_generations g join workspace_runtime_credentials c
+  on c.owner_user_id = g.owner_user_id and c.workspace_id = g.workspace_id and
+     c.environment_id = g.environment_id and c.generation = g.generation and
+     c.credential_id = g.current_credential_id`;
 const updateRuntimePrefix = 'update workspace_runtime_generations g';
 const returningRuntime = `g.owner_user_id, g.workspace_id, g.environment_id::text, g.generation::text, g.branch, g.commit,
   g.manifest_digest, g.runtime_version, g.lifecycle_state, g.connection_state, g.current_session_id::text,
   g.current_credential_id::text, g.last_sequence, g.last_event_at, g.last_heartbeat_at, g.dev_servers, g.telemetry,
-  g.log_pointer, (select capabilities from workspace_runtime_credentials c where c.owner_user_id = g.owner_user_id and c.credential_id = g.current_credential_id) capabilities,
-  (select expires_at from workspace_runtime_credentials c where c.owner_user_id = g.owner_user_id and c.credential_id = g.current_credential_id) expires_at`;
+  g.log_pointer, (select capabilities from workspace_runtime_credentials c where c.owner_user_id = g.owner_user_id and
+    c.workspace_id = g.workspace_id and c.environment_id = g.environment_id and c.generation = g.generation and
+    c.credential_id = g.current_credential_id) capabilities,
+  (select expires_at from workspace_runtime_credentials c where c.owner_user_id = g.owner_user_id and
+    c.workspace_id = g.workspace_id and c.environment_id = g.environment_id and c.generation = g.generation and
+    c.credential_id = g.current_credential_id) expires_at`;

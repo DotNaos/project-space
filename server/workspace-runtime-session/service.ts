@@ -36,6 +36,20 @@ export class WorkspaceRuntimeSessionService {
     return this.store.authenticate(token);
   }
 
+  issue(input: Parameters<RuntimeSessionStore['issue']>[0]) {
+    return this.store.issue(input);
+  }
+
+  async revoke(ownerUserId: string, workspaceId: string, credentialId: string) {
+    await this.store.revoke(ownerUserId, workspaceId, credentialId);
+    const key = workspaceKey(ownerUserId, workspaceId);
+    const active = this.connections.get(key);
+    if (active?.scope.credentialId === credentialId) {
+      this.connections.delete(key);
+      active.connection.close(1008, 'Workspace Runtime credential revoked.');
+    }
+  }
+
   async register(
     connection: RuntimeSessionConnection,
     scope: RuntimeCredentialScope,
@@ -90,7 +104,9 @@ export class WorkspaceRuntimeSessionService {
     const checkedAt = this.now();
     const staleBefore = new Date(checkedAt.getTime() - staleAfterSeconds * 1_000).toISOString();
     const stale = await this.store.markStale(staleBefore, checkedAt.toISOString());
-    for (const snapshot of stale) this.closeSnapshot(snapshot, 1008, 'Workspace Runtime heartbeat expired.');
+    for (const entry of stale) this.closeSnapshot(
+      entry.ownerUserId, entry.snapshot, 1008, 'Workspace Runtime heartbeat expired.'
+    );
     return stale;
   }
 
@@ -106,9 +122,14 @@ export class WorkspaceRuntimeSessionService {
     return setTimeout(() => connection.close(1008, 'Workspace Runtime credential expired.'), delay);
   }
 
-  private closeSnapshot(snapshot: WorkspaceRuntimeSessionSnapshot, code: number, reason: string) {
-    const active = [...this.connections.values()].find((entry) =>
-      entry.scope.workspaceId === snapshot.workspaceId && entry.scope.generation === snapshot.generation);
+  private closeSnapshot(
+    ownerUserId: string,
+    snapshot: WorkspaceRuntimeSessionSnapshot,
+    code: number,
+    reason: string
+  ) {
+    const active = this.connections.get(workspaceKey(ownerUserId, snapshot.workspaceId));
+    if (active?.scope.generation !== snapshot.generation || active.sessionId !== snapshot.sessionId) return;
     if (active) {
       this.connections.delete(workspaceKey(active.scope.ownerUserId, active.scope.workspaceId));
       active.connection.close(code, reason);

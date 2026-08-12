@@ -61,9 +61,11 @@ type controlGatewayOperationRequest struct {
 	TargetIdentityRevision     string   `json:"targetIdentityRevision"`
 	Type                       string   `json:"type"`
 	WorkspaceID                string   `json:"workspaceId,omitempty"`
+	ExpectedBranch             string   `json:"expectedBranch,omitempty"`
 	ExpectedCommit             string   `json:"expectedCommit,omitempty"`
 	ExpectedManifestDigest     string   `json:"expectedManifestDigest,omitempty"`
 	ExpectedGeneration         string   `json:"expectedGeneration,omitempty"`
+	ExpectedRuntimeVersion     string   `json:"expectedRuntimeVersion,omitempty"`
 	Mode                       string   `json:"mode,omitempty"`
 	RuntimeSessionEndpoint     string   `json:"runtimeSessionEndpoint,omitempty"`
 	RuntimeSessionToken        string   `json:"runtimeSessionToken,omitempty"`

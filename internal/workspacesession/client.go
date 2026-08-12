@@ -25,6 +25,7 @@ var (
 	commitPattern  = regexp.MustCompile(`^(?:[a-f0-9]{40}|[a-f0-9]{64})$`)
 	digestPattern  = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	versionPattern = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,64}$`)
+	pointerPattern = regexp.MustCompile(`^runtime-log:/[A-Za-z0-9._/-]+$`)
 )
 
 type Bootstrap struct {
@@ -39,6 +40,7 @@ type Bootstrap struct {
 	Commit          string   `json:"commit"`
 	ManifestDigest  string   `json:"manifestDigest"`
 	RuntimeVersion  string   `json:"runtimeVersion"`
+	LogPointer      string   `json:"logPointer,omitempty"`
 	ReadyPath       string   `json:"readyPath,omitempty"`
 	Capabilities    []string `json:"capabilities"`
 	JournalPath     string   `json:"journalPath"`
@@ -67,6 +69,9 @@ type Event struct {
 	State         string      `json:"state,omitempty"`
 	Type          string      `json:"type"`
 	DevServers    interface{} `json:"devServers,omitempty"`
+	CPUPercent    *float64    `json:"cpuPercent,omitempty"`
+	MemoryBytes   *int64      `json:"memoryBytes,omitempty"`
+	Pointer       string      `json:"pointer,omitempty"`
 }
 
 type serverMessage struct {
@@ -80,9 +85,15 @@ type journal struct {
 	Events []Event `json:"events"`
 }
 
+type runtimeState struct {
+	LifecycleState string      `json:"lifecycleState"`
+	DevServers     interface{} `json:"devServers"`
+}
+
 type Client struct {
-	Now  func() time.Time
-	Dial func(context.Context, string, *websocket.DialOptions) (*websocket.Conn, *http.Response, error)
+	Now       func() time.Time
+	Dial      func(context.Context, string, *websocket.DialOptions) (*websocket.Conn, *http.Response, error)
+	Telemetry func(context.Context) (float64, int64, error)
 }
 
 func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
@@ -95,12 +106,18 @@ func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
 	if client.Dial == nil {
 		client.Dial = websocket.Dial
 	}
+	if client.Telemetry == nil {
+		client.Telemetry = processGroupTelemetry
+	}
 	state, err := loadJournal(bootstrap.JournalPath)
 	if err != nil {
 		return err
 	}
 	if state.Acked == 0 && len(state.Events) == 0 {
 		state.Events = append(state.Events, client.lifecycle(state, "running"))
+		if hasCapability(bootstrap.Capabilities, "runtime.log-pointers") && bootstrap.LogPointer != "" {
+			state.Events = append(state.Events, client.logPointer(state, bootstrap.LogPointer))
+		}
 		if err := saveJournal(bootstrap.JournalPath, state); err != nil {
 			return err
 		}
@@ -157,26 +174,26 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 		return err
 	}
 	if err := client.flush(ctx, connection, bootstrap.JournalPath, state); err != nil {
+		if ctx.Err() != nil {
+			return client.flushGracefulShutdown(bootstrap, connection, state)
+		}
 		return err
 	}
 	interval := time.Duration(accepted.HeartbeatIntervalSecond) * time.Second
 	if interval <= 0 || interval > time.Minute {
 		return fmt.Errorf("Workspace Runtime heartbeat interval is invalid")
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	heartbeat := time.NewTicker(interval)
+	defer heartbeat.Stop()
+	statePoll := time.NewTicker(250 * time.Millisecond)
+	defer statePoll.Stop()
 	lastState := ""
+	lastLifecycle := "running"
 	for {
 		select {
 		case <-ctx.Done():
-			shutdown, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			for _, lifecycle := range []string{"stopping", "stopped"} {
-				state.Events = append(state.Events, client.lifecycle(*state, lifecycle))
-			}
-			_ = saveJournal(bootstrap.JournalPath, *state)
-			return client.flush(shutdown, connection, bootstrap.JournalPath, state)
-		case <-ticker.C:
+			return client.flushGracefulShutdown(bootstrap, connection, state)
+		case <-statePoll.C:
 			if hasCapability(bootstrap.Capabilities, "runtime.dev-servers") {
 				encoded, readErr := readProtected(bootstrap.StatePath, 64*1024)
 				if readErr != nil {
@@ -184,12 +201,32 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 				}
 				current := string(encoded)
 				if current != lastState {
-					var devServers interface{}
-					if json.Unmarshal(encoded, &devServers) != nil {
+					var observed runtimeState
+					if json.Unmarshal(encoded, &observed) != nil || observed.DevServers == nil {
 						return fmt.Errorf("decode Workspace Runtime dev server state")
 					}
-					state.Events = append(state.Events, client.event(*state, "runtime.dev-servers", "", devServers))
+					if observed.LifecycleState != lastLifecycle {
+						state.Events = append(state.Events, client.lifecycle(*state, observed.LifecycleState))
+						lastLifecycle = observed.LifecycleState
+					}
+					state.Events = append(state.Events, client.event(*state, "runtime.dev-servers", "", observed.DevServers))
 					lastState = current
+				}
+			}
+			if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
+				return err
+			}
+			if err := client.flush(ctx, connection, bootstrap.JournalPath, state); err != nil {
+				if ctx.Err() != nil {
+					return client.flushGracefulShutdown(bootstrap, connection, state)
+				}
+				return err
+			}
+		case <-heartbeat.C:
+			if hasCapability(bootstrap.Capabilities, "runtime.telemetry") {
+				cpuPercent, memoryBytes, telemetryErr := client.Telemetry(ctx)
+				if telemetryErr == nil {
+					state.Events = append(state.Events, client.telemetry(*state, cpuPercent, memoryBytes))
 				}
 			}
 			state.Events = append(state.Events, client.event(*state, "runtime.heartbeat", "", nil))
@@ -197,19 +234,77 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 				return err
 			}
 			if err := client.flush(ctx, connection, bootstrap.JournalPath, state); err != nil {
+				if ctx.Err() != nil {
+					return client.flushGracefulShutdown(bootstrap, connection, state)
+				}
 				return err
 			}
 		}
 	}
 }
 
+func (client Client) flushGracefulShutdown(
+	bootstrap Bootstrap,
+	connection *websocket.Conn,
+	state *journal,
+) error {
+	shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for _, lifecycle := range []string{"stopping", "stopped"} {
+		state.Events = append(state.Events, client.lifecycle(*state, lifecycle))
+	}
+	if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
+		return err
+	}
+	if err := client.flush(shutdown, connection, bootstrap.JournalPath, state); err == nil {
+		return nil
+	}
+	// A cancellation can close an in-flight websocket read. Reconnect with the
+	// same generation credential and let the server's accepted sequence remove
+	// any terminal frames it persisted before the connection disappeared.
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bootstrap.Token)
+	reconnected, _, err := client.Dial(shutdown, bootstrap.Endpoint, &websocket.DialOptions{HTTPHeader: header})
+	if err != nil {
+		return err
+	}
+	defer reconnected.CloseNow()
+	reconnected.SetReadLimit(64 * 1024)
+	registration := Registration{
+		Branch: bootstrap.Branch, Commit: bootstrap.Commit, EnvironmentID: bootstrap.EnvironmentID,
+		Generation: bootstrap.Generation, ManifestDigest: bootstrap.ManifestDigest,
+		ResumeAfterSequence: state.Acked, RuntimeVersion: bootstrap.RuntimeVersion,
+		SchemaVersion: SchemaVersion, Type: "runtime.register", WorkspaceID: bootstrap.WorkspaceID,
+	}
+	if err := writeJSON(shutdown, reconnected, registration); err != nil {
+		return err
+	}
+	accepted, err := readAccepted(shutdown, reconnected, "runtime.registered")
+	if err != nil || accepted.AcceptedSequence < state.Acked {
+		return fmt.Errorf("Workspace Runtime graceful reconnect failed")
+	}
+	acknowledge(state, accepted.AcceptedSequence)
+	if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
+		return err
+	}
+	return client.flush(shutdown, reconnected, bootstrap.JournalPath, state)
+}
+
 func (client Client) flush(ctx context.Context, connection *websocket.Conn, path string, state *journal) error {
 	for len(state.Events) > 0 {
 		if err := writeJSON(ctx, connection, state.Events[0]); err != nil {
-			return err
+			return fmt.Errorf("write Workspace Runtime %s %s: %w", state.Events[0].Type, state.Events[0].State, err)
 		}
 		accepted, err := readAccepted(ctx, connection, "runtime.accepted")
 		if err != nil {
+			// The server persists the terminal event before sending its normal close.
+			// A close frame can race the final acknowledgement on the wire, so the
+			// explicit normal terminal close is itself safe acceptance evidence.
+			if state.Events[0].Type == "runtime.lifecycle" && state.Events[0].State == "stopped" &&
+				websocket.CloseStatus(err) == websocket.StatusNormalClosure {
+				acknowledge(state, state.Events[0].Sequence)
+				return saveJournal(path, *state)
+			}
 			return err
 		}
 		if accepted.AcceptedSequence != state.Events[0].Sequence {
@@ -225,6 +320,19 @@ func (client Client) flush(ctx context.Context, connection *websocket.Conn, path
 
 func (client Client) lifecycle(state journal, value string) Event {
 	return client.event(state, "runtime.lifecycle", value, nil)
+}
+
+func (client Client) telemetry(state journal, cpuPercent float64, memoryBytes int64) Event {
+	event := client.event(state, "runtime.telemetry", "", nil)
+	event.CPUPercent = &cpuPercent
+	event.MemoryBytes = &memoryBytes
+	return event
+}
+
+func (client Client) logPointer(state journal, pointer string) Event {
+	event := client.event(state, "runtime.log-pointer", "", nil)
+	event.Pointer = pointer
+	return event
 }
 
 func (client Client) event(state journal, kind, lifecycle string, devServers interface{}) Event {
@@ -339,6 +447,8 @@ func validateBootstrap(value Bootstrap, now time.Time) error {
 		!uuidPattern.MatchString(value.EnvironmentID) || !uuidPattern.MatchString(value.Generation) ||
 		!commitPattern.MatchString(value.Commit) || !digestPattern.MatchString(value.ManifestDigest) ||
 		!safeText(value.Branch, 256) || !versionPattern.MatchString(value.RuntimeVersion) ||
+		(value.LogPointer != "" && (!pointerPattern.MatchString(value.LogPointer) ||
+			strings.Contains(value.LogPointer, "..") || len(value.LogPointer) > 512)) ||
 		!validCapabilities(value.Capabilities) || !filepath.IsAbs(value.JournalPath) || !filepath.IsAbs(value.StatePath) ||
 		filepath.Clean(value.JournalPath) != value.JournalPath || filepath.Clean(value.StatePath) != value.StatePath ||
 		filepath.Dir(value.JournalPath) != filepath.Dir(value.StatePath) || value.JournalPath == value.StatePath ||

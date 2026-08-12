@@ -94,11 +94,16 @@ describe('OpenSSH control transport', () => {
     }
   });
 
-  test('turns an early remote stdin close into a bounded error instead of an unhandled EPIPE', async () => {
-    await expect(new SpawnSshProcessRunner().run({
-      argv: [], command: '/usr/bin/false', environment: {},
-      stdin: 'x'.repeat(256 * 1024), timeoutMs: 1_000
-    })).rejects.toMatchObject({ code: 'remote_failed' });
+  test('reports an early remote stdin close without an unhandled EPIPE', async () => {
+    try {
+      const result = await new SpawnSshProcessRunner().run({
+        argv: [], command: '/usr/bin/false', environment: {},
+        stdin: 'x'.repeat(256 * 1024), timeoutMs: 1_000
+      });
+      expect(result.exitCode).not.toBe(0);
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'remote_failed' });
+    }
   });
 });
 

@@ -19,6 +19,7 @@ import {
   type SshGatewayRouteSource,
   type SshGatewayTargetResolver
 } from './contracts';
+import { isUuid, validateReplayRequest, validateRequest } from './request-validation';
 
 const maximumOutputBytes = 64 * 1024;
 
@@ -31,6 +32,51 @@ export class SshControlGatewayService {
     targets: SshGatewayTargetResolver;
     transport: SshControlTransport;
   }) {}
+
+  async replaySucceeded(
+    actor: SshGatewayActor,
+    request: SshGatewayRequest
+  ): Promise<SshGatewayExecutionResult | undefined> {
+    validateReplayRequest(actor, request);
+    const authorization = await this.dependencies.authorization.authorize({
+      actor,
+      environmentId: request.environmentId,
+      operation: request.operation,
+      phase: 'route_resolution'
+    });
+    assertAuthorizationBinding(actor, request, authorization);
+    const target = await this.dependencies.targets.resolve(actor.ownerUserId, request.environmentId);
+    if (target.environmentId !== request.environmentId ||
+      target.targetIdentityRevision !== authorization.target.identityRevision) {
+      throw new SshGatewayError('route_unavailable', 'The Environment identity is unresolved.');
+    }
+    const selected = await selectAuthorizedAccessRoute({
+      authorization,
+      loadCandidates: () => this.dependencies.routes.load(actor.ownerUserId)
+    });
+    if (selected.state !== 'ready' || selected.route.routeKind !== 'ssh_private_network') {
+      throw new SshGatewayError('route_unavailable', 'No authorized private-network SSH route is ready.');
+    }
+    const record = await this.dependencies.operations.read(actor.ownerUserId, request.operationId);
+    if (!record) return undefined;
+    const fingerprint = requestFingerprint(actor, request, authorization);
+    if (record.fingerprint !== fingerprint || record.audit.actorId !== actor.id ||
+      record.audit.actorKind !== actor.kind || record.audit.gatewayId !== authorization.gatewayId ||
+      record.audit.routeId !== selected.route.routeId || record.audit.operation !== request.operation ||
+      record.audit.targetEnvironmentId !== request.environmentId ||
+      record.audit.targetIdentityRevision !== authorization.target.identityRevision) {
+      throw new SshGatewayError('operation_conflict', 'Operation identity was reused.');
+    }
+    if (record.state === 'succeeded' && record.result) {
+      return { audit: record.audit, replayed: true, result: record.result };
+    }
+    throw new SshGatewayError(
+      record.state === 'reserved' || record.state === 'dispatching'
+        ? 'operation_in_progress'
+        : 'operation_conflict',
+      'The operation is already recorded and will not be dispatched again.'
+    );
+  }
 
   async execute(
     actor: SshGatewayActor,
@@ -247,70 +293,6 @@ function validatedTransportOutput(
   return execution.stdout;
 }
 
-function validateRequest(actor: SshGatewayActor, request: SshGatewayRequest) {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    .test(request.environmentId) ||
-    !/^[A-Za-z0-9:._-]{1,256}$/.test(request.operationId) ||
-    !validOperationRequest(request) || !actor.id || !actor.ownerUserId) {
-    throw new SshGatewayError('operation_conflict', 'SSH gateway request is invalid.');
-  }
-}
-
-function validOperationRequest(request: SshGatewayRequest) {
-  if (request.operation === 'status.v1') {
-    return request.workspaceId === undefined && request.expectedCommit === undefined &&
-      request.expectedManifestDigest === undefined && request.expectedGeneration === undefined &&
-      request.mode === undefined && !runtimeSessionValuesPresent(request);
-  }
-  const workspaceOperation = /^workspace-runtime\.(start|inspect|suspend|resume|stop|clean|reconcile)\.v1$/
-    .test(request.operation);
-  const start = request.operation === 'workspace-runtime.start.v1';
-  const runtimeSession = runtimeSessionValuesPresent(request);
-  return workspaceOperation && isUuid(request.workspaceId) &&
-    /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(request.expectedCommit ?? '') &&
-    /^[0-9a-f]{64}$/.test(request.expectedManifestDigest ?? '') &&
-    (request.mode === 'process' || request.mode === 'devcontainer') &&
-    (start
-      ? runtimeSession
-        ? isUuid(request.expectedGeneration) && validRuntimeSessionRequest(request)
-        : request.expectedGeneration === undefined
-      : isUuid(request.expectedGeneration) && !runtimeSession);
-}
-
-function runtimeSessionValuesPresent(request: SshGatewayRequest) {
-  return request.runtimeSessionEndpoint !== undefined || request.runtimeSessionToken !== undefined ||
-    request.runtimeSessionExpiresAt !== undefined || request.runtimeSessionVersion !== undefined ||
-    request.runtimeSessionCapabilities !== undefined;
-}
-
-function validRuntimeSessionRequest(request: SshGatewayRequest) {
-  let endpoint: URL;
-  try {
-    endpoint = new URL(request.runtimeSessionEndpoint ?? '');
-  } catch {
-    return false;
-  }
-  const expiresAt = Date.parse(request.runtimeSessionExpiresAt ?? '');
-  const capabilities = request.runtimeSessionCapabilities;
-  const allowed = new Set([
-    'runtime.lifecycle', 'runtime.heartbeat', 'runtime.dev-servers',
-    'runtime.telemetry', 'runtime.log-pointers'
-  ]);
-  return endpoint.protocol === 'wss:' && endpoint.pathname === '/api/workspace-runtimes/socket' &&
-    endpoint.username === '' && endpoint.password === '' && endpoint.search === '' && endpoint.hash === '' &&
-    /^[A-Za-z0-9_-]{43}$/.test(request.runtimeSessionToken ?? '') &&
-    /^[A-Za-z0-9._+-]{1,64}$/.test(request.runtimeSessionVersion ?? '') &&
-    Number.isFinite(expiresAt) && expiresAt > Date.now() && expiresAt <= Date.now() + 60 * 60_000 &&
-    Array.isArray(capabilities) && capabilities.length >= 2 && capabilities.length <= allowed.size &&
-    new Set(capabilities).size === capabilities.length && capabilities.every((value) => allowed.has(value)) &&
-    capabilities.includes('runtime.lifecycle') && capabilities.includes('runtime.heartbeat');
-}
-
-function isUuid(value: unknown): value is string {
-  return typeof value === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
 function validateHandshake(value: string, operation: SshGatewayRequest['operation']): SshControlHandshake {
   const lines = value.trim().split('\n');
   if (lines.length !== 1) {
@@ -443,20 +425,13 @@ function requestFingerprint(
     environmentId: request.environmentId,
     gatewayId: authorization.gatewayId,
     operation: request.operation,
+    expectedBranch: request.expectedBranch,
     expectedCommit: request.expectedCommit,
     expectedGeneration: request.expectedGeneration,
     expectedManifestDigest: request.expectedManifestDigest,
+    expectedRuntimeVersion: request.expectedRuntimeVersion,
     mode: request.mode,
     ownerUserId: actor.ownerUserId,
-    ...(runtimeSessionValuesPresent(request) ? {
-      runtimeSession: {
-        capabilities: request.runtimeSessionCapabilities,
-        endpoint: request.runtimeSessionEndpoint,
-        expiresAt: request.runtimeSessionExpiresAt,
-        tokenSha256: createHash('sha256').update(request.runtimeSessionToken ?? '').digest('hex'),
-        version: request.runtimeSessionVersion
-      }
-    } : {}),
     targetIdentityRevision: authorization.target.identityRevision,
     workspaceId: request.workspaceId
   })).digest('hex');

@@ -22,6 +22,7 @@ export function validateCredentialIssue(input: IssueRuntimeCredentialInput) {
   if (!input.ownerUserId.trim() || input.ownerUserId.length > 256 ||
     !workspace.test(input.workspaceId) || !uuid.test(input.environmentId) || !uuid.test(input.generation) ||
     !commit.test(input.commit) || !digest.test(input.manifestDigest) ||
+    !/^[A-Za-z0-9:._-]{1,256}$/.test(input.operationId) ||
     !Number.isSafeInteger(expiresInSeconds) || expiresInSeconds < 30 || expiresInSeconds > 3_600) invalid();
   safeText(input.branch, 256);
   safeText(input.runtimeVersion, 64);

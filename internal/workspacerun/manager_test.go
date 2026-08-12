@@ -118,6 +118,22 @@ func TestExpectedWorkspaceIDFailsBeforeRuntimeMutation(t *testing.T) {
 	}
 }
 
+func TestExpectedBranchFailsBeforeRuntimeMutation(t *testing.T) {
+	directory := t.TempDir()
+	writeRuntimeFixture(t, directory, ModeProcess)
+	provider := newFakeProvider(ModeProcess)
+	manager := newTestManager(t, directory, provider)
+	_, err := manager.Start(context.Background(), directory, OperationOptions{
+		ExpectedBranch: "different-branch",
+	}, Streams{})
+	if err == nil || !strings.Contains(err.Error(), "Workspace branch mismatch") {
+		t.Fatalf("mismatched Workspace branch error = %v", err)
+	}
+	if provider.startCount != 0 {
+		t.Fatalf("mismatched Workspace branch started %d runtimes", provider.startCount)
+	}
+}
+
 func TestTrustedControlPlaneCanPreallocateRuntimeGeneration(t *testing.T) {
 	directory := t.TempDir()
 	writeRuntimeFixture(t, directory, ModeProcess)

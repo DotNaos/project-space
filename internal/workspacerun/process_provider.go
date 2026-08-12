@@ -85,6 +85,7 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 			WorkspaceID: request.Binding.WorkspaceID, EnvironmentID: request.RuntimeSession.EnvironmentID,
 			Generation: request.Binding.Generation, Branch: request.Workspace.Branch, Commit: request.Workspace.Head,
 			ManifestDigest: request.Binding.ManifestDigest, RuntimeVersion: request.RuntimeSession.RuntimeVersion,
+			LogPointer:   "runtime-log:/" + request.Binding.WorkspaceID + "/" + request.Binding.Generation,
 			Capabilities: append([]string{}, request.RuntimeSession.Capabilities...),
 			JournalPath:  filepath.Join(request.GenerationHome, "runtime-session-journal.json"), StatePath: statePath,
 			ReadyPath: runtimeSessionReadyPath,
@@ -115,7 +116,7 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 		if err != nil {
 			return RuntimeHandle{}, fmt.Errorf("initialize Runtime Session state: %w", err)
 		}
-		if _, err := stateFile.Write([]byte("[]")); err != nil {
+		if _, err := stateFile.Write([]byte(`{"lifecycleState":"starting","devServers":[]}`)); err != nil {
 			stateFile.Close()
 			return RuntimeHandle{}, fmt.Errorf("initialize Runtime Session state: %w", err)
 		}
@@ -153,32 +154,7 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	if runtimeSessionReadyPath != "" {
-		if err := publishRuntimeSessionReady(runtimeSessionReadyPath); err != nil {
-			_ = runner.StopGroup(process, time.Second)
-			return RuntimeHandle{}, err
-		}
-	}
 	return RuntimeHandle{Kind: ResourceProcess, Process: processHandle(process, request.Binding, appServerSocket)}, nil
-}
-
-func publishRuntimeSessionReady(path string) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return fmt.Errorf("publish Runtime Session readiness: %w", err)
-	}
-	if _, err := file.WriteString("ready\n"); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("publish Runtime Session readiness: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("publish Runtime Session readiness: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("publish Runtime Session readiness: %w", err)
-	}
-	return nil
 }
 
 func appServerSocketPath(binding RuntimeBinding) string {

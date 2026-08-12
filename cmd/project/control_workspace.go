@@ -74,7 +74,8 @@ func executeWorkspaceRuntimeControl(
 		return fmt.Errorf("Workspace runtime is unavailable")
 	}
 	options := workspacerun.OperationOptions{
-		Mode: workspacerun.Mode(request.Mode), ExpectedWorkspaceID: request.WorkspaceID, ExpectedCommit: request.ExpectedCommit,
+		Mode: workspacerun.Mode(request.Mode), ExpectedBranch: request.ExpectedBranch,
+		ExpectedWorkspaceID: request.WorkspaceID, ExpectedCommit: request.ExpectedCommit,
 		ExpectedDigest: request.ExpectedManifestDigest, ExpectedGeneration: request.ExpectedGeneration,
 		TrustedGateway: true,
 	}
@@ -138,11 +139,18 @@ func validWorkspaceControlRequest(request controlGatewayOperationRequest, operat
 	}
 	if operation == "start" {
 		if runtimeSessionValuesPresent(request) {
-			return controlGenerationPattern.MatchString(request.ExpectedGeneration) && validRuntimeSessionBootstrap(request)
+			return controlGenerationPattern.MatchString(request.ExpectedGeneration) &&
+				validControlText(request.ExpectedBranch, 256) &&
+				regexp.MustCompile(`^[A-Za-z0-9._+-]{1,64}$`).MatchString(request.ExpectedRuntimeVersion) &&
+				request.ExpectedRuntimeVersion == request.RuntimeSessionVersion && validRuntimeSessionBootstrap(request)
 		}
 		return request.ExpectedGeneration == ""
 	}
 	return controlGenerationPattern.MatchString(request.ExpectedGeneration) && !runtimeSessionValuesPresent(request)
+}
+
+func validControlText(value string, maximum int) bool {
+	return value != "" && len(value) <= maximum && !strings.ContainsAny(value, "\x00\r\n")
 }
 
 func validRuntimeSessionBootstrap(request controlGatewayOperationRequest) bool {

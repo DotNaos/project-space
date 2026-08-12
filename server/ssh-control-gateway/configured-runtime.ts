@@ -10,6 +10,12 @@ import {
 import { isProjectSpaceAuthRequired, readAuthSessionFromRequest } from '../local-auth-store';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { writeJson } from '../project-space-http-response';
+import { requestPublicOrigin } from '../connector-installation';
+import type { RuntimeSessionStore } from '../workspace-runtime-session/contracts';
+import {
+  createWorkspaceRuntimeLaunchHttpApi,
+  workspaceRuntimeLaunchRoute
+} from '../workspace-runtime-session/launch-http';
 import type { SshGatewayAuthorizationProvider } from './contracts';
 import { SshGatewayError } from './contracts';
 import { createSshControlGatewayHttpApi } from './http';
@@ -21,7 +27,8 @@ import { InventorySshGatewayTargetResolver } from './target-resolver';
 
 const routes = new Set([
   '/api/compute/control/status',
-  '/api/compute/control/workspace-runtime'
+  '/api/compute/control/workspace-runtime',
+  workspaceRuntimeLaunchRoute
 ]);
 
 export function isConfiguredSshControlGatewayRoute(pathname: string) {
@@ -30,10 +37,15 @@ export function isConfiguredSshControlGatewayRoute(pathname: string) {
 
 export function createConfiguredSshControlGatewayHandler(options: {
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
+  runtimeSessions?: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
 }) {
   let runtime: Promise<ReturnType<typeof createSshControlGatewayHttpApi>> | undefined;
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     if (!isConfiguredSshControlGatewayRoute(url.pathname)) return false;
+    if (url.pathname === workspaceRuntimeLaunchRoute && !options.runtimeSessions) {
+      unavailable(response);
+      return true;
+    }
     if (!isDatabaseConfigured() || !configuredGatewayId()) {
       unavailable(response);
       return true;
@@ -51,6 +63,7 @@ export function createConfiguredSshControlGatewayHandler(options: {
 
 async function createHandler(options: {
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
+  runtimeSessions?: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
 }) {
   const database = await getMachineConnectionDatabaseClient();
   const routeStore = await getPrivateNetworkStore();
@@ -97,7 +110,21 @@ async function createHandler(options: {
       return session ? { userId: session.userId } : null;
     }
   });
-  return createSshControlGatewayHttpApi(service, resolveActor);
+  const control = createSshControlGatewayHttpApi(service, resolveActor);
+  const launch = options.runtimeSessions && createWorkspaceRuntimeLaunchHttpApi({
+    endpoint(request) {
+      const endpoint = new URL('/api/workspace-runtimes/socket', requestPublicOrigin(request));
+      endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+      return endpoint.toString();
+    },
+    gateway: service,
+    resolveActor,
+    sessions: options.runtimeSessions
+  });
+  return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+    if (launch && await launch(request, response, url)) return true;
+    return control(request, response, url);
+  };
 }
 
 function configuredGatewayId() {

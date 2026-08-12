@@ -252,7 +252,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     machineConnection: options.machineConnectionRuntime
   });
   const sshControlGateway = createConfiguredSshControlGatewayHandler({
-    machineConnection: options.machineConnectionRuntime
+    machineConnection: options.machineConnectionRuntime,
+    runtimeSessions: options.workspaceRuntimeSessions
   });
   const proxyPreviewDocs = createPreviewDocsProxy(
     process.env,
@@ -337,13 +338,18 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const projectChatRuntime = await resolveProjectChatRuntime(options, backend);
   const machineConnectionRuntime = options.machineConnectionRuntime;
   const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
+  const workspaceRuntimeSessionService = options.workspaceRuntimeSessions ??
+    new WorkspaceRuntimeSessionService(isDatabaseConfigured()
+      ? new PostgresRuntimeSessionStore(await getMachineConnectionDatabaseClient())
+      : new MemoryRuntimeSessionStore());
   const server = createServer(
     createProjectSpaceRequestHandler({
       ...options,
       backend,
       codexAttachLeases,
       logger,
-      projectChatRuntime
+      projectChatRuntime,
+      workspaceRuntimeSessions: workspaceRuntimeSessionService
     })
   );
   const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
@@ -366,10 +372,6 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     }
   });
   const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);
-  const workspaceRuntimeSessionService = options.workspaceRuntimeSessions ??
-    new WorkspaceRuntimeSessionService(isDatabaseConfigured()
-      ? new PostgresRuntimeSessionStore(await getMachineConnectionDatabaseClient())
-      : new MemoryRuntimeSessionStore());
   const workspaceRuntimeSessions = createWorkspaceRuntimeSessionUpgradeHandler(
     workspaceRuntimeSessionService
   );

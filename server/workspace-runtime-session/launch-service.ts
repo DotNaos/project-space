@@ -21,9 +21,11 @@ export interface WorkspaceRuntimeStartAuthority {
 
 export interface WorkspaceRuntimeStartDispatch {
   environmentId: string;
+  expectedBranch: string;
   expectedCommit: string;
   expectedGeneration: string;
   expectedManifestDigest: string;
+  expectedRuntimeVersion: string;
   mode: WorkspaceRuntimeStartAuthority['mode'];
   operation: 'workspace-runtime.start.v1';
   operationId: string;
@@ -48,11 +50,13 @@ export interface WorkspaceRuntimeStartResult {
 }
 
 export interface WorkspaceRuntimeStartDispatcher {
+  replay(input: WorkspaceRuntimeStartAuthority): Promise<WorkspaceRuntimeStartResult | undefined>;
   start(input: WorkspaceRuntimeStartDispatch): Promise<WorkspaceRuntimeStartResult>;
 }
 
 export interface WorkspaceRuntimeSshGateway {
   execute(actor: SshGatewayActor, request: SshGatewayRequest): Promise<SshGatewayExecutionResult>;
+  replaySucceeded(actor: SshGatewayActor, request: SshGatewayRequest): Promise<SshGatewayExecutionResult | undefined>;
 }
 
 export class WorkspaceRuntimeSshStartDispatcher implements WorkspaceRuntimeStartDispatcher {
@@ -61,37 +65,63 @@ export class WorkspaceRuntimeSshStartDispatcher implements WorkspaceRuntimeStart
     private readonly actor: SshGatewayActor
   ) {}
 
+  async replay(input: WorkspaceRuntimeStartAuthority): Promise<WorkspaceRuntimeStartResult | undefined> {
+    if (input.ownerUserId !== this.actor.ownerUserId) {
+      throw new Error('Workspace Runtime launch owner changed.');
+    }
+    const execution = await this.gateway.replaySucceeded(this.actor, {
+      environmentId: input.environmentId,
+      expectedBranch: input.branch,
+      expectedCommit: input.commit,
+      expectedGeneration: input.generation,
+      expectedManifestDigest: input.manifestDigest,
+      mode: input.mode,
+      operation: 'workspace-runtime.start.v1',
+      operationId: input.operationId,
+      expectedRuntimeVersion: input.runtimeVersion,
+      workspaceId: input.workspaceId
+    });
+    return execution ? startResult(execution) : undefined;
+  }
+
   async start(input: WorkspaceRuntimeStartDispatch): Promise<WorkspaceRuntimeStartResult> {
     if (input.ownerUserId !== this.actor.ownerUserId) {
       throw new Error('Workspace Runtime launch owner changed.');
     }
     const execution = await this.gateway.execute(this.actor, input);
-    const result = execution.result;
-    if (result.operation !== 'workspace-runtime.start.v1' || result.state !== 'running' ||
-      result.generation === undefined) {
-      throw new Error('Workspace Runtime SSH result is incompatible.');
-    }
-    return {
-      checkedAt: result.checkedAt,
-      generation: result.generation,
-      manifestDigest: result.manifestDigest,
-      operation: result.operation,
-      operationId: result.operationId,
-      sourceHead: result.sourceHead,
-      state: result.state,
-      workspaceId: result.workspaceId
-    };
+    return startResult(execution);
   }
+}
+
+function startResult(execution: SshGatewayExecutionResult): WorkspaceRuntimeStartResult {
+  const result = execution.result;
+  if (result.operation !== 'workspace-runtime.start.v1' || result.state !== 'running' ||
+    result.generation === undefined) {
+    throw new Error('Workspace Runtime SSH result is incompatible.');
+  }
+  return {
+    checkedAt: result.checkedAt,
+    generation: result.generation,
+    manifestDigest: result.manifestDigest,
+    operation: result.operation,
+    operationId: result.operationId,
+    sourceHead: result.sourceHead,
+    state: result.state,
+    workspaceId: result.workspaceId
+  };
 }
 
 export class WorkspaceRuntimeLaunchService {
   constructor(private readonly dependencies: {
     dispatcher: WorkspaceRuntimeStartDispatcher;
     endpoint: string;
-    sessions: RuntimeSessionStore;
+    sessions: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
   }) {
     const endpoint = new URL(dependencies.endpoint);
-    if (endpoint.protocol !== 'wss:' || endpoint.pathname !== '/api/workspace-runtimes/socket' ||
+    const localWebSocket = endpoint.protocol === 'ws:' &&
+      (endpoint.hostname === '127.0.0.1' || endpoint.hostname === 'localhost');
+    if ((endpoint.protocol !== 'wss:' && !localWebSocket) ||
+      endpoint.pathname !== '/api/workspace-runtimes/socket' ||
       endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
       throw new Error('Workspace Runtime session endpoint is invalid.');
     }
@@ -100,6 +130,11 @@ export class WorkspaceRuntimeLaunchService {
   async start(input: WorkspaceRuntimeStartAuthority) {
     if (!/^[A-Za-z0-9:._-]{1,256}$/.test(input.operationId)) {
       throw new Error('Workspace Runtime operation identity is invalid.');
+    }
+    const replayed = await this.dependencies.dispatcher.replay(input);
+    if (replayed) {
+      this.validateResult(input, replayed);
+      return { replayed: true, result: replayed };
     }
     const issued = await this.dependencies.sessions.issue({
       branch: input.branch,
@@ -110,12 +145,14 @@ export class WorkspaceRuntimeLaunchService {
       generation: input.generation,
       manifestDigest: input.manifestDigest,
       ownerUserId: input.ownerUserId,
+      operationId: input.operationId,
       runtimeVersion: input.runtimeVersion,
       workspaceId: input.workspaceId
     });
     try {
       const result = await this.dependencies.dispatcher.start({
         environmentId: input.environmentId,
+        expectedBranch: input.branch,
         expectedCommit: input.commit,
         expectedGeneration: input.generation,
         expectedManifestDigest: input.manifestDigest,
@@ -123,6 +160,7 @@ export class WorkspaceRuntimeLaunchService {
         operation: 'workspace-runtime.start.v1',
         operationId: input.operationId,
         ownerUserId: input.ownerUserId,
+        expectedRuntimeVersion: input.runtimeVersion,
         runtimeSessionCapabilities: [...issued.credential.capabilities],
         runtimeSessionEndpoint: this.dependencies.endpoint,
         runtimeSessionExpiresAt: issued.credential.expiresAt,
@@ -130,22 +168,22 @@ export class WorkspaceRuntimeLaunchService {
         runtimeSessionVersion: input.runtimeVersion,
         workspaceId: input.workspaceId
       });
-      if (result.operation !== 'workspace-runtime.start.v1' || result.operationId !== input.operationId ||
-        result.workspaceId !== input.workspaceId || result.generation !== input.generation ||
-        result.manifestDigest !== input.manifestDigest || result.sourceHead !== input.commit ||
-        result.state !== 'running') {
-        throw new Error('Workspace Runtime start result binding changed.');
-      }
-      return {
-        credentialId: issued.credential.credentialId,
-        expiresAt: issued.credential.expiresAt,
-        result
-      };
+      this.validateResult(input, result);
+      return { replayed: false, result };
     } catch (error) {
       await this.dependencies.sessions.revoke(
         input.ownerUserId, input.workspaceId, issued.credential.credentialId
       );
       throw error;
+    }
+  }
+
+  private validateResult(input: WorkspaceRuntimeStartAuthority, result: WorkspaceRuntimeStartResult) {
+    if (result.operation !== 'workspace-runtime.start.v1' || result.operationId !== input.operationId ||
+      result.workspaceId !== input.workspaceId || result.generation !== input.generation ||
+      result.manifestDigest !== input.manifestDigest || result.sourceHead !== input.commit ||
+      result.state !== 'running') {
+      throw new Error('Workspace Runtime start result binding changed.');
     }
   }
 }

@@ -187,7 +187,15 @@ describe('database migrations', () => {
     expect(workspaceRuntimeSessionMigrationSql).toContain(
       'foreign key (environment_id, owner_user_id)'
     );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'unique (owner_user_id, workspace_id, environment_id, generation, credential_id)'
+    );
+    expect(workspaceRuntimeSessionMigrationSql).toContain(
+      'foreign key (owner_user_id, workspace_id, environment_id, generation, current_credential_id)'
+    );
     expect(workspaceRuntimeSessionMigrationSql).toContain('token_hash text not null unique');
+    expect(workspaceRuntimeSessionMigrationSql).toContain('operation_id text not null');
+    expect(workspaceRuntimeSessionMigrationSql).toContain('unique (owner_user_id, operation_id)');
     expect(workspaceRuntimeSessionMigrationSql).not.toContain(' token text');
     expect(workspaceRuntimeSessionMigrationSql).toContain(
       'unique (owner_user_id, workspace_id, generation, sequence)'

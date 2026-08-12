@@ -301,11 +301,15 @@ function operationFrame(
 ) {
   return `${JSON.stringify({
     environmentId: request.environmentId,
+    ...(request.expectedBranch ? { expectedBranch: request.expectedBranch } : {}),
     expectedCliVersion: handshake.cliVersion,
     ...(request.expectedCommit ? { expectedCommit: request.expectedCommit } : {}),
     ...(request.expectedGeneration ? { expectedGeneration: request.expectedGeneration } : {}),
     ...(request.expectedManifestDigest
       ? { expectedManifestDigest: request.expectedManifestDigest }
+      : {}),
+    ...(request.expectedRuntimeVersion
+      ? { expectedRuntimeVersion: request.expectedRuntimeVersion }
       : {}),
     expectedProtocolVersion: handshake.protocolVersion,
     ...(request.mode ? { mode: request.mode } : {}),

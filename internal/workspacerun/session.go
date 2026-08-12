@@ -37,7 +37,10 @@ func (manager *Manager) writeRuntimeSessionState(record runtimeRecord) error {
 		}
 		servers = append(servers, safeServer{Name: server.Name, Port: server.LocalPort, State: state, URL: server.LocalURL})
 	}
-	encoded, err := json.Marshal(servers)
+	encoded, err := json.Marshal(struct {
+		LifecycleState RuntimeState `json:"lifecycleState"`
+		DevServers     []safeServer `json:"devServers"`
+	}{LifecycleState: record.State, DevServers: servers})
 	if err != nil {
 		return fmt.Errorf("encode Runtime Session dev servers: %w", err)
 	}
@@ -61,6 +64,36 @@ func (manager *Manager) writeRuntimeSessionState(record runtimeRecord) error {
 	}
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("publish Runtime Session dev servers: %w", err)
+	}
+	return nil
+}
+
+func (manager *Manager) syncRuntimeSessionState(record runtimeRecord) error {
+	path := filepath.Join(manager.store.generationHome(record.WorkspaceID, record.Generation), "runtime-session-dev-servers.json")
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect Runtime Session state: %w", err)
+	}
+	return manager.writeRuntimeSessionState(record)
+}
+
+func (manager *Manager) publishRuntimeSessionReady(record runtimeRecord) error {
+	path := filepath.Join(manager.store.generationHome(record.WorkspaceID, record.Generation), "runtime-session-ready")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
+	}
+	if _, err := file.WriteString("ready\n"); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("publish Runtime Session readiness: %w", err)
 	}
 	return nil
 }

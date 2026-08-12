@@ -26,7 +26,7 @@ describe('Workspace Runtime WebSocket gateway', () => {
     const issued = await store.issue({
       branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:websocket', runtimeVersion: '0.4.66', workspaceId
     });
     const runtime = await startGateway(store);
     cleanups.push(runtime.close);
@@ -67,7 +67,7 @@ describe('Workspace Runtime WebSocket gateway', () => {
     const issued = await store.issue({
       branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:websocket-invalid', runtimeVersion: '0.4.66', workspaceId
     });
     const runtime = await startGateway(store);
     cleanups.push(runtime.close);

@@ -36,6 +36,7 @@ export const workspaceRuntimeSessionMigrationSql = `
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     primary key (owner_user_id, workspace_id, generation),
+    unique (owner_user_id, workspace_id, environment_id, generation),
     foreign key (environment_id, owner_user_id)
       references compute_environments (id, owner_user_id) on delete restrict
   );
@@ -54,6 +55,9 @@ export const workspaceRuntimeSessionMigrationSql = `
     environment_id uuid not null,
     generation uuid not null,
     credential_id uuid not null,
+    operation_id text not null check (
+      operation_id ~ '^[A-Za-z0-9:._-]+$' and char_length(operation_id) <= 256
+    ),
     token_hash text not null unique check (token_hash ~ '^[0-9a-f]{64}$'),
     capabilities text[] not null check (
       cardinality(capabilities) between 1 and 5 and capabilities <@ array[
@@ -66,8 +70,10 @@ export const workspaceRuntimeSessionMigrationSql = `
     revoked_at timestamptz,
     last_authenticated_at timestamptz,
     primary key (owner_user_id, credential_id),
-    foreign key (owner_user_id, workspace_id, generation)
-      references workspace_runtime_generations (owner_user_id, workspace_id, generation)
+    unique (owner_user_id, operation_id),
+    unique (owner_user_id, workspace_id, environment_id, generation, credential_id),
+    foreign key (owner_user_id, workspace_id, environment_id, generation)
+      references workspace_runtime_generations (owner_user_id, workspace_id, environment_id, generation)
       on delete restrict,
     foreign key (environment_id, owner_user_id)
       references compute_environments (id, owner_user_id) on delete restrict
@@ -75,8 +81,10 @@ export const workspaceRuntimeSessionMigrationSql = `
 
   alter table workspace_runtime_generations
     add constraint workspace_runtime_current_credential_fk
-    foreign key (owner_user_id, current_credential_id)
-    references workspace_runtime_credentials (owner_user_id, credential_id)
+    foreign key (owner_user_id, workspace_id, environment_id, generation, current_credential_id)
+    references workspace_runtime_credentials (
+      owner_user_id, workspace_id, environment_id, generation, credential_id
+    )
     deferrable initially deferred;
 
   create table workspace_runtime_events (

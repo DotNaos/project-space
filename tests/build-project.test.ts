@@ -9,6 +9,7 @@ const previewWebDockerfile = new URL(
 );
 const productionWebDockerfile = new URL('../deploy/Dockerfile', import.meta.url);
 const productionComposeFile = new URL('../deploy/compose.yml', import.meta.url);
+const previewComposeFile = new URL('../deploy/preview.compose.yml', import.meta.url);
 
 describe('Project build routing', () => {
   test('keeps the aggregate build complete outside a trusted web image', () => {
@@ -80,5 +81,17 @@ describe('Project build routing', () => {
       'PROJECT_SPACE_PREVIEW_STATUS_ROOT: /workspace/deploy-state/project-space-preview'
     );
     expect(compose).toContain('/opt/platform/state:/workspace/deploy-state:ro');
+  });
+
+  test('configures the SSH control gateway identity on each Project Space web service', async () => {
+    const production = await readFile(productionComposeFile, 'utf8');
+    const preview = await readFile(previewComposeFile, 'utf8');
+    expect(production).toContain(
+      'PROJECT_SPACE_SSH_CONTROL_GATEWAY_ID: ${PROJECT_SPACE_SSH_CONTROL_GATEWAY_ID:-project-space-prod-web}'
+    );
+    const previewWeb = /\n  web:\n([\s\S]*?)\n  docs:\n/.exec(preview)?.[1] ?? '';
+    expect(previewWeb).toContain(
+      'PROJECT_SPACE_SSH_CONTROL_GATEWAY_ID: ${PROJECT_SPACE_SSH_CONTROL_GATEWAY_ID:-project-space-preview-web}'
+    );
   });
 });

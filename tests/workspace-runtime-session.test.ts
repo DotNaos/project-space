@@ -27,7 +27,8 @@ function fixture() {
   const issue = (nextGeneration = generation, nextEnvironment = environmentId) => store.issue({
     branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
     environmentId: nextEnvironment, generation: nextGeneration, manifestDigest,
-    ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+    operationId: `start:${nextGeneration}:${nextEnvironment}`, ownerUserId: 'owner',
+    runtimeVersion: '0.4.66', workspaceId
   });
   const registration = (resumeAfterSequence = 0, nextGeneration = generation, nextEnvironment = environmentId) => ({
     branch: 'issue-625', commit, environmentId: nextEnvironment, generation: nextGeneration,
@@ -99,11 +100,22 @@ describe('Workspace Runtime outbound sessions', () => {
     await expect(runtime.store.issue({
       branch: 'other-source', capabilities: [...workspaceRuntimeCapabilities], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:changed-source', runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'generation_replaced' });
     expect(await runtime.store.authenticate(issued.credential.token)).not.toBeNull();
     runtime.setNow('2026-08-12T10:05:01.000Z');
     expect(await runtime.store.authenticate(issued.credential.token)).toBeNull();
+  });
+
+  test('does not replace an active generation credential under a new operation identity', async () => {
+    const runtime = fixture();
+    const issued = await runtime.issue();
+    await expect(runtime.store.issue({
+      branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:new-operation',
+      ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+    })).rejects.toMatchObject({ code: 'generation_replaced' });
+    expect(await runtime.store.authenticate(issued.credential.token)).not.toBeNull();
   });
 
   test('rejects malformed credential authority before token issuance', async () => {
@@ -111,12 +123,12 @@ describe('Workspace Runtime outbound sessions', () => {
     await expect(runtime.store.issue({
       branch: 'issue-625', capabilities: ['runtime.shell' as never], commit,
       environmentId, generation, manifestDigest, ownerUserId: 'owner',
-      runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:invalid-capability', runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
     await expect(runtime.store.issue({
       branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
       environmentId, expiresInSeconds: 3_601, generation, manifestDigest,
-      ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+      operationId: 'start:invalid-expiry', ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
   });
 
@@ -129,8 +141,110 @@ describe('Workspace Runtime outbound sessions', () => {
     runtime.setNow('2026-08-12T10:00:46.000Z');
     const stale = await runtime.service.expireStale();
     expect(stale).toHaveLength(1);
-    expect(stale[0]).toMatchObject({ connectionState: 'stale', environmentId, workspaceId });
+    expect(stale[0]).toMatchObject({
+      ownerUserId: 'owner',
+      snapshot: { connectionState: 'stale', environmentId, workspaceId }
+    });
     expect(socket.closes[0]?.[1]).toContain('heartbeat expired');
+  });
+
+  test('refreshes heartbeat freshness on reconnect before the first scheduled heartbeat', async () => {
+    const runtime = fixture();
+    const issued = await runtime.issue();
+    const scope = await runtime.store.authenticate(issued.credential.token);
+    await runtime.service.register(connection(), scope!, runtime.registration());
+    runtime.setNow('2026-08-12T10:00:40.000Z');
+    await runtime.service.register(connection(), scope!, runtime.registration());
+    runtime.setNow('2026-08-12T10:01:00.000Z');
+    expect(await runtime.service.expireStale()).toEqual([]);
+  });
+
+  test('does not close a fresh reconnect after an older session was marked stale', async () => {
+    let now = new Date('2026-08-12T10:00:00.000Z');
+    class ReconnectStore extends MemoryRuntimeSessionStore {
+      afterMark?: () => Promise<void>;
+      override async markStale(staleBefore: string, checkedAt: string) {
+        const stale = await super.markStale(staleBefore, checkedAt);
+        await this.afterMark?.();
+        return stale;
+      }
+    }
+    const store = new ReconnectStore({ now: () => now },
+      () => '33333333-3333-4333-8333-333333333399', () => 'E'.repeat(43));
+    let nextSession = 0;
+    const service = new WorkspaceRuntimeSessionService(store, () => now,
+      () => `44444444-4444-4444-8444-44444444449${nextSession++}`);
+    const issued = await store.issue({
+      branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:stale-race',
+      ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+    });
+    const scope = (await store.authenticate(issued.credential.token))!;
+    const oldSocket = connection();
+    await service.register(oldSocket, scope, {
+      branch: 'issue-625', commit, environmentId, generation, manifestDigest,
+      resumeAfterSequence: 0, runtimeVersion: '0.4.66', schemaVersion: 1,
+      type: 'runtime.register', workspaceId
+    });
+    const newSocket = connection();
+    store.afterMark = async () => {
+      await service.register(newSocket, scope, {
+        branch: 'issue-625', commit, environmentId, generation, manifestDigest,
+        resumeAfterSequence: 0, runtimeVersion: '0.4.66', schemaVersion: 1,
+        type: 'runtime.register', workspaceId
+      });
+    };
+    now = new Date('2026-08-12T10:00:46.000Z');
+    await service.expireStale();
+    expect(oldSocket.closes).toEqual([[1012, 'Workspace Runtime session replaced.']]);
+    expect(newSocket.closes).toEqual([]);
+  });
+
+  test('revocation closes and fences an already authenticated live socket', async () => {
+    const runtime = fixture();
+    const issued = await runtime.issue();
+    const scope = await runtime.store.authenticate(issued.credential.token);
+    const socket = connection();
+    const active = await runtime.service.register(socket, scope!, runtime.registration());
+    await runtime.service.revoke('owner', workspaceId, issued.credential.credentialId);
+    expect(socket.closes).toEqual([[1008, 'Workspace Runtime credential revoked.']]);
+    await expect(runtime.service.append(active, {
+      eventId: 'after-revoke', observedAt: '2026-08-12T10:00:01.000Z', schemaVersion: 1,
+      sequence: 1, type: 'runtime.heartbeat'
+    })).rejects.toMatchObject({ code: 'generation_replaced' });
+  });
+
+  test('stale cleanup cannot close another owner with the same Workspace and generation IDs', async () => {
+    let now = new Date('2026-08-12T10:00:00.000Z');
+    let credential = 0;
+    let session = 0;
+    const store = new MemoryRuntimeSessionStore(
+      { now: () => now },
+      () => `33333333-3333-4333-8333-33333333334${credential++}`,
+      () => credential === 1 ? 'C'.repeat(43) : 'D'.repeat(43)
+    );
+    const service = new WorkspaceRuntimeSessionService(store, () => now,
+      () => `44444444-4444-4444-8444-44444444445${session++}`);
+    const sockets = { first: connection(), second: connection() };
+    for (const [ownerUserId, socket] of [['first-owner', sockets.first], ['second-owner', sockets.second]] as const) {
+      const issued = await store.issue({
+        branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit, environmentId,
+        generation, manifestDigest, operationId: `start:${ownerUserId}`, ownerUserId,
+        runtimeVersion: '0.4.66', workspaceId
+      });
+      const scope = await store.authenticate(issued.credential.token);
+      await service.register(socket, scope!, {
+        branch: 'issue-625', commit, environmentId, generation, manifestDigest,
+        resumeAfterSequence: 0, runtimeVersion: '0.4.66', schemaVersion: 1,
+        type: 'runtime.register', workspaceId
+      });
+      if (ownerUserId === 'first-owner') now = new Date('2026-08-12T10:00:40.000Z');
+    }
+    now = new Date('2026-08-12T10:00:46.000Z');
+    const stale = await service.expireStale();
+    expect(stale.map((entry) => entry.ownerUserId)).toEqual(['first-owner']);
+    expect(sockets.first.closes).toHaveLength(1);
+    expect(sockets.second.closes).toEqual([]);
   });
 
   test('closes a live socket when its bound credential expires', async () => {
@@ -148,7 +262,8 @@ describe('Workspace Runtime outbound sessions', () => {
     const runtime = fixture();
     const limited = await runtime.store.issue({
       branch: 'issue-625', capabilities: ['runtime.lifecycle'], commit, environmentId,
-      generation, manifestDigest, ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
+      generation, manifestDigest, operationId: 'start:limited', ownerUserId: 'owner',
+      runtimeVersion: '0.4.66', workspaceId
     });
     const scope = await runtime.store.authenticate(limited.credential.token);
     const active = await runtime.service.register(connection(), scope!, runtime.registration());

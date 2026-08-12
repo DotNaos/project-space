@@ -221,6 +221,7 @@ type IdentityResolver interface {
 
 type OperationOptions struct {
 	Mode                Mode
+	ExpectedBranch      string
 	ExpectedWorkspaceID string
 	ExpectedCommit      string
 	ExpectedDigest      string

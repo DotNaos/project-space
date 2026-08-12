@@ -51,13 +51,13 @@ func TestProcessProviderPassesRuntimeCredentialOnlyThroughProtectedBootstrap(t *
 		t.Fatal("protected bootstrap did not contain the scoped credential")
 	}
 	if bootstrap["codexBinary"] != "/verified/codex" ||
-		bootstrap["appServerSocket"] != appServerSocketPath(testRuntimeBinding()) {
+		bootstrap["appServerSocket"] != appServerSocketPath(testRuntimeBinding()) ||
+		bootstrap["logPointer"] != "runtime-log:/"+testRuntimeBinding().WorkspaceID+"/"+testRuntimeBinding().Generation {
 		t.Fatalf("runtime launch binding = %#v", bootstrap)
 	}
 	readyPath := filepath.Join(generationHome, "runtime-session-ready")
-	ready, err := os.ReadFile(readyPath)
-	if err != nil || string(ready) != "ready\n" {
-		t.Fatalf("runtime readiness marker = %q, error=%v", ready, err)
+	if _, err := os.Lstat(readyPath); !os.IsNotExist(err) {
+		t.Fatalf("provider published readiness before the full Manager start completed: %v", err)
 	}
 }
 

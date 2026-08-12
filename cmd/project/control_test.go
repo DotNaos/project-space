@@ -189,7 +189,8 @@ func TestWorkspaceControlPassesAnAuthenticatedRuntimeSessionWithoutExposingItsTo
 		EnvironmentID: identity.EnvironmentID,
 		Operation:     "workspace-runtime.start.v1", OperationID: "runtime-session-start",
 		WorkspaceID: workspaceID, ExpectedCommit: commit, ExpectedManifestDigest: digest,
-		ExpectedGeneration: generation, Mode: string(workspacerun.ModeProcess),
+		ExpectedBranch: "issue-625", ExpectedGeneration: generation,
+		ExpectedRuntimeVersion: "0.5.0-test", Mode: string(workspacerun.ModeProcess),
 		RuntimeSessionEndpoint: "wss://projects.os-home.net/api/workspace-runtimes/socket",
 		RuntimeSessionToken:    sessionToken, RuntimeSessionExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 		RuntimeSessionVersion:      "0.5.0-test",
@@ -203,7 +204,8 @@ func TestWorkspaceControlPassesAnAuthenticatedRuntimeSessionWithoutExposingItsTo
 	}
 	if manager.options.RuntimeSession == nil || manager.options.RuntimeSession.Token != sessionToken ||
 		manager.options.RuntimeSession.EnvironmentID != identity.EnvironmentID ||
-		manager.options.RuntimeSession.Endpoint != request.RuntimeSessionEndpoint {
+		manager.options.RuntimeSession.Endpoint != request.RuntimeSessionEndpoint ||
+		manager.options.ExpectedBranch != request.ExpectedBranch {
 		t.Fatalf("runtime session bootstrap = %#v", manager.options.RuntimeSession)
 	}
 	if strings.Contains(output.String(), sessionToken) || strings.Contains(output.String(), "runtimeSessionToken") {
@@ -219,6 +221,7 @@ func TestWorkspaceControlRejectsMalformedRuntimeSessionBeforeStartingTheManager(
 		Operation: "workspace-runtime.start.v1", OperationID: "runtime-session-start",
 		WorkspaceID: workspaceID, ExpectedCommit: "0123456789abcdef0123456789abcdef01234567",
 		ExpectedManifestDigest: strings.Repeat("a", 64), ExpectedGeneration: "123e4567-e89b-42d3-a456-426614174000",
+		ExpectedBranch: "issue-625", ExpectedRuntimeVersion: "0.5.0-test",
 		Mode: string(workspacerun.ModeProcess), RuntimeSessionEndpoint: "wss://projects.os-home.net/api/workspace-runtimes/socket",
 		RuntimeSessionToken: strings.Repeat("A", 43), RuntimeSessionExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 		RuntimeSessionVersion: "0.5.0-test", RuntimeSessionCapabilities: []string{"runtime.lifecycle"},
@@ -410,7 +413,7 @@ func TestControlGatewayContractProcess(t *testing.T) {
 		}}
 		serve = func() error {
 			return serveControlGatewayWithRuntime(os.Stdin, os.Stdout, identity, func() (workspaceRuntimeManager, error) {
-				return manager, nil
+				return &contractWorkspaceRuntimeManager{fakeWorkspaceRuntimeManager: manager, expectedBranch: "issue-625"}, nil
 			})
 		}
 	}
@@ -419,4 +422,22 @@ func TestControlGatewayContractProcess(t *testing.T) {
 		os.Exit(2)
 	}
 	os.Exit(0)
+}
+
+type contractWorkspaceRuntimeManager struct {
+	*fakeWorkspaceRuntimeManager
+	expectedBranch string
+}
+
+func (manager *contractWorkspaceRuntimeManager) Start(
+	ctx context.Context,
+	directory string,
+	options workspacerun.OperationOptions,
+	streams workspacerun.Streams,
+) (workspacerun.Result, error) {
+	if options.ExpectedBranch != manager.expectedBranch || options.RuntimeSession == nil ||
+		options.RuntimeSession.RuntimeVersion != "0.5.0-test" {
+		return workspacerun.Result{}, fmt.Errorf("Workspace runtime authority was not transported")
+	}
+	return manager.fakeWorkspaceRuntimeManager.Start(ctx, directory, options, streams)
 }

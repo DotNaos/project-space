@@ -3,6 +3,7 @@ package workspacesession
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,12 +37,16 @@ func TestClientRegistersJournalsHeartbeatsAndFlushesGracefulStop(t *testing.T) {
 			return
 		}
 		var registration Registration
-		if json.Unmarshal(encoded, &registration) != nil || registration.ResumeAfterSequence != 0 {
+		if json.Unmarshal(encoded, &registration) != nil || registration.ResumeAfterSequence < 0 {
 			t.Error("invalid registration")
 			return
 		}
-		_ = writeJSON(request.Context(), connection, serverMessage{AcceptedSequence: 0, HeartbeatIntervalSecond: 1, Type: "runtime.registered"})
-		close(registered)
+		_ = writeJSON(request.Context(), connection, serverMessage{AcceptedSequence: registration.ResumeAfterSequence, HeartbeatIntervalSecond: 1, Type: "runtime.registered"})
+		select {
+		case <-registered:
+		default:
+			close(registered)
+		}
 		for {
 			_, encoded, readErr := connection.Read(request.Context())
 			if readErr != nil {
@@ -57,6 +62,7 @@ func TestClientRegistersJournalsHeartbeatsAndFlushesGracefulStop(t *testing.T) {
 			mu.Unlock()
 			_ = writeJSON(request.Context(), connection, serverMessage{AcceptedSequence: event.Sequence, Type: "runtime.accepted"})
 			if event.State == "stopped" {
+				_ = connection.Close(websocket.StatusNormalClosure, "Workspace Runtime stopped gracefully")
 				return
 			}
 		}
@@ -72,19 +78,24 @@ func TestClientRegistersJournalsHeartbeatsAndFlushesGracefulStop(t *testing.T) {
 		WorkspaceID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", EnvironmentID: "11111111-1111-4111-8111-111111111111",
 		Generation: "22222222-2222-4222-8222-222222222222", Branch: "issue-625", Commit: strings.Repeat("a", 40),
 		ManifestDigest: strings.Repeat("b", 64), RuntimeVersion: "0.4.66",
-		Capabilities: []string{"runtime.lifecycle", "runtime.heartbeat", "runtime.dev-servers"},
+		LogPointer:   "runtime-log:/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/22222222-2222-4222-8222-222222222222",
+		Capabilities: []string{"runtime.lifecycle", "runtime.heartbeat", "runtime.dev-servers", "runtime.telemetry", "runtime.log-pointers"},
 		JournalPath:  filepath.Join(directory, "journal.json"), StatePath: filepath.Join(directory, "state.json"),
 		ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339),
 	}
 	if err := saveJournal(bootstrap.JournalPath, journal{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(bootstrap.StatePath, []byte(`[{"name":"web","port":3000,"state":"ready","url":"http://127.0.0.1:3000/"}]`), 0o600); err != nil {
+	if err := os.WriteFile(bootstrap.StatePath, []byte(`{"lifecycleState":"running","devServers":[{"name":"web","port":3000,"state":"ready","url":"http://127.0.0.1:3000/"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- (Client{}).Run(ctx, bootstrap) }()
+	go func() {
+		done <- (Client{Telemetry: func(context.Context) (float64, int64, error) {
+			return 12.5, 64 * 1024 * 1024, nil
+		}}).Run(ctx, bootstrap)
+	}()
 	<-registered
 	deadline := time.Now().Add(4 * time.Second)
 	for {
@@ -92,15 +103,35 @@ func TestClientRegistersJournalsHeartbeatsAndFlushesGracefulStop(t *testing.T) {
 		hasRunning := len(events) > 0 && events[0].State == "running"
 		hasDevServers := false
 		hasHeartbeat := false
+		hasTelemetry := false
+		hasLogPointer := false
 		for _, event := range events {
 			hasDevServers = hasDevServers || event.Type == "runtime.dev-servers"
 			hasHeartbeat = hasHeartbeat || event.Type == "runtime.heartbeat"
+			hasTelemetry = hasTelemetry || event.Type == "runtime.telemetry" &&
+				event.CPUPercent != nil && *event.CPUPercent == 12.5 && event.MemoryBytes != nil
+			hasLogPointer = hasLogPointer || event.Type == "runtime.log-pointer" && event.Pointer == bootstrap.LogPointer
 		}
 		mu.Unlock()
-		if hasRunning && hasDevServers && hasHeartbeat || time.Now().After(deadline) {
+		if hasRunning && hasDevServers && hasHeartbeat && hasTelemetry && hasLogPointer {
 			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatalf("missing runtime events: running=%t devServers=%t heartbeat=%t telemetry=%t logPointer=%t", hasRunning, hasDevServers, hasHeartbeat, hasTelemetry, hasLogPointer)
+		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if err := os.WriteFile(bootstrap.StatePath, []byte(`{"lifecycleState":"suspended","devServers":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForLifecycle(&mu, &events, "suspended", 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bootstrap.StatePath, []byte(`{"lifecycleState":"running","devServers":[{"name":"web","port":4000,"state":"ready"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForLifecycle(&mu, &events, "running", 3*time.Second); err != nil {
+		t.Fatal(err)
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -114,6 +145,35 @@ func TestClientRegistersJournalsHeartbeatsAndFlushesGracefulStop(t *testing.T) {
 	loaded, err := loadJournal(bootstrap.JournalPath)
 	if err != nil || len(loaded.Events) != 0 || loaded.Acked != events[len(events)-1].Sequence {
 		t.Fatalf("journal = %#v, error=%v", loaded, err)
+	}
+}
+
+func waitForLifecycle(mu *sync.Mutex, events *[]Event, state string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		mu.Lock()
+		found := false
+		for index, event := range *events {
+			found = found || event.State == state && (state != "running" || index > 0)
+		}
+		mu.Unlock()
+		if found {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("Workspace Runtime lifecycle %s was not observed", state)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestProcessGroupTelemetryObservesTheCurrentRuntimeGroup(t *testing.T) {
+	cpu, memory, err := processGroupTelemetry(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cpu < 0 || cpu > 100 || memory <= 0 {
+		t.Fatalf("telemetry cpu=%f memory=%d", cpu, memory)
 	}
 }
 
