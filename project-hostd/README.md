@@ -4,7 +4,7 @@
 workspace runtimes do not depend on it.
 
 The agent reads a root- or service-owned `0600` JSON configuration, measures host resources,
-attributes usage only to explicitly registered process-group boundaries, and sends a strict v1
+reloads and attributes usage only to explicitly registered process-group boundaries, and sends a strict v1
 message to Project Space. It has no listener and no command, shell, Git, repository, Codex,
 dev-server, or arbitrary filesystem API.
 

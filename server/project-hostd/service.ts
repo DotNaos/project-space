@@ -71,8 +71,16 @@ export class ProjectHostdService {
     return this.store.append(scope, observation, receivedAt.toISOString());
   }
 
-  list(ownerUserId: string) {
-    return this.store.list(ownerUserId);
+  async list(ownerUserId: string) {
+    const snapshots = await this.store.list(ownerUserId);
+    const current = await Promise.all(snapshots.map(async (snapshot) => (
+      await this.targets.resolve({
+        environmentId: snapshot.environmentId,
+        ...(snapshot.hostId ? { hostId: snapshot.hostId } : {}),
+        ownerUserId
+      }) === 'matched' ? snapshot : undefined
+    )));
+    return current.filter((snapshot): snapshot is NonNullable<typeof snapshot> => Boolean(snapshot));
   }
 
   expireStale() {

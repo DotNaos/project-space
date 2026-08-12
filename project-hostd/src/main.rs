@@ -29,8 +29,8 @@ fn run() -> Result<(), String> {
     if args.next().is_some() {
         return Err("usage: project-hostd <config-path> [--once]".into());
     }
-    let config = config::load(&config_path)?;
     loop {
+        let config = config::load(&config_path)?;
         if let Err(error) = cycle(&config) {
             if once {
                 return Err(error);

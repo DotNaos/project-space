@@ -315,6 +315,31 @@ describe('agent-safe compute inventory', () => {
     ]) expect(serialized).not.toContain(forbidden);
   });
 
+  test('does not project hostd evidence after the Environment Host binding changes', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const environment = snapshot.environments.find(({ hostAssociation }) =>
+      hostAssociation.resolution === 'verified' || hostAssociation.resolution === 'manual'
+    )!;
+    const inventory = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors,
+      hostdSnapshots: [{
+        connectionState: 'online', credentialId: 'private-credential-id',
+        deviceId: '10000000-0000-4000-8000-000000000001', environmentId: environment.id,
+        hostId: '10000000-0000-4000-8000-000000000099', health: 'healthy',
+        hostdVersion: '0.1.0', lastSeenAt: '2026-08-11T10:00:59.000Z',
+        observedAt: '2026-08-11T10:00:58.000Z', partialMetrics: [], protocolVersion: 1,
+        resources: { architecture: 'arm64', cpu: { cores: 10, usedPercent: 12.5 },
+          memory: { availableBytes: 16_000, totalBytes: 32_000 }, operatingSystem: 'macOS 27.0',
+          storage: { availableBytes: 500_000, totalBytes: 1_000_000 } },
+        runtimes: [], schemaVersion: 1, sequence: 1, uptimeSeconds: 100
+      }], schemaVersion: 3, snapshot
+    });
+    const projected = inventory.environmentInstances.find(({ id }) => id === environment.id)!;
+    expect(projected.hostd).toEqual({ state: 'unknown' });
+    expect(projected.resources?.source).not.toBe('hostd');
+  });
+
   test('promotes a child-created parent with the actual parent Host and stays order-independent', () => {
     const parent = connector('parent-connector', 'Parent', metadata({
       environmentIdentity: { key: 'parent-environment', version: 1 },

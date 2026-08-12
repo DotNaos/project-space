@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use sysinfo::{Disks, System};
 
 use crate::config::{Config, RegisteredRuntime};
@@ -161,6 +159,20 @@ mod tests {
                 <= observation.resources.storage.total_bytes
         );
         assert!(observation.runtimes.is_empty());
+        let direct_system = System::new_all();
+        assert_eq!(
+            observation.resources.memory.total_bytes,
+            direct_system.total_memory()
+        );
+        let direct_disks = Disks::new_with_refreshed_list();
+        let direct_storage = direct_disks
+            .list()
+            .iter()
+            .filter(|disk| !disk.is_removable())
+            .map(|disk| disk.total_space())
+            .max()
+            .expect("largest local filesystem");
+        assert_eq!(observation.resources.storage.total_bytes, direct_storage);
     }
 
     #[cfg(unix)]
@@ -185,6 +197,14 @@ mod tests {
         assert_eq!(observation.runtimes.len(), 1);
         assert_eq!(observation.runtimes[0].boundary_kind, "process_group");
         assert!(observation.runtimes[0].memory_bytes > 0);
+
+        let wrong_identity = test_config(vec![RegisteredRuntime {
+            process_group_leader_started_at_seconds: started_at + 1,
+            ..config.runtimes[0].clone()
+        }]);
+        let rejected = collect(&wrong_identity, 2).expect("collect mismatched runtime");
+        assert!(rejected.runtimes.is_empty());
+        assert_eq!(rejected.partial_metrics, vec!["runtime"]);
     }
 
     #[test]
