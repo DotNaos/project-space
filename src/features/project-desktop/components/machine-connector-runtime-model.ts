@@ -240,7 +240,7 @@ export function runtimeUnavailableReason(
     return 'Only source development connectors can be stopped from Project Space.';
   }
   if (operation !== 'stop' && update?.state === 'unsupported') {
-    return 'This installation cannot be managed from Project Space. Reinstall it through Connector setup.';
+    return 'This installation cannot be managed from Project Space. Recreate it through Environment setup.';
   }
   if (isRuntimeBusy(update)) {
     return runtimeOperationLabel(update?.operation) || 'Another connector operation is active.';

@@ -71,7 +71,7 @@ describe('GitHub Codespaces lifecycle provider', () => {
     const runtime: GitHubCodespaceRunnerRuntime = {
       run: async (request) => ({
         apiVersion: 1,
-        approvalUrl: 'https://projects.os-home.net/connector/connect?request=exact#secret',
+        approvalUrl: 'https://projects.os-home.net/machines/connect?request=exact#secret',
         message: 'Approval required.',
         operationId: request.operationId,
         state: 'connector-approval-required'
@@ -83,7 +83,7 @@ describe('GitHub Codespaces lifecycle provider', () => {
     expect(result).toMatchObject({
       blockedReason: 'connector_approval_required',
       readiness: {
-        approvalUrl: 'https://projects.os-home.net/connector/connect?request=exact',
+        approvalUrl: 'https://projects.os-home.net/machines/connect?request=exact',
         state: 'connector_approval_required'
       }
     });

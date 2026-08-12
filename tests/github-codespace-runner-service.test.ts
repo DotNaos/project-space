@@ -107,11 +107,11 @@ describe('GitHub Codespace runner service', () => {
 
   test('surfaces the exact Project Space approval before connector enrollment', async () => {
     const service = createGitHubCodespaceRunnerService(dependencies({
-      findApproval: async () => ({ approvalUrl: 'https://projects.test/connector/connect?request=exact' }),
+      findApproval: async () => ({ approvalUrl: 'https://projects.test/machines/connect?request=exact' }),
       list: async () => [codespace]
     }));
     await expect(service.run(request)).resolves.toEqual(expect.objectContaining({
-      approvalUrl: 'https://projects.test/connector/connect?request=exact',
+      approvalUrl: 'https://projects.test/machines/connect?request=exact',
       state: 'connector-approval-required'
     }));
   });

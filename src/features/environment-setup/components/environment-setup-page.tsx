@@ -11,7 +11,6 @@ import {
   Network,
   Terminal
 } from 'lucide-react';
-import { MachineConnectionApprovalPage } from './machine-connection-approval-page';
 
 const environmentBootstrapCommands = [
   'project environment list --format json',
@@ -167,13 +166,7 @@ function GraphRow({ from, to }: { from: string; to: string }) {
   );
 }
 
-export function ConnectorSetupPage() {
-  const connectionRequestId = new URLSearchParams(window.location.search).get('request')?.trim();
-
-  if (connectionRequestId) {
-    return <MachineConnectionApprovalPage requestId={connectionRequestId} />;
-  }
-
+export function EnvironmentSetupPage() {
   return (
     <main className="min-h-screen overflow-x-hidden bg-app-canvas px-4 py-8 text-neutral-100 sm:px-8">
       <div className="mx-auto grid min-w-0 max-w-6xl gap-6">

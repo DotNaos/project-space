@@ -84,7 +84,7 @@ describe('machine connection API', () => {
     const created = await json(createResponse);
     expect(createResponse.status).toBe(201);
     expect(created.approvalUrl).toBe(
-      `https://projects.os-home.net/connector/connect?request=${created.requestId}`
+      `https://projects.os-home.net/machines/connect?request=${created.requestId}`
     );
 
     const unauthenticatedApproval = await fetch(

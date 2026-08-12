@@ -24,7 +24,7 @@ export function createGitHubCodespaceApprovalLookup(
     const id = found.rows[0]?.id;
     const origin = dependencies.publicOrigin();
     return id && origin
-      ? { approvalUrl: `${origin}/connector/connect?request=${encodeURIComponent(id)}` }
+      ? { approvalUrl: `${origin}/machines/connect?request=${encodeURIComponent(id)}` }
       : null;
   };
 }

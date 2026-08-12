@@ -164,7 +164,7 @@ export class MachineConnectionService {
       status: "pending",
     });
 
-    const approvalUrl = new URL("/connector/connect", this.publicOrigin);
+    const approvalUrl = new URL("/machines/connect", this.publicOrigin);
     approvalUrl.searchParams.set("request", requestId);
 
     return {

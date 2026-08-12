@@ -16,7 +16,7 @@ describe('GitHub Codespace approval lookup', () => {
       codespaceName: 'project-space--537-p56qw7vwpgc757q',
       createdAt: '2026-08-09T10:20:00.000Z'
     })).resolves.toEqual({
-      approvalUrl: 'https://projects.os-home.net/connector/connect?request=8ab9dfee-769e-4406-9804-2cb0e2ab6a91'
+      approvalUrl: 'https://projects.os-home.net/machines/connect?request=8ab9dfee-769e-4406-9804-2cb0e2ab6a91'
     });
 
     expect(query).toHaveBeenCalledTimes(1);
