@@ -177,6 +177,16 @@ func TestProcessGroupTelemetryObservesTheCurrentRuntimeGroup(t *testing.T) {
 	}
 }
 
+func TestProcessGroupTelemetryFiltersPortableLinuxProcessListing(t *testing.T) {
+	cpu, memory, err := decodeProcessGroupTelemetry([]byte("  41 2.5 100\n  42 1.5 200\n  41 3.0 300\n"), 41, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cpu != 5.5 || memory != 400*1024 {
+		t.Fatalf("telemetry cpu=%f memory=%d", cpu, memory)
+	}
+}
+
 func TestClientRejectsUnboundOrOverprivilegedBootstrapBeforeDial(t *testing.T) {
 	directory := t.TempDir()
 	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
