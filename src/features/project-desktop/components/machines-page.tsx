@@ -414,7 +414,7 @@ export function MachinesPage({
             </Text>
           </div>
           {!localSimulation ? (
-            <a href="/connector">
+            <a href="/environments/setup">
               <Button size="sm" variant="primary">
                 <Plus className="size-4" />
                 Add environment

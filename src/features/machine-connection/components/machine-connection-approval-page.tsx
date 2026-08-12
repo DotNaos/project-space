@@ -72,11 +72,11 @@ function ApprovalFrame({ children }: { children: React.ReactNode }) {
 
       <div className="relative w-full max-w-xl">
         <a
-          href="/connector"
+          href="/environments/setup"
           className="mb-6 inline-flex items-center gap-1.5 text-sm text-neutral-500 transition hover:text-neutral-200"
         >
           <ChevronLeft className="size-4" />
-          Connector setup
+          Environment setup
         </a>
         {children}
       </div>
@@ -440,7 +440,7 @@ function ClerkMachineApproval({ requestId }: { requestId: string }) {
     setMessage("");
     try {
       if (useAnotherAccount) await signOut();
-      const redirectUrl = `/connector/connect?request=${encodeURIComponent(requestId)}`;
+      const redirectUrl = `/machines/connect?request=${encodeURIComponent(requestId)}`;
       const { error } = await signIn.sso({
         redirectCallbackUrl: "/sso-callback",
         redirectUrl,

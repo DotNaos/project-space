@@ -893,7 +893,7 @@ export function ProjectHomeOverview({
         </div>
         <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
           {mode === 'machines' ? (
-            <a href="/connector">
+            <a href="/environments/setup">
               <Button size="sm" variant="outline">
                 <Plus className="size-4" />
                 Add environment

@@ -4,15 +4,11 @@ import type {
 } from '@/shared/project-space-api';
 import type { KeyboardEventHandler } from 'react';
 import {
-  Check,
   Copy,
   ExternalLink,
   FolderOpen,
   Info,
-  MoreHorizontal,
-  RefreshCw,
-  Terminal,
-  X
+  MoreHorizontal
 } from 'lucide-react';
 import {
   Button,
@@ -348,108 +344,6 @@ export function ProjectListItem({
       </Text>
       <div className="flex justify-end">
         <ProjectActionsMenu row={row} onOpenProject={openProject} />
-      </div>
-    </div>
-  );
-}
-
-export function AddMachineDialog({
-  hasCopiedInstallCommand,
-  installCommand,
-  installScriptHref,
-  installerError,
-  isGeneratingInstaller,
-  onClose,
-  onCopy,
-  onGenerate
-}: {
-  hasCopiedInstallCommand: boolean;
-  installCommand: string;
-  installScriptHref: string;
-  installerError: string;
-  isGeneratingInstaller: boolean;
-  onClose(): void;
-  onCopy(): void;
-  onGenerate(): void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/70 p-4 sm:items-center sm:justify-center">
-      <div className="w-full max-w-xl rounded-lg border border-neutral-800 bg-neutral-950 p-4 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <Text className="block text-base font-semibold text-neutral-100">Add a machine</Text>
-            <Text className="mt-1 block text-sm text-neutral-500">
-              Run this on the Mac you want to add. It installs the verified managed tools, then
-              opens Project Space approval for that machine.
-            </Text>
-          </div>
-          <Button aria-label="Close add machine" isIconOnly size="sm" variant="ghost" onPress={onClose}>
-            <X className="size-4" />
-          </Button>
-        </div>
-
-        {installCommand ? (
-          <div className="mt-4 rounded-lg bg-black px-3 py-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-500">
-              <Terminal className="size-3.5" />
-              macOS arm64
-            </div>
-            <code className="block whitespace-pre-wrap break-all font-mono text-sm text-neutral-100">
-              {installCommand}
-            </code>
-          </div>
-        ) : (
-          <div className="mt-4 rounded-lg bg-black px-3 py-4">
-            <Text className="block text-sm text-neutral-400">
-              Generate the pinned managed install command when you are ready to run it on the Mac.
-            </Text>
-          </div>
-        )}
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          {installCommand ? (
-            <>
-              <Button size="sm" onPress={onCopy}>
-                {hasCopiedInstallCommand ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {hasCopiedInstallCommand ? 'Copied' : 'Copy command'}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                isDisabled={isGeneratingInstaller}
-                onPress={onGenerate}
-              >
-                {isGeneratingInstaller ? <RefreshCw className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                Replace command
-              </Button>
-              <a href={installScriptHref} target="_blank" rel="noreferrer">
-                <Button size="sm" variant="ghost">
-                  <ExternalLink className="size-4" />
-                  Open script
-                </Button>
-              </a>
-            </>
-          ) : (
-            <Button size="sm" isDisabled={isGeneratingInstaller} onPress={onGenerate}>
-              {isGeneratingInstaller ? <RefreshCw className="size-4 animate-spin" /> : <Terminal className="size-4" />}
-              Generate managed installer
-            </Button>
-          )}
-          <a href="/connector" target="_blank" rel="noreferrer">
-            <Button size="sm" variant="ghost">
-              Install guide
-            </Button>
-          </a>
-        </div>
-
-        {installerError ? (
-          <Text className="mt-3 block text-xs text-red-300/80">{installerError}</Text>
-        ) : null}
-
-        <Text className="mt-3 block text-xs text-neutral-600">
-          The verified bundle installs the connector and Project CLI together. Existing managed
-          identities are preserved; legacy replacement is refused until you explicitly re-enroll.
-        </Text>
       </div>
     </div>
   );

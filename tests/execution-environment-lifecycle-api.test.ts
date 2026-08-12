@@ -25,7 +25,7 @@ test('execution Environment lifecycle result keeps normalized and provider evide
       }
     },
     readiness: {
-      approvalUrl: 'https://projects.os-home.net/connector/connect?request=exact',
+      approvalUrl: 'https://projects.os-home.net/machines/connect?request=exact',
       state: 'connector_approval_required'
     },
     reconciliation: {

@@ -7,7 +7,7 @@ import {
   parseMachineConnectionDecision,
   readMachineConnectionResponse,
   shouldRefreshAfterDecisionError,
-} from "../src/features/connector-setup/components/machine-connection-approval-client";
+} from "../src/features/machine-connection/components/machine-connection-approval-client";
 
 const approval = {
   architecture: "arm64",

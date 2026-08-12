@@ -1,6 +1,7 @@
 import { SsoCallbackScreen } from '@/auth/sso-callback';
 import { PrototypeReviewAuthBoundary } from '@/auth/prototype-review-auth-boundary';
-import { ConnectorSetupPage } from '@/features/connector-setup/components/connector-setup-page';
+import { EnvironmentSetupPage } from '@/features/environment-setup/components/environment-setup-page';
+import { MachineConnectionApprovalPage } from '@/features/machine-connection/components/machine-connection-approval-page';
 import { PrototypeReviewPage } from '@/features/pr-preview-review/prototype-review-page';
 import { PreviewAccessGatePage } from '@/features/pr-preview-navigation/preview-access-gate-page';
 import { PreviewSurfaceSwitcher } from '@/features/pr-preview-navigation/preview-surface-switcher';
@@ -16,8 +17,13 @@ export function App() {
     return <McpOAuthAuthorizationPage />;
   }
 
-  if (window.location.pathname.startsWith('/connector')) {
-    return <ConnectorSetupPage />;
+  if (window.location.pathname === '/machines/connect') {
+    const requestId = new URLSearchParams(window.location.search).get('request')?.trim() ?? '';
+    return <MachineConnectionApprovalPage requestId={requestId} />;
+  }
+
+  if (window.location.pathname === '/environments/setup') {
+    return <EnvironmentSetupPage />;
   }
 
   if (window.location.pathname.startsWith('/sso-callback')) {

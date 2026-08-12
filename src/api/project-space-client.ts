@@ -7,8 +7,6 @@ import type {
   CodexModelCatalogueResult,
   CodexOpenRequest,
   CodexStatusResult,
-  ConnectorCredentialRecord,
-  ConnectorInstallerResult,
   ConnectorOverviewResult,
   MachineRuntimeOperationRequest,
   MachineRuntimeOperationResult,
@@ -325,22 +323,6 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
     >('/api/pull-request-previews/feedback', {
       body: JSON.stringify(feedback),
       method: 'POST'
-    });
-  }
-
-  getConnectorInstallCommand(): Promise<ConnectorInstallerResult> {
-    return this.request('/api/connectors/install-command', { method: 'POST' });
-  }
-
-  listConnectorCredentials(): Promise<{
-    credentials: ConnectorCredentialRecord[];
-  }> {
-    return this.request('/api/connectors/credentials');
-  }
-
-  revokeConnectorCredential(credentialId: string): Promise<{ revoked: boolean }> {
-    return this.request(`/api/connectors/credentials/${encodeURIComponent(credentialId)}`, {
-      method: 'DELETE'
     });
   }
 

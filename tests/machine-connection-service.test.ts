@@ -114,7 +114,7 @@ describe("machine connection state machine", () => {
     const created = await service.createRequest(metadata(keys.publicKey));
 
     expect(created.approvalUrl).toStartWith(
-      "http://project-space.localhost:1355/connector/connect?request=",
+      "http://project-space.localhost:1355/machines/connect?request=",
     );
   });
 

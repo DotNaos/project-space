@@ -318,9 +318,9 @@ function StatusModal({
                       </p>
                       <a
                         className="mt-2 inline-flex text-xs font-medium text-amber-100 underline decoration-amber-300/40 underline-offset-2"
-                        href="/connector"
+                        href="/environments/setup"
                       >
-                        Open connector setup
+                        Open environment setup
                       </a>
                     </div>
                   ) : null}

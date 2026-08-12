@@ -1,5 +1,4 @@
-export type ApprovalStatus =
-  "approved" | "consumed" | "denied" | "expired" | "pending";
+export type ApprovalStatus = "approved" | "consumed" | "denied" | "expired" | "pending";
 export type MachineConnectionDecision = "approve" | "deny";
 
 export interface MachineConnectionApproval {

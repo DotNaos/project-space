@@ -8,9 +8,13 @@ function source(path: string) {
 
 describe('canonical Environment bootstrap', () => {
   test('makes the typed Project CLI launch the primary setup path', () => {
-    const page = source('src/features/connector-setup/components/connector-setup-page.tsx');
+    const app = source('src/app/app.tsx');
+    const page = source('src/features/environment-setup/components/environment-setup-page.tsx');
     const command = source('cmd/project/environment_bootstrap.go');
 
+    expect(app).toContain("window.location.pathname === '/environments/setup'");
+    expect(app).toContain("window.location.pathname === '/machines/connect'");
+    expect(app).not.toContain("startsWith('/connector')");
     expect(page).toContain('project environment bootstrap <environment-instance>');
     expect(page).toContain('without a permanent Connector');
     expect(page).not.toContain('Legacy Connector compatibility');
