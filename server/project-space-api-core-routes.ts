@@ -1,14 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import {
-  requestConnectorDevServerInspect,
-  requestConnectorDevServerList,
-  requestConnectorDevServerStart,
-  requestConnectorDevServerStop,
-  requestConnectorWorktreeAction
-} from './connector-command-hub';
 import { createDevServerService } from './dev-server-service';
-import { createWorktreeActionService } from './worktree-action-service';
 import {
   createDevServerSession,
   claimMachineMembership,
@@ -97,10 +89,10 @@ export function createProjectSpaceCoreApiRoutes(
   const devServers = createDevServerService({
     backend,
     connector: {
-      inspect: requestConnectorDevServerInspect,
-      list: requestConnectorDevServerList,
-      start: requestConnectorDevServerStart,
-      stop: requestConnectorDevServerStop
+      inspect: retiredConnectorCall,
+      list: retiredConnectorCall,
+      start: retiredConnectorCall,
+      stop: retiredConnectorCall
     },
     database: {
       createDevServerSession,
@@ -114,13 +106,6 @@ export function createProjectSpaceCoreApiRoutes(
     },
     userId: currentUserId
   });
-  const worktreeActions = createWorktreeActionService({
-    backend,
-    connector: { run: requestConnectorWorktreeAction },
-    database: { isConfigured: isDatabaseConfigured, readMachineMembership },
-    userId: currentUserId
-  });
-
   return async function handleProjectSpaceCoreApiRoute(
     request: IncomingMessage,
     response: ServerResponse,
@@ -424,11 +409,8 @@ export function createProjectSpaceCoreApiRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/dev-servers/inspect') {
-      writeJson(
-        response,
-        200,
-        await devServers.inspect(await readJson<DevServerInspectRequest>(request))
-      );
+      await readJson<DevServerInspectRequest>(request);
+      canonicalRuntimeRequired(response, 'Dev-server inspection');
       return true;
     }
 
@@ -438,11 +420,8 @@ export function createProjectSpaceCoreApiRoutes(
       return true;
     }
     if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/inspect') {
-      writeJson(
-        response,
-        200,
-        await worktreeActions.inspectSetup(await readJson<WorktreeSetupInspectRequest>(request))
-      );
+      await readJson<WorktreeSetupInspectRequest>(request);
+      canonicalRuntimeRequired(response, 'Worktree setup inspection');
       return true;
     }
     if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/run') {
@@ -599,6 +578,10 @@ function canonicalRuntimeRequired(response: ServerResponse, operation: string) {
       message: `${operation} requires the canonical control API.`
     }
   });
+}
+
+async function retiredConnectorCall(): Promise<never> {
+  throw new Error('The permanent Connector has been retired.');
 }
 
 function parsePreviewHubStartRequest(value: unknown): PreviewHubStartRequest | null {
