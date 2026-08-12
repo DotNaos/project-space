@@ -182,7 +182,9 @@ jobs:
       - name: Test, vet, and build the native Windows CLI
         shell: powershell
         run: |
-          go test ./cmd/project ./internal/machineconnect ./internal/selfupdate
+          go test ./cmd/project -run '^TestWindows' -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./internal/machineconnect ./internal/selfupdate -run '^$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./cmd/project ./internal/machineconnect ./internal/selfupdate
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

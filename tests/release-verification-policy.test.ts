@@ -107,7 +107,10 @@ describe('release verification policy', () => {
     expect(ci).toContain('name: Windows CLI compatibility');
     expect(ci).toContain("if: needs.fast-ci.outputs.go == 'true'");
     expect(ci).toContain(
-      'go test ./cmd/project ./internal/machineconnect ./internal/selfupdate',
+      "go test ./cmd/project -run '^TestWindows' -count=1",
+    );
+    expect(ci).toContain(
+      "go test ./internal/machineconnect ./internal/selfupdate -run '^$'",
     );
     expect(windowsCall).toContain(
       "if: needs.classify.outputs.full-matrix == 'true'",
