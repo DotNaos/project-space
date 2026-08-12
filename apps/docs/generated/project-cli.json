@@ -1078,6 +1078,79 @@
         ]
       },
       {
+        "path": "project control",
+        "name": "control",
+        "usage": "control",
+        "short": "Run typed control-gateway operations",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for control",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project control handshake",
+            "name": "handshake",
+            "usage": "handshake",
+            "short": "Describe the installed control protocol",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for handshake",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project control status",
+            "name": "status",
+            "usage": "status <environment-instance>",
+            "short": "Verify one Environment through the typed SSH gateway",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for status",
+                "inherited": false
+              },
+              {
+                "name": "json",
+                "type": "bool",
+                "description": "print machine-readable JSON",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "reuse one exact idempotent operation ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project create",
         "name": "create",
         "usage": "create [directory]",

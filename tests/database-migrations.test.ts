@@ -23,6 +23,10 @@ import {
   privateNetworkAccessRoutesMigrationId,
   privateNetworkAccessRoutesMigrationSql
 } from '../server/database/private-network-access-routes-migration';
+import {
+  sshControlGatewayMigrationId,
+  sshControlGatewayMigrationSql
+} from '../server/database/ssh-control-gateway-migration';
 
 interface QueryCall {
   sql: string;
@@ -118,6 +122,42 @@ describe('database migrations', () => {
     expect(privateNetworkAccessRoutesMigrationSql).toContain("credential_reference ~ '^op://");
   });
 
+  test('binds SSH gateway operations to one owner, Environment, route, and typed result', () => {
+    expect(sshControlGatewayMigrationId).toBe('0041_ssh_control_gateway_operations');
+    expect(sshControlGatewayMigrationSql).toContain('create table ssh_gateway_operations');
+    expect(sshControlGatewayMigrationSql).toContain(
+      'create unique index access_routes_ssh_credential_unique'
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      "credential_purpose = 'project_control_gateway_v1'"
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      'foreign key (route_id, owner_user_id, environment_id, route_kind, target_identity_revision)'
+    );
+    expect(sshControlGatewayMigrationSql).toContain("capability = 'project_cli'");
+    expect(sshControlGatewayMigrationSql).toContain("operation = 'status.v1'");
+    expect(sshControlGatewayMigrationSql).toContain(
+      "safe_result->>'operationId' = operation_id"
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      "safe_result->>'targetIdentityRevision' = target_identity_revision"
+    );
+    expect(sshControlGatewayMigrationSql).toContain(
+      "where state in ('reserved', 'dispatching', 'uncertain')"
+    );
+    expect(sshControlGatewayMigrationSql).toContain('reserved_until timestamptz');
+    expect(sshControlGatewayMigrationSql).toContain("'reservation_expired'");
+    expect(sshControlGatewayMigrationSql).toContain("'reconciled_succeeded'");
+    expect(sshControlGatewayMigrationSql).toContain('create table ssh_gateway_operation_events');
+    const operationLedgerSql = sshControlGatewayMigrationSql
+      .split('create table ssh_gateway_operations')[1]!
+      .split('create unique index ssh_gateway_operations_unresolved_target_idx')[0]!;
+    for (const secretField of [
+      'private_address', 'ssh_user', 'host_key', 'credential_reference', 'stdout', 'stderr'
+    ]) expect(operationLedgerSql).not.toContain(secretField);
+    expect(databaseMigrations.at(-1)?.id).toBe(sshControlGatewayMigrationId);
+  });
+
   test('preserves the original machine-task migration and backfills durability conservatively', () => {
     expect(migrationChecksum({
       id: codexMachineTasksMigrationId,
@@ -171,7 +211,8 @@ describe('database migrations', () => {
       '0037_task_delivery',
       '0038_dev_server_managed_states',
       '0039_environment_catalog',
-      '0040_private_network_access_routes'
+      '0040_private_network_access_routes',
+      '0041_ssh_control_gateway_operations'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

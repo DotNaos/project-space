@@ -137,6 +137,7 @@ function freshWindow(start: string, end: string, freshnessSeconds: number, now: 
 function selection(route: AccessRouteRecord): AuthorizedAccessRouteSelection {
   return {
     ...(route.credentialReference ? { credentialReference: route.credentialReference } : {}),
+    ...(route.credentialPurpose ? { credentialPurpose: route.credentialPurpose } : {}),
     ...(route.hostKeySha256 ? { hostKeySha256: route.hostKeySha256 } : {}),
     ownerUserId: route.ownerUserId,
     ...(route.privateAddress ? { privateAddress: route.privateAddress } : {}),

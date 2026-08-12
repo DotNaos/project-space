@@ -57,6 +57,9 @@ import {
   createConfiguredComputeInventoryCliHandler
 } from './compute-inventory-cli/configured-runtime';
 import {
+  createConfiguredSshControlGatewayHandler
+} from './ssh-control-gateway/configured-runtime';
+import {
   createPreviewDocsProxy,
   type PreviewDocsProxyDependencies
 } from './preview-docs-proxy';
@@ -242,6 +245,9 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
   });
+  const sshControlGateway = createConfiguredSshControlGatewayHandler({
+    machineConnection: options.machineConnectionRuntime
+  });
   const proxyPreviewDocs = createPreviewDocsProxy(
     process.env,
     options.previewDocsProxy
@@ -259,7 +265,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       projectChat: runtime,
       projectCatalogCli,
       projectTopology,
-      roadmapCli
+      roadmapCli,
+      sshControlGateway
     })
   );
 

@@ -42,6 +42,7 @@ interface AccessRouteRow {
   availability: AccessRouteRecord['availability'];
   capabilities: AccessRouteRecord['capabilities'];
   credential_reference: string | null;
+  credential_purpose: AccessRouteRecord['credentialPurpose'] | null;
   enabled: boolean;
   environment_id: string | null;
   freshness_seconds: number;
@@ -97,7 +98,7 @@ export class PostgresPrivateNetworkStore implements PrivateNetworkStore {
                 allowed_gateway_ids, requires_interactive_approval, availability,
                 last_verified_at, verified_until, freshness_seconds,
                 target_identity_revision, private_address, ssh_port, ssh_user,
-                ssh_host_key_sha256, credential_reference
+                ssh_host_key_sha256, credential_reference, credential_purpose
            from access_routes where owner_user_id = $1
           order by priority desc, id`,
         [owner]
@@ -167,10 +168,11 @@ export class PostgresPrivateNetworkStore implements PrivateNetworkStore {
          route_kind, provider_kind, capabilities, priority, enabled, policy_state,
          allowed_gateway_ids, requires_interactive_approval, availability,
          last_verified_at, verified_until, freshness_seconds, target_identity_revision,
-         private_address, ssh_port, ssh_user, ssh_host_key_sha256, credential_reference
+         private_address, ssh_port, ssh_user, ssh_host_key_sha256, credential_reference,
+         credential_purpose
        ) values (
          $1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12::text[], $13,
-         $14, $15::timestamptz, $16::timestamptz, $17, $18, $19, $20, $21, $22, $23
+         $14, $15::timestamptz, $16::timestamptz, $17, $18, $19, $20, $21, $22, $23, $24
        ) on conflict (id, owner_user_id) do update set
          availability = excluded.availability, last_verified_at = excluded.last_verified_at,
          verified_until = excluded.verified_until, private_address = excluded.private_address,
@@ -192,6 +194,7 @@ export class PostgresPrivateNetworkStore implements PrivateNetworkStore {
              access_routes.ssh_user is not distinct from excluded.ssh_user and
              access_routes.ssh_host_key_sha256 is not distinct from excluded.ssh_host_key_sha256 and
              access_routes.credential_reference is not distinct from excluded.credential_reference and
+             access_routes.credential_purpose is not distinct from excluded.credential_purpose and
              excluded.last_verified_at is not null and
              (access_routes.last_verified_at is null or
               excluded.last_verified_at > access_routes.last_verified_at)
@@ -199,14 +202,16 @@ export class PostgresPrivateNetworkStore implements PrivateNetworkStore {
                  route_kind, provider_kind, capabilities, priority, enabled, policy_state,
                  allowed_gateway_ids, requires_interactive_approval, availability,
                  last_verified_at, verified_until, freshness_seconds, target_identity_revision,
-                 private_address, ssh_port, ssh_user, ssh_host_key_sha256, credential_reference`,
+                 private_address, ssh_port, ssh_user, ssh_host_key_sha256, credential_reference,
+                 credential_purpose`,
       [input.id.trim(), owner, environmentId, hostId, input.privateNetworkId ?? null,
         input.routeKind, input.providerKind ?? null, capabilities, input.priority,
         input.enabled, input.policyState, allowedGatewayIds,
         input.requiresInteractiveApproval, input.availability, input.lastVerifiedAt ?? null,
         input.verifiedUntil ?? null, input.freshnessSeconds, input.targetIdentityRevision,
         input.privateAddress ?? null, input.sshPort ?? null, input.sshUser ?? null,
-        input.hostKeySha256 ?? null, input.credentialReference ?? null]
+        input.hostKeySha256 ?? null, input.credentialReference ?? null,
+        input.credentialPurpose ?? null]
     );
     let row = result.rows[0];
     if (!row) {
@@ -215,7 +220,8 @@ export class PostgresPrivateNetworkStore implements PrivateNetworkStore {
                 route_kind, provider_kind, capabilities, priority, enabled, policy_state,
                 allowed_gateway_ids, requires_interactive_approval, availability,
                 last_verified_at, verified_until, freshness_seconds, target_identity_revision,
-                private_address, ssh_port, ssh_user, ssh_host_key_sha256, credential_reference
+                private_address, ssh_port, ssh_user, ssh_host_key_sha256, credential_reference,
+                credential_purpose
            from access_routes where id = $1 and owner_user_id = $2`,
         [input.id.trim(), owner]
       );
@@ -290,6 +296,11 @@ function validateRoute(input: SaveAccessRouteInput) {
     !input.hostKeySha256 || !isPinnedSshHostKey(input.hostKeySha256) ||
     !input.credentialReference || !isCredentialReference(input.credentialReference)
   )) throw new Error('A private-network SSH route requires complete pinned configuration.');
+  if (input.capabilities.includes('project_cli') && (
+    input.routeKind !== 'ssh_private_network' ||
+    input.credentialPurpose !== 'project_control_gateway_v1' ||
+    input.capabilities.includes('interactive_shell')
+  )) throw new Error('A Project CLI route requires an isolated control-gateway credential.');
 }
 
 function validateWindow(availability: string, lastVerifiedAt?: string, verifiedUntil?: string) {
@@ -334,7 +345,8 @@ function assertRouteReplay(row: AccessRouteRow, input: SaveAccessRouteInput) {
     current.targetIdentityRevision !== input.targetIdentityRevision ||
     current.sshPort !== input.sshPort || current.sshUser !== input.sshUser ||
     current.hostKeySha256 !== input.hostKeySha256 ||
-    current.credentialReference !== input.credentialReference) {
+    current.credentialReference !== input.credentialReference ||
+    current.credentialPurpose !== input.credentialPurpose) {
     throw new Error('The access-route identity or configuration conflicts with its existing record.');
   }
   assertEvidenceReplay({
@@ -396,6 +408,7 @@ function routeFromRow(row: AccessRouteRow): AccessRouteRecord {
     availability: row.availability,
     capabilities: row.capabilities,
     ...(row.credential_reference ? { credentialReference: row.credential_reference } : {}),
+    ...(row.credential_purpose ? { credentialPurpose: row.credential_purpose } : {}),
     enabled: row.enabled,
     freshnessSeconds: row.freshness_seconds,
     ...(row.ssh_host_key_sha256 ? { hostKeySha256: row.ssh_host_key_sha256 } : {}),

@@ -30,6 +30,7 @@ describe('private-network store', () => {
       allowedGatewayIds: ['gateway-one'],
       availability: 'available' as const,
       capabilities: ['project_cli' as const],
+      credentialPurpose: 'project_control_gateway_v1' as const,
       enabled: true,
       freshnessSeconds: 60,
       hostKeySha256: `SHA256:${'A'.repeat(43)}`,
@@ -97,6 +98,7 @@ describe('private-network store', () => {
         return { rows: [{
           allowed_gateway_ids: ['gateway-one'], availability: 'available',
           capabilities: ['project_cli'], credential_reference: 'op://Personal/SSH/private key',
+          credential_purpose: 'project_control_gateway_v1',
           enabled: true, environment_id: '30000000-0000-4000-8000-000000000001',
           freshness_seconds: 60, host_id: null,
           id: '20000000-0000-4000-8000-000000000001',
@@ -113,6 +115,7 @@ describe('private-network store', () => {
     await expect(new PostgresPrivateNetworkStore(client).saveRoute('owner-one', {
       allowedGatewayIds: ['gateway-one'], availability: 'available',
       capabilities: ['project_cli'], credentialReference: 'op://Personal/SSH/private key',
+      credentialPurpose: 'project_control_gateway_v1',
       enabled: true, freshnessSeconds: 60, hostKeySha256: `SHA256:${'A'.repeat(43)}`,
       id: '20000000-0000-4000-8000-000000000001',
       lastVerifiedAt: '2026-08-12T10:01:00.000Z', policyState: 'approved', priority: 100,

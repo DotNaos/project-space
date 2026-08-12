@@ -38,6 +38,8 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"codex",
 		"connect",
 		"connector",
+		"control",
+		"control-gateway",
 		"create",
 		"deploy",
 		"dev-build",

@@ -34,6 +34,9 @@ import type {
   createConfiguredMachinePowerHandler
 } from './machine-power/configured-runtime';
 import type { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-runner/http';
+import type {
+  createConfiguredSshControlGatewayHandler
+} from './ssh-control-gateway/configured-runtime';
 
 interface ProjectSpaceApiHandlerOptions {
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
@@ -48,6 +51,7 @@ interface ProjectSpaceApiHandlerOptions {
   computeInventoryCli?: ReturnType<typeof createConfiguredComputeInventoryCliHandler>;
   projectTopology?: ProjectTopologyInventoryHttpHandler;
   roadmapCli?: ReturnType<typeof createConfiguredRoadmapCliHandler>;
+  sshControlGateway?: ReturnType<typeof createConfiguredSshControlGatewayHandler>;
 }
 
 export function createProjectSpaceApiHandler(
@@ -101,6 +105,11 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.machinePower && await options.machinePower(request, response, url)) {
+        return true;
+      }
+
+      if (options.sshControlGateway &&
+          await options.sshControlGateway(request, response, url)) {
         return true;
       }
 

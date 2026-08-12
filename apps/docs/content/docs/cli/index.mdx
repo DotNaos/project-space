@@ -33,6 +33,7 @@ project
 | [`completion`](#project-completion) | - | Generate the autocompletion script for the specified shell |
 | [`connect`](#project-connect) | - | Connect this machine to Project Space |
 | [`connector`](#project-connector) | - | Set up Project Space machine connector links |
+| [`control`](#project-control) | - | Run typed control-gateway operations |
 | [`create`](#project-create) | `new` | Create and initialize a new project |
 | [`deploy`](#project-deploy) | - | Deploy this project to the VPS |
 | [`dev-build`](#project-dev-build) | - | Build short-lived development tools for an exact pull request head |
@@ -505,6 +506,45 @@ project connector status
 | `--config` | `string` | local | connector config file path |
 | `-h`, `--help` | `bool` | local | help for status |
 | `--json` | `bool` | local | print machine-readable output |
+
+<h3 id="project-control" className="scroll-m-28"><code>project control</code></h3>
+
+Run typed control-gateway operations
+
+```sh
+project control
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for control |
+
+<h3 id="project-control-handshake" className="scroll-m-28"><code>project control handshake</code></h3>
+
+Describe the installed control protocol
+
+```sh
+project control handshake
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for handshake |
+
+<h3 id="project-control-status" className="scroll-m-28"><code>project control status</code></h3>
+
+Verify one Environment through the typed SSH gateway
+
+```sh
+project control status <environment-instance>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for status |
+| `--json` | `bool` | local | print machine-readable JSON |
+| `--operation-id` | `string` | local | reuse one exact idempotent operation ID |
 
 <h3 id="project-create" className="scroll-m-28"><code>project create</code></h3>
 

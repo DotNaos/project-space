@@ -64,6 +64,7 @@ export interface AccessRouteRecord {
   availability: PrivateNetworkAvailability;
   capabilities: readonly AccessRouteCapability[];
   credentialReference?: string;
+  credentialPurpose?: 'project_control_gateway_v1';
   enabled: boolean;
   freshnessSeconds: number;
   hostKeySha256?: string;
@@ -122,6 +123,7 @@ export type AccessRouteEligibilityState =
 
 export interface AuthorizedAccessRouteSelection {
   credentialReference?: string;
+  credentialPurpose?: 'project_control_gateway_v1';
   hostKeySha256?: string;
   ownerUserId: string;
   privateAddress?: string;

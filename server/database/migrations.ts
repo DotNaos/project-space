@@ -91,6 +91,10 @@ import {
   privateNetworkAccessRoutesMigrationId,
   privateNetworkAccessRoutesMigrationSql
 } from './private-network-access-routes-migration';
+import {
+  sshControlGatewayMigrationId,
+  sshControlGatewayMigrationSql
+} from './ssh-control-gateway-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -763,6 +767,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: privateNetworkAccessRoutesMigrationId,
     sql: privateNetworkAccessRoutesMigrationSql
+  },
+  {
+    id: sshControlGatewayMigrationId,
+    sql: sshControlGatewayMigrationSql
   }
 ];
 
