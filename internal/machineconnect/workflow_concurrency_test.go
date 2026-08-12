@@ -102,10 +102,10 @@ func TestUninstallBlocksConcurrentConnectUntilRevocationAndPurgeFinish(t *testin
 		t.Fatalf("new connect store: %v", err)
 	}
 	uninstallWorkflow := newTestWorkflow(
-		t, backend, firstStore, &recordingPresenter{}, &recordingConnector{}, RealClock{},
+		t, backend, firstStore, &recordingPresenter{}, RealClock{},
 	)
 	connectWorkflow := newTestWorkflow(
-		t, backend, secondStore, &recordingPresenter{}, &recordingConnector{}, RealClock{},
+		t, backend, secondStore, &recordingPresenter{}, RealClock{},
 	)
 
 	uninstallDone := make(chan error, 1)
@@ -171,7 +171,6 @@ func TestConcurrentConnectCreatesOnlyOneMachineIdentity(t *testing.T) {
 			backend,
 			store,
 			&recordingPresenter{},
-			&recordingConnector{},
 			RealClock{},
 		)
 	}

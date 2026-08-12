@@ -91,7 +91,7 @@ func TestProjectDirectoryDoctorRejectsFileAtRequiredPath(t *testing.T) {
 
 func TestDoctorCommandReportsMissingDirectoriesAndStillChecksBackend(t *testing.T) {
 	home := t.TempDir()
-	dependencies, backend, _, _ := testCommandDependencies()
+	dependencies, backend, _ := testCommandDependencies()
 	command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 		fixedMachineConnectionDependencies(dependencies),
 		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
@@ -119,7 +119,7 @@ func TestDoctorCommandReportsMissingDirectoriesAndStillChecksBackend(t *testing.
 
 func TestDoctorCommandConfirmationFixesDirectories(t *testing.T) {
 	home := t.TempDir()
-	dependencies, backend, _, _ := testCommandDependencies()
+	dependencies, backend, _ := testCommandDependencies()
 	command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 		fixedMachineConnectionDependencies(dependencies),
 		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
@@ -165,7 +165,7 @@ func TestDoctorCommandConfirmationDefaultsToNo(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()
-			dependencies, backend, _, _ := testCommandDependencies()
+			dependencies, backend, _ := testCommandDependencies()
 			command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 				fixedMachineConnectionDependencies(dependencies),
 				newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
@@ -205,7 +205,7 @@ func TestDoctorCommandDoesNotPromptForNonInteractiveStdin(t *testing.T) {
 	}
 	defer input.Close()
 
-	dependencies, backend, _, _ := testCommandDependencies()
+	dependencies, backend, _ := testCommandDependencies()
 	command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 		fixedMachineConnectionDependencies(dependencies),
 		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
@@ -231,7 +231,7 @@ func TestDoctorCommandDoesNotPromptForNonInteractiveStdin(t *testing.T) {
 
 func TestDoctorCommandFixIncludesDirectoryEvidenceInJSON(t *testing.T) {
 	home := t.TempDir()
-	dependencies, _, _, _ := testCommandDependencies()
+	dependencies, _, _ := testCommandDependencies()
 	command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 		fixedMachineConnectionDependencies(dependencies),
 		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),
@@ -262,7 +262,7 @@ func TestDoctorCommandFixIncludesDirectoryEvidenceInJSON(t *testing.T) {
 
 func TestDoctorCommandJSONReportsMissingDirectoriesBeforeFailing(t *testing.T) {
 	home := t.TempDir()
-	dependencies, _, _, _ := testCommandDependencies()
+	dependencies, _, _ := testCommandDependencies()
 	command := newMachineDoctorCommandWithDependencyFactoryAndDirectoryDoctor(
 		fixedMachineConnectionDependencies(dependencies),
 		newProjectDirectoryDoctor(func() (string, error) { return home, nil }),

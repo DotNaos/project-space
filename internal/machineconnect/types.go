@@ -107,15 +107,6 @@ type ApprovalPresenter interface {
 	Present(context.Context, string) error
 }
 
-type Connector interface {
-	Start(context.Context) error
-	Stop(context.Context) error
-}
-
-type ConnectorPreflighter interface {
-	Preflight(context.Context) error
-}
-
 type Clock interface {
 	Now() time.Time
 	Sleep(context.Context, time.Duration) error

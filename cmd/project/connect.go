@@ -17,17 +17,16 @@ import (
 )
 
 type machineConnectionCommandDependencies struct {
-	Backend   machineconnect.Backend
-	Store     machineconnect.CredentialStore
-	Connector machineconnect.Connector
-	Clock     machineconnect.Clock
-	Hostname  func() (string, error)
-	Headless  func() bool
-	GOOS      string
-	GOARCH    string
-	Version   string
-	OpenURL   func(context.Context, string) error
-	Workflow  machineconnect.WorkflowOptions
+	Backend  machineconnect.Backend
+	Store    machineconnect.CredentialStore
+	Clock    machineconnect.Clock
+	Hostname func() (string, error)
+	Headless func() bool
+	GOOS     string
+	GOARCH   string
+	Version  string
+	OpenURL  func(context.Context, string) error
+	Workflow machineconnect.WorkflowOptions
 }
 
 type machineConnectionCommandDependencyFactory func() (machineConnectionCommandDependencies, error)
@@ -108,27 +107,19 @@ func newConnectCommandWithDependencyFactory(
 			if err != nil {
 				return err
 			}
-			status := "online"
-			if dependencies.Workflow.EnrollmentOnly {
-				status = "registered"
-			}
 			if options.JSON {
 				if err := writeMachineConnectionJSON(command.OutOrStdout(), map[string]any{
 					"alreadyConnected": result.AlreadyConnected,
 					"machineId":        result.MachineID,
 					"machineName":      result.MachineName,
-					"status":           status,
+					"status":           "registered",
 				}); err != nil {
 					return err
 				}
-			} else if dependencies.Workflow.EnrollmentOnly && result.AlreadyConnected {
-				fmt.Fprintf(command.OutOrStdout(), "Machine %s is already registered for Project Space control.\n", result.MachineName)
-			} else if dependencies.Workflow.EnrollmentOnly {
-				fmt.Fprintf(command.OutOrStdout(), "Machine %s is registered for Project Space control.\n", result.MachineName)
 			} else if result.AlreadyConnected {
-				fmt.Fprintf(command.OutOrStdout(), "Machine %s is already connected and online.\n", result.MachineName)
+				fmt.Fprintf(command.OutOrStdout(), "Machine %s is already registered for Project Space control.\n", result.MachineName)
 			} else {
-				fmt.Fprintf(command.OutOrStdout(), "Machine %s is connected and online.\n", result.MachineName)
+				fmt.Fprintf(command.OutOrStdout(), "Machine %s is registered for Project Space control.\n", result.MachineName)
 			}
 			return nil
 		},
@@ -166,7 +157,6 @@ func machineConnectionWorkflow(
 		dependencies.Backend,
 		dependencies.Store,
 		presenter,
-		dependencies.Connector,
 		dependencies.Clock,
 		dependencies.Workflow,
 	)
@@ -199,7 +189,6 @@ func defaultMachineConnectionDependencies() (machineConnectionCommandDependencie
 		GOARCH:   runtime.GOARCH,
 		Version:  projectMachineClientVersion,
 		OpenURL:  openMachineApprovalURL,
-		Workflow: machineconnect.WorkflowOptions{EnrollmentOnly: true},
 	}, nil
 }
 
