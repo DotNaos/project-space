@@ -8,7 +8,16 @@ pub fn collect(config: &Config, sequence: u64) -> Result<Observation, String> {
     std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     system.refresh_all();
     let disks = Disks::new_with_refreshed_list();
-    let (total_storage, available_storage) = largest_local_storage(&disks)
+    collect_from_snapshot(config, sequence, &system, &disks)
+}
+
+fn collect_from_snapshot(
+    config: &Config,
+    sequence: u64,
+    system: &System,
+    disks: &Disks,
+) -> Result<Observation, String> {
+    let (total_storage, available_storage) = largest_local_storage(disks)
         .ok_or_else(|| "required storage metrics are unavailable".to_string())?;
     if system.cpus().is_empty() || system.total_memory() == 0 || total_storage == 0 {
         return Err("required host metrics are unavailable".into());
@@ -152,7 +161,12 @@ mod tests {
     #[test]
     fn direct_measurement_is_bounded_and_nonempty() {
         let config = test_config(vec![]);
-        let observation = collect(&config, 1).expect("collect metrics");
+        let mut direct_system = System::new_all();
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        direct_system.refresh_all();
+        let direct_disks = Disks::new_with_refreshed_list();
+        let observation = collect_from_snapshot(&config, 1, &direct_system, &direct_disks)
+            .expect("collect metrics");
         assert!(observation.resources.cpu.cores >= 1.0);
         assert!((0.0..=100.0).contains(&observation.resources.cpu.used_percent));
         assert!(
@@ -164,12 +178,10 @@ mod tests {
                 <= observation.resources.storage.total_bytes
         );
         assert!(observation.runtimes.is_empty());
-        let direct_system = System::new_all();
         assert_eq!(
             observation.resources.memory.total_bytes,
             direct_system.total_memory()
         );
-        let direct_disks = Disks::new_with_refreshed_list();
         let direct_storage = direct_disks
             .list()
             .iter()
@@ -178,27 +190,23 @@ mod tests {
             .max()
             .expect("largest local filesystem");
         assert_eq!(observation.resources.storage.total_bytes, direct_storage);
-        let mut adjacent_system = System::new_all();
-        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-        adjacent_system.refresh_all();
         assert!(
-            (observation.resources.cpu.used_percent - adjacent_system.global_cpu_usage() as f64)
+            (observation.resources.cpu.used_percent - direct_system.global_cpu_usage() as f64)
                 .abs()
-                <= 5.0
+                <= 0.001
         );
         assert!(
             relative_difference(
                 observation.resources.memory.available_bytes,
-                adjacent_system.available_memory()
-            ) <= 0.10
+                direct_system.available_memory()
+            ) <= f64::EPSILON
         );
-        let adjacent_disks = Disks::new_with_refreshed_list();
-        let (_, adjacent_available) = largest_local_storage(&adjacent_disks).unwrap();
+        let (_, adjacent_available) = largest_local_storage(&direct_disks).unwrap();
         assert!(
             relative_difference(
                 observation.resources.storage.available_bytes,
                 adjacent_available
-            ) <= 0.10
+            ) <= f64::EPSILON
         );
     }
 
