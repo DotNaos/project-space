@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { computeInventoryFromConnectors } from '../server/compute-inventory';
 import { createConfiguredComputeInventoryCliHandler } from '../server/compute-inventory-cli/configured-runtime';
 import {
+  computeInventoryV3MediaType,
   computeInventoryV2MediaType,
   createComputeInventoryCliHttpApi,
   type ComputeInventoryCliHttpService
@@ -266,6 +267,49 @@ describe('agent-safe compute inventory', () => {
       .toEqual({ state: 'available' });
   });
 
+  test('projects fresh v3 hostd health and resources without device or runtime authority', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const environment = snapshot.environments.find(({ kind }) => kind === 'native_macos') ??
+      snapshot.environments[0]!;
+    const inventory = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors,
+      hostdSnapshots: [{
+        connectionState: 'online', credentialId: 'private-credential-id',
+        deviceId: '10000000-0000-4000-8000-000000000001', environmentId: environment.id,
+        health: 'degraded', hostdVersion: '0.1.0', lastSeenAt: '2026-08-11T10:00:59.000Z',
+        observedAt: '2026-08-11T10:00:58.000Z', partialMetrics: ['gpu', 'memory'], protocolVersion: 1,
+        resources: {
+          architecture: 'arm64', cpu: { cores: 10, usedPercent: 12.5 },
+          memory: { availableBytes: 16_000, totalBytes: 32_000 },
+          operatingSystem: 'macOS 27.0', storage: { availableBytes: 500_000, totalBytes: 1_000_000 }
+        },
+        runtimes: [{ boundaryKind: 'process_group', cpuPercent: 5,
+          generation: 'private-generation-id', memoryBytes: 2048, workspaceId: 'private-workspace-id' }],
+        schemaVersion: 1, sequence: 1, uptimeSeconds: 100
+      }],
+      schemaVersion: 3,
+      snapshot
+    });
+    expect(inventory.schemaVersion).toBe(3);
+    const projected = inventory.environmentInstances.find(({ id }) => id === environment.id)!;
+    expect(projected.hostd).toEqual({
+      health: 'degraded', hostdVersion: '0.1.0', lastSeenAt: '2026-08-11T10:00:59.000Z',
+      observedAt: '2026-08-11T10:00:58.000Z', partialMetrics: ['gpu', 'memory'],
+      protocolVersion: 1, state: 'available'
+    });
+    expect(projected.resources).toMatchObject({
+      cpuCores: 10, cpuUsedPercent: 12.5, source: 'hostd', storageAvailableBytes: 500_000
+    });
+    expect(projected.resources).not.toHaveProperty('gpu');
+    expect(projected.resources).not.toHaveProperty('memoryAvailableBytes');
+    const serialized = JSON.stringify(inventory);
+    for (const forbidden of [
+      'private-credential-id', 'private-generation-id', 'private-workspace-id',
+      '10000000-0000-4000-8000-000000000001'
+    ]) expect(serialized).not.toContain(forbidden);
+  });
+
   test('promotes a child-created parent with the actual parent Host and stays order-independent', () => {
     const parent = connector('parent-connector', 'Parent', metadata({
       environmentIdentity: { key: 'parent-environment', version: 1 },
@@ -358,7 +402,14 @@ describe('compute inventory CLI HTTP boundary', () => {
     expect(v2.status).toBe(200);
     expect((await v2.json()).schemaVersion).toBe(2);
     expect(versions).toEqual([1, 2]);
-    expect(calls).toBe(2);
+
+    const v3 = await fetch(`${origin}/api/compute/inventory`, {
+      headers: { Accept: computeInventoryV3MediaType }
+    });
+    expect(v3.status).toBe(200);
+    expect((await v3.json()).schemaVersion).toBe(3);
+    expect(versions).toEqual([1, 2, 3]);
+    expect(calls).toBe(3);
 
     const unsupported = await fetch(`${origin}/api/compute/inventory`, {
       headers: { Accept: 'application/vnd.project-space.compute-inventory+json; version=99' }
@@ -373,7 +424,7 @@ describe('compute inventory CLI HTTP boundary', () => {
       expect(rejected.status).toBe(400);
       expect(await rejected.json()).toMatchObject({ error: { code: 'invalid_request' } });
     }
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
   });
 
   test('binds machine credentials to their owner and rejects a different credential', async () => {

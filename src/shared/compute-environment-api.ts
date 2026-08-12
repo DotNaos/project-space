@@ -118,7 +118,7 @@ export type HostEvidence =
   | 'user'
   | 'none';
 
-export type ResourceSource = 'connector' | 'provider' | 'configured';
+export type ResourceSource = 'connector' | 'provider' | 'configured' | 'hostd';
 export type EnvironmentResourceMode = 'dedicated' | 'shared' | 'exclusive';
 
 /**
@@ -267,7 +267,7 @@ export function isResourceProfile(value: unknown): value is ResourceProfile {
   }
   return typeof value.architecture === 'string' && value.architecture.length <= 64 &&
     typeof value.operatingSystem === 'string' && value.operatingSystem.length <= 128 &&
-    ['connector', 'provider', 'configured'].includes(String(value.source)) &&
+    ['connector', 'provider', 'configured', 'hostd'].includes(String(value.source)) &&
     typeof value.reportedAt === 'string' && Number.isFinite(Date.parse(value.reportedAt));
 }
 

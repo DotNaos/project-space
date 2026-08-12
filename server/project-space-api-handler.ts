@@ -37,6 +37,7 @@ import type { createGitHubCodespaceRunnerHttpHandler } from './github-codespace-
 import type {
   createConfiguredSshControlGatewayHandler
 } from './ssh-control-gateway/configured-runtime';
+import type { createConfiguredProjectHostdRuntime } from './project-hostd/configured-runtime';
 
 interface ProjectSpaceApiHandlerOptions {
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
@@ -50,6 +51,7 @@ interface ProjectSpaceApiHandlerOptions {
   projectCatalogCli?: ReturnType<typeof createConfiguredProjectCatalogCliHandler>;
   computeInventoryCli?: ReturnType<typeof createConfiguredComputeInventoryCliHandler>;
   projectTopology?: ProjectTopologyInventoryHttpHandler;
+  projectHostd?: ReturnType<typeof createConfiguredProjectHostdRuntime>['handleRequest'];
   roadmapCli?: ReturnType<typeof createConfiguredRoadmapCliHandler>;
   sshControlGateway?: ReturnType<typeof createConfiguredSshControlGatewayHandler>;
 }
@@ -110,6 +112,10 @@ export function createProjectSpaceApiHandler(
 
       if (options.sshControlGateway &&
           await options.sshControlGateway(request, response, url)) {
+        return true;
+      }
+
+      if (options.projectHostd && await options.projectHostd(request, response, url)) {
         return true;
       }
 

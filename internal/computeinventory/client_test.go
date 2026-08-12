@@ -17,10 +17,10 @@ func TestClientLoadsAuthenticatedInventoryAndSortsIt(t *testing.T) {
 		}
 		if request.Header.Get("Authorization") != "Bearer machine-token" ||
 			request.Header.Get("X-Project-Machine-ID") != "machine-one" ||
-			request.Header.Get("Accept") != inventoryV2MediaType {
+			request.Header.Get("Accept") != inventoryV3MediaType {
 			t.Fatalf("headers = %#v", request.Header)
 		}
-		_ = json.NewEncoder(response).Encode(testInventory())
+		_ = json.NewEncoder(response).Encode(testInventoryV3())
 	}))
 	defer server.Close()
 
@@ -36,7 +36,16 @@ func TestClientLoadsAuthenticatedInventoryAndSortsIt(t *testing.T) {
 }
 
 func TestClientAcceptsSafeVersionTwoRoutes(t *testing.T) {
+	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		requests++
+		if requests == 1 {
+			response.WriteHeader(http.StatusNotAcceptable)
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"error": map[string]string{"code": "unsupported_inventory_version", "message": "Unsupported."},
+			})
+			return
+		}
 		_ = json.NewEncoder(response).Encode(testInventoryV2())
 	}))
 	defer server.Close()
@@ -52,8 +61,50 @@ func TestClientAcceptsSafeVersionTwoRoutes(t *testing.T) {
 			}
 		}
 	}
-	if inventory.SchemaVersion != 2 || len(inventory.PrivateNetworks) != 1 || readyRoutes != 1 {
+	if requests != 2 || inventory.SchemaVersion != 2 || len(inventory.PrivateNetworks) != 1 || readyRoutes != 1 {
 		t.Fatalf("inventory = %#v", inventory)
+	}
+}
+
+func TestClientAcceptsVersionThreeHostdTelemetry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Accept") != inventoryV3MediaType {
+			t.Fatalf("accept = %q", request.Header.Get("Accept"))
+		}
+		_ = json.NewEncoder(response).Encode(testInventoryV3())
+	}))
+	defer server.Close()
+	inventory, err := testClient(t, server.URL).List(context.Background())
+	if err != nil {
+		t.Fatalf("list v3: %v", err)
+	}
+	var observed *EnvironmentInstance
+	for index := range inventory.EnvironmentInstances {
+		if inventory.EnvironmentInstances[index].Hostd.State == "available" {
+			observed = &inventory.EnvironmentInstances[index]
+		}
+	}
+	if inventory.SchemaVersion != 3 || observed == nil || observed.Hostd.HostdVersion != "0.1.0" ||
+		observed.Resources == nil || observed.Resources.Source != "hostd" {
+		t.Fatalf("inventory = %#v", inventory)
+	}
+}
+
+func TestClientAcceptsVersionThreePartialHostdTelemetry(t *testing.T) {
+	inventory := testInventoryV3()
+	instance := &inventory.EnvironmentInstances[0]
+	instance.Hostd.Health = "degraded"
+	instance.Hostd.PartialMetrics = []string{"cpu", "memory", "storage", "gpu"}
+	instance.Resources.CPUUsedPercent = nil
+	instance.Resources.MemoryAvailableBytes = nil
+	instance.Resources.StorageAvailableBytes = nil
+	instance.Resources.GPU = nil
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(response).Encode(inventory)
+	}))
+	defer server.Close()
+	if _, err := testClient(t, server.URL).List(context.Background()); err != nil {
+		t.Fatalf("list partial v3: %v", err)
 	}
 }
 
@@ -84,7 +135,7 @@ func TestClientRejectsMalformedUnknownOversizedAndWrongVersionResponses(t *testi
 		func(response http.ResponseWriter, _ *http.Request) { _, _ = response.Write([]byte("{")) },
 		func(response http.ResponseWriter, _ *http.Request) {
 			inventory := testInventory()
-			inventory.SchemaVersion = 3
+			inventory.SchemaVersion = 4
 			_ = json.NewEncoder(response).Encode(inventory)
 		},
 		func(response http.ResponseWriter, _ *http.Request) {
@@ -237,3 +288,24 @@ func testInventoryV2() Inventory {
 	}}
 	return inventory
 }
+
+func testInventoryV3() Inventory {
+	inventory := testInventoryV2()
+	inventory.SchemaVersion = 3
+	used := 12.5
+	protocol := 1
+	inventory.EnvironmentInstances[0].Hostd = HostdAvailability{
+		Health: "healthy", HostdVersion: "0.1.0", LastSeenAt: "2026-08-11T10:00:00Z",
+		ObservedAt: "2026-08-11T10:00:00Z", PartialMetrics: []string{},
+		ProtocolVersion: &protocol, State: "available",
+	}
+	inventory.EnvironmentInstances[0].Resources = &ResourceSummary{
+		Architecture: "arm64", CPUCores: 10, CPUUsedPercent: &used,
+		MemoryAvailableBytes: numberPointer(16 << 30), MemoryTotalBytes: 32 << 30,
+		OperatingSystem: "macOS", ReportedAt: "2026-08-11T10:00:00Z", Source: "hostd",
+		StorageAvailableBytes: numberPointer(500 << 30), StorageTotalBytes: 1 << 40,
+	}
+	return inventory
+}
+
+func numberPointer(value float64) *float64 { return &value }

@@ -41,6 +41,10 @@ export class WorkspaceRuntimeSessionService {
     return this.store.issue(input);
   }
 
+  list(ownerUserId: string) {
+    return this.store.list(ownerUserId);
+  }
+
   async revoke(ownerUserId: string, workspaceId: string, credentialId: string) {
     await this.store.revoke(ownerUserId, workspaceId, credentialId);
     const key = workspaceKey(ownerUserId, workspaceId);

@@ -40,6 +40,10 @@ import {
   workspaceRuntimeSessionMigrationSql
 } from '../server/database/workspace-runtime-session-migration';
 import {
+  projectHostdMigrationId,
+  projectHostdMigrationSql
+} from '../server/database/project-hostd-migration';
+import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from '../server/database/workspace-runtime-capability-promotion-migration';
@@ -184,6 +188,22 @@ describe('database migrations', () => {
       .toBe(sshControlGatewayMigrationId);
   });
 
+  test('binds hostd credentials and telemetry to one immutable owner target', () => {
+    expect(projectHostdMigrationId).toBe('0046_project_hostd_telemetry');
+    expect(projectHostdMigrationSql).toContain('create table project_hostd_devices');
+    expect(projectHostdMigrationSql).toContain('create table project_hostd_credentials');
+    expect(projectHostdMigrationSql).toContain('create table project_hostd_observations');
+    expect(projectHostdMigrationSql).toContain('foreign key (environment_id, owner_user_id)');
+    expect(projectHostdMigrationSql).toContain('foreign key (host_id, owner_user_id)');
+    expect(projectHostdMigrationSql).toContain(
+      'foreign key (owner_user_id, device_id, current_credential_id)'
+    );
+    expect(projectHostdMigrationSql).toContain('unique (owner_user_id, operation_id)');
+    expect(projectHostdMigrationSql).toContain('unique (owner_user_id, device_id, sequence)');
+    expect(projectHostdMigrationSql).not.toContain(' token text');
+    expect(databaseMigrations.at(-1)?.id).toBe(projectHostdMigrationId);
+  });
+
   test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
     expect(databaseMigrations.find((migration) => migration.id === workspaceRuntimeSessionMigrationId)?.id)
       .toBe(workspaceRuntimeSessionMigrationId);
@@ -210,7 +230,9 @@ describe('database migrations', () => {
     expect(workspaceRuntimeCapabilityPromotionMigrationSql).toContain(
       "requested_capabilities <@ array['runtime.codex.v1']::text[]"
     );
-    expect(databaseMigrations.at(-1)?.id).toBe(workspaceRuntimeCapabilityPromotionMigrationId);
+    expect(databaseMigrations.find(({ id }) => (
+      id === workspaceRuntimeCapabilityPromotionMigrationId
+    ))?.id).toBe(workspaceRuntimeCapabilityPromotionMigrationId);
     expect(workspaceRuntimeSessionMigrationSql).toContain(
       'unique (owner_user_id, workspace_id, generation, sequence)'
     );
@@ -291,7 +313,8 @@ describe('database migrations', () => {
       '0042_workspace_runtime_control',
       '0043_workspace_runtime_sessions',
       '0044_codex_machine_task_message_delivery',
-      '0045_workspace_runtime_capability_promotions'
+      '0045_workspace_runtime_capability_promotions',
+      '0046_project_hostd_telemetry'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

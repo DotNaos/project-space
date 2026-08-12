@@ -6,6 +6,7 @@ import type {
 } from '../../src/shared/compute-inventory-cli-api';
 import {
   projectCliInventoryLegacySchemaVersion,
+  projectCliInventoryHostdSchemaVersion,
   projectCliInventorySchemaVersion
 } from '../../src/shared/compute-inventory-cli-api';
 import { CodexMachineTasksAuthError } from '../codex-machine-tasks/auth-context';
@@ -14,6 +15,8 @@ import { writeJson } from '../project-space-http-response';
 const inventoryRoute = '/api/compute/inventory';
 export const computeInventoryV2MediaType =
   'application/vnd.project-space.compute-inventory+json; version=2';
+export const computeInventoryV3MediaType =
+  'application/vnd.project-space.compute-inventory+json; version=3';
 
 export interface ComputeInventoryCliActor {
   callerMachineId?: string;
@@ -87,6 +90,9 @@ function requestedSchemaVersion(accept: string | undefined): ProjectCliInventory
   })) return projectCliInventoryLegacySchemaVersion;
   if (accept.split(',').some((value) => value.trim().toLowerCase() === computeInventoryV2MediaType)) {
     return projectCliInventorySchemaVersion;
+  }
+  if (accept.split(',').some((value) => value.trim().toLowerCase() === computeInventoryV3MediaType)) {
+    return projectCliInventoryHostdSchemaVersion;
   }
   return null;
 }

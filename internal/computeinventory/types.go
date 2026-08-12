@@ -29,6 +29,8 @@ type ResourceSummary struct {
 	Architecture          string   `json:"architecture"`
 	CPUCores              float64  `json:"cpuCores"`
 	CPULimit              *float64 `json:"cpuLimit,omitempty"`
+	CPUUsedPercent        *float64 `json:"cpuUsedPercent,omitempty"`
+	GPU                   []GPU    `json:"gpu,omitempty"`
 	MemoryAvailableBytes  *float64 `json:"memoryAvailableBytes,omitempty"`
 	MemoryLimitBytes      *float64 `json:"memoryLimitBytes,omitempty"`
 	MemoryTotalBytes      float64  `json:"memoryTotalBytes"`
@@ -37,6 +39,12 @@ type ResourceSummary struct {
 	Source                string   `json:"source"`
 	StorageAvailableBytes *float64 `json:"storageAvailableBytes,omitempty"`
 	StorageTotalBytes     float64  `json:"storageTotalBytes"`
+}
+
+type GPU struct {
+	MemoryBytes *float64 `json:"memoryBytes,omitempty"`
+	Model       string   `json:"model"`
+	UsedPercent *float64 `json:"usedPercent,omitempty"`
 }
 
 type EnvironmentDefinition struct {
@@ -152,7 +160,31 @@ type EnvironmentInstance struct {
 }
 
 type HostdAvailability struct {
-	State string `json:"state"`
+	Health          string   `json:"health,omitempty"`
+	HostdVersion    string   `json:"hostdVersion,omitempty"`
+	LastSeenAt      string   `json:"lastSeenAt,omitempty"`
+	ObservedAt      string   `json:"observedAt,omitempty"`
+	PartialMetrics  []string `json:"partialMetrics,omitempty"`
+	ProtocolVersion *int     `json:"protocolVersion,omitempty"`
+	State           string   `json:"state"`
+}
+
+func (hostd HostdAvailability) MarshalJSON() ([]byte, error) {
+	if hostd.State == "available" || hostd.State == "stale" {
+		return json.Marshal(struct {
+			Health          string   `json:"health"`
+			HostdVersion    string   `json:"hostdVersion"`
+			LastSeenAt      string   `json:"lastSeenAt"`
+			ObservedAt      string   `json:"observedAt"`
+			PartialMetrics  []string `json:"partialMetrics"`
+			ProtocolVersion *int     `json:"protocolVersion"`
+			State           string   `json:"state"`
+		}{hostd.Health, hostd.HostdVersion, hostd.LastSeenAt, hostd.ObservedAt,
+			hostd.PartialMetrics, hostd.ProtocolVersion, hostd.State})
+	}
+	return json.Marshal(struct {
+		State string `json:"state"`
+	}{hostd.State})
 }
 
 type InventoryAvailability struct {
@@ -188,7 +220,7 @@ func (inventory Inventory) MarshalJSON() ([]byte, error) {
 	}
 	if inventory.SchemaVersion == 1 {
 		delete(fields, "privateNetworks")
-	} else if inventory.SchemaVersion == 2 {
+	} else if inventory.SchemaVersion == 2 || inventory.SchemaVersion == 3 {
 		if _, exists := fields["privateNetworks"]; !exists {
 			fields["privateNetworks"] = json.RawMessage(`[]`)
 		}

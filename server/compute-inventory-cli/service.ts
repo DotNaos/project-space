@@ -11,6 +11,7 @@ import type {
 } from '../../src/shared/compute-inventory-cli-api';
 import {
   projectCliInventoryLegacySchemaVersion,
+  projectCliInventoryHostdSchemaVersion,
   projectCliInventorySchemaVersion,
   type ProjectCliInventorySchemaVersion
 } from '../../src/shared/compute-inventory-cli-api';
@@ -22,10 +23,12 @@ import type {
 } from '../private-network/contracts';
 import { targetIdentityRevision } from '../private-network/contracts';
 import { routeEvidenceState } from '../private-network/route-resolver';
+import type { ProjectHostdSnapshot } from '../../src/shared/project-hostd-api';
 
 interface BuildProjectCliInventoryInput {
   checkedAt: string;
   connectors: readonly MachineRecord[];
+  hostdSnapshots?: readonly ProjectHostdSnapshot[];
   privateNetworkInventory?: PrivateNetworkInventory;
   schemaVersion?: ProjectCliInventorySchemaVersion;
   snapshot: ComputeInventorySnapshot;
@@ -35,6 +38,8 @@ export function buildProjectCliComputeInventory(
   input: BuildProjectCliInventoryInput
 ): ProjectCliComputeInventory {
   const schemaVersion = input.schemaVersion ?? projectCliInventoryLegacySchemaVersion;
+  const hasControlledInventory = schemaVersion !== projectCliInventoryLegacySchemaVersion;
+  const hasHostdInventory = schemaVersion === projectCliInventoryHostdSchemaVersion;
   const privateNetworkInventory = input.privateNetworkInventory ?? { networks: [], routes: [] };
   const networksById = new Map(privateNetworkInventory.networks.map((network) => [network.id, network]));
   const connectorsById = new Map(input.connectors.map((connector) => [connector.id, connector]));
@@ -58,7 +63,7 @@ export function buildProjectCliComputeInventory(
   })).sort(byNameThenId);
 
   const hosts = input.snapshot.hosts.map((host) => {
-    const controlledRoutes = schemaVersion === projectCliInventorySchemaVersion
+    const controlledRoutes = hasControlledInventory
       ? projectControlledRoutes(
           controlledRoutesByHost.get(host.id) ?? [],
           networksById,
@@ -67,11 +72,11 @@ export function buildProjectCliComputeInventory(
         )
       : [];
     return {
-      ...(schemaVersion === projectCliInventorySchemaVersion
+      ...(hasControlledInventory
         ? { accessRoutes: controlledRoutes }
         : {}),
       alias: selectorAlias(host.name),
-      capabilities: schemaVersion === projectCliInventorySchemaVersion
+      capabilities: hasControlledInventory
         ? hostCapabilities(controlledRoutes)
         : { console: [], power: [], state: 'unknown' as const },
       id: host.id,
@@ -82,7 +87,7 @@ export function buildProjectCliComputeInventory(
   }).sort(byNameThenId);
 
   const environmentInstances = input.snapshot.environments.map((environment) => {
-    const controlledRoutes = schemaVersion === projectCliInventorySchemaVersion
+    const controlledRoutes = hasControlledInventory
       ? projectControlledRoutes(
           controlledRoutesByEnvironment.get(environment.id) ?? [],
           networksById,
@@ -101,15 +106,16 @@ export function buildProjectCliComputeInventory(
       hostId || 'provider',
       environment.id
     ].join('/');
+    const hostd = hasHostdInventory
+      ? uniqueHostdSnapshot(input.hostdSnapshots ?? [], environment.id)
+      : undefined;
     return {
       accessRoutes: routes,
       alias,
       environmentDefinitionId: environment.environmentDefinitionId,
       ...(hostId ? { hostId } : {}),
       hostResolution: environment.hostAssociation.resolution,
-      hostd: { state: capabilityState(controlledRoutes.filter((route) =>
-        route.type === 'hostd' && route.capabilities.includes('hostd_telemetry')
-      )) },
+      hostd: hostdProjection(hostd, hasHostdInventory, controlledRoutes),
       id: environment.id,
       kind: environment.kind,
       name: environment.name,
@@ -120,7 +126,9 @@ export function buildProjectCliComputeInventory(
       providerLifecycleState: 'unknown',
       reference,
       resourceMode: environment.resourceMode,
-      ...(environment.resources ? { resources: resourceSummary(environment.resources) } : {}),
+      ...(hostd
+        ? { resources: hostdResourceSummary(hostd) }
+        : environment.resources ? { resources: resourceSummary(environment.resources) } : {}),
       workspaceInventory: { state: 'unavailable' as const },
       workspaces: []
     } satisfies ProjectCliEnvironmentInstance;
@@ -156,7 +164,58 @@ export function buildProjectCliComputeInventory(
       providerKind: network.providerKind,
       state: network.enabled ? network.availability : 'unavailable' as const
     })).sort(byNameThenId),
-    schemaVersion: projectCliInventorySchemaVersion
+    schemaVersion
+  };
+}
+
+function uniqueHostdSnapshot(
+  snapshots: readonly ProjectHostdSnapshot[],
+  environmentId: string
+) {
+  const matches = snapshots.filter((snapshot) => snapshot.environmentId === environmentId);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function hostdProjection(
+  snapshot: ProjectHostdSnapshot | undefined,
+  enabled: boolean,
+  routes: readonly ProjectCliAccessRoute[]
+) {
+  if (!enabled) return { state: capabilityState(routes.filter((route) =>
+    route.type === 'hostd' && route.capabilities.includes('hostd_telemetry')
+  )) };
+  if (!snapshot) return { state: 'unknown' as const };
+  return {
+    health: snapshot.health,
+    hostdVersion: snapshot.hostdVersion,
+    lastSeenAt: snapshot.lastSeenAt,
+    observedAt: snapshot.observedAt,
+    partialMetrics: [...snapshot.partialMetrics],
+    protocolVersion: snapshot.protocolVersion,
+    state: snapshot.connectionState === 'online' ? 'available' as const : 'stale' as const
+  };
+}
+
+function hostdResourceSummary(snapshot: ProjectHostdSnapshot): ProjectCliInventoryResourceSummary {
+  const partial = new Set(snapshot.partialMetrics);
+  return {
+    architecture: snapshot.resources.architecture,
+    cpuCores: snapshot.resources.cpu.cores,
+    ...(!partial.has('cpu') ? { cpuUsedPercent: snapshot.resources.cpu.usedPercent } : {}),
+    ...(!partial.has('gpu') && snapshot.resources.gpu
+      ? { gpu: snapshot.resources.gpu.map((gpu) => ({ ...gpu })) }
+      : {}),
+    ...(!partial.has('memory')
+      ? { memoryAvailableBytes: snapshot.resources.memory.availableBytes }
+      : {}),
+    memoryTotalBytes: snapshot.resources.memory.totalBytes,
+    operatingSystem: snapshot.resources.operatingSystem,
+    reportedAt: snapshot.observedAt,
+    source: 'hostd',
+    ...(!partial.has('storage')
+      ? { storageAvailableBytes: snapshot.resources.storage.availableBytes }
+      : {}),
+    storageTotalBytes: snapshot.resources.storage.totalBytes
   };
 }
 

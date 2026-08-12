@@ -35,6 +35,7 @@ describe('canonical local CI preflight', () => {
     ['Go', ['cmd/project/main.go'], false],
     ['web', ['src/main.tsx'], false],
     ['mobile', ['apps/mobile/App.tsx'], false],
+    ['Rust hostd', ['project-hostd/src/main.rs'], true],
   ])('classifies representative %s fixture conservatively', (_name, changedPaths, full) => {
     expect(
       releaseVerificationPolicy({ ...fixture, changedPaths }).fullMatrix,
@@ -49,6 +50,7 @@ describe('canonical local CI preflight', () => {
     ['Go', ['cmd/project/main.go'], ['cli-docs-contract', 'go-race'], ['actionlint']],
     ['web', ['src/main.tsx'], ['web-build'], ['cli-docs-contract', 'go-race']],
     ['mobile', ['apps/mobile/App.tsx'], ['mobile-build'], ['cli-docs-contract', 'go-race']],
+    ['Rust hostd', ['project-hostd/src/main.rs'], ['rust-tests', 'rust-clippy'], []],
   ])('selects the required local lanes for representative %s changes', (_name, changedPaths, present, absent) => {
     const policy = releaseVerificationPolicy({ ...fixture, changedPaths });
     const ids = preflightPlan({
@@ -67,6 +69,7 @@ describe('canonical local CI preflight', () => {
       docs: false,
       go: false,
       mobile: false,
+      rust: false,
       workflow: false,
     });
     expect(fastCiSelection([], false)).toEqual({
@@ -74,6 +77,7 @@ describe('canonical local CI preflight', () => {
       docs: true,
       go: true,
       mobile: true,
+      rust: true,
       workflow: true,
     });
   });
@@ -100,6 +104,9 @@ describe('canonical local CI preflight', () => {
       'mobile-build',
       'go-race',
       'go-vet',
+      'rust-format',
+      'rust-clippy',
+      'rust-tests',
       'actionlint',
       'shell-syntax',
       'macos-packaging',

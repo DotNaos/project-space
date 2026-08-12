@@ -80,7 +80,7 @@ jobs:
           set -euo pipefail
           policy=$(bun scripts/release-verification-policy.ts \
             --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA")
-          for lane in cliDocs docs go mobile workflow; do
+          for lane in cliDocs docs go mobile rust workflow; do
             value=$(jq -er --arg lane "$lane" '.fastCi[$lane] | tostring' <<<"$policy")
             echo "${lane}=${value}" >> "$GITHUB_OUTPUT"
           done
@@ -138,6 +138,18 @@ jobs:
         run: |
           go test -race ./...
           go vet ./...
+
+      - name: Install pinned Rust toolchain for hostd
+        if: steps.select.outputs.rust == 'true'
+        run: rustup toolchain install 1.90.0 --profile minimal --component clippy,rustfmt
+
+      - name: Test and lint project-hostd
+        if: steps.select.outputs.rust == 'true'
+        working-directory: project-hostd
+        run: |
+          cargo +1.90.0 fmt -- --check
+          cargo +1.90.0 clippy --locked -- -D warnings
+          cargo +1.90.0 test --locked
 
       - name: Lint workflows and shell scripts
         if: steps.select.outputs.workflow == 'true'

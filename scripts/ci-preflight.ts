@@ -113,6 +113,13 @@ export function preflightPlan(input: {
       { id: 'go-vet', command: ['go', 'vet', './...'] },
     );
   }
+  if (selection.rust) {
+    lanes.push(
+      { id: 'rust-format', command: ['cargo', 'fmt', '--manifest-path', 'project-hostd/Cargo.toml', '--', '--check'] },
+      { id: 'rust-clippy', command: ['cargo', 'clippy', '--manifest-path', 'project-hostd/Cargo.toml', '--', '-D', 'warnings'] },
+      { id: 'rust-tests', command: ['cargo', 'test', '--manifest-path', 'project-hostd/Cargo.toml', '--locked'] },
+    );
+  }
   if (selection.workflow) {
     lanes.push({
       id: 'actionlint',

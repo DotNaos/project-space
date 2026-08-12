@@ -78,6 +78,11 @@ import { WorkspaceRuntimeSessionService } from './workspace-runtime-session/serv
 import { createWorkspaceRuntimeSessionUpgradeHandler } from './workspace-runtime-session/upgrade-handler';
 import { PostgresRuntimeSessionStore } from './workspace-runtime-session/postgres-store';
 import { getMachineConnectionDatabaseClient, isDatabaseConfigured } from './local-database-store';
+import { MemoryProjectHostdStore } from './project-hostd/memory-store';
+import { PostgresProjectHostdStore } from './project-hostd/postgres-store';
+import {
+  createConfiguredProjectHostdRuntime
+} from './project-hostd/configured-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -91,6 +96,11 @@ export interface ProjectSpaceHttpOptions {
   previewDocsProxy?: PreviewDocsProxyDependencies;
   staticRoot?: string;
   workspaceRuntimeSessions?: WorkspaceRuntimeSessionService;
+  projectHostd?: ReturnType<typeof createConfiguredProjectHostdRuntime>['handleRequest'];
+  projectHostdInventory?: Pick<
+    ReturnType<typeof createConfiguredProjectHostdRuntime>['service'],
+    'list'
+  >;
 }
 
 function resolveProjectChatRuntime(
@@ -249,7 +259,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   });
   const computeInventoryCli = createConfiguredComputeInventoryCliHandler({
     backend: rawBackend,
-    machineConnection: options.machineConnectionRuntime
+    machineConnection: options.machineConnectionRuntime,
+    projectHostd: options.projectHostdInventory
   });
   const sshControlGateway = createConfiguredSshControlGatewayHandler({
     machineConnection: options.machineConnectionRuntime,
@@ -271,6 +282,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       machineConnection: options.machineConnectionRuntime,
       projectChat: runtime,
       projectCatalogCli,
+      projectHostd: options.projectHostd,
       projectTopology,
       roadmapCli,
       sshControlGateway
@@ -342,6 +354,15 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     new WorkspaceRuntimeSessionService(isDatabaseConfigured()
       ? new PostgresRuntimeSessionStore(await getMachineConnectionDatabaseClient())
       : new MemoryRuntimeSessionStore());
+  const projectHostdStore = isDatabaseConfigured()
+    ? new PostgresProjectHostdStore(await getMachineConnectionDatabaseClient())
+    : new MemoryProjectHostdStore();
+  const projectHostd = createConfiguredProjectHostdRuntime({
+    backend,
+    machineConnection: options.machineConnectionRuntime,
+    runtimeSessions: workspaceRuntimeSessionService,
+    store: projectHostdStore
+  });
   const server = createServer(
     createProjectSpaceRequestHandler({
       ...options,
@@ -349,7 +370,9 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       codexAttachLeases,
       logger,
       projectChatRuntime,
-      workspaceRuntimeSessions: workspaceRuntimeSessionService
+      workspaceRuntimeSessions: workspaceRuntimeSessionService,
+      projectHostd: projectHostd.handleRequest,
+      projectHostdInventory: projectHostd.service
     })
   );
   const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
@@ -378,6 +401,14 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const staleRuntimeSessions = setInterval(() => {
     void workspaceRuntimeSessionService.expireStale();
   }, 15_000);
+  const staleProjectHostd = setInterval(() => {
+    void Promise.all([
+      projectHostd.service.expireStale(),
+      projectHostd.service.pruneExpired()
+    ]).catch((error) => {
+      logger.error('project-hostd.maintenance.failed', {}, error);
+    });
+  }, 30_000);
 
   server.on('upgrade', (request, socket, head) => {
     try {
@@ -414,6 +445,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     await machineConnectionRuntime?.stop();
     codexAttach.close();
     clearInterval(staleRuntimeSessions);
+    clearInterval(staleProjectHostd);
     await workspaceRuntimeSessions.close();
     await connectorCommands.close();
     throw error;
@@ -430,6 +462,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       await machineConnectionRuntime?.stop();
       codexAttach.close();
       clearInterval(staleRuntimeSessions);
+      clearInterval(staleProjectHostd);
       await workspaceRuntimeSessions.close();
       await connectorCommands.close();
       await new Promise<void>((resolveClose, rejectClose) => {

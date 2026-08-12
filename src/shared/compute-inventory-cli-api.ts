@@ -11,14 +11,22 @@ import type {
 
 export const projectCliInventoryLegacySchemaVersion = 1;
 export const projectCliInventorySchemaVersion = 2;
+export const projectCliInventoryHostdSchemaVersion = 3;
 export type ProjectCliInventorySchemaVersion =
   | typeof projectCliInventoryLegacySchemaVersion
-  | typeof projectCliInventorySchemaVersion;
+  | typeof projectCliInventorySchemaVersion
+  | typeof projectCliInventoryHostdSchemaVersion;
 
 export interface ProjectCliInventoryResourceSummary {
   architecture: string;
   cpuCores: number;
   cpuLimit?: number;
+  cpuUsedPercent?: number;
+  gpu?: Array<{
+    memoryBytes?: number;
+    model: string;
+    usedPercent?: number;
+  }>;
   memoryAvailableBytes?: number;
   memoryLimitBytes?: number;
   memoryTotalBytes: number;
@@ -108,7 +116,13 @@ export interface ProjectCliEnvironmentInstance {
   hostId?: string;
   hostResolution: HostResolution;
   hostd: {
-    state: 'available' | 'unavailable' | 'unknown';
+    health?: 'healthy' | 'degraded';
+    hostdVersion?: string;
+    lastSeenAt?: string;
+    observedAt?: string;
+    partialMetrics?: Array<'cpu' | 'memory' | 'storage' | 'gpu' | 'runtime'>;
+    protocolVersion?: number;
+    state: 'available' | 'stale' | 'unavailable' | 'unknown';
   };
   id: string;
   kind: ComputeEnvironmentKind;
@@ -149,6 +163,12 @@ export interface ProjectCliComputeInventoryV2 extends ProjectCliComputeInventory
   schemaVersion: typeof projectCliInventorySchemaVersion;
 }
 
+export interface ProjectCliComputeInventoryV3 extends ProjectCliComputeInventoryBase {
+  privateNetworks: ProjectCliPrivateNetwork[];
+  schemaVersion: typeof projectCliInventoryHostdSchemaVersion;
+}
+
 export type ProjectCliComputeInventory =
   | ProjectCliComputeInventoryV1
-  | ProjectCliComputeInventoryV2;
+  | ProjectCliComputeInventoryV2
+  | ProjectCliComputeInventoryV3;

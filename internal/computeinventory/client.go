@@ -14,6 +14,7 @@ import (
 
 const maximumResponseBytes int64 = 4 << 20
 const inventoryV2MediaType = "application/vnd.project-space.compute-inventory+json; version=2"
+const inventoryV3MediaType = "application/vnd.project-space.compute-inventory+json; version=3"
 
 var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
@@ -63,33 +64,49 @@ func NewClient(config Config) (*Client, error) {
 }
 
 func (client *Client) List(ctx context.Context) (Inventory, error) {
-	endpoint := *client.baseURL
-	endpoint.Path = strings.TrimRight(client.baseURL.Path, "/") + "/api/compute/inventory"
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
-	if err != nil {
-		return Inventory{}, ErrInvalidConfig
-	}
 	token, err := client.credentials.AccessToken(ctx)
 	if err != nil || len(token) > 4096 || !tokenPattern.MatchString(token) {
 		return Inventory{}, ErrUnauthorized
 	}
-	request.Header.Set("Accept", inventoryV2MediaType)
+	inventory, status, err := client.listVersion(ctx, token, inventoryV3MediaType)
+	if status == http.StatusNotAcceptable {
+		return client.listVersionResult(ctx, token, inventoryV2MediaType)
+	}
+	return inventory, err
+}
+
+func (client *Client) listVersionResult(ctx context.Context, token, mediaType string) (Inventory, error) {
+	inventory, _, err := client.listVersion(ctx, token, mediaType)
+	return inventory, err
+}
+
+func (client *Client) listVersion(
+	ctx context.Context, token, mediaType string,
+) (Inventory, int, error) {
+	endpoint := *client.baseURL
+	endpoint.Path = strings.TrimRight(client.baseURL.Path, "/") + "/api/compute/inventory"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return Inventory{}, 0, ErrInvalidConfig
+	}
+	request.Header.Set("Accept", mediaType)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("X-Project-Machine-ID", client.callerMachineID)
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return Inventory{}, ErrUnavailable
+		return Inventory{}, 0, ErrUnavailable
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return Inventory{}, decodeFailure(response)
+		status := response.StatusCode
+		return Inventory{}, status, decodeFailure(response)
 	}
 	var inventory Inventory
 	if err := decodeBoundedJSON(response.Body, &inventory); err != nil || validateInventory(&inventory) != nil {
-		return Inventory{}, ErrInvalidResponse
+		return Inventory{}, response.StatusCode, ErrInvalidResponse
 	}
 	sortInventory(&inventory)
-	return inventory, nil
+	return inventory, response.StatusCode, nil
 }
 
 func decodeFailure(response *http.Response) error {
@@ -127,14 +144,14 @@ func decodeBoundedJSON(reader io.Reader, destination any) error {
 }
 
 func validateInventory(inventory *Inventory) error {
-	if !oneOfInt(inventory.SchemaVersion, 1, 2) || inventory.EnvironmentCatalog == nil ||
+	if !oneOfInt(inventory.SchemaVersion, 1, 2, 3) || inventory.EnvironmentCatalog == nil ||
 		inventory.EnvironmentInstances == nil || inventory.Hosts == nil ||
 		inventory.Platforms == nil || inventory.Violations == nil ||
 		!oneOf(inventory.InventoryState, "ready", "conflict") {
 		return ErrInvalidResponse
 	}
 	if (inventory.SchemaVersion == 1 && inventory.PrivateNetworks != nil) ||
-		(inventory.SchemaVersion == 2 && inventory.PrivateNetworks == nil) {
+		(inventory.SchemaVersion >= 2 && inventory.PrivateNetworks == nil) {
 		return ErrInvalidResponse
 	}
 	if _, err := time.Parse(time.RFC3339Nano, inventory.CheckedAt); err != nil {
@@ -184,7 +201,7 @@ func validateInventory(inventory *Inventory) error {
 			return ErrInvalidResponse
 		}
 		hosts[host.ID] = struct{}{}
-		if host.Resources != nil && !validResource(*host.Resources) {
+		if host.Resources != nil && !validResource(*host.Resources, inventory.SchemaVersion) {
 			return ErrInvalidResponse
 		}
 		if (inventory.SchemaVersion == 1 && host.AccessRoutes != nil) ||
@@ -198,7 +215,7 @@ func validateInventory(inventory *Inventory) error {
 		if !validIdentity(instance.ID) || !validIdentity(instance.Alias) || !validText(instance.Name) ||
 			!validReference(instance.Reference) || instance.AccessRoutes == nil || instance.Workspaces == nil ||
 			!oneOf(instance.WorkspaceInventory.State, "available", "unavailable") ||
-			!oneOf(instance.Hostd.State, "available", "unavailable", "unknown") ||
+			!validHostd(instance.Hostd, inventory.SchemaVersion) ||
 			instance.ProviderLifecycleState != "unknown" ||
 			!oneOf(instance.Kind, environmentKinds()...) ||
 			!oneOf(instance.HostResolution, "verified", "manual", "unresolved", "conflict", "not_applicable") ||
@@ -224,7 +241,7 @@ func validateInventory(inventory *Inventory) error {
 		}
 		instances[instance.ID] = struct{}{}
 		references[instance.Reference] = struct{}{}
-		if instance.Resources != nil && !validResource(*instance.Resources) {
+		if instance.Resources != nil && !validResource(*instance.Resources, inventory.SchemaVersion) {
 			return ErrInvalidResponse
 		}
 		if !validAccessRoutes(instance.AccessRoutes, inventory.SchemaVersion) {
@@ -264,7 +281,7 @@ func validAccessRoutes(routes []AccessRoute, schemaVersion int) bool {
 			}
 			continue
 		}
-		if schemaVersion != 2 || route.Available != nil || !validIdentity(route.ID) || route.ConnectorStatus != "" ||
+		if schemaVersion < 2 || route.Available != nil || !validIdentity(route.ID) || route.ConnectorStatus != "" ||
 			route.LastSeen != "" || route.Priority < 0 || route.Priority > 1000 ||
 			!oneOf(route.Type, "ssh_private_network", "provider_native", "host_console", "hostd") ||
 			!oneOf(route.State, "ready", "unavailable", "unverified", "stale", "policy_blocked") ||
@@ -301,14 +318,49 @@ func validOptionalTime(value string) bool {
 	return err == nil
 }
 
-func validResource(resource ResourceSummary) bool {
+func validResource(resource ResourceSummary, schemaVersion int) bool {
 	if resource.Architecture == "" || resource.OperatingSystem == "" ||
 		resource.CPUCores < 0 || resource.MemoryTotalBytes < 0 || resource.StorageTotalBytes < 0 ||
-		!oneOf(resource.Source, "connector", "provider", "configured") {
+		!oneOf(resource.Source, "connector", "provider", "configured", "hostd") ||
+		(resource.Source == "hostd" && schemaVersion != 3) ||
+		(resource.Source != "hostd" && (resource.CPUUsedPercent != nil || resource.GPU != nil)) ||
+		(resource.CPUUsedPercent != nil && (*resource.CPUUsedPercent < 0 || *resource.CPUUsedPercent > 100)) {
 		return false
+	}
+	for _, gpu := range resource.GPU {
+		if !validText(gpu.Model) || gpu.MemoryBytes != nil && *gpu.MemoryBytes < 0 ||
+			gpu.UsedPercent != nil && (*gpu.UsedPercent < 0 || *gpu.UsedPercent > 100) {
+			return false
+		}
 	}
 	_, err := time.Parse(time.RFC3339Nano, resource.ReportedAt)
 	return err == nil
+}
+
+func validHostd(hostd HostdAvailability, schemaVersion int) bool {
+	hasDetails := hostd.Health != "" || hostd.HostdVersion != "" || hostd.LastSeenAt != "" ||
+		hostd.ObservedAt != "" || hostd.PartialMetrics != nil || hostd.ProtocolVersion != nil
+	if schemaVersion < 3 {
+		return !hasDetails && oneOf(hostd.State, "available", "unavailable", "unknown")
+	}
+	if hostd.State == "unknown" || hostd.State == "unavailable" {
+		return !hasDetails
+	}
+	if !oneOf(hostd.State, "available", "stale") || !oneOf(hostd.Health, "healthy", "degraded") ||
+		hostd.HostdVersion == "" || hostd.ProtocolVersion == nil || *hostd.ProtocolVersion != 1 ||
+		hostd.PartialMetrics == nil ||
+		!validOptionalTime(hostd.LastSeenAt) || hostd.LastSeenAt == "" ||
+		!validOptionalTime(hostd.ObservedAt) || hostd.ObservedAt == "" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, metric := range hostd.PartialMetrics {
+		if seen[metric] || !oneOf(metric, "cpu", "memory", "storage", "gpu", "runtime") {
+			return false
+		}
+		seen[metric] = true
+	}
+	return true
 }
 
 func validIdentity(value string) bool { return identifierPattern.MatchString(value) }

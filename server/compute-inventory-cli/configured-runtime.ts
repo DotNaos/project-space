@@ -10,10 +10,12 @@ import { getPrivateNetworkStore } from '../local-database-store';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { createComputeInventoryCliHttpApi } from './http';
 import { buildProjectCliComputeInventory } from './service';
+import type { ProjectHostdService } from '../project-hostd/service';
 
 export function createConfiguredComputeInventoryCliHandler(options: {
   backend: Pick<ProjectSpaceBackend, 'getConnectorOverview'>;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
+  projectHostd?: Pick<ProjectHostdService, 'list'>;
 }) {
   const resolveActor = createCodexMachineTasksAuthResolver({
     authenticateMachine: async ({ machineId, token }) => (
@@ -38,6 +40,9 @@ export function createConfiguredComputeInventoryCliHandler(options: {
           : { networks: [], routes: [] };
         return buildProjectCliComputeInventory({
           ...loaded,
+          hostdSnapshots: schemaVersion === 3 && options.projectHostd
+            ? await options.projectHostd.list(actor.userId)
+            : [],
           privateNetworkInventory,
           schemaVersion
         });

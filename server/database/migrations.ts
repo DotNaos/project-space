@@ -108,6 +108,10 @@ import {
   workspaceRuntimeSessionMigrationSql
 } from './workspace-runtime-session-migration';
 import {
+  projectHostdMigrationId,
+  projectHostdMigrationSql
+} from './project-hostd-migration';
+import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from './workspace-runtime-capability-promotion-migration';
@@ -803,6 +807,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: workspaceRuntimeCapabilityPromotionMigrationId,
     sql: workspaceRuntimeCapabilityPromotionMigrationSql
+  },
+  {
+    id: projectHostdMigrationId,
+    sql: projectHostdMigrationSql
   }
 ];
 
