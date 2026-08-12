@@ -7,7 +7,6 @@ import {
   requestConnectorDevServerStop,
   requestConnectorWorktreeAction
 } from './connector-command-hub';
-import { createConnectorInstaller, requestPublicOrigin } from './connector-installation';
 import { createDevServerService } from './dev-server-service';
 import { createWorktreeActionService } from './worktree-action-service';
 import {
@@ -62,7 +61,6 @@ import {
   discoverProjectWorktrees,
   reconcileProjectWorktreeDiscovery
 } from './project-worktree-discovery';
-import { createConnectorRuntimeHttpHandler } from './connector-runtime-http';
 import {
   isMachineExecutionScopeId,
   parseMachineExecutionScopeSaveRequest
@@ -75,19 +73,13 @@ import { createLocalPhysicalMachineStore } from './local-physical-machine-store'
 import { createPullRequestTestSurfacesTrustedRoute } from './pr-test-surfaces/trusted-http';
 import { createPullRequestPrototypeIterationRoute } from './pr-prototype-iteration-http';
 import { createPreviewHubService } from './preview-hub-service';
-import { recordSuccessfulConnectorCompatibilityUse } from './connector-retirement/configured-runtime';
-import { createConnectorOwnerCompatibilityRoutes } from './connector-retirement/owner-compatibility-routes';
 
 export function createProjectSpaceCoreApiRoutes(
   backend: ProjectSpaceBackend,
   options: {
     loadPullRequestPreviewStatus?: typeof getPullRequestPreviewStatus;
-    recordCompatibilityUse?: typeof recordSuccessfulConnectorCompatibilityUse;
   } = {}
 ) {
-  const recordCompatibilityUse = options.recordCompatibilityUse ??
-    recordSuccessfulConnectorCompatibilityUse;
-  const handleConnectorRuntime = createConnectorRuntimeHttpHandler(backend);
   const handlePullRequestTestSurfaces = createPullRequestTestSurfacesTrustedRoute(backend);
   const handlePullRequestPrototypeIteration = createPullRequestPrototypeIterationRoute(backend);
   const previewHub = createPreviewHubService(backend);
@@ -96,11 +88,6 @@ export function createProjectSpaceCoreApiRoutes(
   const loadPhysicalMachines = (userId: string) => isDatabaseConfigured()
     ? listPhysicalMachines(userId)
     : Promise.resolve(canUseLocalPhysicalMachines() ? localPhysicalMachines.list(userId) : []);
-  const handleConnectorOwnerCompatibility = createConnectorOwnerCompatibilityRoutes({
-    backend,
-    loadPhysicalMachines,
-    recordCompatibilityUse
-  });
   const currentUserId = () => {
     const session = getCurrentAuthSession();
     if (session?.userId) return session.userId;
@@ -140,8 +127,6 @@ export function createProjectSpaceCoreApiRoutes(
     url: URL,
     userId: string
   ) {
-    if (await handleConnectorOwnerCompatibility(request, response, url, userId)) return true;
-    if (await handleConnectorRuntime(request, response, url)) return true;
     if (await handlePullRequestTestSurfaces(request, response, url, userId)) return true;
     if (await handlePullRequestPrototypeIteration(request, response, url, userId)) return true;
 
@@ -237,28 +222,6 @@ export function createProjectSpaceCoreApiRoutes(
       const loadStatus = options.loadPullRequestPreviewStatus ?? getPullRequestPreviewStatus;
       const result = await loadStatus(repositoryFullName, pullRequestNumber);
       writeJson(response, 200, correlatePullRequestPreviews(result, details));
-      return true;
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/connectors/install-command') {
-      response.setHeader('Cache-Control', 'no-store');
-      const userId = currentUserId();
-      const installer = await createConnectorInstaller(requestPublicOrigin(request));
-      writeJson(
-        response,
-        200,
-        installer
-      );
-      await Promise.allSettled([
-        recordCompatibilityUse(
-          userId,
-          'connector.enrollment.http.v1'
-        ),
-        recordCompatibilityUse(
-          userId,
-          'connector.installer-update.http.v1'
-        )
-      ]);
       return true;
     }
 

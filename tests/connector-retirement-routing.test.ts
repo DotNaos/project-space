@@ -17,7 +17,6 @@ import {
   successfulCodexCompatibilityResult
 } from '../server/codex-sessions/connector-hub';
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
-import { createProjectSpaceCoreApiRoutes } from '../server/project-space-api-core-routes';
 import {
   handleWorkspaceCommandHubMessage,
   requestConnectorWorkspaceCommand
@@ -147,40 +146,6 @@ describe('Connector compatibility routing classification', () => {
     registerConnectorSession(machineId, socket, 'token-two', []);
     expect(connectorSessionOwnerUserId(machineId)).toBeUndefined();
     removeConnectorSession(machineId);
-  });
-
-  test('records successful owner-facing compatibility reads at their actual routes', async () => {
-    const recorded: unknown[] = [];
-    const backend = {
-      async getConnectorProjectRegistry() {
-        return { checkedAt: '', connector: {}, discovery: {} };
-      }
-    } as never;
-    const route = createProjectSpaceCoreApiRoutes(backend, {
-      recordCompatibilityUse: async (...input) => {
-        recorded.push(input);
-        return true;
-      }
-    });
-    for (const path of ['/api/connectors/credentials', '/api/connectors/project-registry']) {
-      let body = '';
-      const response = {
-        end(value = '') { body = value; },
-        setHeader() {},
-        writeHead() {}
-      } as never;
-      expect(await route(
-        { method: 'GET' } as never,
-        response,
-        new URL(`https://projects.example${path}`),
-        'owner-one'
-      )).toBe(true);
-      expect(body).not.toBe('');
-    }
-    expect(recorded).toEqual([
-      ['owner-one', 'connector.credentials.http.v1'],
-      ['owner-one', 'connector.project-registry.owner-http.v1']
-    ]);
   });
 
   test('records one exact successful workspace command and no duplicate', async () => {

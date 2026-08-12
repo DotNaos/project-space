@@ -88,7 +88,10 @@ describe('legacy Connector retirement boundary', () => {
     ['POST', '/api/connectors/project-registry'],
     ['POST', '/api/connectors/install-command'],
     ['DELETE', '/api/connectors/credentials/credential-id'],
-    ['POST', '/api/pull-request-previews/dev-server/register']
+    ['POST', '/api/pull-request-previews/dev-server/register'],
+    ['GET', '/api/machines/machine-one/runtime'],
+    ['POST', '/api/machines/machine-one/runtime/operations'],
+    ['POST', '/api/machines/machine-one/runtime/stop']
   ])('retires %s %s before legacy handling', (method, pathname) => {
     const capture = retiredHttpResponse();
     const handled = handleRetiredConnectorHttp(
