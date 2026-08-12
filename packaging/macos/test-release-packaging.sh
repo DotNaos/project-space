@@ -93,6 +93,8 @@ install_root="$home/.local/bin"
 service_log="$temporary_root/service.log"
 launchctl_log="$temporary_root/launchctl.log"
 mkdir -p "$home/.config/project-space" "$home/Library/Application Support/Project Space" "$temporary_root/fake-bin"
+: > "$service_log"
+: > "$launchctl_log"
 printf 'identity-stays\n' > "$home/.config/project-space/machine-credential.json"
 printf 'config-stays\n' > "$home/.config/project-space/connector.json"
 cat > "$temporary_root/fake-bin/launchctl" <<'EOF'
