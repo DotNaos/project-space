@@ -1,0 +1,9 @@
+{
+  "exhaustedRunId": 31630713745,
+  "reason": "cross-platform-packaging-check-source-incompatible",
+  "schema": "project-space.unpublished-release-tombstone/v1",
+  "sourceCommit": "5c0e68ad076558debc3a4ca2a125931cbe850db1",
+  "tag": "v0.21.5",
+  "verificationRunId": 31632319716,
+  "workflowSha256": "b00a6eff42211d8497e6121e642fe0db15c2493d3cdbbb1c10efe55c22c6b052"
+}
