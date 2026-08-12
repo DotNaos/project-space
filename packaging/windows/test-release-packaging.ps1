@@ -98,7 +98,7 @@ try {
     'if Uppercase(Item) <> Uppercase(Entry) then',
     'if HasOutputSegment then',
     'NewPath := PathWithoutEntry(CurrentPath, Entry)',
-    "Source: \"{#SourceDirectory}\project-codex-host.exe\""
+    'Source: "{#SourceDirectory}\project-codex-host.exe"'
   )) {
     if (-not $installerScript.Contains($requiredFragment)) {
       throw "Installer PATH removal contract is missing: $requiredFragment"

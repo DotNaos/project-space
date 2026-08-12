@@ -150,7 +150,7 @@ fi
 
 install_root="$temporary_root/installed"
 service_log="$temporary_root/service.log"
-mkdir -p "$install_root"
+mkdir -m 0700 -p "$install_root"
 ln -s '.project-space-machine-tools/current/project-space-connector' \
   "$install_root/project-space-connector"
 PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
