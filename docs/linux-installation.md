@@ -67,34 +67,16 @@ After installation, sign in through the normal browser approval flow:
 project connect
 ```
 
-Native Linux checks that its systemd user manager is available before it asks
-for browser approval. A Linux container without that manager must give the
-connector lifecycle to its own supervisor explicitly:
+The command stores the approved per-user machine credential using the protected
+Linux/WSL credential store and reports the machine as registered. It does not
+install or start systemd, a Windows Scheduled Task, a WSL supervisor, or any
+other permanent Connector process.
+
+To revoke and remove that identity, run:
 
 ```sh
-project connect --connector-mode foreground
+project disconnect
 ```
-
-The foreground command reports `online` only after the authenticated connector
-acknowledges the connection, then remains running until it is cancelled. Restart
-the same command to reuse the approved machine identity. To revoke and remove
-that identity after stopping the foreground process, run:
-
-```sh
-project disconnect --connector-mode foreground
-```
-
-The Project CLI stores the approved per-user machine credential using its
-existing protected Linux/WSL credential store. It starts only the bundled
-sibling connector. Native Linux uses the existing private user systemd service;
-WSL uses the existing narrowly named Windows Scheduled Task to keep that WSL
-process alive. The service definition and process arguments do not contain the
-credential.
-
-Do not create a second connector supervisor around a managed connection. In
-foreground mode, the command itself is the connector process owned by the
-container supervisor. Disconnect and revoke the endpoint through the matching
-Project CLI mode so its service and local credential state are removed together.
 
 ## Tailscale in WSL
 

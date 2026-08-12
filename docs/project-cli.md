@@ -642,56 +642,6 @@ Production also requires a dedicated Ed25519 connector command-signing key.
 reuse the connector registration token for command signing. The web installer
 derives and installs only the matching public key on connector machines.
 
-## Connector Setup
-
-```sh
-project connector setup
-project connector install
-project connector status
-project connector connect prod https://projects.os-home.net
-```
-
-`project connector setup` writes the machine connector config to
-`~/.config/project-space/connector.json`. By default it configures both the
-remote production hub and the local development hub:
-
-For the hosted multi-user app, use the account-specific installer shown in
-Project Space settings instead of this shared-token setup path. That installer
-uses a server-assigned machine ID, a per-user credential file, and the hub's
-Ed25519 command public key. The commands below remain useful for local or
-manually managed development hubs.
-
-```json
-{
-  "hubs": [
-    {
-      "name": "prod",
-      "url": "https://projects.os-home.net",
-      "registrationTokenEnv": "PROJECT_CONNECTOR_REGISTRATION_TOKEN"
-    },
-    {
-      "name": "dev",
-      "url": "http://127.0.0.1:5177",
-      "registrationTokenEnv": "PROJECT_CONNECTOR_REGISTRATION_TOKEN"
-    }
-  ]
-}
-```
-
-The local-development token stays in the environment. Hosted production
-connectors instead read their bound credential from a private file.
-
-On macOS, `project connector install` performs the same setup and installs a
-LaunchAgent. It copies the connector into `~/.local/bin`, starts it immediately,
-and keeps it running after terminals close and across logins. The service reads
-the registration token from a private `0600` file outside the repository; the
-token is not embedded in the LaunchAgent or its process arguments.
-
-Approved releases also include a paired Project CLI and connector bundle for
-Linux x64 and WSL. Follow [Linux x64 installation](linux-installation.md) to
-verify and install that bundle, then use the authenticated `project connect`
-flow. The Linux bundle does not use this legacy shared-token installer.
-
 ## Project Chat
 
 Codex tasks use the installed Project Connect identity to leave low-priority
@@ -730,10 +680,8 @@ a fallback. Messages and profile metadata that look like credentials are
 rejected before storage.
 
 Run `project connect` to establish or refresh this authenticated machine
-identity. Native Linux requires a working systemd user manager by default. In a
-container without one, run `project connect --connector-mode foreground` under
-the container supervisor and use `project disconnect --connector-mode
-foreground` when revoking that identity.
+identity. The command registers the machine without installing or starting a
+permanent background service. Use `project disconnect` to revoke the identity.
 
 ## Sync Template Snapshot
 
