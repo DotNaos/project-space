@@ -1,12 +1,8 @@
 import { resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
-import { reconcileProjectServeSessions } from './local-project-cli-client';
 import { createConfiguredMachineConnectionRuntime } from './machine-connection-runtime';
-import { resolveProjectConnectorTargets } from './project-connector-config';
-import { readAndStartAuthenticatedProjectConnectorRuntime } from './project-connector-runtime';
 import { createProjectSpaceServer } from './project-space-http';
-import { startProjectConnectorWebSocket } from './project-connector-websocket';
 import { connectorRuntimeRecord } from './connector-build-info';
 import {
   initializeOpenTelemetry,
@@ -19,17 +15,15 @@ const version = connectorRuntimeRecord().version;
 const command = process.argv[2] ?? 'serve';
 
 if (command === '--help' || command === '-h' || command === 'help') {
-  console.log(`Project Space Connector ${version}
+  console.log(`Project Space ${version}
 
 Usage:
-  project-space-connector [serve]
-  project-space-connector --version
+  bun server/web-server.ts [serve]
+  bun server/web-server.ts --version
 
 Environment:
   PROJECT_SPACE_HOST  Host to bind. Defaults to 127.0.0.1.
   PROJECT_SPACE_PORT  Port to bind. Defaults to 4173.
-  PROJECT_CONNECTOR_CONFIG  Connector hub config path. Defaults to ~/.config/project-space/connector.json.
-  PROJECT_CONNECTOR_HUBS  Optional comma-separated or JSON hub list for one-off runs.
   CLERK_SECRET_KEY  Clerk secret key for Project Space login.
   PROJECT_SPACE_ALLOWED_EMAILS  Optional comma-separated Clerk email allowlist.
   PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET  Independent secret for public machine enrollment limits.
@@ -41,10 +35,7 @@ Environment:
   PROJECT_SPACE_LOG_LEVEL  Structured log level: debug, info, warn, error, or fatal.
   OTEL_EXPORTER_OTLP_ENDPOINT  Optional OTLP collector base URL for traces and metrics.
 
-Configure the machine with:
-  project connector setup
-
-After starting the connector, open:
+After starting Project Space, open:
   https://projects.os-home.net
 
 For remote browser access from your tailnet, expose it with:
@@ -60,69 +51,43 @@ if (command === '--version' || command === '-v' || command === 'version') {
 
 if (command !== 'serve') {
   console.error(`Unknown command: ${command}`);
-  console.error('Run project-space-connector --help for usage.');
+  console.error('Run bun server/web-server.ts --help for usage.');
   process.exit(1);
 }
 
 const logger = projectSpaceLogger.child({ component: 'server', version });
 await initializeOpenTelemetry(logger);
 installProcessErrorHandlers(logger);
-const authenticatedRuntime = await readAndStartAuthenticatedProjectConnectorRuntime();
+const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
+const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
+const staticRoot = resolve(process.cwd(), 'dist/renderer');
+const backend = createLocalProjectSpaceBackend();
+const machineConnectionRuntime = await createConfiguredMachineConnectionRuntime();
+const server = await createProjectSpaceServer({
+  backend,
+  host,
+  machineConnectionRuntime: machineConnectionRuntime ?? undefined,
+  logger,
+  port,
+  staticRoot
+});
+let stopping = false;
 
-if (authenticatedRuntime) {
-  const runtime = authenticatedRuntime;
-  let stopping = false;
-  async function stopAuthenticatedRuntime() {
-    if (stopping) return;
-    stopping = true;
-    try {
-      runtime.close();
-    } finally {
-      await shutdownOpenTelemetry(logger);
-      process.exit(0);
-    }
+async function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  let exitCode = 0;
+  try {
+    await server.close();
+  } catch (error) {
+    exitCode = 1;
+    logger.error('server.shutdown.failed', {}, error);
   }
-
-  process.once('SIGINT', () => void stopAuthenticatedRuntime());
-  process.once('SIGTERM', () => void stopAuthenticatedRuntime());
-  logger.info('server.started', { mode: 'authenticated-machine-connector' });
-} else {
-  const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
-  const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
-  const staticRoot = resolve(process.cwd(), 'dist/renderer');
-  if (resolveProjectConnectorTargets().length > 0) {
-    await reconcileProjectServeSessions();
-  }
-  const backend = createLocalProjectSpaceBackend();
-  const machineConnectionRuntime = await createConfiguredMachineConnectionRuntime();
-  const server = await createProjectSpaceServer({
-    backend,
-    host,
-    machineConnectionRuntime: machineConnectionRuntime ?? undefined,
-    logger,
-    port,
-    staticRoot
-  });
-  const bridge = startProjectConnectorWebSocket({ backend });
-  let stopping = false;
-
-  async function shutdown() {
-    if (stopping) return;
-    stopping = true;
-    bridge.close();
-    let exitCode = 0;
-    try {
-      await server.close();
-    } catch (error) {
-      exitCode = 1;
-      logger.error('server.shutdown.failed', {}, error);
-    }
-    await shutdownOpenTelemetry(logger);
-    process.exit(exitCode);
-  }
-
-  process.once('SIGINT', () => void shutdown());
-  process.once('SIGTERM', () => void shutdown());
-
-  logger.info('server.started', { mode: 'fullstack', origin: server.origin });
+  await shutdownOpenTelemetry(logger);
+  process.exit(exitCode);
 }
+
+process.once('SIGINT', () => void shutdown());
+process.once('SIGTERM', () => void shutdown());
+
+logger.info('server.started', { mode: 'fullstack', origin: server.origin });

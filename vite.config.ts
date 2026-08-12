@@ -8,19 +8,13 @@ import { defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
 
 import {
-  createLocalProjectSpaceBackend,
-  type LocalProjectSpaceBackend
+  createLocalProjectSpaceBackend
 } from './server/local-project-space-backend';
-import { reconcileProjectServeSessions } from './server/local-project-cli-client';
-import { resolveProjectConnectorTargets } from './server/project-connector-config';
 import { createAuthorizedProjectSpaceBackend } from './server/authorized-project-space-backend';
-import { createConnectorCommandUpgradeHandler } from './server/connector-command-hub';
-import { resolveConnectorMachineTokenIdentity } from './server/connector-registration-auth';
 import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
 } from './server/machine-terminal-websocket';
-import { startProjectConnectorWebSocket } from './server/project-connector-websocket';
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 import { writeJson } from './server/project-space-http-response';
 import { createPrototypeReviewLocalRuntime } from './server/prototype-review-local-runtime';
@@ -38,8 +32,6 @@ const configuredAllowedHosts = (process.env.PROJECT_ALLOWED_HOSTS ?? '')
   .split(',')
   .map((host) => host.trim())
   .filter(Boolean);
-const connectorBridgeEnabled = process.env.PROJECT_SPACE_ENABLE_CONNECTOR_BRIDGE === '1';
-
 function releaseChangelogSourceForBuild() {
   const catalog = readReleaseCatalog(resolve(
     __dirname,
@@ -85,14 +77,8 @@ function projectSpaceApiPlugin(binding: RuntimeBindingEvidence): Plugin {
         return;
       }
 
-      if (connectorBridgeEnabled && resolveProjectConnectorTargets().length > 0) {
-        void reconcileProjectServeSessions();
-      }
       const backend = createLocalProjectSpaceBackend();
       const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
-      const bridge = connectorBridgeEnabled
-        ? startProjectConnectorWebSocket({ backend })
-        : undefined;
       const localReviewRuntime = createPrototypeReviewLocalRuntime({
         backend,
         repositoryRoot: __dirname
@@ -116,35 +102,13 @@ function projectSpaceApiPlugin(binding: RuntimeBindingEvidence): Plugin {
       });
       const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
       const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
-      const connectorCommands = createConnectorCommandUpgradeHandler({
-        async authenticateConnectorCredential(token, machineId) {
-          const runtime = await machineConnectionRuntime;
-          const identity = runtime
-            ? typeof runtime.resolveMachineCredentialIdentity === 'function'
-              ? await runtime.resolveMachineCredentialIdentity(token, machineId)
-              : await runtime.authenticateConnectorCredential(token, machineId)
-                ? { machineId }
-                : null
-            : null;
-          return identity ?? resolveConnectorMachineTokenIdentity(token, machineId);
-        },
-        async decideConnectorRuntimeMaintenance({ machine }) {
-          const decideReconnect = (backend as Partial<LocalProjectSpaceBackend>).decideReconnect;
-          if (!decideReconnect) return undefined;
-          return decideReconnect(machine);
-        }
-      });
-
       server.httpServer?.once('close', () => {
-        bridge?.close();
-        void connectorCommands.close();
         void localReviewRuntime.then((runtime) => runtime.close());
         void machineConnectionRuntime.then((runtime) => runtime?.stop());
       });
 
       server.httpServer?.on('upgrade', (request, socket, head) => {
         if (
-          !connectorCommands.handleUpgrade(request, socket, head) &&
           !handleMachineTerminalUpgrade(request, socket, head) &&
           !handleProjectTerminalUpgrade(request, socket, head)
         ) {

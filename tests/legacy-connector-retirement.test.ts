@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PassThrough } from 'node:stream';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'bun:test';
 
@@ -10,6 +12,8 @@ import {
 } from '../server/legacy-connector-retirement';
 import { createLocalProjectSpaceBackend } from '../server/local-project-space-backend';
 import { createProjectSpaceServer } from '../server/project-space-http';
+
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 
 function retiredHttpResponse() {
   let statusCode = 0;
@@ -36,6 +40,23 @@ function retiredHttpResponse() {
 }
 
 describe('legacy Connector retirement boundary', () => {
+  test('removes Connector startup wiring from production and local development', () => {
+    const webServer = readFileSync(`${repositoryRoot}/server/web-server.ts`, 'utf8');
+    const vite = readFileSync(`${repositoryRoot}/vite.config.ts`, 'utf8');
+    const packageJson = JSON.parse(
+      readFileSync(`${repositoryRoot}/package.json`, 'utf8')
+    ) as { scripts: Record<string, string> };
+
+    expect(webServer).not.toContain('readAndStartAuthenticatedProjectConnectorRuntime');
+    expect(webServer).not.toContain('startProjectConnectorWebSocket');
+    expect(webServer).not.toContain('resolveProjectConnectorTargets');
+    expect(vite).not.toContain('createConnectorCommandUpgradeHandler');
+    expect(vite).not.toContain('startProjectConnectorWebSocket');
+    expect(vite).not.toContain('PROJECT_SPACE_ENABLE_CONNECTOR_BRIDGE');
+    expect(Object.keys(packageJson.scripts).filter((name) => name.startsWith('connector:')))
+      .toEqual([]);
+  });
+
   test('is enforced by the production HTTP router', async () => {
     const server = await createProjectSpaceServer({
       backend: createLocalProjectSpaceBackend(),
