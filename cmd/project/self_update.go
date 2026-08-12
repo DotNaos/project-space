@@ -158,7 +158,7 @@ func displaySelfUpdateValue(value string) string {
 }
 
 func confirmSelfUpdate(input io.Reader, output io.Writer) (bool, error) {
-	if _, err := fmt.Fprint(output, "Install this verified CLI and connector release now? y/N: "); err != nil {
+	if _, err := fmt.Fprint(output, "Install this verified Project CLI release now? y/N: "); err != nil {
 		return false, err
 	}
 	scanner := bufio.NewScanner(input)

@@ -168,7 +168,7 @@ start_connector() {
   if [[ $service_mode == legacy ]]; then
     launchctl bootstrap "$launch_domain" "$legacy_plist"
     launchctl kickstart -k "$legacy_service"
-  else
+  elif [[ $service_mode == managed ]]; then
     "${install_directory}/project" connector service start-if-connected
   fi
 }
@@ -323,3 +323,7 @@ committed=1
 rm -rf -- "$transaction_root"
 trap - EXIT
 printf 'Installed Project Space machine tools %s in %s\n' "$version" "$install_directory"
+if [[ $service_mode == none ]]; then
+  printf 'Next: run %s/project environment list --format json\n' "$install_directory"
+  printf 'Then launch a pinned Runtime with project environment bootstrap.\n'
+fi
