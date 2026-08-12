@@ -327,6 +327,15 @@ function safeResult(
       'targetIdentityRevision', 'type'
     ].sort().join('\0');
     if (Object.keys(record).sort().join('\0') !== expected || record.state !== 'ready') throw invalidResult();
+  } else if (identity.operation === 'worktree.prepare.v1') {
+    const expected = [
+      'branch', 'checkedAt', 'commit', 'operation', 'operationId', 'schemaVersion',
+      'state', 'targetIdentityRevision', 'type', 'workspaceId'
+    ].sort().join('\0');
+    if (Object.keys(record).sort().join('\0') !== expected || record.state !== 'ready' ||
+      typeof record.branch !== 'string' || !/^[^\u0000-\u001f\u007f]{1,255}$/.test(record.branch) ||
+      typeof record.commit !== 'string' || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(record.commit) ||
+      typeof record.workspaceId !== 'string' || !isUuid(record.workspaceId)) throw invalidResult();
   } else {
     const allowed = new Set([
       'checkedAt', 'disposition', 'generation', 'manifestDigest', 'mode', 'operation',

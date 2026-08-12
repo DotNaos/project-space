@@ -26,6 +26,7 @@ var (
 	controlEnvironmentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 	controlOperationIDPattern   = regexp.MustCompile(`^[A-Za-z0-9:._-]{1,256}$`)
 	controlRevisionPattern      = regexp.MustCompile(`^[A-Za-z0-9:._-]{8,256}$`)
+	repositoryPattern           = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$`)
 )
 
 type controlHandshakeResult struct {
@@ -52,11 +53,14 @@ type controlGatewayHandshakeRequest struct {
 }
 
 type controlGatewayOperationRequest struct {
+	Branch                              string   `json:"branch,omitempty"`
+	Commit                              string   `json:"commit,omitempty"`
 	EnvironmentID                       string   `json:"environmentId"`
 	ExpectedCLIVersion                  string   `json:"expectedCliVersion"`
 	ExpectedProtocolVersion             int      `json:"expectedProtocolVersion"`
 	Operation                           string   `json:"operation"`
 	OperationID                         string   `json:"operationId"`
+	Repository                          string   `json:"repository,omitempty"`
 	SchemaVersion                       int      `json:"schemaVersion"`
 	TargetIdentityRevision              string   `json:"targetIdentityRevision"`
 	Type                                string   `json:"type"`
@@ -74,6 +78,7 @@ type controlGatewayOperationRequest struct {
 	RuntimeSessionCapabilities          []string `json:"runtimeSessionCapabilities,omitempty"`
 	RuntimeSessionRequestedCapabilities []string `json:"runtimeSessionRequestedCapabilities,omitempty"`
 	RuntimeSessionOwnerUserID           string   `json:"runtimeSessionOwnerUserId,omitempty"`
+	WorktreeOwnerThreadID               string   `json:"worktreeOwnerThreadId,omitempty"`
 }
 
 type controlGatewayIdentity struct {
@@ -274,6 +279,9 @@ func serveControlGatewayWithRuntime(
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("read control frame: %w", err)
+	}
+	if request.Operation == "worktree.prepare.v1" {
+		return executeWorktreePrepareControl(output, identity, request)
 	}
 	if request.Operation != "status.v1" {
 		return executeWorkspaceRuntimeControl(output, identity, request, runtimeFactory)

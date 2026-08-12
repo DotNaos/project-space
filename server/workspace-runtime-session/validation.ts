@@ -1,6 +1,7 @@
 import {
   workspaceRuntimeBaseCapabilities,
   workspaceRuntimeControlCapability,
+  workspaceRuntimeMutationCapability,
   workspaceRuntimeReadyCapabilities,
   workspaceRuntimeSessionSchemaVersion,
   type WorkspaceRuntimeBaseCapability,
@@ -14,7 +15,11 @@ import type { IssueRuntimeCredentialInput } from './contracts';
 import type { RuntimeCredentialScope } from './contracts';
 import type { WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
 import type { WorkspaceRuntimeControlMessage } from '../../src/shared/workspace-runtime-control-api';
-import { canonicalRuntimeControlOperations } from '../../src/shared/canonical-runtime-control-api';
+import {
+  canonicalRuntimeControlAccessMode,
+  canonicalRuntimeControlOperations,
+  type CanonicalRuntimeControlOperation
+} from '../../src/shared/canonical-runtime-control-api';
 import { RuntimeSessionError } from './contracts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -25,7 +30,8 @@ const eventId = /^[A-Za-z0-9:._-]{1,128}$/;
 const baseCapabilitySet = new Set<string>(workspaceRuntimeBaseCapabilities);
 const readyCapabilitySet = new Set<string>([
   ...workspaceRuntimeReadyCapabilities,
-  workspaceRuntimeControlCapability
+  workspaceRuntimeControlCapability,
+  workspaceRuntimeMutationCapability
 ]);
 
 export function validateCredentialIssue(input: IssueRuntimeCredentialInput) {
@@ -83,7 +89,10 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
     ? undefined
     : parseRequestedCapabilities(input.readyCapabilities, false);
   const codexReady = readyCapabilities?.includes('runtime.codex.v1') ?? false;
-  const controlReady = readyCapabilities?.includes(workspaceRuntimeControlCapability) ?? false;
+  const controlReady = readyCapabilities?.some((capability) =>
+    capability === workspaceRuntimeControlCapability ||
+    capability === workspaceRuntimeMutationCapability
+  ) ?? false;
   if (codexReady !== (input.resumeAfterCodexCommandSequence !== undefined) ||
       codexReady !== (input.resumeAfterCodexEventSequence !== undefined) ||
       controlReady !== (input.resumeAfterControlCommandSequence !== undefined) ||
@@ -184,7 +193,6 @@ export function parseRuntimeControlMessage(
   scope: RuntimeCredentialScope,
   sessionId: string
 ): WorkspaceRuntimeControlMessage {
-  if (!scope.capabilities.includes(workspaceRuntimeControlCapability)) invalid();
   const input = object(value);
   const baseKeys = [
     'actorId', 'actorKind', 'actorUserId', 'commandId', 'commandSequence', 'environmentId',
@@ -203,6 +211,11 @@ export function parseRuntimeControlMessage(
       !/^[1-9][0-9]*:[A-Za-z0-9:_-]{8,256}$/.test(string(input.targetIdentityRevision)) ||
       !Number.isSafeInteger(input.commandSequence) || Number(input.commandSequence) < 1 ||
       !Number.isSafeInteger(input.eventSequence) || Number(input.eventSequence) < 1) invalid();
+  const operation = input.operation as CanonicalRuntimeControlOperation;
+  const requiredCapability = canonicalRuntimeControlAccessMode(operation) === 'mutation'
+    ? workspaceRuntimeMutationCapability
+    : workspaceRuntimeControlCapability;
+  if (!scope.capabilities.includes(requiredCapability)) invalid();
   if (input.type === 'runtime.control.command-accepted') {
     exactKeys(input, [...baseKeys, 'acceptedCommandSequence', 'replayed']);
     if (typeof input.replayed !== 'boolean' ||
@@ -218,7 +231,10 @@ export function parseRuntimeControlMessage(
   }
   if (input.type === 'runtime.control.error') {
     exactKeys(input, [...baseKeys, 'code', 'message']);
-    if (!['invalid_command', 'runtime_stopping', 'unavailable', 'uncertain'].includes(string(input.code))) invalid();
+    if (![
+      'blocked_dependency', 'invalid_command', 'runtime_stopping', 'unavailable', 'uncertain'
+    ].includes(string(input.code)) ||
+      input.code === 'blocked_dependency' && operation !== 'task.start') invalid();
     safeText(input.message, 512);
   }
   return input as unknown as WorkspaceRuntimeControlMessage;
@@ -256,7 +272,50 @@ function parseRuntimeControlOutput(operation: string, value: unknown) {
       .reduce((total, key) => total + Number(input[key]), 0) !== input.total) invalid();
     return;
   }
+  if (operation === 'git.stage' || operation === 'git.unstage') {
+    exactKeys(input, [
+      'changed', 'clean', 'conflicted', 'head', 'staged', 'truncated', 'unstaged', 'untracked'
+    ]);
+    if (typeof input.changed !== 'boolean' || typeof input.clean !== 'boolean' ||
+        typeof input.truncated !== 'boolean' || !gitSha(input.head)) invalid();
+    nonNegativeCounts(input, ['conflicted', 'staged', 'unstaged', 'untracked']);
+    if (input.clean !== ['conflicted', 'staged', 'unstaged', 'untracked']
+      .every((key) => input[key] === 0)) invalid();
+    return;
+  }
+  if (operation === 'git.commit') {
+    exactKeys(input, ['commit', 'parent']);
+    if (!gitSha(input.commit) || !gitSha(input.parent) || input.commit === input.parent) invalid();
+    return;
+  }
+  if (operation === 'task.start') {
+    exactKeys(input, ['state', 'taskExecutionId']);
+    if (input.state !== 'ready_for_agent' || !uuid.test(string(input.taskExecutionId))) invalid();
+    return;
+  }
+  if (operation === 'dev-server.start' || operation === 'dev-server.publish' ||
+      operation === 'dev-server.stop') {
+    exactKeys(input, ['serverGeneration', 'serverId', 'state']);
+    const expectedState = operation === 'dev-server.start'
+      ? 'ready'
+      : operation === 'dev-server.publish' ? 'published' : 'stopped';
+    if (input.state !== expectedState || !serverId(input.serverId) ||
+        !resourceGeneration(input.serverGeneration)) invalid();
+    return;
+  }
   invalid();
+}
+
+function gitSha(value: unknown) {
+  return typeof value === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value);
+}
+
+function serverId(value: unknown) {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value);
+}
+
+function resourceGeneration(value: unknown) {
+  return typeof value === 'string' && /^[A-Za-z0-9:._-]{1,256}$/.test(value);
 }
 
 function nonNegativeCounts(input: Record<string, unknown>, keys: string[]) {

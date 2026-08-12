@@ -1,13 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { DatabaseQueryClient } from '../server/database/client';
+import type { CanonicalRuntimeControlResult } from '../src/shared/canonical-runtime-control-api';
 import type {
   CanonicalRuntimeControlOperationIdentity,
   CanonicalRuntimeControlOperationState
 } from '../server/canonical-runtime-control/operation-store-contracts';
 import { PostgresCanonicalRuntimeControlOperationStore } from
   '../server/canonical-runtime-control/postgres-operation-store';
-import { validateSafeResult } from
+import { MemoryCanonicalRuntimeControlOperationStore } from
+  '../server/canonical-runtime-control/memory-operation-store';
+import { validateSafeInput, validateSafeResult } from
   '../server/canonical-runtime-control/operation-store-validation';
 
 const environmentId = '10000000-0000-4000-8000-000000000001';
@@ -15,6 +18,7 @@ const workspaceId = '20000000-0000-4000-8000-000000000002';
 const generation = '30000000-0000-4000-8000-000000000003';
 const sessionId = '40000000-0000-4000-8000-000000000004';
 const identity: CanonicalRuntimeControlOperationIdentity = {
+  accessMode: 'read',
   actorId: 'agent-nora',
   actorKind: 'agent',
   actorUserId: 'owner-one',
@@ -24,6 +28,7 @@ const identity: CanonicalRuntimeControlOperationIdentity = {
   operation: 'git.status',
   operationId: 'inspect-one',
   ownerUserId: 'owner-one',
+  safeInput: { operation: 'git.status' },
   sessionId,
   targetIdentityRevision: '1:revision_one',
   workspaceId
@@ -64,7 +69,8 @@ describe('Postgres canonical Runtime control operation store', () => {
     const insert = calls.find(({ sql }) => sql.includes('insert into canonical_runtime_control_operations'));
     expect(insert?.values).toEqual([
       'owner-one', 'inspect-one', 'a'.repeat(64), 'owner-one', 'agent-nora', 'agent', false,
-      'git.status', null, environmentId, '1:revision_one', workspaceId, generation, sessionId,
+      'git.status', null, '{"operation":"git.status"}', 'read', environmentId,
+      '1:revision_one', workspaceId, generation, sessionId,
       reservation.reservedUntil, reservation.reservedAt
     ]);
   });
@@ -269,6 +275,146 @@ describe('Postgres canonical Runtime control operation store', () => {
       'canonical-runtime-control-operation:owner-two:inspect-one')).toBe(true);
   });
 
+  test('accepts only closed bounded mutation inputs', () => {
+    expect(validateSafeInput({
+      expectedHead: 'b'.repeat(40), operation: 'git.stage', scope: 'all'
+    })).toEqual({ expectedHead: 'b'.repeat(40), operation: 'git.stage', scope: 'all' });
+    expect(() => validateSafeInput({
+      expectedHead: 'b'.repeat(40), operation: 'git.stage', scope: 'all', path: '/private'
+    } as never)).toThrow('Canonical Runtime control safe input is invalid.');
+    expect(() => validateSafeInput({
+      expectedHead: 'b'.repeat(40), message: 'line one\nline two', operation: 'git.commit'
+    })).toThrow('Canonical Runtime control safe input is invalid.');
+    expect(() => validateSafeInput({
+      expectedServerGeneration: '', operation: 'dev-server.stop', serverId: 'docs'
+    })).toThrow('Canonical Runtime control safe input is invalid.');
+    expect(validateSafeInput({
+      expectedServerGeneration: 'generation:docs_2', operation: 'dev-server.stop',
+      serverId: 'docs'
+    })).toEqual({
+      expectedServerGeneration: 'generation:docs_2', operation: 'dev-server.stop',
+      serverId: 'docs'
+    });
+    expect(() => validateSafeInput({
+      expectedServerGeneration: 'generation docs', operation: 'dev-server.stop', serverId: 'docs'
+    })).toThrow('Canonical Runtime control safe input is invalid.');
+  });
+
+  test('keeps one unresolved mutation fence per owner Workspace generation', async () => {
+    const store = new MemoryCanonicalRuntimeControlOperationStore();
+    const first = mutationReservation('mutation-one');
+    const second = mutationReservation('mutation-two');
+    await expect(store.reserve(first)).resolves.toMatchObject({ kind: 'new' });
+    await expect(store.reserve(second)).resolves.toEqual({ kind: 'in_progress' });
+    await expect(store.reserve({
+      ...first,
+      identity: {
+        ...first.identity,
+        safeInput: { expectedHead: 'c'.repeat(40), operation: 'git.stage', scope: 'all' }
+      }
+    })).resolves.toEqual({ kind: 'conflict' });
+    await store.failReserved({
+      completedAt: '2026-08-12T10:00:01.000Z', failureCode: 'authorization_denied',
+      fingerprint: first.fingerprint, identity: first.identity,
+      result: failedResult(first.identity)
+    });
+    await expect(store.reserve(second)).resolves.toMatchObject({ kind: 'new' });
+    await expect(store.reserve(mutationReservation('mutation-three', {
+      ownerUserId: 'owner-two', actorUserId: 'owner-two'
+    }))).resolves.toMatchObject({ kind: 'new' });
+  });
+
+  test('does not release a mutation fence while its outcome is uncertain', async () => {
+    const store = new MemoryCanonicalRuntimeControlOperationStore();
+    const first = mutationReservation('mutation-uncertain');
+    await store.reserve(first);
+    const dispatched = await store.markDispatchAttempted({
+      commandId: first.identity.operationId, dispatchedAt: '2026-08-12T10:00:01.000Z',
+      dispatchedUntil: '2026-08-12T10:00:31.000Z', fingerprint: first.fingerprint,
+      identity: first.identity
+    });
+    await store.markUncertain({
+      command: dispatched.command!, completedAt: '2026-08-12T10:00:32.000Z',
+      fingerprint: first.fingerprint, identity: first.identity
+    });
+    await expect(store.unresolved(
+      first.identity.ownerUserId, first.identity.workspaceId, first.identity.generation
+    )).resolves.toMatchObject([{
+      identity: { accessMode: 'mutation', safeInput: first.identity.safeInput },
+      state: 'uncertain'
+    }]);
+    await expect(store.reserve(mutationReservation('mutation-after-uncertain')))
+      .resolves.toEqual({ kind: 'in_progress' });
+  });
+
+  test('checks the durable mutation fence before inserting a different operation ID', async () => {
+    let inserted = false;
+    const client = transactionalClient(async <Row>(sql: string) => {
+      if (sql.includes("access_mode = 'mutation'")) return { rows: [{ exists: 1 }] as Row[] };
+      if (sql.includes('insert into canonical_runtime_control_operations')) inserted = true;
+      return { rows: [] as Row[] };
+    });
+    await expect(new PostgresCanonicalRuntimeControlOperationStore(client).reserve(
+      mutationReservation('mutation-fenced')
+    )).resolves.toEqual({ kind: 'in_progress' });
+    expect(inserted).toBe(false);
+  });
+
+  test('allows blocked_dependency evidence only for task start', () => {
+    const taskIdentity: CanonicalRuntimeControlOperationIdentity = {
+      ...identity,
+      accessMode: 'mutation',
+      operation: 'task.start',
+      operationId: 'task-start-one',
+      safeInput: {
+        operation: 'task.start', taskExecutionId: environmentId, workspaceLeaseId: workspaceId
+      }
+    };
+    const blocked = {
+      apiVersion: 1 as const, compatibilityAlias: false, environmentId,
+      generation, operation: 'task.start' as const, operationId: taskIdentity.operationId,
+      replayed: false, state: 'blocked_dependency' as const,
+      targetIdentityRevision: identity.targetIdentityRevision, workspaceId
+    };
+    expect(() => validateSafeResult(blocked, taskIdentity, 'blocked_dependency')).not.toThrow();
+    expect(() => validateSafeResult({
+      ...blocked, operation: 'git.stage' as const
+    }, mutationReservation('blocked-git').identity, 'blocked_dependency'))
+      .toThrow('Canonical Runtime control safe result is invalid.');
+    expect(() => validateSafeResult({
+      ...blocked, state: 'failed' as const
+    }, taskIdentity, 'blocked_dependency'))
+      .toThrow('Canonical Runtime control safe result is invalid.');
+  });
+
+  test('binds mutation outputs to their reserved compare-and-swap input', () => {
+    const stage = mutationReservation('stage-bound');
+    const stageResult = completedResult(stage.identity, {
+      changed: true, clean: false, conflicted: 0, head: 'b'.repeat(40), staged: 1,
+      truncated: false, unstaged: 0, untracked: 0
+    });
+    expect(() => validateSafeResult(stageResult, stage.identity)).not.toThrow();
+    expect(() => validateSafeResult({
+      ...stageResult, output: { ...stageResult.output, head: 'c'.repeat(40) }
+    }, stage.identity)).toThrow('Canonical Runtime control safe result is invalid.');
+
+    const publishIdentity: CanonicalRuntimeControlOperationIdentity = {
+      ...identity, accessMode: 'mutation', operation: 'dev-server.publish',
+      operationId: 'publish-bound', safeInput: {
+        expectedServerGeneration: 'generation:docs_2', operation: 'dev-server.publish',
+        serverId: 'docs'
+      }
+    };
+    const publishResult = completedResult(publishIdentity, {
+      serverGeneration: 'generation:docs_3', serverId: 'docs', state: 'published'
+    });
+    expect(() => validateSafeResult(publishResult, publishIdentity)).not.toThrow();
+    expect(() => validateSafeResult({
+      ...publishResult,
+      output: { ...publishResult.output, serverGeneration: 'generation:docs_2' }
+    }, publishIdentity)).toThrow('Canonical Runtime control safe result is invalid.');
+  });
+
   test('commits one exact terminal result after the matching command and event sequence', async () => {
     const result = {
       apiVersion: 1 as const,
@@ -406,6 +552,7 @@ function operationRow(overrides: Partial<ReturnType<typeof baseOperationRow>> = 
 
 function baseOperationRow() {
   return {
+    access_mode: identity.accessMode,
     accepted_command_sequence: null,
     accepted_event_sequence: null,
     actor_id: identity.actorId,
@@ -427,6 +574,7 @@ function baseOperationRow() {
     reserved_until: reservation.reservedUntil,
     result_event_sequence: null,
     safe_result: null,
+    safe_input: identity.safeInput,
     session_id: identity.sessionId,
     state: 'reserved' as CanonicalRuntimeControlOperationState,
     target_identity_revision: identity.targetIdentityRevision,
@@ -442,4 +590,53 @@ function transactionalClient(query: DatabaseQueryClient['query']): DatabaseQuery
     }
   };
   return client;
+}
+
+function mutationReservation(
+  operationId: string,
+  overrides: Partial<CanonicalRuntimeControlOperationIdentity> = {}
+) {
+  const mutationIdentity: CanonicalRuntimeControlOperationIdentity = {
+    ...identity,
+    accessMode: 'mutation',
+    operation: 'git.stage',
+    operationId,
+    safeInput: { expectedHead: 'b'.repeat(40), operation: 'git.stage', scope: 'all' },
+    ...overrides
+  };
+  return { ...reservation, fingerprint: 'b'.repeat(64), identity: mutationIdentity };
+}
+
+function failedResult(bound: CanonicalRuntimeControlOperationIdentity) {
+  return {
+    apiVersion: 1 as const,
+    compatibilityAlias: bound.compatibilityAlias,
+    environmentId: bound.environmentId,
+    generation: bound.generation,
+    operation: bound.operation,
+    operationId: bound.operationId,
+    replayed: false,
+    state: 'failed' as const,
+    targetIdentityRevision: bound.targetIdentityRevision,
+    workspaceId: bound.workspaceId
+  };
+}
+
+function completedResult(
+  bound: CanonicalRuntimeControlOperationIdentity,
+  output: Record<string, unknown>
+) {
+  return {
+    apiVersion: 1 as const,
+    compatibilityAlias: bound.compatibilityAlias,
+    environmentId: bound.environmentId,
+    generation: bound.generation,
+    operation: bound.operation,
+    operationId: bound.operationId,
+    output,
+    replayed: false,
+    state: 'completed' as const,
+    targetIdentityRevision: bound.targetIdentityRevision,
+    workspaceId: bound.workspaceId
+  } as CanonicalRuntimeControlResult;
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/DotNaos/project-space/internal/workspacerun"
 	"github.com/DotNaos/project-space/internal/workspacesession"
 	"github.com/spf13/cobra"
 )
@@ -59,7 +60,15 @@ func runWorkspaceRuntimeSession(
 	command *cobra.Command,
 	bootstrap workspacesession.Bootstrap,
 ) error {
-	return runWorkspaceRuntimeSessionWithClient(ctx, command, bootstrap, (workspacesession.Client{}).Run)
+	client := workspacesession.Client{}
+	if containsRuntimeCapability(bootstrap.RequestedCapabilities, "runtime.mutation.v1") {
+		manager, err := workspacerun.NewDefaultManager()
+		if err != nil {
+			return fmt.Errorf("Workspace Runtime mutation manager is unavailable")
+		}
+		client.Mutations = workspacerun.SessionMutationAdapter{Manager: manager}
+	}
+	return runWorkspaceRuntimeSessionWithClient(ctx, command, bootstrap, client.Run)
 }
 
 func runWorkspaceRuntimeSessionWithClient(

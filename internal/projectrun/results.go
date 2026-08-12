@@ -15,6 +15,7 @@ func (manager *Manager) resultFromState(
 		APIs:              state.APIs,
 		Data:              state.Data,
 		ServerID:          state.ServerID,
+		ServerGeneration:  state.Generation,
 		ServerKey:         state.Script,
 		Script:            state.Script,
 		Directory:         state.Directory,

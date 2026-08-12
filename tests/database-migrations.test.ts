@@ -63,6 +63,10 @@ import {
   canonicalRuntimeControlMigrationId,
   canonicalRuntimeControlMigrationSql
 } from '../server/database/canonical-runtime-control-migration';
+import {
+  canonicalRuntimeMutationMigrationId,
+  canonicalRuntimeMutationMigrationSql
+} from '../server/database/canonical-runtime-mutation-migration';
 
 interface QueryCall {
   sql: string;
@@ -317,7 +321,40 @@ describe('database migrations', () => {
     expect(canonicalRuntimeControlMigrationSql).not.toMatch(
       /password|credential_reference|private_key|request_body|stdout|stderr/i
     );
-    expect(databaseMigrations.at(-1)?.id).toBe(canonicalRuntimeControlMigrationId);
+    expect(databaseMigrations.at(-2)?.id).toBe(canonicalRuntimeControlMigrationId);
+  });
+
+  test('extends canonical control additively with safe mutation replay and ownership fences', () => {
+    expect(canonicalRuntimeMutationMigrationId).toBe('0051_canonical_runtime_mutations');
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'drop constraint workspace_runtime_requested_capabilities_v2_check'
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain("'runtime.mutation.v1'");
+    expect(canonicalRuntimeMutationMigrationSql).toContain('add column safe_input jsonb');
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "safe_input - array['expectedHead', 'operation', 'scope'] = '{}'::jsonb"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "safe_input->>'expectedServerGeneration' ~ '^[A-Za-z0-9:._-]{1,256}$'"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "add column access_mode text not null default 'read'"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'canonical_runtime_control_one_unresolved_mutation_idx'
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      "where access_mode = 'mutation' and state in ('reserved', 'dispatching', 'uncertain')"
+    );
+    expect(canonicalRuntimeMutationMigrationSql).not.toContain("'worktree.prepare'");
+    expect(canonicalRuntimeMutationMigrationSql).toContain("'worktree.prepare.v1'");
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'drop constraint ssh_gateway_operations_operation_v2_check'
+    );
+    expect(canonicalRuntimeMutationMigrationSql).toContain(
+      'add constraint ssh_gateway_operations_operation_v3_check'
+    );
+    expect(databaseMigrations.at(-1)?.id).toBe(canonicalRuntimeMutationMigrationId);
   });
 
   test('persists explicit Codex message delivery and durable queue state', () => {
@@ -397,7 +434,8 @@ describe('database migrations', () => {
       '0047_host_control_operations',
       '0048_host_control_hardening',
       '0049_connector_compatibility_usage',
-      '0050_canonical_runtime_control_operations'
+      '0050_canonical_runtime_control_operations',
+      '0051_canonical_runtime_mutations'
     ]);
 
     expect(connectorCompatibilityUsageMigrationId).toBe('0049_connector_compatibility_usage');

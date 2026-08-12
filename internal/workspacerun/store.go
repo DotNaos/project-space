@@ -19,31 +19,32 @@ import (
 const maximumStateBytes = 256 << 10
 
 type runtimeRecord struct {
-	Version            int                 `json:"schemaVersion"`
-	WorkspaceID        string              `json:"workspaceId"`
-	Repository         string              `json:"repository"`
-	Directory          string              `json:"directory"`
-	GitDirectory       string              `json:"gitDirectory"`
-	Branch             string              `json:"branch"`
-	Head               string              `json:"head"`
-	IdentityProof      string              `json:"identityProof"`
-	ManifestDigest     string              `json:"manifestDigest"`
-	Mode               Mode                `json:"mode"`
-	State              RuntimeState        `json:"state"`
-	Generation         string              `json:"generation"`
-	GenerationProof    string              `json:"generationProof"`
-	GenerationRemoved  bool                `json:"generationRemoved"`
-	GenerationArchive  string              `json:"generationArchive,omitempty"`
-	OwnershipToken     string              `json:"ownershipToken"`
-	Handle             RuntimeHandle       `json:"handle"`
-	Resources          ResourceLimits      `json:"resources"`
-	DevServers         []ManagedDevServer  `json:"devServers"`
-	DevServerOperation *devServerOperation `json:"devServerOperation,omitempty"`
-	ExpectedDevServers []string            `json:"expectedDevServers"`
-	Shutdown           []string            `json:"shutdown"`
-	StartedAt          string              `json:"startedAt,omitempty"`
-	CheckedAt          string              `json:"checkedAt"`
-	LastError          string              `json:"lastError,omitempty"`
+	Version                    int                         `json:"schemaVersion"`
+	WorkspaceID                string                      `json:"workspaceId"`
+	Repository                 string                      `json:"repository"`
+	Directory                  string                      `json:"directory"`
+	GitDirectory               string                      `json:"gitDirectory"`
+	Branch                     string                      `json:"branch"`
+	Head                       string                      `json:"head"`
+	IdentityProof              string                      `json:"identityProof"`
+	ManifestDigest             string                      `json:"manifestDigest"`
+	Mode                       Mode                        `json:"mode"`
+	State                      RuntimeState                `json:"state"`
+	Generation                 string                      `json:"generation"`
+	GenerationProof            string                      `json:"generationProof"`
+	GenerationRemoved          bool                        `json:"generationRemoved"`
+	GenerationArchive          string                      `json:"generationArchive,omitempty"`
+	OwnershipToken             string                      `json:"ownershipToken"`
+	Handle                     RuntimeHandle               `json:"handle"`
+	Resources                  ResourceLimits              `json:"resources"`
+	DevServers                 []ManagedDevServer          `json:"devServers"`
+	DevServerOperation         *devServerOperation         `json:"devServerOperation,omitempty"`
+	CompletedDevServerMutation *completedDevServerMutation `json:"completedDevServerMutation,omitempty"`
+	ExpectedDevServers         []string                    `json:"expectedDevServers"`
+	Shutdown                   []string                    `json:"shutdown"`
+	StartedAt                  string                      `json:"startedAt,omitempty"`
+	CheckedAt                  string                      `json:"checkedAt"`
+	LastError                  string                      `json:"lastError,omitempty"`
 }
 
 func (record runtimeRecord) binding() RuntimeBinding {
@@ -499,14 +500,38 @@ func validateDevServers(record runtimeRecord) error {
 		seen[server.Name] = true
 	}
 	if operation := record.DevServerOperation; operation != nil {
-		if !expected[operation.Name] || operation.Action != devServerStarting && operation.Action != devServerStopping {
+		if !expected[operation.Name] || operation.Action != devServerStarting &&
+			operation.Action != devServerPublishing && operation.Action != devServerStopping {
 			return fmt.Errorf("dev-server operation evidence is invalid")
+		}
+		if operation.Action == devServerPublishing && operation.ServerGeneration == "" {
+			return fmt.Errorf("dev-server publish operation has no generation evidence")
+		}
+		if operation.Action == devServerPublishing &&
+			(!remoteOperationIDPattern.MatchString(operation.OperationID) || operation.ServerGeneration == "") {
+			return fmt.Errorf("remote dev-server operation binding is invalid")
+		}
+		if operation.Action == devServerStarting && operation.OperationID != "" &&
+			!remoteOperationIDPattern.MatchString(operation.OperationID) {
+			return fmt.Errorf("remote dev-server operation binding is invalid")
+		}
+		if operation.Action == devServerStopping && operation.OperationID != "" &&
+			(!remoteOperationIDPattern.MatchString(operation.OperationID) || operation.ServerGeneration == "") {
+			return fmt.Errorf("remote dev-server operation binding is invalid")
 		}
 		if operation.Action == devServerStarting && seen[operation.Name] {
 			return fmt.Errorf("dev-server start operation duplicates persisted evidence")
 		}
 		if operation.Action == devServerStopping && !seen[operation.Name] {
 			return fmt.Errorf("dev-server stop operation has no persisted evidence")
+		}
+	}
+	if completed := record.CompletedDevServerMutation; completed != nil {
+		if !expected[completed.Name] || completed.Action != devServerPublishing ||
+			!remoteOperationIDPattern.MatchString(completed.OperationID) ||
+			completed.ExpectedServerGeneration == "" || completed.ResultServerGeneration == "" ||
+			completed.ExpectedServerGeneration == completed.ResultServerGeneration {
+			return fmt.Errorf("completed dev-server mutation evidence is invalid")
 		}
 	}
 	if (record.State == StateStopped || record.State == StateFailed || record.State == StateCleaning) && record.DevServerOperation != nil {

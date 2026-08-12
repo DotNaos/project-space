@@ -47,10 +47,15 @@ func (project *uncertainLifecycleProject) StartWithOptions(_ context.Context, di
 	if name == project.failStartName {
 		return projectrun.ServeResult{}, errors.New("uncertain dev-server start")
 	}
+	state, mode := projectrun.StateRunning, projectrun.ServeModeManaged
+	if options.LocalOnly {
+		state, mode = projectrun.StateLocalOnly, projectrun.ServeModeLocalOnly
+	}
 	result := projectrun.ServeResult{
 		Script: name, Directory: directory, WorkspaceID: options.WorkspaceID,
 		RuntimeGeneration: options.RuntimeGeneration, ServerID: "server-" + name,
-		TmuxSession: "tmux-" + name, State: projectrun.StateRunning,
+		ServerGeneration: "server-generation-" + name,
+		TmuxSession:      "tmux-" + name, State: state, Mode: mode,
 	}
 	project.sessions[name] = result
 	return result, nil
@@ -74,6 +79,27 @@ func (project *uncertainLifecycleProject) StopExpected(_ context.Context, _, nam
 	result := project.sessions[name]
 	delete(project.sessions, name)
 	result.State = projectrun.StateStopped
+	return result, nil
+}
+
+func (project *uncertainLifecycleProject) PublishExpected(
+	_ context.Context,
+	_ string,
+	name string,
+	workspaceID string,
+	runtimeGeneration string,
+	serverGeneration string,
+	_ []string,
+) (projectrun.ServeResult, error) {
+	result, present := project.sessions[name]
+	if !present || result.WorkspaceID != workspaceID || result.RuntimeGeneration != runtimeGeneration ||
+		result.ServerGeneration != serverGeneration {
+		return projectrun.ServeResult{}, errors.New("publish binding changed")
+	}
+	result.State = projectrun.StateRunning
+	result.Mode = projectrun.ServeModeManaged
+	result.ServerGeneration += "-published"
+	project.sessions[name] = result
 	return result, nil
 }
 

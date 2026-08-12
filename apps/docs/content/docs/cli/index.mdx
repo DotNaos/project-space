@@ -819,9 +819,10 @@ project environment bootstrap <environment-instance>
 | `--manifest-digest` | `string` | local | pinned Runtime manifest SHA-256 |
 | `--mode` | `string` | local | Runtime isolation: process or devcontainer |
 | `--operation-id` | `string` | local | stable idempotency identity |
-| `--profile` | `string` | local | Runtime profile: codex or inspection |
+| `--profile` | `string` | local | Runtime profile: codex, inspection, or mutation |
 | `--runtime-version` | `string` | local | pinned Project Runtime version |
 | `--workspace` | `string` | local | exact canonical Workspace ID |
+| `--worktree-owner-thread` | `string` | local | exact managed Worktree owner task UUID (mutation profile only) |
 
 <h3 id="project-environment-instance" className="scroll-m-28"><code>project environment instance</code></h3>
 

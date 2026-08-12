@@ -117,6 +117,55 @@ func TestClaimOwnsExistingStandardWorktreeAndThenConfirmsIt(t *testing.T) {
 	}
 }
 
+func TestClaimExactBindsServerIssuedWorkspaceAndRejectsReplacement(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-exact-worktree")
+	workspaceID := "123e4567-e89b-42d3-a456-426614174000"
+	claimed, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-worktree",
+		ThreadID: firstThread, WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Owner != firstThread || claimed.WorkspaceID != workspaceID || claimed.Status != "claimed" {
+		t.Fatalf("unexpected exact claim: %#v", claimed)
+	}
+	replayed, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-worktree",
+		ThreadID: firstThread, WorkspaceID: workspaceID,
+	})
+	if err != nil || replayed.Status != "ready" {
+		t.Fatalf("exact replay failed: %#v, %v", replayed, err)
+	}
+	if _, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-worktree",
+		ThreadID: secondThread, WorkspaceID: workspaceID,
+	}); err == nil {
+		t.Fatal("expected conflicting exact owner to be rejected")
+	}
+}
+
+func TestClaimExactResumesMatchingPartialOwnershipBeforeManagedMarker(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "task-exact-crash")
+	workspaceID := "123e4567-e89b-42d3-a456-426614174000"
+	command(t, worktreePath, "git", "config", "extensions.worktreeConfig", "true")
+	command(t, worktreePath, "git", "config", "--worktree", taskConfigKey, "task-exact-crash")
+	command(t, worktreePath, "git", "config", "--worktree", workspaceConfigKey, workspaceID)
+
+	claimed, err := ClaimExact(ExactClaimOptions{
+		StartPath: worktreePath, TaskName: "task-exact-crash",
+		ThreadID: firstThread, WorkspaceID: workspaceID,
+	})
+	if err != nil || claimed.Status != "claimed" || claimed.Owner != firstThread {
+		t.Fatalf("partial exact ownership was not resumed: %#v, %v", claimed, err)
+	}
+	if managed := commandOutput(t, worktreePath, "git", "config", "--worktree", "--get", managedConfigKey); managed != "true" {
+		t.Fatalf("managed commit marker = %q", managed)
+	}
+}
+
 func TestClaimSupportsDetachedAdministrativeCheckoutCreatedByMaterializer(t *testing.T) {
 	mainPath := setupRepository(t)
 	worktreePath := addStandardWorktree(t, mainPath, "task-materialized-worktree")

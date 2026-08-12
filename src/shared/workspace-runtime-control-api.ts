@@ -1,8 +1,10 @@
 import type {
   CanonicalRuntimeControlOperation,
   CanonicalRuntimeControlOutputByOperation,
-  CanonicalRuntimeControlRequest
+  CanonicalRuntimeControlRequest,
+  CanonicalRuntimeControlSafeInput
 } from './canonical-runtime-control-api';
+import { canonicalRuntimeControlSafeInput } from './canonical-runtime-control-api';
 
 interface WorkspaceRuntimeControlBinding {
   actorId: string;
@@ -19,11 +21,7 @@ interface WorkspaceRuntimeControlBinding {
   workspaceId: string;
 }
 
-type WorkspaceRuntimeControlInput =
-  | { operation: 'git.status' }
-  | { operation: 'git.diff'; staged: boolean }
-  | { operation: 'worktree.list' }
-  | { operation: 'dev-server.inspect' };
+type WorkspaceRuntimeControlInput = CanonicalRuntimeControlSafeInput;
 
 export type WorkspaceRuntimeControlCommand = WorkspaceRuntimeControlBinding &
   WorkspaceRuntimeControlInput & {
@@ -55,7 +53,12 @@ export type WorkspaceRuntimeControlMessage =
     })
   | WorkspaceRuntimeControlResultMessage
   | (WorkspaceRuntimeControlBinding & {
-      code: 'invalid_command' | 'runtime_stopping' | 'unavailable' | 'uncertain';
+      code:
+        | 'blocked_dependency'
+        | 'invalid_command'
+        | 'runtime_stopping'
+        | 'unavailable'
+        | 'uncertain';
       eventSequence: number;
       message: string;
       operation: CanonicalRuntimeControlOperation;
@@ -65,7 +68,5 @@ export type WorkspaceRuntimeControlMessage =
 export function runtimeControlInput(
   request: CanonicalRuntimeControlRequest
 ): WorkspaceRuntimeControlInput {
-  return request.operation === 'git.diff'
-    ? { operation: request.operation, staged: request.staged }
-    : { operation: request.operation };
+  return canonicalRuntimeControlSafeInput(request);
 }

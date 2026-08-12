@@ -47,10 +47,28 @@ describe('OpenSSH control transport', () => {
       timeoutMs: 30_000,
       verifiedHost
     });
+    await transport.execute({
+      credential,
+      handshake: { cliVersion: '0.5.0', protocolVersion: 1 },
+      request: {
+        branch: 'issue-658-runtime-mutations',
+        commit: '0123456789abcdef0123456789abcdef01234567',
+        environmentId: route.target.id,
+        operation: 'worktree.prepare.v1',
+        operationId: 'operation-2',
+        repository: 'DotNaos/project-space',
+        workspaceId: '123e4567-e89b-42d3-a456-426614174001',
+        worktreeOwnerThreadId: '123e4567-e89b-42d3-a456-426614174002'
+      },
+      route,
+      timeoutMs: 30_000,
+      verifiedHost
+    });
 
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
     const handshake = calls[1]!;
     const ssh = calls[2]!;
+    const worktree = calls[3]!;
     expect(ssh.command).toBe('/usr/bin/ssh');
     expect(ssh.argv.at(-1)).toBe('/usr/local/bin/project control-gateway --stdio');
     expect(ssh.argv).toContain('StrictHostKeyChecking=yes');
@@ -66,6 +84,10 @@ describe('OpenSSH control transport', () => {
     expect(ssh.stdin).toContain('"expectedCliVersion":"0.5.0"');
     expect(ssh.stdin).toContain('"operation":"status.v1"');
     expect(ssh.stdin).not.toContain('"type":"handshake"');
+    expect(worktree.stdin).toContain('"operation":"worktree.prepare.v1"');
+    expect(worktree.stdin).toContain('"repository":"DotNaos/project-space"');
+    expect(worktree.stdin).toContain('"worktreeOwnerThreadId":"123e4567-e89b-42d3-a456-426614174002"');
+    expect(worktree.stdin).not.toContain('path');
     const keyPath = ssh.argv[ssh.argv.indexOf('-i') + 1]!;
     await expect(access(keyPath)).rejects.toBeDefined();
   });

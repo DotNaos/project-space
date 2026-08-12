@@ -1,9 +1,12 @@
 import type {
+  CanonicalRuntimeControlAccessMode,
   CanonicalRuntimeControlOperation,
-  CanonicalRuntimeControlResult
+  CanonicalRuntimeControlResult,
+  CanonicalRuntimeControlSafeInput
 } from '../../src/shared/canonical-runtime-control-api';
 
 export type CanonicalRuntimeControlOperationState =
+  | 'blocked_dependency'
   | 'reserved'
   | 'dispatching'
   | 'completed'
@@ -12,6 +15,7 @@ export type CanonicalRuntimeControlOperationState =
 
 export type CanonicalRuntimeControlFailureCode =
   | 'authorization_denied'
+  | 'blocked_dependency'
   | 'dispatch_outcome_unknown'
   | 'invalid_request'
   | 'runtime_failed'
@@ -24,13 +28,14 @@ export interface CanonicalRuntimeControlOperationIdentity {
   actorId: string;
   actorKind: 'agent' | 'human' | 'orchestrator' | 'system';
   actorUserId: string;
+  accessMode: CanonicalRuntimeControlAccessMode;
   compatibilityAlias: boolean;
-  diffStaged?: boolean;
   environmentId: string;
   generation: string;
   operation: CanonicalRuntimeControlOperation;
   operationId: string;
   ownerUserId: string;
+  safeInput: CanonicalRuntimeControlSafeInput;
   sessionId: string;
   targetIdentityRevision: string;
   workspaceId: string;

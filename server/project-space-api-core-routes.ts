@@ -483,11 +483,8 @@ export function createProjectSpaceCoreApiRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/worktrees/materialize') {
-      writeJson(
-        response,
-        200,
-        await worktreeActions.materialize(await readJson<WorktreeMaterializeRequest>(request))
-      );
+      await readJson<WorktreeMaterializeRequest>(request);
+      canonicalRuntimeRequired(response, 'Worktree preparation');
       return true;
     }
     if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/inspect') {
@@ -499,29 +496,20 @@ export function createProjectSpaceCoreApiRoutes(
       return true;
     }
     if (request.method === 'POST' && url.pathname === '/api/worktrees/setup/run') {
-      writeJson(
-        response,
-        200,
-        await worktreeActions.runSetup(await readJson<WorktreeSetupRunRequest>(request))
-      );
+      await readJson<WorktreeSetupRunRequest>(request);
+      canonicalRuntimeRequired(response, 'Worktree setup');
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/dev-servers/start') {
-      writeJson(
-        response,
-        200,
-        await devServers.start(await readJson<DevServerActionRequest>(request))
-      );
+      await readJson<DevServerActionRequest>(request);
+      canonicalRuntimeRequired(response, 'Dev-server start');
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/dev-servers/stop') {
-      writeJson(
-        response,
-        200,
-        await devServers.stop(await readJson<DevServerActionRequest>(request))
-      );
+      await readJson<DevServerActionRequest>(request);
+      canonicalRuntimeRequired(response, 'Dev-server stop');
       return true;
     }
 
@@ -651,6 +639,16 @@ export function createProjectSpaceCoreApiRoutes(
 
     return false;
   };
+}
+
+function canonicalRuntimeRequired(response: ServerResponse, operation: string) {
+  response.setHeader('Cache-Control', 'private, no-store');
+  writeJson(response, 409, {
+    error: {
+      code: 'canonical_runtime_required',
+      message: `${operation} requires the canonical control API.`
+    }
+  });
 }
 
 function parsePreviewHubStartRequest(value: unknown): PreviewHubStartRequest | null {

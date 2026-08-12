@@ -12,11 +12,12 @@ implements CanonicalRuntimeControlOperationStore {
     const record = this.records.get(recordKey(input.identity.ownerUserId, input.identity.operationId));
     if (record) {
       if (record.fingerprint !== input.fingerprint ||
-          JSON.stringify({ ...record.identity, sessionId: '' }) !==
-            JSON.stringify({ ...input.identity, sessionId: '' })) {
+          stableJson({ ...record.identity, sessionId: '' }) !==
+            stableJson({ ...input.identity, sessionId: '' })) {
         return { kind: 'conflict' as const };
       }
-      if (record.state === 'completed' || record.state === 'failed') {
+      if (record.state === 'completed' || record.state === 'failed' ||
+          record.state === 'blocked_dependency') {
         return { kind: 'replayed' as const, record };
       }
       if (record.identity.sessionId !== input.identity.sessionId) return { kind: 'conflict' as const };
@@ -25,6 +26,13 @@ implements CanonicalRuntimeControlOperationStore {
       }
       return { kind: 'replayed' as const, record };
     }
+    if (input.identity.accessMode === 'mutation' && [...this.records.values()].some((candidate) =>
+      candidate.identity.ownerUserId === input.identity.ownerUserId &&
+      candidate.identity.workspaceId === input.identity.workspaceId &&
+      candidate.identity.generation === input.identity.generation &&
+      candidate.identity.accessMode === 'mutation' &&
+      ['reserved', 'dispatching', 'uncertain'].includes(candidate.state)
+    )) return { kind: 'in_progress' as const };
     const created: CanonicalRuntimeControlOperationRecord = {
       fingerprint: input.fingerprint,
       identity: input.identity,
@@ -146,7 +154,7 @@ implements CanonicalRuntimeControlOperationStore {
   private exact(input: { fingerprint: string; identity: CanonicalRuntimeControlOperationRecord['identity'] }) {
     const current = this.records.get(recordKey(input.identity.ownerUserId, input.identity.operationId));
     if (!current || current.fingerprint !== input.fingerprint ||
-        JSON.stringify(current.identity) !== JSON.stringify(input.identity)) throw changed();
+        stableJson(current.identity) !== stableJson(input.identity)) throw changed();
     return current;
   }
 
@@ -194,4 +202,13 @@ function recordKey(ownerUserId: string, operationId: string) {
 
 function changed() {
   return new Error('Canonical Runtime control operation reservation changed.');
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }

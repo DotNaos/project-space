@@ -1,11 +1,16 @@
-import type { CanonicalRuntimeControlRequest } from '../../src/shared/canonical-runtime-control-api';
+import {
+  canonicalRuntimeControlAccessMode,
+  type CanonicalRuntimeControlRequest
+} from '../../src/shared/canonical-runtime-control-api';
+import {
+  workspaceRuntimeControlCapability,
+  workspaceRuntimeMutationCapability
+} from '../../src/shared/workspace-runtime-session-api';
 import type {
   CanonicalRuntimeControlInventory,
   CanonicalRuntimeControlTarget
 } from './contracts';
 import { CanonicalRuntimeControlError } from './contracts';
-
-const runtimeControlCapability = 'runtime.control.v1';
 
 export async function resolveCanonicalRuntimeControlTarget(
   inventory: CanonicalRuntimeControlInventory,
@@ -23,6 +28,15 @@ export async function resolveCanonicalRuntimeControlTarget(
     entry.code === 'duplicate_environment_identity'
   )) unavailable();
   const environment = environments[0]!;
+  const platform = compute.platforms.filter(({ id }) => id === environment.platformId);
+  if (platform.length !== 1) unavailable();
+  if (environment.hostAssociation.resolution === 'conflict') unavailable();
+  const hostId = environment.hostAssociation.resolution === 'verified' ||
+    environment.hostAssociation.resolution === 'manual'
+    ? environment.hostAssociation.hostId
+    : undefined;
+  const hosts = hostId ? compute.hosts.filter(({ id }) => id === hostId) : [];
+  if (hostId && (hosts.length !== 1 || hosts[0]!.platformId !== environment.platformId)) unavailable();
   const targetIdentityRevision = `${environment.identity.version}:${environment.identity.key}`;
   if (request.expectedTargetIdentityRevision !== targetIdentityRevision) unavailable();
   const matches = runtimes.filter((runtime) =>
@@ -31,12 +45,20 @@ export async function resolveCanonicalRuntimeControlTarget(
   );
   if (matches.length !== 1) unavailable();
   const runtime = matches[0]!;
+  const capability = canonicalRuntimeControlAccessMode(request.operation) === 'mutation'
+    ? workspaceRuntimeMutationCapability
+    : workspaceRuntimeControlCapability;
   if (runtime.generation !== request.expectedGeneration ||
       runtime.connectionState !== 'online' || runtime.lifecycleState !== 'running' ||
-      !runtime.capabilities.includes(runtimeControlCapability as never)) unavailable();
+      !runtime.capabilities.includes(capability)) unavailable();
   return {
+    branch: runtime.branch,
+    commit: runtime.commit,
     environmentId: request.environmentId,
     generation: runtime.generation,
+    ...(hostId ? { hostId } : {}),
+    manifestDigest: runtime.manifestDigest,
+    platformId: environment.platformId,
     sessionId: runtime.sessionId,
     targetIdentityRevision,
     workspaceId: request.workspaceId

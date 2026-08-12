@@ -45,6 +45,7 @@ type Bootstrap struct {
 	Capabilities             []string `json:"capabilities"`
 	RequestedCapabilities    []string `json:"requestedCapabilities,omitempty"`
 	OwnerUserID              string   `json:"ownerUserId,omitempty"`
+	WorktreeOwnerThreadID    string   `json:"worktreeOwnerThreadId,omitempty"`
 	WorkspacePath            string   `json:"workspacePath,omitempty"`
 	JournalPath              string   `json:"journalPath"`
 	StatePath                string   `json:"statePath"`
@@ -113,6 +114,7 @@ type Client struct {
 	Dial       func(context.Context, string, *websocket.DialOptions) (*websocket.Conn, *http.Response, error)
 	Telemetry  func(context.Context) (float64, int64, error)
 	ControlRun controlCommandRunner
+	Mutations  RuntimeMutationExecutor
 }
 
 func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
@@ -133,7 +135,7 @@ func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
 		return err
 	}
 	defer controller.stop()
-	control, err := newControlReceiver(bootstrap, client.ControlRun)
+	control, err := newControlReceiver(bootstrap, client.ControlRun, client.Mutations)
 	if err != nil {
 		return err
 	}
@@ -623,8 +625,12 @@ func validateBootstrap(value Bootstrap, now time.Time) error {
 	}
 	controllerRequested := hasCapability(value.RequestedCapabilities, "runtime.codex.v1")
 	controlRequested := hasCapability(value.RequestedCapabilities, controlCapability)
-	if controlRequested && (!safeText(value.OwnerUserID, 256) || !validAbsolutePath(value.WorkspacePath)) {
+	mutationRequested := hasCapability(value.RequestedCapabilities, mutationCapability)
+	if (controlRequested || mutationRequested) && (!safeText(value.OwnerUserID, 256) || !validAbsolutePath(value.WorkspacePath)) {
 		return fmt.Errorf("Workspace Runtime control bootstrap is invalid")
+	}
+	if mutationRequested && !uuidPattern.MatchString(value.WorktreeOwnerThreadID) {
+		return fmt.Errorf("Workspace Runtime mutation bootstrap is invalid")
 	}
 	controllerValuesPresent := value.CodexControllerBinary != "" || value.CodexControllerBootstrap != ""
 	if controllerRequested != controllerValuesPresent || controllerValuesPresent &&

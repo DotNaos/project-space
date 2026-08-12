@@ -12,7 +12,11 @@ export type WorkspaceRuntimeControlOperation =
   | 'workspace-runtime.stop.v1'
   | 'workspace-runtime.clean.v1'
   | 'workspace-runtime.reconcile.v1';
-export type SshControlOperation = 'status.v1' | WorkspaceRuntimeControlOperation;
+export type WorktreeLifecycleControlOperation = 'worktree.prepare.v1';
+export type SshControlOperation =
+  | 'status.v1'
+  | WorkspaceRuntimeControlOperation
+  | WorktreeLifecycleControlOperation;
 export type SshGatewayOperationState =
   | 'reserved'
   | 'dispatching'
@@ -28,6 +32,8 @@ export interface SshGatewayActor {
 }
 
 export interface SshGatewayRequest {
+  branch?: string;
+  commit?: string;
   environmentId: string;
   operation: SshControlOperation;
   operationId: string;
@@ -37,6 +43,7 @@ export interface SshGatewayRequest {
   expectedManifestDigest?: string;
   expectedRuntimeVersion?: string;
   mode?: 'process' | 'devcontainer';
+  repository?: string;
   runtimeSessionCapabilities?: string[];
   runtimeSessionEndpoint?: string;
   runtimeSessionExpiresAt?: string;
@@ -44,7 +51,12 @@ export interface SshGatewayRequest {
   runtimeSessionRequestedCapabilities?: string[];
   runtimeSessionToken?: string;
   runtimeSessionVersion?: string;
+  worktreeOwnerThreadId?: string;
   workspaceId?: string;
+}
+
+export interface SshGatewayWorktreeAuthorizer {
+  authorize(actor: SshGatewayActor, request: SshGatewayRequest): Promise<boolean>;
 }
 
 export interface SshGatewayWorkspaceRuntimeResult {
@@ -64,7 +76,23 @@ export interface SshGatewayWorkspaceRuntimeResult {
   workspaceId: string;
 }
 
-export type SshGatewaySafeResult = SshGatewayStatusResult | SshGatewayWorkspaceRuntimeResult;
+export interface SshGatewayWorktreePrepareResult {
+  branch: string;
+  checkedAt: string;
+  commit: string;
+  operation: WorktreeLifecycleControlOperation;
+  operationId: string;
+  schemaVersion: 1;
+  state: 'ready';
+  targetIdentityRevision: string;
+  type: 'result';
+  workspaceId: string;
+}
+
+export type SshGatewaySafeResult =
+  | SshGatewayStatusResult
+  | SshGatewayWorkspaceRuntimeResult
+  | SshGatewayWorktreePrepareResult;
 
 export interface SshGatewayStatusResult {
   checkedAt: string;

@@ -10,6 +10,12 @@ export function validateRequest(actor: SshGatewayActor, request: SshGatewayReque
 }
 
 export function validateReplayRequest(actor: SshGatewayActor, request: SshGatewayRequest) {
+  if (request.operation === 'worktree.prepare.v1') {
+    if (!validWorktreePrepare(request) || !actor.id || !actor.ownerUserId) {
+      throw new SshGatewayError('operation_conflict', 'SSH gateway replay request is invalid.');
+    }
+    return;
+  }
   const validStart = request.operation === 'workspace-runtime.start.v1' &&
     isUuid(request.environmentId) && isUuid(request.workspaceId) && isUuid(request.expectedGeneration) &&
     /^[A-Za-z0-9:._-]{1,256}$/.test(request.operationId) &&
@@ -29,6 +35,7 @@ function validRuntimeAuthority(request: SshGatewayRequest) {
 }
 
 function validOperationRequest(request: SshGatewayRequest) {
+  if (request.operation === 'worktree.prepare.v1') return validWorktreePrepare(request);
   if (request.operation === 'status.v1') {
     return request.workspaceId === undefined && request.expectedCommit === undefined &&
       request.expectedManifestDigest === undefined && request.expectedGeneration === undefined &&
@@ -45,9 +52,21 @@ function validOperationRequest(request: SshGatewayRequest) {
     (request.mode === 'process' || request.mode === 'devcontainer') &&
     (start
       ? runtimeSession
-        ? isUuid(request.expectedGeneration) && validRuntimeAuthority(request) && validRuntimeSessionRequest(request)
+        ? isUuid(request.expectedGeneration) && validRuntimeAuthority(request) &&
+          validRuntimeSessionRequest(request)
         : request.expectedGeneration === undefined && !runtimeAuthorityPresent(request)
       : isUuid(request.expectedGeneration) && !runtimeSession && !runtimeAuthorityPresent(request));
+}
+
+function validWorktreePrepare(request: SshGatewayRequest) {
+  return isUuid(request.workspaceId) && isUuid(request.worktreeOwnerThreadId) &&
+    /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(request.repository ?? '') &&
+    /^[^\u0000-\u001f\u007f]{1,255}$/.test(request.branch ?? '') &&
+    /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(request.commit ?? '') &&
+    request.expectedBranch === undefined && request.expectedCommit === undefined &&
+    request.expectedGeneration === undefined && request.expectedManifestDigest === undefined &&
+    request.expectedRuntimeVersion === undefined && request.mode === undefined &&
+    !runtimeSessionValuesPresent(request);
 }
 
 function runtimeAuthorityPresent(request: SshGatewayRequest) {
@@ -73,6 +92,9 @@ function validRuntimeSessionRequest(request: SshGatewayRequest) {
     'runtime.lifecycle', 'runtime.heartbeat', 'runtime.dev-servers',
     'runtime.telemetry', 'runtime.log-pointers'
   ]);
+  const requested = request.runtimeSessionRequestedCapabilities ?? [];
+  const mutation = requested.includes('runtime.mutation.v1');
+  const requestedAllowed = new Set(['runtime.codex.v1', 'runtime.control.v1', 'runtime.mutation.v1']);
   return endpoint.protocol === 'wss:' && endpoint.pathname === '/api/workspace-runtimes/socket' &&
     endpoint.username === '' && endpoint.password === '' && endpoint.search === '' && endpoint.hash === '' &&
     /^[A-Za-z0-9_-]{43}$/.test(request.runtimeSessionToken ?? '') &&
@@ -80,7 +102,11 @@ function validRuntimeSessionRequest(request: SshGatewayRequest) {
     Number.isFinite(expiresAt) && expiresAt > Date.now() && expiresAt <= Date.now() + 60 * 60_000 &&
     Array.isArray(capabilities) && capabilities.length >= 2 && capabilities.length <= allowed.size &&
     new Set(capabilities).size === capabilities.length && capabilities.every((value) => allowed.has(value)) &&
-    capabilities.includes('runtime.lifecycle') && capabilities.includes('runtime.heartbeat');
+    capabilities.includes('runtime.lifecycle') && capabilities.includes('runtime.heartbeat') &&
+    requested.length >= 1 && requested.length <= requestedAllowed.size &&
+    new Set(requested).size === requested.length && requested.every((value) => requestedAllowed.has(value)) &&
+    (!mutation || requested.includes('runtime.control.v1') && isUuid(request.worktreeOwnerThreadId)) &&
+    (mutation || request.worktreeOwnerThreadId === undefined);
 }
 
 export function isUuid(value: unknown): value is string {

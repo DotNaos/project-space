@@ -2,7 +2,8 @@ import type { ComputeInventorySnapshot } from '../../src/shared/compute-environm
 import type {
   CanonicalRuntimeControlOperation,
   CanonicalRuntimeControlRequest,
-  CanonicalRuntimeControlResult
+  CanonicalRuntimeControlResult,
+  CanonicalRuntimeControlSafeInput
 } from '../../src/shared/canonical-runtime-control-api';
 import type { WorkspaceRuntimeSessionSnapshot } from '../../src/shared/workspace-runtime-session-api';
 
@@ -13,8 +14,13 @@ export interface CanonicalRuntimeControlActor {
 }
 
 export interface CanonicalRuntimeControlTarget {
+  branch: string;
+  commit: string;
   environmentId: string;
   generation: string;
+  hostId?: string;
+  manifestDigest: string;
+  platformId: string;
   sessionId: string;
   targetIdentityRevision: string;
   workspaceId: string;
@@ -31,11 +37,13 @@ export interface CanonicalRuntimeControlAuthorizer {
         actor: CanonicalRuntimeControlActor;
         operation: CanonicalRuntimeControlOperation;
         phase: 'coarse';
+        safeInput: CanonicalRuntimeControlSafeInput;
       }
     | {
         actor: CanonicalRuntimeControlActor;
         operation: CanonicalRuntimeControlOperation;
         phase: 'exact';
+        safeInput: CanonicalRuntimeControlSafeInput;
         target: CanonicalRuntimeControlTarget;
       }
   ): Promise<boolean>;

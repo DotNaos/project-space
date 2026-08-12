@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +17,7 @@ import (
 
 const (
 	controlCapability   = "runtime.control.v1"
+	mutationCapability  = "runtime.mutation.v1"
 	controlCommandLimit = 5 * time.Second
 	controlOutputLimit  = 256 * 1024
 	controlSummaryLimit = 512
@@ -28,91 +28,14 @@ var controlIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._-]{0
 var controlDevServerNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 var controlRevisionPattern = regexp.MustCompile(`^[1-9][0-9]*:[A-Za-z0-9:_-]{8,256}$`)
 
-type controlCommandRunner func(context.Context, string, ...string) ([]byte, error)
-
-type controlCommand struct {
-	ActorID                string `json:"actorId"`
-	ActorKind              string `json:"actorKind"`
-	ActorUserID            string `json:"actorUserId"`
-	CommandID              string `json:"commandId"`
-	CommandSequence        int64  `json:"commandSequence"`
-	EnvironmentID          string `json:"environmentId"`
-	Generation             string `json:"generation"`
-	Operation              string `json:"operation"`
-	OperationID            string `json:"operationId"`
-	SchemaVersion          int    `json:"schemaVersion"`
-	SessionID              string `json:"sessionId"`
-	Staged                 *bool  `json:"staged,omitempty"`
-	TargetIdentityRevision string `json:"targetIdentityRevision"`
-	Type                   string `json:"type"`
-	WorkspaceID            string `json:"workspaceId"`
-}
-
-type controlResponse struct {
-	ActorID                 string      `json:"actorId"`
-	ActorKind               string      `json:"actorKind"`
-	ActorUserID             string      `json:"actorUserId"`
-	CommandID               string      `json:"commandId"`
-	CommandSequence         int64       `json:"commandSequence"`
-	EnvironmentID           string      `json:"environmentId"`
-	Generation              string      `json:"generation"`
-	OperationID             string      `json:"operationId"`
-	SchemaVersion           int         `json:"schemaVersion"`
-	SessionID               string      `json:"sessionId"`
-	TargetIdentityRevision  string      `json:"targetIdentityRevision"`
-	WorkspaceID             string      `json:"workspaceId"`
-	AcceptedCommandSequence *int64      `json:"acceptedCommandSequence,omitempty"`
-	Code                    string      `json:"code,omitempty"`
-	EventSequence           *int64      `json:"eventSequence,omitempty"`
-	Message                 string      `json:"message,omitempty"`
-	Operation               string      `json:"operation,omitempty"`
-	Output                  interface{} `json:"output,omitempty"`
-	Replayed                *bool       `json:"replayed,omitempty"`
-	State                   string      `json:"state,omitempty"`
-	Type                    string      `json:"type"`
-}
-
-type gitStatusSummary struct {
-	Clean      bool `json:"clean"`
-	Conflicted int  `json:"conflicted"`
-	Staged     int  `json:"staged"`
-	Truncated  bool `json:"truncated"`
-	Unstaged   int  `json:"unstaged"`
-	Untracked  int  `json:"untracked"`
-}
-
-type gitDiffSummary struct {
-	AddedLines   int  `json:"addedLines"`
-	BinaryFiles  int  `json:"binaryFiles"`
-	ChangedFiles int  `json:"changedFiles"`
-	DeletedLines int  `json:"deletedLines"`
-	Staged       bool `json:"staged"`
-	Truncated    bool `json:"truncated"`
-}
-
-type worktreeSummary struct {
-	Current   int  `json:"current"`
-	Detached  int  `json:"detached"`
-	Locked    int  `json:"locked"`
-	Prunable  int  `json:"prunable"`
-	Total     int  `json:"total"`
-	Truncated bool `json:"truncated"`
-}
-
-type devServerSummary struct {
-	Failed   int `json:"failed"`
-	Ready    int `json:"ready"`
-	Starting int `json:"starting"`
-	Stopped  int `json:"stopped"`
-	Total    int `json:"total"`
-}
-
 type controlReceiver struct {
-	bootstrap Bootstrap
-	journal   controlJournal
-	path      string
-	run       controlCommandRunner
-	sessionID string
+	bootstrap      Bootstrap
+	journal        controlJournal
+	path           string
+	run            controlCommandRunner
+	mutations      RuntimeMutationExecutor
+	mutationFenced bool
+	sessionID      string
 }
 
 func addControlRegistration(registration *Registration, receiver *controlReceiver) {
@@ -120,7 +43,12 @@ func addControlRegistration(registration *Registration, receiver *controlReceive
 		return
 	}
 	commandSequence, eventSequence := receiver.watermarks()
-	registration.ReadyCapabilities = append(registration.ReadyCapabilities, controlCapability)
+	if hasCapability(receiver.bootstrap.RequestedCapabilities, controlCapability) {
+		registration.ReadyCapabilities = append(registration.ReadyCapabilities, controlCapability)
+	}
+	if hasCapability(receiver.bootstrap.RequestedCapabilities, mutationCapability) {
+		registration.ReadyCapabilities = append(registration.ReadyCapabilities, mutationCapability)
+	}
 	registration.ResumeAfterControlCommandSequence = &commandSequence
 	registration.ResumeAfterControlEventSequence = &eventSequence
 }
@@ -184,8 +112,9 @@ func handleControlFrame(
 	})
 }
 
-func newControlReceiver(bootstrap Bootstrap, run controlCommandRunner) (*controlReceiver, error) {
-	if !hasCapability(bootstrap.RequestedCapabilities, controlCapability) {
+func newControlReceiver(bootstrap Bootstrap, run controlCommandRunner, mutations ...RuntimeMutationExecutor) (*controlReceiver, error) {
+	if !hasCapability(bootstrap.RequestedCapabilities, controlCapability) &&
+		!hasCapability(bootstrap.RequestedCapabilities, mutationCapability) {
 		return nil, nil
 	}
 	if run == nil {
@@ -209,17 +138,21 @@ func newControlReceiver(bootstrap Bootstrap, run controlCommandRunner) (*control
 		path:      filepath.Join(filepath.Dir(bootstrap.JournalPath), "runtime-control-journal.json"),
 		run:       run,
 	}
+	if len(mutations) > 0 {
+		receiver.mutations = mutations[0]
+	}
 	if err := receiver.verifyWorkspace(context.Background()); err != nil {
 		return nil, err
 	}
 	binding := sha256.Sum256([]byte(strings.Join([]string{
 		bootstrap.OwnerUserID, bootstrap.WorkspaceID, bootstrap.EnvironmentID, bootstrap.Generation,
-		bootstrap.ManifestDigest, canonical,
+		bootstrap.ManifestDigest, bootstrap.WorktreeOwnerThreadID, canonical,
 	}, "\x00")))
 	receiver.journal, err = loadControlJournal(receiver.path, hex.EncodeToString(binding[:]))
 	if err != nil {
 		return nil, err
 	}
+	receiver.mutationFenced = receiver.journal.MutationFenced
 	return receiver, nil
 }
 
@@ -282,10 +215,17 @@ func (receiver *controlReceiver) handle(
 			return fmt.Errorf("Workspace Runtime control replay changed")
 		}
 		if len(record.Responses) == 1 {
-			response := receiver.errorResponse(command, "uncertain")
-			record.Responses = append(record.Responses, response)
-			record.State = "uncertain"
-			receiver.journal.LastEventSequence = *response.EventSequence
+			if output, recovered := receiver.recoverInterrupted(ctx, command, record); recovered {
+				response := receiver.resultResponse(command, output)
+				record.Responses = append(record.Responses, response)
+				record.State = "completed"
+				receiver.journal.LastEventSequence = *response.EventSequence
+			} else {
+				response := receiver.errorResponse(command, "uncertain")
+				record.Responses = append(record.Responses, response)
+				record.State = "uncertain"
+				receiver.journal.LastEventSequence = *response.EventSequence
+			}
 			if err := saveControlJournal(receiver.path, receiver.journal); err != nil {
 				return err
 			}
@@ -322,57 +262,53 @@ func (receiver *controlReceiver) handle(
 	if err := emit(accepted); err != nil {
 		return err
 	}
+	record := receiver.journal.command(command.CommandSequence)
+	if record == nil {
+		return fmt.Errorf("Workspace Runtime control journal changed")
+	}
+	if isMutationOperation(command.Operation) {
+		evidence, err := receiver.prepareMutationEvidence(ctx, command)
+		if err != nil {
+			response := receiver.errorResponse(command, "unavailable")
+			record.Responses = append(record.Responses, response)
+			record.State = "completed"
+			receiver.journal.LastEventSequence = *response.EventSequence
+			if saveErr := saveControlJournal(receiver.path, receiver.journal); saveErr != nil {
+				return saveErr
+			}
+			return emit(response)
+		}
+		record.Mutation = evidence
+		if err := saveControlJournal(receiver.path, receiver.journal); err != nil {
+			return err
+		}
+	}
 	output, executeErr := receiver.execute(ctx, command)
 	var response controlResponse
 	if executeErr != nil {
-		response = receiver.errorResponse(command, "unavailable")
+		code := "unavailable"
+		if isMutationOperation(command.Operation) {
+			code = "uncertain"
+		}
+		response = receiver.errorResponse(command, code)
 	} else {
 		response = receiver.resultResponse(command, output)
 	}
-	record := receiver.journal.command(command.CommandSequence)
+	record = receiver.journal.command(command.CommandSequence)
 	if record == nil {
 		return fmt.Errorf("Workspace Runtime control journal changed")
 	}
 	record.Responses = append(record.Responses, response)
 	record.State = "completed"
 	receiver.journal.LastEventSequence = *response.EventSequence
+	if command.Operation == "git.commit" && executeErr == nil {
+		receiver.journal.MutationFenced = true
+		receiver.mutationFenced = true
+	}
 	if err := saveControlJournal(receiver.path, receiver.journal); err != nil {
 		return err
 	}
 	return emit(response)
-}
-
-func (receiver *controlReceiver) parseCommand(encoded json.RawMessage) (controlCommand, error) {
-	if len(encoded) == 0 || len(encoded) > 64*1024 {
-		return controlCommand{}, fmt.Errorf("Workspace Runtime control command is invalid")
-	}
-	var raw map[string]json.RawMessage
-	var command controlCommand
-	if json.Unmarshal(encoded, &raw) != nil || json.Unmarshal(encoded, &command) != nil {
-		return controlCommand{}, fmt.Errorf("Workspace Runtime control command is invalid")
-	}
-	baseKeys := []string{
-		"actorId", "actorKind", "actorUserId", "commandId", "commandSequence", "environmentId",
-		"generation", "operation", "operationId", "schemaVersion", "sessionId",
-		"targetIdentityRevision", "type", "workspaceId",
-	}
-	if command.Operation == "git.diff" {
-		baseKeys = append(baseKeys, "staged")
-	}
-	if !exactJSONKeys(raw, baseKeys) || command.Type != "runtime.control.command" || command.SchemaVersion != SchemaVersion ||
-		!controlIdentifierPattern.MatchString(command.ActorID) ||
-		!oneOf(command.ActorKind, "agent", "human", "orchestrator", "system") ||
-		command.ActorUserID != receiver.bootstrap.OwnerUserID || !safeText(command.ActorUserID, 256) ||
-		!controlIdentifierPattern.MatchString(command.CommandID) || command.CommandID != command.OperationID ||
-		!controlIdentifierPattern.MatchString(command.OperationID) || command.CommandSequence < 1 ||
-		command.EnvironmentID != receiver.bootstrap.EnvironmentID || command.Generation != receiver.bootstrap.Generation ||
-		command.WorkspaceID != receiver.bootstrap.WorkspaceID || command.SessionID != receiver.sessionID ||
-		!controlRevisionPattern.MatchString(command.TargetIdentityRevision) ||
-		!oneOf(command.Operation, "git.status", "git.diff", "worktree.list", "dev-server.inspect") ||
-		(command.Operation == "git.diff") != (command.Staged != nil) {
-		return controlCommand{}, fmt.Errorf("Workspace Runtime control command is invalid")
-	}
-	return command, nil
 }
 
 func (receiver *controlReceiver) verifyWorkspace(ctx context.Context) error {
@@ -425,6 +361,9 @@ func (receiver *controlReceiver) execute(ctx context.Context, command controlCom
 		return summarizeWorktrees(output, receiver.bootstrap.WorkspacePath)
 	case "dev-server.inspect":
 		return receiver.summarizeDevServers()
+	case "git.stage", "git.unstage", "git.commit", "task.start",
+		"dev-server.start", "dev-server.publish", "dev-server.stop":
+		return receiver.executeMutation(operationCtx, command)
 	default:
 		return nil, fmt.Errorf("unsupported Workspace Runtime control operation")
 	}
@@ -466,7 +405,7 @@ func (receiver *controlReceiver) errorResponse(command controlCommand, code stri
 	sequence := receiver.journal.LastEventSequence + 1
 	response.Code = code
 	response.EventSequence = &sequence
-	response.Message = "The Workspace Runtime inspection operation is unavailable."
+	response.Message = "The Workspace Runtime control operation is unavailable."
 	response.Operation = command.Operation
 	response.Type = "runtime.control.error"
 	return response
@@ -480,84 +419,4 @@ func (receiver *controlReceiver) responseBinding(command controlCommand) control
 		OperationID: command.OperationID, SchemaVersion: SchemaVersion, SessionID: receiver.sessionID,
 		TargetIdentityRevision: command.TargetIdentityRevision, WorkspaceID: command.WorkspaceID,
 	}
-}
-
-func controlFingerprint(command controlCommand) (string, error) {
-	command.SessionID = ""
-	encoded, err := json.Marshal(command)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:]), nil
-}
-
-func exactJSONKeys(value map[string]json.RawMessage, expected []string) bool {
-	if len(value) != len(expected) {
-		return false
-	}
-	for _, key := range expected {
-		if _, ok := value[key]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func exactJSONKeysOptional(value map[string]json.RawMessage, required, optional []string) bool {
-	if len(value) < len(required) || len(value) > len(required)+len(optional) {
-		return false
-	}
-	allowed := map[string]bool{}
-	for _, key := range append(append([]string{}, required...), optional...) {
-		allowed[key] = true
-	}
-	for _, key := range required {
-		if _, ok := value[key]; !ok {
-			return false
-		}
-	}
-	for key := range value {
-		if !allowed[key] {
-			return false
-		}
-	}
-	return true
-}
-
-func oneOf(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
-}
-
-func validRequestedCapabilities(values []string) bool {
-	if len(values) > 2 {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, value := range values {
-		if !oneOf(value, "runtime.codex.v1", controlCapability) || seen[value] {
-			return false
-		}
-		seen[value] = true
-	}
-	return true
-}
-
-func safeControlURL(value string) bool {
-	parsed, err := url.Parse(value)
-	return err == nil && oneOf(parsed.Scheme, "http", "https") && parsed.Host != "" &&
-		parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == ""
-}
-
-func encodeControlResponse(response controlResponse) ([]byte, error) {
-	encoded, err := json.Marshal(response)
-	if err != nil || len(encoded) > controlMessageLimit {
-		return nil, fmt.Errorf("Workspace Runtime control response is invalid")
-	}
-	return encoded, nil
 }

@@ -17,10 +17,12 @@ import {
   validateInstant,
   validateOperationIdentity,
   validatePositiveSequence,
+  validateSafeInput,
   validateSafeResult
 } from './operation-store-validation';
 
 interface OperationRow {
+  access_mode: CanonicalRuntimeControlOperationIdentity['accessMode'];
   accepted_command_sequence: number | string | null;
   accepted_event_sequence: number | string | null;
   actor_id: string;
@@ -42,17 +44,18 @@ interface OperationRow {
   reserved_until: Date | string | null;
   result_event_sequence: number | string | null;
   safe_result: unknown;
+  safe_input: unknown;
   session_id: string;
   state: CanonicalRuntimeControlOperationState;
   target_identity_revision: string;
   workspace_id: string;
 }
 
-const columns = `accepted_command_sequence, accepted_event_sequence, actor_id, actor_kind,
+const columns = `access_mode, accepted_command_sequence, accepted_event_sequence, actor_id, actor_kind,
   actor_user_id, command_id, command_sequence, compatibility_alias, completed_at,
   diff_staged, dispatch_lease_until, environment_id::text, failure_code,
   fingerprint_sha256, generation::text, operation, operation_id, owner_user_id,
-  reserved_until, result_event_sequence, safe_result, session_id::text, state,
+  reserved_until, result_event_sequence, safe_input, safe_result, session_id::text, state,
   target_identity_revision, workspace_id::text`;
 
 export class PostgresCanonicalRuntimeControlOperationStore
@@ -71,7 +74,8 @@ implements CanonicalRuntimeControlOperationStore {
       if (existing) {
         if (existing.fingerprint_sha256 !== input.fingerprint ||
           !sameIdentityExceptSession(existing, input.identity)) return { kind: 'conflict' as const };
-        if (existing.state === 'completed' || existing.state === 'failed') {
+        if (existing.state === 'completed' || existing.state === 'failed' ||
+            existing.state === 'blocked_dependency') {
           return { kind: 'replayed' as const, record: rowToRecord(existing) };
         }
         if (!sameIdentity(existing, input.identity)) return { kind: 'conflict' as const };
@@ -111,18 +115,36 @@ implements CanonicalRuntimeControlOperationStore {
         return { kind: 'replayed' as const, record: rowToRecord(existing) };
       }
 
-      const inserted = await client.query<OperationRow>(
-        `insert into canonical_runtime_control_operations (
-           owner_user_id, operation_id, fingerprint_sha256, actor_user_id, actor_id,
-           actor_kind, compatibility_alias, operation, diff_staged, environment_id,
-           target_identity_revision, workspace_id, generation, session_id, state,
-           reserved_until, created_at, updated_at
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid, $11,
-                   $12::uuid, $13::uuid, $14::uuid, 'reserved', $15::timestamptz,
-                   $16::timestamptz, $16::timestamptz)
-         returning ${columns}`,
-        reservationValues(input)
-      );
+      if (input.identity.accessMode === 'mutation') {
+        const unresolved = await client.query(
+          `select 1 from canonical_runtime_control_operations
+            where owner_user_id = $1 and workspace_id = $2::uuid and generation = $3::uuid
+              and access_mode = 'mutation' and state in ('reserved', 'dispatching', 'uncertain')
+            limit 1`,
+          [input.identity.ownerUserId, input.identity.workspaceId, input.identity.generation]
+        );
+        if (unresolved.rows.length > 0) return { kind: 'in_progress' as const };
+      }
+      let inserted;
+      try {
+        inserted = await client.query<OperationRow>(
+          `insert into canonical_runtime_control_operations (
+             owner_user_id, operation_id, fingerprint_sha256, actor_user_id, actor_id,
+             actor_kind, compatibility_alias, operation, diff_staged, safe_input, access_mode,
+             environment_id, target_identity_revision, workspace_id, generation, session_id, state,
+             reserved_until, created_at, updated_at
+           ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12::uuid,
+                     $13, $14::uuid, $15::uuid, $16::uuid, 'reserved', $17::timestamptz,
+                     $18::timestamptz, $18::timestamptz)
+           returning ${columns}`,
+          reservationValues(input)
+        );
+      } catch (error) {
+        if (input.identity.accessMode === 'mutation' && isMutationFenceConflict(error)) {
+          return { kind: 'in_progress' as const };
+        }
+        throw error;
+      }
       const row = inserted.rows[0];
       if (!row) throw changed();
       return { kind: 'new' as const, record: rowToRecord(row) };
@@ -384,7 +406,8 @@ implements CanonicalRuntimeControlOperationStore {
     return this.client.transaction!(async (client) => {
       await lockOperation(client, input.identity.ownerUserId, input.identity.operationId);
       const current = await exactCurrent(client, input.identity, input.fingerprint, input.command);
-      if (current.state === 'completed' || current.state === 'failed') {
+      if (current.state === 'completed' || current.state === 'failed' ||
+          current.state === 'blocked_dependency') {
         const record = rowToRecord(current);
         if (record.resultEventSequence !== input.resultEventSequence ||
           record.failureCode !== input.failureCode || stableJson(record.result) !== stableJson(input.result)) {
@@ -477,7 +500,9 @@ function reservationValues(input: CanonicalRuntimeControlReservationInput) {
   const identity = input.identity;
   return [identity.ownerUserId, identity.operationId, input.fingerprint, identity.actorUserId,
     identity.actorId, identity.actorKind, identity.compatibilityAlias, identity.operation,
-    identity.diffStaged ?? null, identity.environmentId, identity.targetIdentityRevision,
+    identity.safeInput.operation === 'git.diff' ? identity.safeInput.staged : null,
+    JSON.stringify(identity.safeInput), identity.accessMode,
+    identity.environmentId, identity.targetIdentityRevision,
     identity.workspaceId, identity.generation, identity.sessionId, input.reservedUntil,
     input.reservedAt];
 }
@@ -493,7 +518,10 @@ function sameIdentityExceptSession(
   return row.owner_user_id === identity.ownerUserId && row.operation_id === identity.operationId &&
     row.actor_user_id === identity.actorUserId && row.actor_id === identity.actorId &&
     row.actor_kind === identity.actorKind && row.compatibility_alias === identity.compatibilityAlias &&
-    row.operation === identity.operation && row.diff_staged === (identity.diffStaged ?? null) &&
+    row.operation === identity.operation && row.access_mode === identity.accessMode &&
+    stableJson(row.safe_input) === stableJson(identity.safeInput) &&
+    row.diff_staged === (identity.safeInput.operation === 'git.diff'
+      ? identity.safeInput.staged : null) &&
     row.environment_id === identity.environmentId &&
     row.target_identity_revision === identity.targetIdentityRevision &&
     row.workspace_id === identity.workspaceId && row.generation === identity.generation;
@@ -501,16 +529,19 @@ function sameIdentityExceptSession(
 
 function rowToRecord(row: OperationRow): CanonicalRuntimeControlOperationRecord {
   const identity: CanonicalRuntimeControlOperationIdentity = {
+    accessMode: row.access_mode,
     actorId: row.actor_id,
     actorKind: row.actor_kind,
     actorUserId: row.actor_user_id,
     compatibilityAlias: row.compatibility_alias,
-    ...(row.diff_staged === null ? {} : { diffStaged: row.diff_staged }),
     environmentId: row.environment_id,
     generation: row.generation,
     operation: row.operation,
     operationId: row.operation_id,
     ownerUserId: row.owner_user_id,
+    safeInput: validateSafeInput(
+      row.safe_input as CanonicalRuntimeControlOperationIdentity['safeInput']
+    ),
     sessionId: row.session_id,
     targetIdentityRevision: row.target_identity_revision,
     workspaceId: row.workspace_id
@@ -522,11 +553,13 @@ function rowToRecord(row: OperationRow): CanonicalRuntimeControlOperationRecord 
     commandSequence: sequenceNumber(row.command_sequence)
   };
   if ((row.state === 'reserved' && command !== undefined) ||
-    (['dispatching', 'completed', 'uncertain'].includes(row.state) && command === undefined) ||
+    (['dispatching', 'completed', 'blocked_dependency', 'uncertain'].includes(row.state) &&
+      command === undefined) ||
     (row.state === 'uncertain' && row.failure_code !== 'dispatch_outcome_unknown')) throw invalidRow();
   const result = row.safe_result === null ? undefined : row.safe_result as CanonicalRuntimeControlResult;
   if (result) validateSafeResult(result, identity, row.failure_code ?? undefined);
-  if ((row.state === 'completed' || row.state === 'failed') !== Boolean(result)) throw invalidRow();
+  if ((row.state === 'completed' || row.state === 'failed' ||
+      row.state === 'blocked_dependency') !== Boolean(result)) throw invalidRow();
   const acceptedCommandSequence = optionalSequence(row.accepted_command_sequence);
   const acceptedEventSequence = optionalSequence(row.accepted_event_sequence);
   if ((acceptedCommandSequence === undefined) !== (acceptedEventSequence === undefined) ||
@@ -625,4 +658,10 @@ function changed() {
 
 function invalidRow() {
   return new Error('Canonical Runtime control persisted evidence is invalid.');
+}
+
+function isMutationFenceConflict(error: unknown) {
+  const databaseError = error as { code?: unknown; constraint?: unknown };
+  return databaseError.code === '23505' &&
+    databaseError.constraint === 'canonical_runtime_control_one_unresolved_mutation_idx';
 }

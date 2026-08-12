@@ -16,6 +16,7 @@ const (
 
 type controlCommandRecord struct {
 	Fingerprint string            `json:"fingerprint"`
+	Mutation    *mutationEvidence `json:"mutation,omitempty"`
 	Responses   []controlResponse `json:"responses"`
 	Sequence    int64             `json:"sequence"`
 	State       string            `json:"state"`
@@ -27,6 +28,7 @@ type controlJournal struct {
 	BindingDigest           string                 `json:"bindingDigest"`
 	Commands                []controlCommandRecord `json:"commands"`
 	LastEventSequence       int64                  `json:"lastEventSequence"`
+	MutationFenced          bool                   `json:"mutationFenced,omitempty"`
 	Schema                  string                 `json:"schema"`
 }
 
@@ -124,6 +126,9 @@ func validateControlJournal(state controlJournal) error {
 		if record.Sequence < 1 || record.Sequence <= previous || record.Sequence > state.AcceptedCommandSequence ||
 			len(record.Fingerprint) != 64 || !oneOf(record.State, "completed", "uncertain") ||
 			len(record.Responses) < 1 || len(record.Responses) > 2 {
+			return fmt.Errorf("Workspace Runtime control journal is invalid")
+		}
+		if record.Mutation != nil && validateMutationEvidence(*record.Mutation) != nil {
 			return fmt.Errorf("Workspace Runtime control journal is invalid")
 		}
 		for _, response := range record.Responses {

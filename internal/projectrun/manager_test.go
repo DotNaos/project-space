@@ -331,6 +331,41 @@ func TestLocalOnlyRequiresExplicitModeAndNeverPublishesTailnet(t *testing.T) {
 	}
 }
 
+func TestPublishExpectedReplacesOnlyExactOwnedLocalGeneration(t *testing.T) {
+	project := writeTestScripts(t)
+	manager, processes, tailnet, _ := newTestManager(t)
+	workspaceID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	runtimeGeneration := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	started, err := manager.StartWithOptions(context.Background(), project, "dev", StartOptions{
+		LocalOnly: true, WorkspaceID: workspaceID, RuntimeGeneration: runtimeGeneration,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.PublishExpected(context.Background(), project, "dev", workspaceID,
+		runtimeGeneration, "wrong-generation", nil); err == nil {
+		t.Fatal("wrong server generation was published")
+	}
+	if len(processes.stopped) != 0 || len(tailnet.routes) != 0 {
+		t.Fatalf("wrong generation mutated resources: stopped=%#v routes=%#v", processes.stopped, tailnet.routes)
+	}
+	published, err := manager.PublishExpected(context.Background(), project, "dev", workspaceID,
+		runtimeGeneration, started.ServerGeneration, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Operation != "publish" || published.State != StateRunning ||
+		published.Mode != ServeModeManaged || published.ServerGeneration == started.ServerGeneration ||
+		published.PublicPort == nil || tailnet.routes[*published.PublicPort] != *published.LocalPort {
+		t.Fatalf("published result = %#v routes=%#v", published, tailnet.routes)
+	}
+	replayed, err := manager.PublishExpected(context.Background(), project, "dev", workspaceID,
+		runtimeGeneration, published.ServerGeneration, nil)
+	if err != nil || replayed.Disposition != ServeDispositionReused || replayed.ServerGeneration != published.ServerGeneration {
+		t.Fatalf("publish replay = %#v err=%v", replayed, err)
+	}
+}
+
 func TestExternalBindingsFailBeforeStartingProcessesOrTailnet(t *testing.T) {
 	project := writeTestScripts(t)
 	for _, data := range []DataMode{DataModeLocal, DataModeRemote} {

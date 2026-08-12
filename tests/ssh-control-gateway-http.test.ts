@@ -21,6 +21,7 @@ describe('SSH control gateway HTTP boundary', () => {
     expect(isConfiguredSshControlGatewayRoute('/api/compute/control/status')).toBe(true);
     expect(isConfiguredSshControlGatewayRoute('/api/compute/control/workspace-runtime')).toBe(true);
     expect(isConfiguredSshControlGatewayRoute('/api/compute/control/workspace-runtime/launch')).toBe(true);
+    expect(isConfiguredSshControlGatewayRoute('/api/compute/control/worktree/prepare')).toBe(true);
     expect(isConfiguredSshControlGatewayRoute('/api/compute/control/shell')).toBe(false);
   });
 
@@ -75,6 +76,43 @@ describe('SSH control gateway HTTP boundary', () => {
     const injected = await fetch(`${origin}/api/compute/control/workspace-runtime`, {
       body: JSON.stringify({ ...input, path: '/tmp/foreign', operationId: 'runtime-operation-two' }),
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'runtime-operation-two' },
+      method: 'POST'
+    });
+    expect(injected.status).toBe(409);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('accepts only a machine-bound Worktree preparation request', async () => {
+    const calls: unknown[] = [];
+    const operationId = 'worktree-operation-one';
+    const input = {
+      branch: 'issue-658-runtime-mutations',
+      commit: '0123456789abcdef0123456789abcdef01234567',
+      environmentId,
+      operationId,
+      repository: 'DotNaos/project-space',
+      workspaceId: '123e4567-e89b-42d3-a456-426614174001',
+      worktreeOwnerThreadId: '123e4567-e89b-42d3-a456-426614174002'
+    };
+    const origin = await start(createSshControlGatewayHttpApi({
+      async execute(actor, request) {
+        calls.push({ actor, request });
+        return worktreeSuccess(request);
+      }
+    }, async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' })));
+    const response = await fetch(`${origin}/api/compute/control/worktree/prepare`, {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationId },
+      method: 'POST'
+    });
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{
+      actor: { id: 'machine-one', kind: 'machine', ownerUserId: 'owner-one' },
+      request: { ...input, operation: 'worktree.prepare.v1' }
+    }]);
+    const injected = await fetch(`${origin}/api/compute/control/worktree/prepare`, {
+      body: JSON.stringify({ ...input, path: '/tmp/foreign', operationId: 'worktree-operation-two' }),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'worktree-operation-two' },
       method: 'POST'
     });
     expect(injected.status).toBe(409);
@@ -186,6 +224,30 @@ function workspaceSuccess(operationId: string): SshGatewayExecutionResult {
       schemaVersion: 1, sourceHead: '0123456789abcdef0123456789abcdef01234567',
       state: 'running', targetIdentityRevision: '1:environment:test', type: 'result',
       workspaceId: '123e4567-e89b-42d3-a456-426614174001'
+    }
+  };
+}
+
+function worktreeSuccess(request: {
+  branch?: string;
+  commit?: string;
+  operationId: string;
+  workspaceId?: string;
+}): SshGatewayExecutionResult {
+  return {
+    audit: {
+      actorId: 'machine-one', actorKind: 'machine', capability: 'project_cli',
+      completedAt: '2026-08-12T10:00:00.000Z', gatewayId: 'gateway-one',
+      operation: 'worktree.prepare.v1', operationId: request.operationId, outcome: 'succeeded',
+      routeClass: 'ssh_private_network', routeId: '22222222-2222-4222-8222-222222222222',
+      targetEnvironmentId: environmentId, targetIdentityRevision: '1:environment:test'
+    },
+    replayed: false,
+    result: {
+      branch: request.branch!, checkedAt: '2026-08-12T10:00:00.000Z', commit: request.commit!,
+      operation: 'worktree.prepare.v1', operationId: request.operationId, schemaVersion: 1,
+      state: 'ready', targetIdentityRevision: '1:environment:test', type: 'result',
+      workspaceId: request.workspaceId!
     }
   };
 }

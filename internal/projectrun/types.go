@@ -65,6 +65,7 @@ type ServeResult struct {
 	Data              DataMode         `json:"data"`
 	Secrets           string           `json:"secrets"`
 	ServerID          string           `json:"serverId"`
+	ServerGeneration  string           `json:"serverGeneration,omitempty"`
 	ServerKey         string           `json:"serverKey"`
 	Script            string           `json:"script"`
 	Directory         string           `json:"directory"`
