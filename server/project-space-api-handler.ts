@@ -38,12 +38,14 @@ import type {
   createConfiguredSshControlGatewayHandler
 } from './ssh-control-gateway/configured-runtime';
 import type { createConfiguredProjectHostdRuntime } from './project-hostd/configured-runtime';
+import type { createHostControlHttpApi } from './host-control/http';
 
 interface ProjectSpaceApiHandlerOptions {
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
   githubCodespaceRunner?: ReturnType<typeof createGitHubCodespaceRunnerHttpHandler>;
+  hostControl?: ReturnType<typeof createHostControlHttpApi>;
   machineReadiness?: ReturnType<typeof createConfiguredMachineReadinessHandler>;
   machinePower?: ReturnType<typeof createConfiguredMachinePowerHandler>;
   machineConnection?: Pick<MachineConnectionRuntime, 'handleRequest'>;
@@ -103,6 +105,10 @@ export function createProjectSpaceApiHandler(
       }
 
       if (options.machineReadiness && await options.machineReadiness(request, response, url)) {
+        return true;
+      }
+
+      if (options.hostControl && await options.hostControl(request, response, url)) {
         return true;
       }
 
