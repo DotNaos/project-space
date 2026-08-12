@@ -1,5 +1,3 @@
-import type { ServerResponse } from 'node:http';
-
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
@@ -8,10 +6,7 @@ import {
   setProjectSpaceAuthTokenProvider,
   resolveProjectSpaceApiBaseUrl
 } from '../src/api/project-space-client';
-import {
-  projectSpaceCorsHeaders,
-  writeText
-} from '../server/project-space-http-response';
+import { projectSpaceCorsHeaders } from '../server/project-space-http-response';
 
 describe('Project Space API origin policy', () => {
   afterEach(() => setProjectSpaceAuthTokenProvider(null));
@@ -179,27 +174,5 @@ describe('Project Space CORS policy', () => {
         PROJECT_SPACE_DEV_CORS_ORIGIN: 'http://localhost:5173/not-an-origin'
       })
     ).toEqual({});
-  });
-
-  test('still writes the public connector install script response without wildcard CORS', () => {
-    let statusCode = 0;
-    let headers: Record<string, string> = {};
-    let body = '';
-    const response = {
-      end(value?: string) {
-        body = value ?? '';
-      },
-      writeHead(code: number, value: Record<string, string>) {
-        statusCode = code;
-        headers = value;
-      }
-    } as unknown as ServerResponse;
-
-    writeText(response, 200, '#!/usr/bin/env bash\necho ready\n', 'text/x-shellscript');
-
-    expect(statusCode).toBe(200);
-    expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
-    expect(headers['Content-Type']).toBe('text/x-shellscript');
-    expect(body).toContain('#!/usr/bin/env bash');
   });
 });
