@@ -32,13 +32,21 @@ trap 'rm -rf -- "$staging_root"' EXIT
 bundle_root="${staging_root}/${bundle_name}"
 mkdir -p -- "$bundle_root"
 
-for binary in project project-space-connector; do
+for binary in project project-space-connector codex; do
   source_path="${source_directory}/${binary}"
   if [[ ! -f $source_path || ! -x $source_path ]]; then
     echo "Required executable is missing: $source_path" >&2
     exit 66
   fi
   install -m 0755 -- "$source_path" "${bundle_root}/${binary}"
+done
+for metadata in CODEX-LICENSE CODEX-NOTICE CODEX-VERSION; do
+  source_path="${source_directory}/${metadata}"
+  if [[ ! -f $source_path || -L $source_path ]]; then
+    echo "Required Codex metadata is missing or unsafe: $source_path" >&2
+    exit 66
+  fi
+  install -m 0644 -- "$source_path" "${bundle_root}/${metadata}"
 done
 legacy_approval_marker="${source_directory}/project-approval-signer"
 if [[ -e $legacy_approval_marker || -L $legacy_approval_marker ]]; then
@@ -59,7 +67,8 @@ done
 install -m 0755 -- "${script_directory}/install-machine-tools.sh" "${bundle_root}/install.sh"
 printf '%s\n' "$version" > "${bundle_root}/VERSION"
 checksum_members=(
-  project project-space-connector
+  project project-space-connector codex
+  CODEX-LICENSE CODEX-NOTICE CODEX-VERSION
   connector-command-signing-public-key.pem
   release-manifest-signing-public-key.pem
   install.sh VERSION

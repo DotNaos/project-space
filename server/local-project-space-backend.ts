@@ -211,7 +211,7 @@ async function connectorCommandCapabilities(daemon: CodexDaemonEvidence) {
         : 'missing';
   return [
     ...baseConnectorCommandCapabilities,
-    ...(process.platform === 'linux' &&
+    ...((process.platform === 'linux' || process.platform === 'darwin') &&
       process.env.PROJECT_SPACE_INSTALL_SOURCE === 'managed'
       ? [CODEX_DAEMON_CONNECTOR_CAPABILITY]
       : []),

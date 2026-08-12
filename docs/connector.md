@@ -62,8 +62,10 @@ shasum -a 256 dist/macos-release/project-space-machine-tools-darwin-arm64-v0.x.y
 The `project` Homebrew formula builds and installs both `project` and the
 `project-space-connector` companion for the current macOS or Linux host. Keeping
 the executables beside each other lets `project connect` start the companion
-without an extra path setting. Native Windows packaging remains separate; use
-the Linux formula inside WSL for the current Windows workflow.
+without an extra path setting. Managed machine-tools releases also carry the
+pinned Codex runtime used for remote Codex handoff. Native Windows packaging
+remains separate; use the Linux formula inside WSL for the current Windows
+workflow.
 
 Managed macOS arm64 and Linux x64/WSL installations can later update the same
 pair with `project self-update`. The command verifies an exact signed stable

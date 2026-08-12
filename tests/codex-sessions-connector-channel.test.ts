@@ -927,7 +927,7 @@ describe('Codex sessions connector capability', () => {
     const registry = await backend.getConnectorProjectRegistry();
     expect(registry.connector.capabilities?.includes(CODEX_DAEMON_CONNECTOR_CAPABILITY))
       .toBe(
-        process.platform === 'linux' &&
+        (process.platform === 'linux' || process.platform === 'darwin') &&
         process.env.PROJECT_SPACE_INSTALL_SOURCE === 'managed'
       );
     const sharedReady = registry.connector.daemon?.state === 'ready';
