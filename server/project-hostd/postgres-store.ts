@@ -162,11 +162,17 @@ export class PostgresProjectHostdStore implements ProjectHostdStore {
           prior.rows[0]!.observation_id === observation.observationId &&
           Number(prior.rows[0]!.sequence) === observation.sequence &&
           prior.rows[0]!.fingerprint_sha256 === fingerprint;
-        if (!exact) throw new ProjectHostdError('replay_conflict', 'project-hostd observation replay changed.');
+        if (!exact) throw new ProjectHostdError(
+          'replay_conflict', 'project-hostd observation replay changed.',
+          Number(current.last_sequence) + 1
+        );
         return { replayed: true, snapshot: snapshot(current) };
       }
       if (observation.sequence !== Number(current.last_sequence) + 1) {
-        throw new ProjectHostdError('sequence_conflict', 'project-hostd sequence is not contiguous.');
+        throw new ProjectHostdError(
+          'sequence_conflict', 'project-hostd sequence is not contiguous.',
+          Number(current.last_sequence) + 1
+        );
       }
       const updated = await client.query<DeviceRow>(
         `${updateDevicePrefix}
@@ -255,7 +261,10 @@ export class PostgresProjectHostdStore implements ProjectHostdStore {
         Number(prior.rows[0]!.sequence) === observation.sequence &&
         prior.rows[0]!.fingerprint_sha256 === fingerprint;
       if (!exact) {
-        throw new ProjectHostdError('replay_conflict', 'project-hostd observation replay changed.');
+        throw new ProjectHostdError(
+          'replay_conflict', 'project-hostd observation replay changed.',
+          Number(current.last_sequence) + 1
+        );
       }
       return snapshot(current);
     });

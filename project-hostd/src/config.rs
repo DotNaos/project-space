@@ -134,14 +134,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn config_rejects_broad_permissions_and_symlinks() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
         let root = tempfile::tempdir().unwrap();
         let config = root.path().join("hostd.json");
         fs::write(&config, "{}").unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(load(&config)
-            .unwrap_err()
-            .contains("must not be accessible"));
+        assert!(
+            load(&config)
+                .unwrap_err()
+                .contains("must not be accessible")
+        );
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
         let link = root.path().join("hostd-link.json");
         symlink(&config, &link).unwrap();

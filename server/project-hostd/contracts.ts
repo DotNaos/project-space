@@ -17,7 +17,11 @@ export type ProjectHostdErrorCode =
   | 'unregistered_runtime';
 
 export class ProjectHostdError extends Error {
-  constructor(readonly code: ProjectHostdErrorCode, message: string) {
+  constructor(
+    readonly code: ProjectHostdErrorCode,
+    message: string,
+    readonly expectedNextSequence?: number
+  ) {
     super(message);
   }
 }

@@ -225,6 +225,21 @@ describe('project-hostd telemetry boundary', () => {
       expect(accepted.status).toBe(200);
       expect(await accepted.json()).toMatchObject({ acceptedSequence: 1, type: 'hostd.accepted' });
 
+      const serverAhead = await fetch(`${origin}/api/compute/hostd/telemetry`, {
+        method: 'POST', headers: {
+          Authorization: `Bearer ${credential.token}`, 'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(observation({ observationId: 'server-ahead', sequence: 3 }))
+      });
+      expect(serverAhead.status).toBe(409);
+      expect(await serverAhead.json()).toEqual({
+        error: {
+          code: 'sequence_conflict',
+          expectedNextSequence: 2,
+          message: 'project-hostd sequence is not contiguous.'
+        }
+      });
+
       const forbidden = await fetch(`${origin}/api/compute/hostd/credentials`, {
         method: 'POST', headers: {
           Authorization: `Bearer ${credential.token}`, 'Content-Type': 'application/json'

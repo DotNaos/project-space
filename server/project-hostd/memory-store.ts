@@ -121,12 +121,18 @@ export class MemoryProjectHostdStore implements ProjectHostdStore {
       );
     if (prior) {
       if (prior.fingerprint !== fingerprint || prior.sequence !== observation.sequence) {
-        throw new ProjectHostdError('replay_conflict', 'project-hostd observation replay changed.');
+        throw new ProjectHostdError(
+          'replay_conflict', 'project-hostd observation replay changed.',
+          (existing?.snapshot.sequence ?? 0) + 1
+        );
       }
       return { replayed: true, snapshot: clone(existing!.snapshot) };
     }
     if (observation.sequence !== (existing?.snapshot.sequence ?? 0) + 1) {
-      throw new ProjectHostdError('sequence_conflict', 'project-hostd sequence is not contiguous.');
+      throw new ProjectHostdError(
+        'sequence_conflict', 'project-hostd sequence is not contiguous.',
+        (existing?.snapshot.sequence ?? 0) + 1
+      );
     }
     if (existing && existing.credentialId !== scope.credentialId) {
       existing.credentialId = scope.credentialId;
@@ -194,7 +200,10 @@ export class MemoryProjectHostdStore implements ProjectHostdStore {
     if (!prior) return null;
     const fingerprint = hash(JSON.stringify(observation));
     if (prior.fingerprint !== fingerprint || prior.sequence !== observation.sequence) {
-      throw new ProjectHostdError('replay_conflict', 'project-hostd observation replay changed.');
+      throw new ProjectHostdError(
+        'replay_conflict', 'project-hostd observation replay changed.',
+        (existing?.snapshot.sequence ?? 0) + 1
+      );
     }
     return clone(existing!.snapshot);
   }

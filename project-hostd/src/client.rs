@@ -7,6 +7,7 @@ use crate::protocol::{Accepted, Observation};
 #[derive(Debug, Eq, PartialEq)]
 pub enum DeliveryError {
     Rejected,
+    Resync(u64),
     StaleObservation,
     UnregisteredRuntime,
     Unavailable,
@@ -32,10 +33,14 @@ pub fn send(config: &Config, observation: &Observation) -> Result<Accepted, Deli
             return match payload.error.code.as_str() {
                 "stale_observation" => Err(DeliveryError::StaleObservation),
                 "unregistered_runtime" => Err(DeliveryError::UnregisteredRuntime),
-                "authentication_failed"
-                | "replay_conflict"
-                | "sequence_conflict"
-                | "target_conflict" => Err(DeliveryError::Rejected),
+                "replay_conflict" | "sequence_conflict" => payload
+                    .error
+                    .expected_next_sequence
+                    .filter(|sequence| *sequence > 0)
+                    .map_or(Err(DeliveryError::Rejected), |sequence| {
+                        Err(DeliveryError::Resync(sequence))
+                    }),
+                "authentication_failed" | "target_conflict" => Err(DeliveryError::Rejected),
                 _ => Err(DeliveryError::Unavailable),
             };
         }
@@ -76,4 +81,6 @@ struct ErrorResponse {
 #[derive(serde::Deserialize)]
 struct ErrorBody {
     code: String,
+    #[serde(default, rename = "expectedNextSequence")]
+    expected_next_sequence: Option<u64>,
 }

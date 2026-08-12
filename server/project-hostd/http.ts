@@ -65,7 +65,7 @@ export function createProjectHostdHttpApi(
               error.code === 'sequence_conflict' || error.code === 'target_conflict'
             ? 409
             : 400;
-        failure(response, status, error.code, error.message);
+        failure(response, status, error.code, error.message, error.expectedNextSequence);
       } else {
         failure(response, 503, 'hostd_unavailable', 'project-hostd telemetry is temporarily unavailable.');
       }
@@ -102,6 +102,18 @@ function isJson(value: string | undefined) {
   return value?.split(';', 1)[0]?.trim().toLowerCase() === 'application/json';
 }
 
-function failure(response: ServerResponse, status: number, code: string, message: string) {
-  writeJson(response, status, { error: { code, message } });
+function failure(
+  response: ServerResponse,
+  status: number,
+  code: string,
+  message: string,
+  expectedNextSequence?: number
+) {
+  writeJson(response, status, {
+    error: {
+      code,
+      ...(expectedNextSequence === undefined ? {} : { expectedNextSequence }),
+      message
+    }
+  });
 }
