@@ -10,28 +10,10 @@ version=${1:-1.2.3}
 write_project_fixture() {
   local path=$1
   local label=$2
-  local fail_start=${3:-0}
   cat > "$path" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then
   printf '%s\n' 'project $version'
-  exit 0
-fi
-if [[ "\${1:-}" == connector && "\${2:-}" == service ]]; then
-  printf '%s:%s\n' '$label' "\$*" >> "\${PROJECT_FIXTURE_SERVICE_LOG:?}"
-  if [[ "\${3:-}" == start-if-connected &&
-    ( '$fail_start' == 1 || "\${PROJECT_FIXTURE_FAIL_START_LABEL:-}" == '$label' ) ]]; then
-    exit 1
-  fi
-  if [[ "\${3:-}" == stop && -n "\${PROJECT_FIXTURE_POINTER_ON_STOP:-}" ]]; then
-    pointer_temp="\${PROJECT_FIXTURE_POINTER_ON_STOP}.fixture-next"
-    ln -s -- "\${PROJECT_FIXTURE_POINTER_TARGET:?}" "\$pointer_temp"
-    mv -h -f -- "\$pointer_temp" "\$PROJECT_FIXTURE_POINTER_ON_STOP"
-  fi
-  if [[ "\${3:-}" == stop && -n "\${PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP:-}" ]]; then
-    mkdir -p -- "\$(dirname -- "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP")"
-    printf '{}\n' > "\$PROJECT_FIXTURE_MAINTENANCE_MARKER_ON_STOP"
-  fi
   exit 0
 fi
 printf '%s\n' '$label'
@@ -41,11 +23,6 @@ EOF
 
 write_trust_roots() {
   local directory=$1
-  cat > "$directory/connector-command-signing-public-key.pem" <<'EOF'
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAUIg0xh2Ct72E0oH+zXpiBUKZUnWMzFZh+3JIgPBFqDA=
------END PUBLIC KEY-----
-EOF
   cat > "$directory/release-manifest-signing-public-key.pem" <<'EOF'
 -----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAZ6dwH3rgOZmzwfnAtimmzeo3aiSbJ7G9o43xh6aTDFQ=
@@ -83,7 +60,7 @@ cmp "$temporary_root/first/$archive" "$temporary_root/second/$archive"
 mkdir "$temporary_root/extracted-v1"
 gtar -xzf "$temporary_root/first/$archive" -C "$temporary_root/extracted-v1"
 bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64-v${version}"
-expected_members=$'SHA256SUMS.txt\nVERSION\nconnector-command-signing-public-key.pem\ninstall.sh\nproject\nproject-approval-signer\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
+expected_members=$'SHA256SUMS.txt\nVERSION\ninstall.sh\nproject\nproject-approval-signer\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
 [[ $actual_members == "$expected_members" ]]
 [[ ! -s $bundle_v1/project-approval-signer ]]
@@ -167,8 +144,6 @@ install -m 0600 -- "$bundle_v1/VERSION" "$installed_version"
 [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$first_current" ]]
 [[ $(wc -l < "$service_log") == "$existing_release_service_lines" ]]
 
-cmp "$temporary_root/source-v1/connector-command-signing-public-key.pem" \
-  "$install_root/.project-space-machine-tools/current/connector-command-signing-public-key.pem"
 cmp "$temporary_root/source-v1/release-manifest-signing-public-key.pem" \
   "$install_root/.project-space-machine-tools/current/release-manifest-signing-public-key.pem"
 grep -Fx 'identity-stays' "$home/.config/project-space/machine-credential.json"
@@ -191,31 +166,6 @@ grep -Fx 'user-owned' "$install_root/project-approval-signer"
 rm -f -- "$install_root/project-approval-signer"
 ln -s -- ".project-space-machine-tools/current/project-approval-signer" \
   "$install_root/project-approval-signer"
-
-# An installer must never switch the managed pointer while a named maintenance
-# operation or its unresolved result is still present.
-maintenance_root="$install_root/.project-space-machine-tools/maintenance"
-mkdir -m 0700 -p -- "$maintenance_root"
-maintenance_current_before=$(readlink "$install_root/.project-space-machine-tools/current")
-maintenance_versions_before=$(find "$install_root/.project-space-machine-tools/versions" -mindepth 1 -maxdepth 1 -type d | wc -l)
-maintenance_service_lines_before=$(wc -l < "$service_log")
-for maintenance_marker in state.json control.json decision.json; do
-  printf '{}\n' > "$maintenance_root/$maintenance_marker"
-  maintenance_error="$temporary_root/${maintenance_marker}.error"
-  set +e
-  "$bundle_v2/install.sh" --install-dir "$install_root" \
-    >/dev/null 2>"$maintenance_error"
-  maintenance_status=$?
-  set -e
-  [[ $maintenance_status -eq 75 ]]
-  grep -Fx 'Connector maintenance is still active or unresolved; recover it before installing.' \
-    "$maintenance_error"
-  rm -f -- "$maintenance_root/$maintenance_marker"
-  [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$maintenance_current_before" ]]
-  [[ $(find "$install_root/.project-space-machine-tools/versions" -mindepth 1 -maxdepth 1 -type d | wc -l) == "$maintenance_versions_before" ]]
-  [[ $(wc -l < "$service_log") == "$maintenance_service_lines_before" ]]
-done
-
 
 legacy_plist="$home/Library/LaunchAgents/net.os-home.project-space-connector.plist"
 printf 'legacy\n' > "$legacy_plist"

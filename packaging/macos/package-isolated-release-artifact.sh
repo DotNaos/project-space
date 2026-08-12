@@ -61,9 +61,7 @@ trap '/bin/rm -rf "$temporary_root"' EXIT
 
 assert_exact_files "$runtime_directory" \
   project-codex-host:157286400 RUNTIME-RECEIPT.txt:4096 SHA256SUMS.txt:4096
-assert_exact_files "$trust_directory" \
-  connector-command-signing-public-key.pem:8192 \
-  release-manifest-signing-public-key.pem:8192
+assert_safe_file "$trust_directory/release-manifest-signing-public-key.pem" 8192
 
 runtime_codex_host_sha=$(/usr/bin/shasum -a 256 "$runtime_directory/project-codex-host")
 runtime_codex_host_sha=${runtime_codex_host_sha%% *}
@@ -87,18 +85,13 @@ runtime_receipt_sha=${runtime_receipt_sha%% *}
   /usr/bin/shasum -a 256 -c SHA256SUMS.txt
 )
 
-command_root_sha=$(/usr/bin/shasum -a 256 "$trust_directory/connector-command-signing-public-key.pem")
-command_root_sha=${command_root_sha%% *}
 release_root_sha=$(/usr/bin/shasum -a 256 "$trust_directory/release-manifest-signing-public-key.pem")
 release_root_sha=${release_root_sha%% *}
-[[ $command_root_sha == 502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1 ]]
 [[ $release_root_sha == aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451 ]]
 
 /bin/mkdir -m 0700 "$staging_directory"
 /usr/bin/install -m 0755 "$runtime_directory/project-codex-host" \
   "$staging_directory/project-codex-host"
-/usr/bin/install -m 0644 "$trust_directory/connector-command-signing-public-key.pem" \
-  "$staging_directory/connector-command-signing-public-key.pem"
 /usr/bin/install -m 0644 "$trust_directory/release-manifest-signing-public-key.pem" \
   "$staging_directory/release-manifest-signing-public-key.pem"
 
@@ -136,7 +129,7 @@ gtar_path=$(command -v gtar)
 bundle_root="$extracted_root/project-space-machine-tools-darwin-arm64-v${version}"
 assert_exact_files "$bundle_root" \
   project:157286400 project-codex-host:157286400 project-approval-signer:0:0 \
-  connector-command-signing-public-key.pem:8192 release-manifest-signing-public-key.pem:8192 \
+  release-manifest-signing-public-key.pem:8192 \
   install.sh:1048576 VERSION:128 SHA256SUMS.txt:4096
 [[ $(<"$bundle_root/VERSION") == "$version" ]]
 (
@@ -146,7 +139,5 @@ assert_exact_files "$bundle_root" \
 /usr/bin/cmp "$staging_directory/project" "$bundle_root/project"
 /usr/bin/cmp "$staging_directory/project-codex-host" "$bundle_root/project-codex-host"
 /usr/bin/cmp /dev/null "$bundle_root/project-approval-signer"
-/usr/bin/cmp "$staging_directory/connector-command-signing-public-key.pem" \
-  "$bundle_root/connector-command-signing-public-key.pem"
 /usr/bin/cmp "$staging_directory/release-manifest-signing-public-key.pem" \
   "$bundle_root/release-manifest-signing-public-key.pem"

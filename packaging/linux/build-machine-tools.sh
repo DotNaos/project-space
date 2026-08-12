@@ -55,7 +55,7 @@ for metadata in CODEX-LICENSE CODEX-NOTICE CODEX-VERSION; do
   fi
   install -m 0644 -- "$source_path" "${bundle_root}/${metadata}"
 done
-for trust_root in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
+for trust_root in release-manifest-signing-public-key.pem; do
   source_path="${source_directory}/${trust_root}"
   if [[ ! -f $source_path || -L $source_path ]]; then
     echo "Required trust root is missing or unsafe: $source_path" >&2
@@ -71,7 +71,6 @@ printf '%s\n' "$version" > "${bundle_root}/VERSION"
   sha256sum \
     project project-codex-host codex \
     CODEX-LICENSE CODEX-NOTICE CODEX-VERSION \
-    connector-command-signing-public-key.pem \
     release-manifest-signing-public-key.pem \
     install.sh VERSION > SHA256SUMS.txt
 )

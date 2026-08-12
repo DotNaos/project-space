@@ -455,8 +455,6 @@ jobs:
           for target in darwin-arm64 linux-x64; do
             archive="$RUNNER_TEMP/release-assets/project-space-machine-tools-${target}-v${VERSION}.tar.gz"
             bundle="project-space-machine-tools-${target}-v${VERSION}"
-            tar -xOf "$archive" "$bundle/connector-command-signing-public-key.pem" | \
-              cmp - "$RUNNER_TEMP/release-trust-roots/connector-command-signing-public-key.pem"
             tar -xOf "$archive" "$bundle/release-manifest-signing-public-key.pem" | \
               cmp - "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem"
           done

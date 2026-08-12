@@ -48,7 +48,7 @@ if [[ -e $legacy_approval_marker || -L $legacy_approval_marker ]]; then
   fi
   install -m 0755 -- "$legacy_approval_marker" "${bundle_root}/project-approval-signer"
 fi
-for trust_root in connector-command-signing-public-key.pem release-manifest-signing-public-key.pem; do
+for trust_root in release-manifest-signing-public-key.pem; do
   source_path="${source_directory}/${trust_root}"
   if [[ ! -f $source_path || -L $source_path ]]; then
     echo "Required trust root is missing or unsafe: $source_path" >&2
@@ -60,7 +60,6 @@ install -m 0755 -- "${script_directory}/install-machine-tools.sh" "${bundle_root
 printf '%s\n' "$version" > "${bundle_root}/VERSION"
 checksum_members=(
   project project-codex-host
-  connector-command-signing-public-key.pem
   release-manifest-signing-public-key.pem
   install.sh VERSION
 )

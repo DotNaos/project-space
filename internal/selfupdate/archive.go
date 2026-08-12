@@ -329,7 +329,6 @@ func archiveBundleMembers(target string) (map[string]fs.FileMode, bool) {
 		"SHA256SUMS.txt": 0o600,
 		"VERSION":        0o600,
 		"codex":          0o700,
-		"connector-command-signing-public-key.pem": 0o600,
 		"install.sh":              0o700,
 		"project":                 0o700,
 		"project-codex-host":      0o700,
