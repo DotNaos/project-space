@@ -6,7 +6,9 @@ use crate::protocol::{Accepted, Observation};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DeliveryError {
+    Rejected,
     StaleObservation,
+    UnregisteredRuntime,
     Unavailable,
 }
 
@@ -26,12 +28,15 @@ pub fn send(config: &Config, observation: &Observation) -> Result<Accepted, Deli
         Ok(response) => response,
         Err(ureq::Error::Status(_, response)) => {
             let payload: ErrorResponse =
-                serde_json::from_reader(response.into_reader().take(8 * 1024))
-                    .map_err(|_| DeliveryError::Unavailable)?;
-            return if payload.error.code == "stale_observation" {
-                Err(DeliveryError::StaleObservation)
-            } else {
-                Err(DeliveryError::Unavailable)
+                bounded_json(response).map_err(|_| DeliveryError::Unavailable)?;
+            return match payload.error.code.as_str() {
+                "stale_observation" => Err(DeliveryError::StaleObservation),
+                "unregistered_runtime" => Err(DeliveryError::UnregisteredRuntime),
+                "authentication_failed"
+                | "replay_conflict"
+                | "sequence_conflict"
+                | "target_conflict" => Err(DeliveryError::Rejected),
+                _ => Err(DeliveryError::Unavailable),
             };
         }
         Err(_) => return Err(DeliveryError::Unavailable),
@@ -39,8 +44,7 @@ pub fn send(config: &Config, observation: &Observation) -> Result<Accepted, Deli
     if response.status() != 200 {
         return Err(DeliveryError::Unavailable);
     }
-    let accepted: Accepted = serde_json::from_reader(response.into_reader().take(8 * 1024))
-        .map_err(|_| DeliveryError::Unavailable)?;
+    let accepted: Accepted = bounded_json(response).map_err(|_| DeliveryError::Unavailable)?;
     if accepted.schema_version != 1
         || accepted.message_type != "hostd.accepted"
         || accepted.accepted_sequence != observation.sequence
@@ -49,6 +53,19 @@ pub fn send(config: &Config, observation: &Observation) -> Result<Accepted, Deli
         return Err(DeliveryError::Unavailable);
     }
     Ok(accepted)
+}
+
+fn bounded_json<Value: serde::de::DeserializeOwned>(response: ureq::Response) -> Result<Value, ()> {
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .take(8 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ())?;
+    if bytes.len() > 8 * 1024 {
+        return Err(());
+    }
+    serde_json::from_slice(&bytes).map_err(|_| ())
 }
 
 #[derive(serde::Deserialize)]

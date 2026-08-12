@@ -1,6 +1,7 @@
 mod client;
 mod config;
 mod metrics;
+mod process_identity;
 mod protected_file;
 mod protocol;
 mod state;
@@ -44,8 +45,8 @@ fn run() -> Result<(), String> {
 }
 
 fn cycle(config: &config::Config) -> Result<(), String> {
-    let mut state = state::load(&config.state_path)?;
-    let observation = match state.pending.clone() {
+    let mut state = state::load(&config.state_path, config)?;
+    let mut observation = match state.pending.clone() {
         Some(pending) => pending,
         None => {
             let observation = metrics::collect(config, state.last_accepted_sequence + 1)?;
@@ -60,6 +61,25 @@ fn cycle(config: &config::Config) -> Result<(), String> {
             state.pending = None;
             state::save(&config.state_path, &state)?;
             return Err("stale telemetry was discarded before retry".into());
+        }
+        Err(client::DeliveryError::UnregisteredRuntime) => {
+            observation.runtimes.clear();
+            if !observation
+                .partial_metrics
+                .iter()
+                .any(|metric| metric == "runtime")
+            {
+                observation.partial_metrics.push("runtime".into());
+            }
+            observation.health = "degraded".into();
+            state.pending = Some(observation);
+            state::save(&config.state_path, &state)?;
+            return Err("hostd runtime attribution was rejected and removed before retry".into());
+        }
+        Err(client::DeliveryError::Rejected) => {
+            state.pending = None;
+            state::save(&config.state_path, &state)?;
+            return Err("hostd telemetry was rejected; fresh evidence will be collected".into());
         }
         Err(client::DeliveryError::Unavailable) => {
             return Err("hostd telemetry delivery failed".into());
@@ -115,9 +135,12 @@ mod tests {
             token: "A".repeat(43),
         };
         assert!(cycle(&config).is_err());
-        let pending = state::load(&config.state_path).unwrap().pending.unwrap();
+        let pending = state::load(&config.state_path, &config)
+            .unwrap()
+            .pending
+            .unwrap();
         cycle(&config).unwrap();
-        let completed = state::load(&config.state_path).unwrap();
+        let completed = state::load(&config.state_path, &config).unwrap();
         assert_eq!(completed.last_accepted_sequence, pending.sequence);
         assert!(completed.pending.is_none());
         server.join().unwrap();

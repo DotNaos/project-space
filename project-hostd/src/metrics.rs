@@ -74,8 +74,13 @@ pub fn collect(config: &Config, sequence: u64) -> Result<Observation, String> {
 }
 
 fn runtime_telemetry(system: &System, runtime: &RegisteredRuntime) -> Option<RuntimeTelemetry> {
-    let leader = system.process(sysinfo::Pid::from_u32(runtime.process_group_leader_pid))?;
-    if leader.start_time() != runtime.process_group_leader_started_at_seconds {
+    if runtime.process_group_leader_pid != runtime.process_group_id {
+        return None;
+    }
+    system.process(sysinfo::Pid::from_u32(runtime.process_group_leader_pid))?;
+    if crate::process_identity::read(runtime.process_group_leader_pid).as_deref()
+        != Some(runtime.process_group_leader_identity.as_str())
+    {
         return None;
     }
     #[cfg(unix)]
@@ -173,23 +178,46 @@ mod tests {
             .max()
             .expect("largest local filesystem");
         assert_eq!(observation.resources.storage.total_bytes, direct_storage);
+        let mut adjacent_system = System::new_all();
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        adjacent_system.refresh_all();
+        assert!(
+            (observation.resources.cpu.used_percent - adjacent_system.global_cpu_usage() as f64)
+                .abs()
+                <= 5.0
+        );
+        assert!(
+            relative_difference(
+                observation.resources.memory.available_bytes,
+                adjacent_system.available_memory()
+            ) <= 0.10
+        );
+        let adjacent_disks = Disks::new_with_refreshed_list();
+        let (_, adjacent_available) = largest_local_storage(&adjacent_disks).unwrap();
+        assert!(
+            relative_difference(
+                observation.resources.storage.available_bytes,
+                adjacent_available
+            ) <= 0.10
+        );
     }
 
     #[cfg(unix)]
     #[test]
     fn attributes_only_an_explicitly_registered_process_group() {
-        // SAFETY: getpgid(0) reads the calling test process group.
-        let process_group_id = unsafe { libc::getpgid(0) } as u32;
-        let pid = std::process::id();
-        let system = System::new_all();
-        let started_at = system
-            .process(sysinfo::Pid::from_u32(pid))
-            .expect("current process")
-            .start_time();
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .process_group(0)
+            .spawn()
+            .expect("spawn isolated process group");
+        let pid = child.id();
+        let process_group_id = pid;
+        let identity = crate::process_identity::read(pid).expect("current process identity");
         let config = test_config(vec![RegisteredRuntime {
             generation: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".into(),
+            process_group_leader_identity: identity.clone(),
             process_group_leader_pid: pid,
-            process_group_leader_started_at_seconds: started_at,
             process_group_id,
             workspace_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".into(),
         }]);
@@ -197,14 +225,25 @@ mod tests {
         assert_eq!(observation.runtimes.len(), 1);
         assert_eq!(observation.runtimes[0].boundary_kind, "process_group");
         assert!(observation.runtimes[0].memory_bytes > 0);
+        let mut direct_system = System::new_all();
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        direct_system.refresh_all();
+        let direct =
+            runtime_telemetry(&direct_system, &config.runtimes[0]).expect("direct runtime sample");
+        assert!(
+            relative_difference(observation.runtimes[0].memory_bytes, direct.memory_bytes) <= 0.10
+        );
+        assert!((observation.runtimes[0].cpu_percent - direct.cpu_percent).abs() <= 10.0);
 
         let wrong_identity = test_config(vec![RegisteredRuntime {
-            process_group_leader_started_at_seconds: started_at + 1,
+            process_group_leader_identity: format!("{identity}-changed"),
             ..config.runtimes[0].clone()
         }]);
         let rejected = collect(&wrong_identity, 2).expect("collect mismatched runtime");
         assert!(rejected.runtimes.is_empty());
         assert_eq!(rejected.partial_metrics, vec!["runtime"]);
+        child.kill().expect("stop isolated process group");
+        child.wait().expect("reap isolated process group");
     }
 
     #[test]
@@ -219,8 +258,8 @@ mod tests {
         RegisteredRuntime {
             generation: format!("cccccccc-cccc-4ccc-8ccc-{suffix:012}"),
             process_group_id: u32::MAX - suffix,
+            process_group_leader_identity: "missing:1".into(),
             process_group_leader_pid: u32::MAX - suffix,
-            process_group_leader_started_at_seconds: 1,
             workspace_id: format!("dddddddd-dddd-4ddd-8ddd-{suffix:012}"),
         }
     }
@@ -237,5 +276,10 @@ mod tests {
             state_path: PathBuf::from("/tmp/hostd-test-state"),
             token: "A".repeat(43),
         }
+    }
+
+    fn relative_difference(left: u64, right: u64) -> f64 {
+        let maximum = left.max(right).max(1) as f64;
+        left.abs_diff(right) as f64 / maximum
     }
 }

@@ -11,9 +11,11 @@ dev-server, or arbitrary filesystem API.
 The configuration contains `schemaVersion`, `deviceId`, `environmentId`, optional `hostId`,
 `endpoint`, `token`, an absolute `statePath`, optional `intervalSeconds`, and an optional
 `runtimes` list containing `workspaceId`, `generation`, `processGroupId`,
-`processGroupLeaderPid`, and `processGroupLeaderStartedAtSeconds`. The leader PID plus kernel start
-time prevents a recycled process-group number from being attributed to an earlier runtime. The state file
-contains only sequence/retry data; it never contains the credential.
+`processGroupLeaderPid`, and `processGroupLeaderIdentity`. The leader must have `PID == PGID`; its
+exact platform kernel-start identity prevents a recycled process-group number from being attributed to
+an earlier runtime. The state file
+contains only target-bound sequence/retry data; it never contains the credential. Changing the
+device or Environment target resets stale retry state before the new target is measured.
 
 ## Measurement contract
 
