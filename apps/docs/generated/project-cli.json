@@ -1911,6 +1911,84 @@
         ],
         "commands": [
           {
+            "path": "project environment bootstrap",
+            "name": "bootstrap",
+            "usage": "bootstrap <environment-instance>",
+            "short": "Start a pinned Workspace Runtime without installing a permanent Connector",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "branch",
+                "type": "string",
+                "description": "expected Workspace branch",
+                "inherited": false
+              },
+              {
+                "name": "commit",
+                "type": "string",
+                "description": "expected immutable Workspace commit",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "generation",
+                "type": "string",
+                "description": "new exact Runtime generation UUID",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for bootstrap",
+                "inherited": false
+              },
+              {
+                "name": "manifest-digest",
+                "type": "string",
+                "description": "pinned Runtime manifest SHA-256",
+                "inherited": false
+              },
+              {
+                "name": "mode",
+                "type": "string",
+                "description": "Runtime isolation: process or devcontainer",
+                "inherited": false
+              },
+              {
+                "name": "operation-id",
+                "type": "string",
+                "description": "stable idempotency identity",
+                "inherited": false
+              },
+              {
+                "name": "profile",
+                "type": "string",
+                "description": "Runtime profile: codex or inspection",
+                "inherited": false
+              },
+              {
+                "name": "runtime-version",
+                "type": "string",
+                "description": "pinned Project Runtime version",
+                "inherited": false
+              },
+              {
+                "name": "workspace",
+                "type": "string",
+                "description": "exact canonical Workspace ID",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
             "path": "project environment instance",
             "name": "instance",
             "usage": "instance",

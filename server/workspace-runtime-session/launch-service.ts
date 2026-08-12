@@ -1,5 +1,6 @@
 import {
   workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeControlCapability,
   workspaceRuntimeReadyCapabilities
 } from '../../src/shared/workspace-runtime-session-api';
 import type {
@@ -18,6 +19,7 @@ export interface WorkspaceRuntimeStartAuthority {
   mode: 'process' | 'devcontainer';
   operationId: string;
   ownerUserId: string;
+  profile: 'codex' | 'inspection';
   runtimeVersion: string;
   workspaceId: string;
 }
@@ -83,6 +85,8 @@ export class WorkspaceRuntimeSshStartDispatcher implements WorkspaceRuntimeStart
       mode: input.mode,
       operation: 'workspace-runtime.start.v1',
       operationId: input.operationId,
+      runtimeSessionOwnerUserId: input.ownerUserId,
+      runtimeSessionRequestedCapabilities: requestedCapabilities(input.profile),
       expectedRuntimeVersion: input.runtimeVersion,
       workspaceId: input.workspaceId
     });
@@ -141,6 +145,7 @@ export class WorkspaceRuntimeLaunchService {
       this.validateResult(input, replayed);
       return { replayed: true, result: replayed };
     }
+    const capabilities = requestedCapabilities(input.profile);
     const issued = await this.dependencies.sessions.issue({
       branch: input.branch,
       capabilities: [...workspaceRuntimeBaseCapabilities],
@@ -151,7 +156,7 @@ export class WorkspaceRuntimeLaunchService {
       manifestDigest: input.manifestDigest,
       ownerUserId: input.ownerUserId,
       operationId: input.operationId,
-      requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+      requestedCapabilities: capabilities,
       runtimeVersion: input.runtimeVersion,
       workspaceId: input.workspaceId
     });
@@ -168,7 +173,7 @@ export class WorkspaceRuntimeLaunchService {
         ownerUserId: input.ownerUserId,
         expectedRuntimeVersion: input.runtimeVersion,
         runtimeSessionCapabilities: [...issued.credential.capabilities],
-        runtimeSessionRequestedCapabilities: [...workspaceRuntimeReadyCapabilities],
+        runtimeSessionRequestedCapabilities: capabilities,
         runtimeSessionOwnerUserId: input.ownerUserId,
         runtimeSessionEndpoint: this.dependencies.endpoint,
         runtimeSessionExpiresAt: issued.credential.expiresAt,
@@ -194,4 +199,10 @@ export class WorkspaceRuntimeLaunchService {
       throw new Error('Workspace Runtime start result binding changed.');
     }
   }
+}
+
+function requestedCapabilities(profile: WorkspaceRuntimeStartAuthority['profile']) {
+  return profile === 'inspection'
+    ? [workspaceRuntimeControlCapability]
+    : [...workspaceRuntimeReadyCapabilities, workspaceRuntimeControlCapability];
 }

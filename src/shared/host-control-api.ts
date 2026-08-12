@@ -48,11 +48,13 @@ export interface HostControlOperationRequest {
 
 export interface HostControlOperationResult {
   auditId: string;
+  code?: 'operation_in_progress' | 'provider_unavailable' | 'stale_frame' | 'unauthorized';
   completedAt: string;
   hostId: string;
   operationId: string;
   provider: { id: string; kind: 'jetkvm' };
   replayed: boolean;
   schemaVersion: typeof hostControlSchemaVersion;
+  message: string;
   state: 'completed' | 'failed' | 'rejected' | 'uncertain';
 }

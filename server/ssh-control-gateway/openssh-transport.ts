@@ -324,6 +324,12 @@ function operationFrame(
     ...(request.runtimeSessionExpiresAt
       ? { runtimeSessionExpiresAt: request.runtimeSessionExpiresAt }
       : {}),
+    ...(request.runtimeSessionOwnerUserId
+      ? { runtimeSessionOwnerUserId: request.runtimeSessionOwnerUserId }
+      : {}),
+    ...(request.runtimeSessionRequestedCapabilities
+      ? { runtimeSessionRequestedCapabilities: request.runtimeSessionRequestedCapabilities }
+      : {}),
     ...(request.runtimeSessionToken ? { runtimeSessionToken: request.runtimeSessionToken } : {}),
     ...(request.runtimeSessionVersion
       ? { runtimeSessionVersion: request.runtimeSessionVersion }

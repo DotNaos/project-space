@@ -23,15 +23,16 @@ func TestProcessProviderPassesRuntimeCredentialOnlyThroughProtectedBootstrap(t *
 		t.Fatal(err)
 	}
 	defer logFile.Close()
+	workspacePath := t.TempDir()
 	_, err = provider.Start(context.Background(), LaunchRequest{
 		Workspace: WorkspaceIdentity{WorkspaceID: testRuntimeBinding().WorkspaceID, Branch: "issue-625", Head: strings.Repeat("d", 40)},
-		Binding:   testRuntimeBinding(), Directory: t.TempDir(), Manifest: Manifest{},
+		Binding:   testRuntimeBinding(), Directory: workspacePath, Manifest: Manifest{},
 		LogFile: logFile, GenerationHome: generationHome,
 		ProjectBinary: "/verified/project", CodexBinary: "/verified/codex", RuntimeSession: &RuntimeSessionBootstrap{
 			Endpoint: "wss://projects.example/api/workspace-runtimes/socket", Token: token,
 			EnvironmentID: "33333333-3333-4333-8333-333333333333", ExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 			RuntimeVersion: "0.4.66", Capabilities: []string{"runtime.lifecycle", "runtime.heartbeat"},
-			RequestedCapabilities: []string{"runtime.codex.v1"}, OwnerUserID: "owner",
+			RequestedCapabilities: []string{"runtime.codex.v1", "runtime.control.v1"}, OwnerUserID: "owner",
 			ControllerBinary: "/verified/project-space-connector",
 		}, Commit: func(RuntimeHandle) error { return nil },
 	})
@@ -64,8 +65,11 @@ func TestProcessProviderPassesRuntimeCredentialOnlyThroughProtectedBootstrap(t *
 		t.Fatalf("initial effective capabilities = %#v", bootstrap["capabilities"])
 	}
 	if requested, ok := bootstrap["requestedCapabilities"].([]interface{}); !ok ||
-		!reflect.DeepEqual(requested, []interface{}{"runtime.codex.v1"}) {
+		!reflect.DeepEqual(requested, []interface{}{"runtime.codex.v1", "runtime.control.v1"}) {
 		t.Fatalf("requested promotion capabilities = %#v", bootstrap["requestedCapabilities"])
+	}
+	if bootstrap["ownerUserId"] != "owner" || bootstrap["workspacePath"] != workspacePath {
+		t.Fatalf("control bootstrap binding = %#v", bootstrap)
 	}
 }
 

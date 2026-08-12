@@ -37,3 +37,32 @@ type ExecutionResult struct {
 	Replayed bool          `json:"replayed"`
 	Result   StatusResult  `json:"result"`
 }
+
+type WorkspaceRuntimeLaunchRequest struct {
+	Branch         string `json:"branch"`
+	Commit         string `json:"commit"`
+	EnvironmentID  string `json:"environmentId"`
+	Generation     string `json:"generation"`
+	ManifestDigest string `json:"manifestDigest"`
+	Mode           string `json:"mode"`
+	OperationID    string `json:"operationId"`
+	Profile        string `json:"profile"`
+	RuntimeVersion string `json:"runtimeVersion"`
+	WorkspaceID    string `json:"workspaceId"`
+}
+
+type WorkspaceRuntimeLaunchResult struct {
+	CheckedAt      string `json:"checkedAt"`
+	Generation     string `json:"generation"`
+	ManifestDigest string `json:"manifestDigest"`
+	Operation      string `json:"operation"`
+	OperationID    string `json:"operationId"`
+	SourceHead     string `json:"sourceHead"`
+	State          string `json:"state"`
+	WorkspaceID    string `json:"workspaceId"`
+}
+
+type WorkspaceRuntimeLaunchExecution struct {
+	Replayed bool                         `json:"replayed"`
+	Result   WorkspaceRuntimeLaunchResult `json:"result"`
+}

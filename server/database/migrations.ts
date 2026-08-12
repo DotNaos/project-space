@@ -116,9 +116,21 @@ import {
   hostControlMigrationSql
 } from './host-control-migration';
 import {
+  hostControlHardeningMigrationId,
+  hostControlHardeningMigrationSql
+} from './host-control-hardening-migration';
+import {
   workspaceRuntimeCapabilityPromotionMigrationId,
   workspaceRuntimeCapabilityPromotionMigrationSql
 } from './workspace-runtime-capability-promotion-migration';
+import {
+  connectorCompatibilityUsageMigrationId,
+  connectorCompatibilityUsageMigrationSql
+} from './connector-compatibility-usage-migration';
+import {
+  canonicalRuntimeControlMigrationId,
+  canonicalRuntimeControlMigrationSql
+} from './canonical-runtime-control-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -819,6 +831,18 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: hostControlMigrationId,
     sql: hostControlMigrationSql
+  },
+  {
+    id: hostControlHardeningMigrationId,
+    sql: hostControlHardeningMigrationSql
+  },
+  {
+    id: connectorCompatibilityUsageMigrationId,
+    sql: connectorCompatibilityUsageMigrationSql
+  },
+  {
+    id: canonicalRuntimeControlMigrationId,
+    sql: canonicalRuntimeControlMigrationSql
   }
 ];
 

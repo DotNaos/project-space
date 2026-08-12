@@ -3,62 +3,98 @@ export const canonicalRuntimeControlApiVersion = 1 as const;
 export const canonicalRuntimeControlOperations = [
   'git.status',
   'git.diff',
-  'git.stage',
-  'git.unstage',
-  'git.commit',
   'worktree.list',
-  'worktree.prepare',
-  'task.start',
-  'codex.start',
-  'codex.attach',
-  'codex.steer',
-  'codex.stop',
-  'dev-server.start',
-  'dev-server.inspect',
-  'dev-server.publish',
-  'dev-server.stop'
+  'dev-server.inspect'
 ] as const;
 
 export type CanonicalRuntimeControlOperation =
   typeof canonicalRuntimeControlOperations[number];
 
-export type CanonicalRuntimeControlPayloadValue =
-  | boolean
-  | null
-  | number
-  | string;
-
-export interface CanonicalRuntimeControlRequest {
+interface CanonicalRuntimeControlRequestBinding {
   apiVersion: typeof canonicalRuntimeControlApiVersion;
   environmentId: string;
   expectedGeneration: string;
   expectedTargetIdentityRevision: string;
-  operation: CanonicalRuntimeControlOperation;
   operationId: string;
-  payload?: Record<string, CanonicalRuntimeControlPayloadValue>;
   workspaceId: string;
 }
 
-export interface LegacyConnectorControlAliasRequest {
-  apiVersion: typeof canonicalRuntimeControlApiVersion;
-  connectorId: string;
-  expectedGeneration: string;
-  operation: CanonicalRuntimeControlOperation;
-  operationId: string;
-  payload?: Record<string, CanonicalRuntimeControlPayloadValue>;
-  workspaceId: string;
+export type CanonicalRuntimeControlInput =
+  | { operation: 'git.status' }
+  | { operation: 'git.diff'; staged: boolean }
+  | { operation: 'worktree.list' }
+  | { operation: 'dev-server.inspect' };
+
+export type CanonicalRuntimeControlRequest = CanonicalRuntimeControlRequestBinding &
+  CanonicalRuntimeControlInput;
+
+export interface CanonicalGitStatusOutput {
+  clean: boolean;
+  conflicted: number;
+  staged: number;
+  truncated: boolean;
+  unstaged: number;
+  untracked: number;
 }
 
-export interface CanonicalRuntimeControlResult {
+export interface CanonicalGitDiffOutput {
+  addedLines: number;
+  binaryFiles: number;
+  changedFiles: number;
+  deletedLines: number;
+  staged: boolean;
+  truncated: boolean;
+}
+
+export interface CanonicalWorktreeListOutput {
+  current: number;
+  detached: number;
+  locked: number;
+  prunable: number;
+  total: number;
+  truncated: boolean;
+}
+
+export interface CanonicalDevServerInspectOutput {
+  failed: number;
+  ready: number;
+  starting: number;
+  stopped: number;
+  total: number;
+}
+
+export interface CanonicalRuntimeControlOutputByOperation {
+  'dev-server.inspect': CanonicalDevServerInspectOutput;
+  'git.diff': CanonicalGitDiffOutput;
+  'git.status': CanonicalGitStatusOutput;
+  'worktree.list': CanonicalWorktreeListOutput;
+}
+
+export type CanonicalRuntimeControlOutput =
+  CanonicalRuntimeControlOutputByOperation[CanonicalRuntimeControlOperation];
+
+interface CanonicalRuntimeControlResultBinding {
   apiVersion: typeof canonicalRuntimeControlApiVersion;
   compatibilityAlias: boolean;
   environmentId: string;
   generation: string;
-  operation: CanonicalRuntimeControlOperation;
   operationId: string;
-  output?: Record<string, CanonicalRuntimeControlPayloadValue>;
   replayed: boolean;
-  state: 'completed' | 'failed' | 'uncertain';
   targetIdentityRevision: string;
   workspaceId: string;
 }
+
+type CanonicalRuntimeControlCompletedResult = {
+  [Operation in CanonicalRuntimeControlOperation]: CanonicalRuntimeControlResultBinding & {
+    operation: Operation;
+    output: CanonicalRuntimeControlOutputByOperation[Operation];
+    state: 'completed';
+  }
+}[CanonicalRuntimeControlOperation];
+
+export type CanonicalRuntimeControlResult =
+  | CanonicalRuntimeControlCompletedResult
+  | (CanonicalRuntimeControlResultBinding & {
+      operation: CanonicalRuntimeControlOperation;
+      state: 'failed' | 'uncertain';
+    });

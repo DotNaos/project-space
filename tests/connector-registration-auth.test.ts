@@ -67,6 +67,46 @@ async function connect(url: string) {
 }
 
 describe('connector credential authentication', () => {
+  test('measures both initial and recurring authenticated registry use', async () => {
+    const uses: unknown[] = [];
+    const commands = createConnectorCommandUpgradeHandler({
+      async authenticateConnectorCredential(_token, machineId) {
+        return { machineId, userId: 'owner-one' };
+      },
+      async recordCompatibilityUse(...input) {
+        uses.push(input);
+        return true;
+      }
+    });
+    const server = createServer();
+    server.on('upgrade', (request, socket, head) => {
+      if (!commands.handleUpgrade(request, socket, head)) socket.destroy();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Missing test port.');
+    const socket = await connect(
+      `ws://127.0.0.1:${address.port}/api/connectors/socket`
+    );
+    try {
+      socket.send(registrationMessage('measured-machine', 'credential'));
+      await once(socket, 'message');
+      socket.send(registryMessage('measured-machine'));
+      await waitFor(() => uses.length === 4);
+      expect(uses).toEqual([
+        ['owner-one', 'connector.presence.websocket.v2'],
+        ['owner-one', 'connector.project-registry.websocket.v2'],
+        ['owner-one', 'connector.presence.websocket.v2'],
+        ['owner-one', 'connector.project-registry.websocket.v2']
+      ]);
+    } finally {
+      socket.close();
+      server.closeAllConnections();
+      await commands.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   test('requires authenticated profile binding before registering a source connector', async () => {
     const commands = createConnectorCommandUpgradeHandler({
       async authenticateConnectorCredential(_token, machineId) {
@@ -277,3 +317,11 @@ describe('connector credential authentication', () => {
     }
   });
 });
+
+async function waitFor(predicate: () => boolean) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (predicate()) return;
+    await Bun.sleep(5);
+  }
+  throw new Error('Timed out waiting for the Connector usage hook.');
+}

@@ -144,6 +144,7 @@ export interface WorkspaceRuntimeSessionSnapshot {
 }
 
 export interface WorkspaceRuntimeServerMessage {
+  acceptedControlEventSequence?: number;
   acceptedSequence: number;
   heartbeatIntervalSeconds: number;
   sessionId: string;

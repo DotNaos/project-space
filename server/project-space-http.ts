@@ -83,10 +83,22 @@ import { PostgresProjectHostdStore } from './project-hostd/postgres-store';
 import {
   createConfiguredProjectHostdRuntime
 } from './project-hostd/configured-runtime';
+import { createConfiguredHostControlHandler } from './host-control/configured-runtime';
+import {
+  closeConfiguredConnectorRetirementService,
+  configuredConnectorRetirementService
+} from './connector-retirement/configured-runtime';
+import {
+  createCanonicalRuntimeControlRuntime,
+  createConfiguredCanonicalRuntimeControlHandler
+} from './canonical-runtime-control/configured-runtime';
+import { PostgresCanonicalRuntimeControlOperationStore } from './canonical-runtime-control/postgres-operation-store';
+import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
   codexSessions?: CodexSessionsHttpHandler;
+  canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
   codexAttachLeases?: CodexAttachLeaseStore;
   host?: string;
   machineConnectionRuntime?: MachineConnectionRuntime;
@@ -249,6 +261,15 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   const machinePower = createConfiguredMachinePowerHandler({
     machineConnection: options.machineConnectionRuntime
   });
+  const hostControl = createConfiguredHostControlHandler({
+    backend: rawBackend,
+    machineConnection: options.machineConnectionRuntime
+  });
+  const canonicalRuntimeControl = options.canonicalRuntimeControl ??
+    createConfiguredCanonicalRuntimeControlHandler({
+    machineConnection: options.machineConnectionRuntime,
+    runtimeSessions: options.workspaceRuntimeSessions
+  });
   const roadmapCli = createConfiguredRoadmapCliHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime
@@ -272,11 +293,13 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   );
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
+      canonicalRuntimeControl,
       codexAuthorization,
       codexSessions,
       codexMachineTasks,
       computeInventoryCli,
       githubCodespaceRunner,
+      hostControl,
       machineReadiness,
       machinePower,
       machineConnection: options.machineConnectionRuntime,
@@ -350,12 +373,21 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const projectChatRuntime = await resolveProjectChatRuntime(options, backend);
   const machineConnectionRuntime = options.machineConnectionRuntime;
   const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
+  const database = isDatabaseConfigured()
+    ? await getMachineConnectionDatabaseClient()
+    : undefined;
+  const runtimeControlOperations = database
+    ? new PostgresCanonicalRuntimeControlOperationStore(database)
+    : undefined;
   const workspaceRuntimeSessionService = options.workspaceRuntimeSessions ??
-    new WorkspaceRuntimeSessionService(isDatabaseConfigured()
-      ? new PostgresRuntimeSessionStore(await getMachineConnectionDatabaseClient())
-      : new MemoryRuntimeSessionStore());
-  const projectHostdStore = isDatabaseConfigured()
-    ? new PostgresProjectHostdStore(await getMachineConnectionDatabaseClient())
+    new WorkspaceRuntimeSessionService(
+      database ? new PostgresRuntimeSessionStore(database) : new MemoryRuntimeSessionStore(),
+      undefined,
+      undefined,
+      runtimeControlOperations ? { read: (...args) => runtimeControlOperations.watermarks(...args) } : undefined
+    );
+  const projectHostdStore = database
+    ? new PostgresProjectHostdStore(database)
     : new MemoryProjectHostdStore();
   const projectHostd = createConfiguredProjectHostdRuntime({
     backend,
@@ -363,11 +395,19 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     runtimeSessions: workspaceRuntimeSessionService,
     store: projectHostdStore
   });
+  const canonicalRuntimeControl = runtimeControlOperations
+    ? createCanonicalRuntimeControlRuntime({
+        machineConnection: options.machineConnectionRuntime,
+        operations: runtimeControlOperations,
+        runtimeSessions: workspaceRuntimeSessionService
+      })
+    : undefined;
   const server = createServer(
     createProjectSpaceRequestHandler({
       ...options,
       backend,
       codexAttachLeases,
+      canonicalRuntimeControl: canonicalRuntimeControl?.handleRequest,
       logger,
       projectChatRuntime,
       workspaceRuntimeSessions: workspaceRuntimeSessionService,
@@ -431,6 +471,9 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   });
 
   try {
+    // Start the durable observation heartbeat with the server, even when no
+    // compatibility request or report is made during this process lifetime.
+    await configuredConnectorRetirementService();
     projectChatRuntime.start();
     machineConnectionRuntime?.start();
     await new Promise<void>((resolveListen, rejectListen) => {
@@ -447,7 +490,9 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
     clearInterval(staleRuntimeSessions);
     clearInterval(staleProjectHostd);
     await workspaceRuntimeSessions.close();
+    canonicalRuntimeControl?.close();
     await connectorCommands.close();
+    await closeConfiguredConnectorRetirementService();
     throw error;
   }
 
@@ -464,7 +509,9 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       clearInterval(staleRuntimeSessions);
       clearInterval(staleProjectHostd);
       await workspaceRuntimeSessions.close();
+      canonicalRuntimeControl?.close();
       await connectorCommands.close();
+      await closeConfiguredConnectorRetirementService();
       await new Promise<void>((resolveClose, rejectClose) => {
         let settled = false;
         const finish = (error?: Error | null) => {

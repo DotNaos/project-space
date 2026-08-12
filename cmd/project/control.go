@@ -97,6 +97,14 @@ func defaultControlCommandDependencies() controlCommandDependencies {
 }
 
 func loadComputeControlClient(context.Context) (computecontrol.API, error) {
+	return loadComputeControlClientImplementation()
+}
+
+func loadComputeControlWorkspaceRuntimeClient(context.Context) (computecontrol.WorkspaceRuntimeAPI, error) {
+	return loadComputeControlClientImplementation()
+}
+
+func loadComputeControlClientImplementation() (*computecontrol.Client, error) {
 	store, err := machineconnect.NewDefaultCredentialStore()
 	if err != nil {
 		return nil, errors.New("load Project machine connection")

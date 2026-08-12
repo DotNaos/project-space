@@ -432,6 +432,8 @@ function requestFingerprint(
     expectedRuntimeVersion: request.expectedRuntimeVersion,
     mode: request.mode,
     ownerUserId: actor.ownerUserId,
+    runtimeSessionOwnerUserId: request.runtimeSessionOwnerUserId,
+    runtimeSessionRequestedCapabilities: request.runtimeSessionRequestedCapabilities,
     targetIdentityRevision: authorization.target.identityRevision,
     workspaceId: request.workspaceId
   })).digest('hex');

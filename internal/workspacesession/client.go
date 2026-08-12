@@ -44,6 +44,8 @@ type Bootstrap struct {
 	ReadyPath                string   `json:"readyPath,omitempty"`
 	Capabilities             []string `json:"capabilities"`
 	RequestedCapabilities    []string `json:"requestedCapabilities,omitempty"`
+	OwnerUserID              string   `json:"ownerUserId,omitempty"`
+	WorkspacePath            string   `json:"workspacePath,omitempty"`
 	JournalPath              string   `json:"journalPath"`
 	StatePath                string   `json:"statePath"`
 	ExpiresAt                string   `json:"expiresAt"`
@@ -52,19 +54,21 @@ type Bootstrap struct {
 }
 
 type Registration struct {
-	Branch                          string   `json:"branch"`
-	ReadyCapabilities               []string `json:"readyCapabilities,omitempty"`
-	Commit                          string   `json:"commit"`
-	EnvironmentID                   string   `json:"environmentId"`
-	Generation                      string   `json:"generation"`
-	ManifestDigest                  string   `json:"manifestDigest"`
-	ResumeAfterSequence             int64    `json:"resumeAfterSequence"`
-	ResumeAfterCodexCommandSequence *int64   `json:"resumeAfterCodexCommandSequence,omitempty"`
-	ResumeAfterCodexEventSequence   *int64   `json:"resumeAfterCodexEventSequence,omitempty"`
-	RuntimeVersion                  string   `json:"runtimeVersion"`
-	SchemaVersion                   int      `json:"schemaVersion"`
-	Type                            string   `json:"type"`
-	WorkspaceID                     string   `json:"workspaceId"`
+	Branch                            string   `json:"branch"`
+	ReadyCapabilities                 []string `json:"readyCapabilities,omitempty"`
+	Commit                            string   `json:"commit"`
+	EnvironmentID                     string   `json:"environmentId"`
+	Generation                        string   `json:"generation"`
+	ManifestDigest                    string   `json:"manifestDigest"`
+	ResumeAfterSequence               int64    `json:"resumeAfterSequence"`
+	ResumeAfterCodexCommandSequence   *int64   `json:"resumeAfterCodexCommandSequence,omitempty"`
+	ResumeAfterCodexEventSequence     *int64   `json:"resumeAfterCodexEventSequence,omitempty"`
+	ResumeAfterControlCommandSequence *int64   `json:"resumeAfterControlCommandSequence,omitempty"`
+	ResumeAfterControlEventSequence   *int64   `json:"resumeAfterControlEventSequence,omitempty"`
+	RuntimeVersion                    string   `json:"runtimeVersion"`
+	SchemaVersion                     int      `json:"schemaVersion"`
+	Type                              string   `json:"type"`
+	WorkspaceID                       string   `json:"workspaceId"`
 }
 
 type Event struct {
@@ -81,10 +85,11 @@ type Event struct {
 }
 
 type serverMessage struct {
-	AcceptedSequence        int64  `json:"acceptedSequence"`
-	HeartbeatIntervalSecond int    `json:"heartbeatIntervalSeconds"`
-	Type                    string `json:"type"`
-	SessionID               string `json:"sessionId"`
+	AcceptedSequence             int64  `json:"acceptedSequence"`
+	AcceptedControlEventSequence *int64 `json:"acceptedControlEventSequence,omitempty"`
+	HeartbeatIntervalSecond      int    `json:"heartbeatIntervalSeconds"`
+	Type                         string `json:"type"`
+	SessionID                    string `json:"sessionId"`
 }
 
 type inboundFrame struct {
@@ -104,9 +109,10 @@ type runtimeState struct {
 }
 
 type Client struct {
-	Now       func() time.Time
-	Dial      func(context.Context, string, *websocket.DialOptions) (*websocket.Conn, *http.Response, error)
-	Telemetry func(context.Context) (float64, int64, error)
+	Now        func() time.Time
+	Dial       func(context.Context, string, *websocket.DialOptions) (*websocket.Conn, *http.Response, error)
+	Telemetry  func(context.Context) (float64, int64, error)
+	ControlRun controlCommandRunner
 }
 
 func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
@@ -127,6 +133,10 @@ func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
 		return err
 	}
 	defer controller.stop()
+	control, err := newControlReceiver(bootstrap, client.ControlRun)
+	if err != nil {
+		return err
+	}
 	state, err := loadJournal(bootstrap.JournalPath)
 	if err != nil {
 		return err
@@ -145,7 +155,7 @@ func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
 		if client.Now().After(mustTime(bootstrap.ExpiresAt)) {
 			return fmt.Errorf("Workspace Runtime credential expired")
 		}
-		err := client.runConnection(ctx, bootstrap, &state, controller)
+		err := client.runConnection(ctx, bootstrap, &state, controller, control)
 		if ctx.Err() != nil {
 			return err
 		}
@@ -162,7 +172,7 @@ func (client Client) Run(ctx context.Context, bootstrap Bootstrap) error {
 	}
 }
 
-func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, state *journal, controller *codexController) error {
+func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, state *journal, controller *codexController, control *controlReceiver) error {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+bootstrap.Token)
 	connection, _, err := client.Dial(ctx, bootstrap.Endpoint, &websocket.DialOptions{HTTPHeader: header})
@@ -186,10 +196,11 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 		registration.ResumeAfterCodexCommandSequence = &commandSequence
 		registration.ResumeAfterCodexEventSequence = &eventSequence
 	}
+	addControlRegistration(&registration, control)
 	if err := writeJSON(ctx, connection, registration); err != nil {
 		return err
 	}
-	accepted, err := readAccepted(ctx, inbound, "runtime.registered", controller)
+	accepted, err := readAccepted(ctx, inbound, "runtime.registered", controller, control, connection)
 	if err != nil {
 		return err
 	}
@@ -203,12 +214,15 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 			return fmt.Errorf("Workspace Runtime Codex socket binding failed")
 		}
 	}
+	if err := bindControl(ctx, connection, accepted, control); err != nil {
+		return err
+	}
 	if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
 		return err
 	}
-	if err := client.flush(ctx, connection, inbound, bootstrap.JournalPath, state, controller); err != nil {
+	if err := client.flush(ctx, connection, inbound, bootstrap.JournalPath, state, controller, control); err != nil {
 		if ctx.Err() != nil {
-			return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller)
+			return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller, control)
 		}
 		return err
 	}
@@ -225,12 +239,12 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 	for {
 		select {
 		case <-ctx.Done():
-			return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller)
+			return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller, control)
 		case frame, open := <-inbound:
 			if !open {
 				return fmt.Errorf("Workspace Runtime server connection closed")
 			}
-			if err := handleInbound(frame, controller); err != nil {
+			if err := handleInbound(ctx, frame, controller, control, connection); err != nil {
 				return err
 			}
 		case message, open := <-controllerMessages(controller):
@@ -272,9 +286,9 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 			if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
 				return err
 			}
-			if err := client.flush(ctx, connection, inbound, bootstrap.JournalPath, state, controller); err != nil {
+			if err := client.flush(ctx, connection, inbound, bootstrap.JournalPath, state, controller, control); err != nil {
 				if ctx.Err() != nil {
-					return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller)
+					return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller, control)
 				}
 				return err
 			}
@@ -289,9 +303,9 @@ func (client Client) runConnection(ctx context.Context, bootstrap Bootstrap, sta
 			if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
 				return err
 			}
-			if err := client.flush(ctx, connection, inbound, bootstrap.JournalPath, state, controller); err != nil {
+			if err := client.flush(ctx, connection, inbound, bootstrap.JournalPath, state, controller, control); err != nil {
 				if ctx.Err() != nil {
-					return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller)
+					return client.flushGracefulShutdown(bootstrap, connection, inbound, state, controller, control)
 				}
 				return err
 			}
@@ -305,6 +319,7 @@ func (client Client) flushGracefulShutdown(
 	inbound <-chan inboundFrame,
 	state *journal,
 	controller *codexController,
+	control *controlReceiver,
 ) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -314,7 +329,7 @@ func (client Client) flushGracefulShutdown(
 	if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
 		return err
 	}
-	if err := client.flush(shutdown, connection, inbound, bootstrap.JournalPath, state, controller); err == nil {
+	if err := client.flush(shutdown, connection, inbound, bootstrap.JournalPath, state, controller, control); err == nil {
 		return nil
 	}
 	// A cancellation can close an in-flight websocket read. Reconnect with the
@@ -343,10 +358,11 @@ func (client Client) flushGracefulShutdown(
 		registration.ResumeAfterCodexCommandSequence = &commandSequence
 		registration.ResumeAfterCodexEventSequence = &eventSequence
 	}
+	addControlRegistration(&registration, control)
 	if err := writeJSON(shutdown, reconnected, registration); err != nil {
 		return err
 	}
-	accepted, err := readAccepted(shutdown, reconnectedInbound, "runtime.registered", controller)
+	accepted, err := readAccepted(shutdown, reconnectedInbound, "runtime.registered", controller, control, reconnected)
 	if err != nil || accepted.AcceptedSequence < state.Acked {
 		return fmt.Errorf("Workspace Runtime graceful reconnect failed")
 	}
@@ -356,19 +372,22 @@ func (client Client) flushGracefulShutdown(
 			return fmt.Errorf("Workspace Runtime graceful Codex socket binding failed")
 		}
 	}
+	if err := bindControl(shutdown, reconnected, accepted, control); err != nil {
+		return err
+	}
 	acknowledge(state, accepted.AcceptedSequence)
 	if err := saveJournal(bootstrap.JournalPath, *state); err != nil {
 		return err
 	}
-	return client.flush(shutdown, reconnected, reconnectedInbound, bootstrap.JournalPath, state, controller)
+	return client.flush(shutdown, reconnected, reconnectedInbound, bootstrap.JournalPath, state, controller, control)
 }
 
-func (client Client) flush(ctx context.Context, connection *websocket.Conn, inbound <-chan inboundFrame, path string, state *journal, controller *codexController) error {
+func (client Client) flush(ctx context.Context, connection *websocket.Conn, inbound <-chan inboundFrame, path string, state *journal, controller *codexController, control *controlReceiver) error {
 	for len(state.Events) > 0 {
 		if err := writeJSON(ctx, connection, state.Events[0]); err != nil {
 			return fmt.Errorf("write Workspace Runtime %s %s: %w", state.Events[0].Type, state.Events[0].State, err)
 		}
-		accepted, err := readAccepted(ctx, inbound, "runtime.accepted", controller)
+		accepted, err := readAccepted(ctx, inbound, "runtime.accepted", controller, control, connection)
 		if err != nil {
 			// The server persists the terminal event before sending its normal close.
 			// A close frame can race the final acknowledgement on the wire, so the
@@ -414,7 +433,7 @@ func (client Client) event(state journal, kind, lifecycle string, devServers int
 		SchemaVersion: SchemaVersion, Sequence: sequence, State: lifecycle, Type: kind, DevServers: devServers}
 }
 
-func readAccepted(ctx context.Context, inbound <-chan inboundFrame, expected string, controller *codexController) (serverMessage, error) {
+func readAccepted(ctx context.Context, inbound <-chan inboundFrame, expected string, controller *codexController, control *controlReceiver, connection *websocket.Conn) (serverMessage, error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -429,6 +448,12 @@ func readAccepted(ctx context.Context, inbound <-chan inboundFrame, expected str
 			if frame.message.Type == "runtime.codex.command" {
 				if controller == nil || controller.commandMessage(frame.encoded) != nil {
 					return serverMessage{}, fmt.Errorf("Workspace Runtime Codex command is unavailable")
+				}
+				continue
+			}
+			if strings.HasPrefix(frame.message.Type, "runtime.control.") {
+				if err := handleInbound(ctx, frame, controller, control, connection); err != nil {
+					return serverMessage{}, err
 				}
 				continue
 			}
@@ -472,14 +497,14 @@ func sendInboundFrame(ctx context.Context, frames chan<- inboundFrame, frame inb
 	}
 }
 
-func handleInbound(frame inboundFrame, controller *codexController) error {
+func handleInbound(ctx context.Context, frame inboundFrame, controller *codexController, control *controlReceiver, connection *websocket.Conn) error {
 	if frame.err != nil {
 		return frame.err
 	}
-	if frame.message.Type != "runtime.codex.command" || controller == nil {
-		return fmt.Errorf("Workspace Runtime server response is invalid")
+	if frame.message.Type == "runtime.codex.command" && controller != nil {
+		return controller.commandMessage(frame.encoded)
 	}
-	return controller.commandMessage(frame.encoded)
+	return handleControlFrame(ctx, frame, control, connection)
 }
 
 func controllerMessages(controller *codexController) <-chan json.RawMessage {
@@ -597,6 +622,10 @@ func validateBootstrap(value Bootstrap, now time.Time) error {
 		return fmt.Errorf("Workspace Runtime session launch bootstrap is invalid")
 	}
 	controllerRequested := hasCapability(value.RequestedCapabilities, "runtime.codex.v1")
+	controlRequested := hasCapability(value.RequestedCapabilities, controlCapability)
+	if controlRequested && (!safeText(value.OwnerUserID, 256) || !validAbsolutePath(value.WorkspacePath)) {
+		return fmt.Errorf("Workspace Runtime control bootstrap is invalid")
+	}
 	controllerValuesPresent := value.CodexControllerBinary != "" || value.CodexControllerBootstrap != ""
 	if controllerRequested != controllerValuesPresent || controllerValuesPresent &&
 		(!validAbsolutePath(value.CodexControllerBinary) || !validAbsolutePath(value.CodexControllerBootstrap)) {
@@ -643,10 +672,6 @@ func validCapabilities(values []string) bool {
 		seen[value] = true
 	}
 	return seen["runtime.lifecycle"] && seen["runtime.heartbeat"]
-}
-
-func validRequestedCapabilities(values []string) bool {
-	return len(values) == 0 || len(values) == 1 && values[0] == "runtime.codex.v1"
 }
 
 func hasCapability(values []string, expected string) bool {

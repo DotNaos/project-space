@@ -51,6 +51,10 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 		(request.RuntimeSession.ControllerBinary == "" || request.RuntimeSession.OwnerUserID == "") {
 		return RuntimeHandle{}, fmt.Errorf("verified Workspace Runtime Codex controller is required")
 	}
+	if request.RuntimeSession != nil && containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.control.v1") &&
+		request.RuntimeSession.OwnerUserID == "" {
+		return RuntimeHandle{}, fmt.Errorf("verified Workspace Runtime control binding is required")
+	}
 	for _, directory := range []string{
 		request.GenerationHome,
 		filepath.Join(request.GenerationHome, "home"),
@@ -97,6 +101,10 @@ func (provider ProcessProvider) Start(_ context.Context, request LaunchRequest) 
 			LogPointer: "runtime-log:/" + request.Binding.WorkspaceID + "/" + request.Binding.Generation,
 			ReadyPath:  runtimeSessionReadyPath,
 			ExpiresAt:  request.RuntimeSession.ExpiresAt,
+		}
+		if containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.control.v1") {
+			bootstrap.OwnerUserID = request.RuntimeSession.OwnerUserID
+			bootstrap.WorkspacePath = request.Directory
 		}
 		if containsCapability(request.RuntimeSession.RequestedCapabilities, "runtime.codex.v1") {
 			controllerPath := filepath.Join(request.GenerationHome, "runtime-codex-host-bootstrap.json")

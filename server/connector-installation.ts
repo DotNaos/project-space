@@ -22,6 +22,34 @@ const publicHostPattern = /^(?:localhost|[a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(?::\d
 const bundleVersionPattern = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const bundleAssetPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.tar\.gz$/;
 const sha256Pattern = /^[a-fA-F0-9]{64}$/;
+const maximumCompatibilityWindowMs = 90 * 24 * 60 * 60 * 1000;
+export const connectorCompatibilityInstallerVersion = 'legacy-connector-v1';
+
+export interface ConnectorCompatibilityPolicy {
+  surface: 'legacy-connector-installer';
+  sunsetAt: string;
+  sunsetEpochSeconds: number;
+  version: typeof connectorCompatibilityInstallerVersion;
+}
+
+export function connectorCompatibilityPolicy(
+  environment: NodeJS.ProcessEnv = process.env,
+  now = Date.now()
+): ConnectorCompatibilityPolicy {
+  const raw = environment.PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH?.trim();
+  const sunsetEpochSeconds = raw && /^[1-9][0-9]{9}$/.test(raw) ? Number(raw) : NaN;
+  const sunset = sunsetEpochSeconds * 1000;
+  if (!Number.isSafeInteger(sunsetEpochSeconds) || sunset <= now ||
+      sunset > now + maximumCompatibilityWindowMs) {
+    throw new ConnectorRuntimeReleaseSourceError('invalid-configuration');
+  }
+  return {
+    surface: 'legacy-connector-installer',
+    sunsetAt: new Date(sunset).toISOString(),
+    sunsetEpochSeconds,
+    version: connectorCompatibilityInstallerVersion
+  };
+}
 
 export interface ConnectorInstallerReleaseConfig {
   asset: string;
@@ -103,13 +131,16 @@ export function connectorInstallUrl(origin: string) {
 
 function connectorInstallCommand(
   origin: string,
-  release: ConnectorInstallerReleaseConfig
+  release: ConnectorInstallerReleaseConfig,
+  compatibility: ConnectorCompatibilityPolicy
 ) {
   return [
     `curl -fsSL ${safeShellSingleQuoted(connectorInstallUrl(origin))} |`,
     `PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION=${safeShellSingleQuoted(release.version)}`,
     `PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET=${safeShellSingleQuoted(release.asset)}`,
     `PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256=${safeShellSingleQuoted(release.sha256)}`,
+    `PROJECT_SPACE_CONNECTOR_COMPATIBILITY_ACK=${safeShellSingleQuoted(compatibility.version)}`,
+    `PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH=${safeShellSingleQuoted(String(compatibility.sunsetEpochSeconds))}`,
     'bash'
   ].join(' ');
 }
@@ -130,6 +161,7 @@ export async function createConnectorInstaller(
   options: CreateConnectorInstallerOptions = {}
 ) {
   const environment = options.environment ?? process.env;
+  const compatibility = connectorCompatibilityPolicy(environment, options.now ?? Date.now());
   const releaseId = configuredConnectorRuntimeReleaseId(environment);
   const manifestPublicKey =
     options.manifestPublicKey ?? configuredConnectorRuntimeReleasePublicKey(environment);
@@ -151,7 +183,8 @@ export async function createConnectorInstaller(
   const release = connectorInstallerReleaseConfig(manifest, artifact);
 
   return {
-    command: connectorInstallCommand(origin, release),
+    command: connectorInstallCommand(origin, release, compatibility),
+    compatibility,
     scriptUrl: connectorInstallUrl(origin)
   };
 }
@@ -164,8 +197,28 @@ hub_url=${safeShellSingleQuoted(origin)}
 bundle_version="\${PROJECT_SPACE_CONNECTOR_BUNDLE_VERSION:-}"
 bundle_asset="\${PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET:-}"
 bundle_sha256="\${PROJECT_SPACE_CONNECTOR_BUNDLE_SHA256:-}"
+compatibility_ack="\${PROJECT_SPACE_CONNECTOR_COMPATIBILITY_ACK:-}"
+compatibility_until="\${PROJECT_SPACE_CONNECTOR_COMPATIBILITY_INSTALL_UNTIL_EPOCH:-}"
 install_dir="\${PROJECT_SPACE_CONNECTOR_DIR:-$HOME/.local/bin}"
 service_name="\${PROJECT_CONNECTOR_SERVICE_NAME:-$(hostname -s)}"
+
+if [ "$compatibility_ack" != "${connectorCompatibilityInstallerVersion}" ] ||
+   [[ ! "$compatibility_until" =~ ^[1-9][0-9]{9}$ ]]; then
+  echo "This deprecated Connector installer requires an explicit, versioned compatibility command."
+  echo "Use project environment bootstrap for routine setup."
+  exit 1
+fi
+
+current_epoch="$(date +%s)"
+maximum_compatibility_epoch="$((current_epoch + 90 * 24 * 60 * 60))"
+if [ "$compatibility_until" -le "$current_epoch" ] ||
+   [ "$compatibility_until" -gt "$maximum_compatibility_epoch" ]; then
+  echo "This Connector compatibility command is expired or exceeds the 90-day safety window."
+  exit 1
+fi
+
+echo "Warning: installing deprecated Connector compatibility surface ${connectorCompatibilityInstallerVersion}."
+echo "Compatibility command expires at Unix time $compatibility_until."
 
 if [ -z "$bundle_version" ] || [ -z "$bundle_asset" ] || [ -z "$bundle_sha256" ]; then
   echo "Generate a managed install command from Project Space first."

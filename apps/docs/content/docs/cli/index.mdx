@@ -801,6 +801,28 @@ project environment
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for environment |
 
+<h3 id="project-environment-bootstrap" className="scroll-m-28"><code>project environment bootstrap</code></h3>
+
+Start a pinned Workspace Runtime without installing a permanent Connector
+
+```sh
+project environment bootstrap <environment-instance>
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--branch` | `string` | local | expected Workspace branch |
+| `--commit` | `string` | local | expected immutable Workspace commit |
+| `--format` | `string` | local | output format: text or json |
+| `--generation` | `string` | local | new exact Runtime generation UUID |
+| `-h`, `--help` | `bool` | local | help for bootstrap |
+| `--manifest-digest` | `string` | local | pinned Runtime manifest SHA-256 |
+| `--mode` | `string` | local | Runtime isolation: process or devcontainer |
+| `--operation-id` | `string` | local | stable idempotency identity |
+| `--profile` | `string` | local | Runtime profile: codex or inspection |
+| `--runtime-version` | `string` | local | pinned Project Runtime version |
+| `--workspace` | `string` | local | exact canonical Workspace ID |
+
 <h3 id="project-environment-instance" className="scroll-m-28"><code>project environment instance</code></h3>
 
 Discover concrete Environment Instances

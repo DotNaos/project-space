@@ -40,6 +40,8 @@ export interface SshGatewayRequest {
   runtimeSessionCapabilities?: string[];
   runtimeSessionEndpoint?: string;
   runtimeSessionExpiresAt?: string;
+  runtimeSessionOwnerUserId?: string;
+  runtimeSessionRequestedCapabilities?: string[];
   runtimeSessionToken?: string;
   runtimeSessionVersion?: string;
   workspaceId?: string;

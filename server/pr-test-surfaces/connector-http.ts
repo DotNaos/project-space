@@ -16,6 +16,7 @@ import {
   releaseConfiguredPullRequestDevServer
 } from './configured-runtime';
 import { PullRequestDevServerLeaseError } from './lease-service';
+import { recordSuccessfulConnectorCompatibilityUse } from '../connector-retirement/configured-runtime';
 
 const prefix = '/api/pull-request-previews/dev-server/';
 
@@ -23,11 +24,13 @@ export function createPullRequestDevServerConnectorRoutes(options: {
   heartbeat?: typeof heartbeatConfiguredPullRequestDevServer;
   register?: typeof registerConfiguredPullRequestDevServer;
   release?: typeof releaseConfiguredPullRequestDevServer;
+  recordUse?: typeof recordSuccessfulConnectorCompatibilityUse;
   resolveIdentity?: typeof resolveConnectorMachineTokenIdentity;
 } = {}) {
   const heartbeat = options.heartbeat ?? heartbeatConfiguredPullRequestDevServer;
   const register = options.register ?? registerConfiguredPullRequestDevServer;
   const release = options.release ?? releaseConfiguredPullRequestDevServer;
+  const recordUse = options.recordUse ?? recordSuccessfulConnectorCompatibilityUse;
   const resolveIdentity = options.resolveIdentity ?? resolveConnectorMachineTokenIdentity;
   return async function handlePullRequestDevServerConnectorRoute(
     request: IncomingMessage,
@@ -72,6 +75,7 @@ export function createPullRequestDevServerConnectorRoutes(options: {
               payload as unknown as PullRequestDevServerReleaseRequest
             );
       writeJson(response, 200, result);
+      await recordUse(identity.userId, 'connector.dev-server.command.v1');
     } catch (error) {
       if (!(error instanceof PullRequestDevServerLeaseError)) throw error;
       const status = error.code === 'forbidden'

@@ -9,7 +9,7 @@ const request = {
   branch: 'issue-625', commit: 'a'.repeat(40),
   environmentId: '11111111-1111-4111-8111-111111111111',
   generation: '22222222-2222-4222-8222-222222222222', manifestDigest: 'b'.repeat(64),
-  mode: 'process', operationId: 'workspace-start:625', runtimeVersion: '0.4.66',
+  mode: 'process', operationId: 'workspace-start:625', profile: 'inspection', runtimeVersion: '0.4.66',
   workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 };
 

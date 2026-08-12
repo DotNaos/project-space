@@ -22,13 +22,13 @@ export function createWorkspaceRuntimeSessionUpgradeHandler(
 
   webSocketServer.on('connection', (socket: WebSocket, _request: IncomingMessage, scope: RuntimeCredentialScope) => {
     let active: { scope: RuntimeCredentialScope; sessionId: string } | undefined;
-    let pending = false;
+    let processing = Promise.resolve();
     const registrationTimeout = setTimeout(() => {
       if (!active) socket.close(1008, 'Workspace Runtime registration timed out.');
     }, registrationTimeoutMs);
     const expiryTimeout = service.closeExpired(scope, socket);
 
-    socket.on('message', async (data: RawData, isBinary: boolean) => {
+    socket.on('message', (data: RawData, isBinary: boolean) => {
       const encoded = Array.isArray(data)
         ? Buffer.concat(data)
         : data instanceof ArrayBuffer
@@ -38,12 +38,7 @@ export function createWorkspaceRuntimeSessionUpgradeHandler(
         socket.close(1003, 'Workspace Runtime messages must be bounded JSON text.');
         return;
       }
-      if (pending) {
-        socket.close(1008, 'Workspace Runtime operation is already pending.');
-        return;
-      }
-      pending = true;
-      try {
+      processing = processing.then(async () => {
         const parsed = JSON.parse(encoded.toString()) as unknown;
         if (!active) {
           active = await service.register(socket, scope, parseRegistration(parsed));
@@ -55,7 +50,7 @@ export function createWorkspaceRuntimeSessionUpgradeHandler(
           if (typeof type === 'string' && type.startsWith('runtime.codex.')) {
             service.acceptCodex(active, parseRuntimeCodexMessage(parsed, active.scope, active.sessionId));
           } else if (typeof type === 'string' && type.startsWith('runtime.control.')) {
-            service.acceptControl(
+            await service.acceptControl(
               active,
               parseRuntimeControlMessage(parsed, active.scope, active.sessionId)
             );
@@ -65,12 +60,10 @@ export function createWorkspaceRuntimeSessionUpgradeHandler(
             if (result.stopped) socket.close(1000, 'Workspace Runtime stopped gracefully.');
           }
         }
-      } catch (error) {
+      }).catch((error) => {
         const failure = runtimeSessionFailure(error);
         socket.close(failure.code, failure.reason);
-      } finally {
-        pending = false;
-      }
+      });
     });
 
     socket.on('close', () => {

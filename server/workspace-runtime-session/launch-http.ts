@@ -70,12 +70,13 @@ export function createWorkspaceRuntimeLaunchHttpApi(options: {
 function parseLaunch(body: Record<string, unknown>, ownerUserId: string): WorkspaceRuntimeStartAuthority {
   const keys = [
     'branch', 'commit', 'environmentId', 'generation', 'manifestDigest',
-    'mode', 'operationId', 'runtimeVersion', 'workspaceId'
+    'mode', 'operationId', 'profile', 'runtimeVersion', 'workspaceId'
   ];
   if (Object.keys(body).sort().join('\0') !== keys.sort().join('\0') ||
     !text(body.branch, 256) || !commit(body.commit) || !uuid(body.environmentId) ||
     !uuid(body.generation) || !digest(body.manifestDigest) ||
     body.mode !== 'process' && body.mode !== 'devcontainer' ||
+    body.profile !== 'codex' && body.profile !== 'inspection' ||
     !text(body.operationId, 256, /^[A-Za-z0-9:._-]+$/) ||
     !text(body.runtimeVersion, 64, /^[A-Za-z0-9._+-]+$/) || !uuid(body.workspaceId)) {
     throw invalid('Workspace Runtime launch request is invalid.');

@@ -40,7 +40,12 @@ async function request(
 describe('PR Dev Server connector HTTP route', () => {
   test('binds the lease actor to the authenticated connector and owner', async () => {
     let actor: unknown;
+    const uses: unknown[] = [];
     const response = await request({
+      recordUse: async (...input) => {
+        uses.push(input);
+        return true;
+      },
       register: async (received) => {
         actor = received;
         return {
@@ -64,11 +69,16 @@ describe('PR Dev Server connector HTTP route', () => {
       userId: 'user-1'
     });
     expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(uses).toEqual([['user-1', 'connector.dev-server.command.v1']]);
   });
 
   test('rejects unclaimed connector credentials before registering anything', async () => {
     let called = false;
     const response = await request({
+      recordUse: async () => {
+        called = true;
+        return true;
+      },
       register: async () => {
         called = true;
         throw new Error('must not run');

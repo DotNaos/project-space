@@ -1,3 +1,5 @@
+import type { MachineRecord } from '../../src/shared/project-space-api';
+import { computeInventoryFromConnectors } from '../compute-inventory';
 import { localSimulationIdentity } from './seed';
 import type { LocalSimulationState } from './state';
 
@@ -41,24 +43,26 @@ export function projectRecord(state: LocalSimulationState, rootPath: string) {
 }
 
 export function connectorOverview(state: LocalSimulationState, rootPath: string) {
+  const machines = [{
+    connector: {
+      capabilities: ['dev-servers.v1', 'worktrees.v1', 'codex-sessions.v1'],
+      installCommand: '',
+      lastSeen: checkedAt(),
+      serviceName: 'local-simulation',
+      status: 'online'
+    },
+    environment: { kind: process.platform === 'darwin' ? 'macos' : 'linux', label: 'Local' },
+    id: state.machine.id,
+    kind: 'local-simulation',
+    name: state.machine.name,
+    network: { localName: 'localhost' },
+    primaryUser: 'local-developer',
+    roles: ['development'],
+    sourcePath: rootPath
+  }] satisfies MachineRecord[];
   return {
-    machines: [{
-      connector: {
-        capabilities: ['dev-servers.v1', 'worktrees.v1', 'codex-sessions.v1'],
-        installCommand: '',
-        lastSeen: checkedAt(),
-        serviceName: 'local-simulation',
-        status: 'online'
-      },
-      environment: { kind: process.platform === 'darwin' ? 'macos' : 'linux', label: 'Local' },
-      id: state.machine.id,
-      kind: 'local-simulation',
-      name: state.machine.name,
-      network: { localName: 'localhost' },
-      primaryUser: 'local-developer',
-      roles: ['development'],
-      sourcePath: rootPath
-    }],
+    computeInventory: computeInventoryFromConnectors({ connectors: machines }),
+    machines,
     machinesRepo: { exists: true, path: rootPath },
     physicalMachines: [{ connectorIds: [state.machine.id], id: 'local-computer', name: 'Local computer' }],
     tailscale: { connected: false, installed: false, ips: [], peersOnline: 0, serveOrigins: [] }
