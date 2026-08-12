@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
-import { readdirSync } from 'node:fs';
-import { platform } from 'node:os';
+import { mkdtempSync, readdirSync, rmSync, statfsSync } from 'node:fs';
+import { platform, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   fastCiSelection,
   releaseVerificationPolicy,
@@ -26,6 +27,10 @@ type Options = {
   head: string;
   pullRequest?: number;
 };
+
+const GIBIBYTE = 1024 ** 3;
+const MINIMUM_FAST_MATRIX_FREE_BYTES = 2 * GIBIBYTE;
+const MINIMUM_FULL_MATRIX_FREE_BYTES = 5 * GIBIBYTE;
 
 export function preflightPlan(input: {
   changedPaths: string[];
@@ -143,6 +148,44 @@ export function preflightPlan(input: {
   return lanes;
 }
 
+export function preflightCapacity(input: {
+  fullMatrix: boolean;
+  temporaryAvailableBytes: number;
+  worktreeAvailableBytes: number;
+}) {
+  const requiredBytes = input.fullMatrix
+    ? MINIMUM_FULL_MATRIX_FREE_BYTES
+    : MINIMUM_FAST_MATRIX_FREE_BYTES;
+  const availableBytes = Math.min(
+    input.temporaryAvailableBytes,
+    input.worktreeAvailableBytes,
+  );
+  return { availableBytes, requiredBytes, sufficient: availableBytes >= requiredBytes };
+}
+
+export function preflightLaneEnvironment(input: {
+  baseSha: string;
+  environment: NodeJS.ProcessEnv;
+  headSha: string;
+  laneId: string;
+  temporaryRoot: string;
+}) {
+  const environment = {
+    ...input.environment,
+    GOTMPDIR: input.temporaryRoot,
+    TEMP: input.temporaryRoot,
+    TMP: input.temporaryRoot,
+    TMPDIR: input.temporaryRoot,
+  };
+  return input.laneId === 'changelog'
+    ? {
+        ...environment,
+        RELEASE_BASE_SHA: input.baseSha,
+        RELEASE_HEAD_SHA: input.headSha,
+      }
+    : environment;
+}
+
 function remote(id: string, reason: string): PreflightLane {
   return { id, reason, remoteOnly: true };
 }
@@ -203,6 +246,12 @@ async function main() {
     eventName: 'pull_request',
     headVersion,
   });
+  const capacity = currentPreflightCapacity(classification.fullMatrix);
+  if (!capacity.sufficient) {
+    throw new Error(
+      `CI preflight needs at least ${formatBytes(capacity.requiredBytes)} free on both the worktree and temporary filesystems; only ${formatBytes(capacity.availableBytes)} is available. No test, install, build, or cache cleanup was started.`,
+    );
+  }
   const lanes = preflightPlan({
     changedPaths,
     fullMatrix: classification.fullMatrix,
@@ -211,13 +260,18 @@ async function main() {
     version: headVersion,
   });
   const results: LaneResult[] = [];
-  for (const lane of lanes) {
-    if (lane.remoteOnly) {
-      results.push({ ...lane, durationMs: 0, exitCode: null, status: 'remote-only' });
-      continue;
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'project-space-ci-preflight-'));
+  try {
+    for (const lane of lanes) {
+      if (lane.remoteOnly) {
+        results.push({ ...lane, durationMs: 0, exitCode: null, status: 'remote-only' });
+        continue;
+      }
+      const result = await runLane(lane, baseSha, headSha, temporaryRoot);
+      results.push(result);
     }
-    const result = await runLane(lane, baseSha, headSha);
-    results.push(result);
+  } finally {
+    rmSync(temporaryRoot, { force: true, recursive: true });
   }
   const conclusion = results.some((lane) => lane.status === 'failed')
     ? 'failed'
@@ -226,6 +280,7 @@ async function main() {
     schemaVersion: 1,
     baseSha,
     headSha,
+    capacity,
     changedPaths,
     classification: {
       fastCi: fastCiSelection(changedPaths, classification.fullMatrix),
@@ -241,7 +296,12 @@ async function main() {
   if (conclusion === 'failed') process.exit(1);
 }
 
-async function runLane(lane: PreflightLane, baseSha: string, headSha: string) {
+async function runLane(
+  lane: PreflightLane,
+  baseSha: string,
+  headSha: string,
+  temporaryRoot: string,
+) {
   if (lane.id === 'post-run-cleanliness') {
     const started = performance.now();
     const status = await gitText('status', '--porcelain=v1', '--untracked-files=all');
@@ -271,14 +331,13 @@ async function runLane(lane: PreflightLane, baseSha: string, headSha: string) {
   const started = performance.now();
   const child = Bun.spawn(actualCommand, {
     cwd: workingDirectory,
-    env:
-      lane.id === 'changelog'
-        ? {
-            ...process.env,
-            RELEASE_BASE_SHA: baseSha,
-            RELEASE_HEAD_SHA: headSha,
-          }
-        : process.env,
+    env: preflightLaneEnvironment({
+      baseSha,
+      environment: process.env,
+      headSha,
+      laneId: lane.id,
+      temporaryRoot,
+    }),
     stderr: 'pipe',
     stdout: 'pipe',
   });
@@ -296,6 +355,23 @@ async function runLane(lane: PreflightLane, baseSha: string, headSha: string) {
     exitCode,
     status: exitCode === 0 ? 'passed' : 'failed',
   } as LaneResult;
+}
+
+function currentPreflightCapacity(fullMatrix: boolean) {
+  return preflightCapacity({
+    fullMatrix,
+    temporaryAvailableBytes: availableBytes(tmpdir()),
+    worktreeAvailableBytes: availableBytes('.'),
+  });
+}
+
+function availableBytes(path: string) {
+  const filesystem = statfsSync(path);
+  return filesystem.bavail * filesystem.bsize;
+}
+
+function formatBytes(bytes: number) {
+  return `${(bytes / GIBIBYTE).toFixed(1)} GiB`;
 }
 
 function parseOptions(args: string[]): Options {

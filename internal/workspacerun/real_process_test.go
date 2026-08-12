@@ -2,6 +2,8 @@ package workspacerun
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,11 +18,9 @@ func TestRealProcessRuntimeLifecyclePreservesNeighborAndCheckout(t *testing.T) {
 	}
 	workspace := t.TempDir()
 	writeRuntimeFixture(t, workspace, ModeProcess)
-	helper := filepath.Join(t.TempDir(), "project")
-	build := exec.Command("go", "build", "-o", helper, "./cmd/project")
-	build.Dir = filepath.Join("..", "..")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build Project CLI fixture: %v\n%s", err, output)
+	helper, err := buildProjectFixture(t.TempDir(), filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
 	}
 	codex, err := exec.LookPath("codex")
 	if err != nil {
@@ -117,6 +117,39 @@ func TestRealProcessRuntimeLifecyclePreservesNeighborAndCheckout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workspace, manifestPath)); err != nil {
 		t.Fatalf("clean removed checkout content: %v", err)
 	}
+}
+
+func TestProjectFixtureBuildCleansItsTemporaryDirectoryAfterFailure(t *testing.T) {
+	root := t.TempDir()
+	if _, err := buildProjectFixture(root, filepath.Join(root, "missing-repository")); err == nil {
+		t.Fatal("fixture build unexpectedly succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(root, "go-build")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("task-owned Go build directory remains after failure: %v", err)
+	}
+}
+
+func buildProjectFixture(root, repository string) (_ string, returnErr error) {
+	buildRoot := filepath.Join(root, "go-build")
+	if err := os.MkdirAll(buildRoot, 0o700); err != nil {
+		return "", fmt.Errorf("create task-owned Go build directory: %w", err)
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, os.RemoveAll(buildRoot))
+	}()
+	helper := filepath.Join(root, "project")
+	build := exec.Command("go", "build", "-o", helper, "./cmd/project")
+	build.Dir = repository
+	build.Env = append(os.Environ(),
+		"GOTMPDIR="+buildRoot,
+		"TEMP="+buildRoot,
+		"TMP="+buildRoot,
+		"TMPDIR="+buildRoot,
+	)
+	if output, err := build.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build Project CLI fixture: %w\n%s", err, output)
+	}
+	return helper, nil
 }
 
 type fixedProjectVerifier struct{ project, codex string }

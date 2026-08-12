@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { preflightPlan } from '../scripts/ci-preflight';
+import {
+  preflightCapacity,
+  preflightLaneEnvironment,
+  preflightPlan,
+} from '../scripts/ci-preflight';
 import {
   fastCiSelection,
   releaseVerificationPolicy,
@@ -128,9 +132,47 @@ describe('canonical local CI preflight', () => {
     expect(source).toContain("status: 'remote-only'");
     expect(source).toContain("'--pull-request'");
     expect(source).toContain('is not the checked-out HEAD');
-    expect(source).toContain('RELEASE_BASE_SHA: baseSha');
+    expect(source).toContain('RELEASE_BASE_SHA: input.baseSha');
     expect(source).toContain("conclusion: 'refused'");
     expect(source).toContain('generated files or edits remain after local lanes');
+    expect(source).toContain('No test, install, build, or cache cleanup was started.');
+    expect(source).toContain("rmSync(temporaryRoot, { force: true, recursive: true })");
+  });
+
+  test('refuses low-capacity matrices before expensive lanes', () => {
+    expect(preflightCapacity({
+      fullMatrix: false,
+      temporaryAvailableBytes: 8 * 1024 ** 3,
+      worktreeAvailableBytes: 2 * 1024 ** 3 - 1,
+    })).toEqual({
+      availableBytes: 2 * 1024 ** 3 - 1,
+      requiredBytes: 2 * 1024 ** 3,
+      sufficient: false,
+    });
+    expect(preflightCapacity({
+      fullMatrix: true,
+      temporaryAvailableBytes: 5 * 1024 ** 3,
+      worktreeAvailableBytes: 8 * 1024 ** 3,
+    }).sufficient).toBe(true);
+  });
+
+  test('binds every lane to one run-owned temporary root and the changelog to the stacked base', () => {
+    const environment = preflightLaneEnvironment({
+      baseSha: 'a'.repeat(40),
+      environment: { RELEASE_BASE_SHA: 'origin/main', SAFE_INPUT: 'kept' },
+      headSha: 'b'.repeat(40),
+      laneId: 'changelog',
+      temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
+    });
+    expect(environment).toMatchObject({
+      GOTMPDIR: '/private/tmp/project-space-ci-preflight-owned',
+      RELEASE_BASE_SHA: 'a'.repeat(40),
+      RELEASE_HEAD_SHA: 'b'.repeat(40),
+      SAFE_INPUT: 'kept',
+      TEMP: '/private/tmp/project-space-ci-preflight-owned',
+      TMP: '/private/tmp/project-space-ci-preflight-owned',
+      TMPDIR: '/private/tmp/project-space-ci-preflight-owned',
+    });
   });
 
   test('refuses a report for a revision other than the clean checkout in JSON', () => {
