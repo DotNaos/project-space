@@ -1968,6 +1968,12 @@
                 "inherited": false
               },
               {
+                "name": "profile",
+                "type": "string",
+                "description": "Runtime profile: codex or inspection",
+                "inherited": false
+              },
+              {
                 "name": "runtime-version",
                 "type": "string",
                 "description": "pinned Project Runtime version",
