@@ -5,7 +5,8 @@ usage() {
   cat >&2 <<'EOF'
 Usage: ./install.sh [--install-dir <absolute-path>] [--external-connector-supervisor]
 
-Installs the Project CLI and its bundled connector for the current user.
+Installs the Project CLI and versioned compatibility tools for the current user.
+Fresh installs do not create or start a Connector service.
 EOF
 }
 
@@ -38,11 +39,7 @@ done
 
 case $connector_service_mode in
   auto)
-    if [[ -d /run/systemd/system ]]; then
-      connector_service_mode=managed
-    else
-      connector_service_mode=external
-    fi
+    connector_service_mode=external
     ;;
   managed|external) ;;
   *)
@@ -301,4 +298,5 @@ rm -rf -- "$transaction_root"
 trap - EXIT
 
 printf 'Installed Project Space machine tools %s in %s\n' "$version" "$install_directory"
-printf 'Next: run %s/project connect\n' "$install_directory"
+printf 'Next: run %s/project environment list --format json\n' "$install_directory"
+printf 'Then launch a pinned Runtime with project environment bootstrap.\n'

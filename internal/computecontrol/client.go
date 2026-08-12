@@ -42,6 +42,10 @@ type API interface {
 	Status(context.Context, StatusRequest) (ExecutionResult, error)
 }
 
+type WorkspaceRuntimeAPI interface {
+	LaunchWorkspaceRuntime(context.Context, WorkspaceRuntimeLaunchRequest) (WorkspaceRuntimeLaunchExecution, error)
+}
+
 type Config struct {
 	BaseURL            string
 	CallerMachineID    string
@@ -135,6 +139,81 @@ func (client *Client) Status(ctx context.Context, input StatusRequest) (Executio
 		return ExecutionResult{}, ErrInvalidResponse
 	}
 	return result, nil
+}
+
+func (client *Client) LaunchWorkspaceRuntime(
+	ctx context.Context,
+	input WorkspaceRuntimeLaunchRequest,
+) (WorkspaceRuntimeLaunchExecution, error) {
+	if !validLaunchRequest(input) {
+		return WorkspaceRuntimeLaunchExecution{}, ErrInvalidInput
+	}
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return WorkspaceRuntimeLaunchExecution{}, ErrInvalidInput
+	}
+	endpoint := *client.baseURL
+	endpoint.Path = strings.TrimRight(client.baseURL.Path, "/") +
+		"/api/compute/control/workspace-runtime/launch"
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(encoded))
+	if err != nil {
+		return WorkspaceRuntimeLaunchExecution{}, ErrInvalidInput
+	}
+	token, err := client.credentials.AccessToken(ctx)
+	if err != nil || strings.TrimSpace(token) == "" {
+		return WorkspaceRuntimeLaunchExecution{}, ErrUnauthorized
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", input.OperationID)
+	request.Header.Set("X-Project-Machine-ID", client.callerMachineID)
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return WorkspaceRuntimeLaunchExecution{}, ctx.Err()
+		}
+		return WorkspaceRuntimeLaunchExecution{}, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return WorkspaceRuntimeLaunchExecution{}, ErrUnauthorized
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode >= 500 {
+			return WorkspaceRuntimeLaunchExecution{}, ErrUnavailable
+		}
+		return WorkspaceRuntimeLaunchExecution{}, ErrInvalidInput
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, (1<<20)+1))
+	decoder.DisallowUnknownFields()
+	var result WorkspaceRuntimeLaunchExecution
+	if decoder.Decode(&result) != nil || decoder.Decode(&struct{}{}) != io.EOF ||
+		!validLaunchResult(result, input) {
+		return WorkspaceRuntimeLaunchExecution{}, ErrInvalidResponse
+	}
+	return result, nil
+}
+
+func validLaunchRequest(value WorkspaceRuntimeLaunchRequest) bool {
+	return uuidPattern.MatchString(value.EnvironmentID) && uuidPattern.MatchString(value.WorkspaceID) &&
+		uuidPattern.MatchString(value.Generation) && operationPattern.MatchString(value.OperationID) &&
+		regexp.MustCompile(`^(?:[a-f0-9]{40}|[a-f0-9]{64})$`).MatchString(value.Commit) &&
+		regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(value.ManifestDigest) &&
+		regexp.MustCompile(`^[A-Za-z0-9._+-]{1,64}$`).MatchString(value.RuntimeVersion) &&
+		(value.Mode == "process" || value.Mode == "devcontainer") &&
+		value.Branch != "" && len(value.Branch) <= 256 && !strings.ContainsAny(value.Branch, "\x00\r\n")
+}
+
+func validLaunchResult(
+	value WorkspaceRuntimeLaunchExecution,
+	input WorkspaceRuntimeLaunchRequest,
+) bool {
+	checkedAt, err := time.Parse(time.RFC3339Nano, value.Result.CheckedAt)
+	return err == nil && !checkedAt.IsZero() && value.Result.Operation == "workspace-runtime.start.v1" &&
+		value.Result.OperationID == input.OperationID && value.Result.WorkspaceID == input.WorkspaceID &&
+		value.Result.Generation == input.Generation && value.Result.ManifestDigest == input.ManifestDigest &&
+		value.Result.SourceHead == input.Commit && value.Result.State == "running"
 }
 
 func validResult(value ExecutionResult, input StatusRequest, callerMachineID string) bool {
