@@ -175,6 +175,26 @@ export function createWorkspaceRuntimeControlDispatcher(
         inProgress();
       }
 
+      try {
+        const verified = await freshTarget();
+        if (JSON.stringify(verified) !== JSON.stringify(target)) {
+          throw new Error('Canonical Runtime target changed before send.');
+        }
+      } catch (error) {
+        const result = publicResult(identity, 'failed') as CanonicalRuntimeControlResult & {
+          state: 'failed';
+        };
+        await operations.failReserved({
+          completedAt: now().toISOString(),
+          failureCode: error instanceof CanonicalRuntimeControlError &&
+            error.code === 'authorization_denied' ? 'authorization_denied' : 'target_changed',
+          fingerprint,
+          identity,
+          result
+        });
+        return result;
+      }
+
       const dispatchedAt = now();
       const marked = await operations.markDispatchAttempted({
         commandId: request.operationId,
@@ -200,10 +220,6 @@ export function createWorkspaceRuntimeControlDispatcher(
         pending.set(pendingKey, { reject, resolve, timeout });
       });
       try {
-        const verified = await freshTarget();
-        if (JSON.stringify(verified) !== JSON.stringify(target)) {
-          throw new Error('Canonical Runtime target changed before send.');
-        }
         sessions.dispatchControl(identity.ownerUserId, command);
       } catch {
         const current = pending.get(pendingKey);

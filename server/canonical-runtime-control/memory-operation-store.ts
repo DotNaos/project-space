@@ -93,6 +93,15 @@ implements CanonicalRuntimeControlOperationStore {
 
   async markUncertain(input: Parameters<CanonicalRuntimeControlOperationStore['markUncertain']>[0]) {
     const current = this.exact(input);
+    if (current.state === 'uncertain') {
+      if (input.resultEventSequence === undefined) return current;
+      if (current.resultEventSequence === input.resultEventSequence) return current;
+      if (current.resultEventSequence !== undefined) throw changed();
+      this.advance(input.identity, input.resultEventSequence);
+      const updated = { ...current, resultEventSequence: input.resultEventSequence };
+      this.save(updated);
+      return updated;
+    }
     if (current.state !== 'dispatching') throw changed();
     if (input.resultEventSequence !== undefined) this.advance(input.identity, input.resultEventSequence);
     const updated: CanonicalRuntimeControlOperationRecord = {

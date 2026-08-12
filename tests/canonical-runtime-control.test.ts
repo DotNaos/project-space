@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { MemoryCanonicalRuntimeControlOperationStore } from '../server/canonical-runtime-control/memory-operation-store';
+import { CanonicalRuntimeControlError } from '../server/canonical-runtime-control/contracts';
 import { createCanonicalRuntimeControlService } from '../server/canonical-runtime-control/service';
 import { createWorkspaceRuntimeControlDispatcher } from '../server/canonical-runtime-control/workspace-runtime-dispatcher';
 import { MemoryRuntimeSessionStore } from '../server/workspace-runtime-session/memory-store';
@@ -346,6 +347,45 @@ describe('canonical runtime control', () => {
     }));
     dispatcher.close();
     sessions.close();
+  });
+
+  test('terminally fences a known pre-send target change from reconnect recovery', async () => {
+    const operations = new MemoryCanonicalRuntimeControlOperationStore();
+    let registrationListener: ((input: {
+      generation: string; ownerUserId: string; resumeAfterCommandSequence: number;
+      sessionId: string; workspaceId: string;
+    }) => Promise<void> | void) | undefined;
+    let dispatches = 0;
+    const sessions = {
+      dispatchControl() { dispatches += 1; },
+      onControlMessage() { return () => {}; },
+      onControlRegistration(listener: typeof registrationListener) {
+        registrationListener = listener;
+        return () => {};
+      }
+    } as unknown as WorkspaceRuntimeSessionService;
+    const dispatcher = createWorkspaceRuntimeControlDispatcher(sessions, operations);
+    const controlRequest = request('git.status', 'runtime:known-target-change');
+    await expect(dispatcher.dispatch({
+      actor,
+      fingerprint: 'd'.repeat(64),
+      freshTarget: async () => {
+        throw new CanonicalRuntimeControlError('target_unavailable', 'Target changed.');
+      },
+      request: controlRequest,
+      target: {
+        environmentId, generation, sessionId: 'session-before-change',
+        targetIdentityRevision: controlRequest.expectedTargetIdentityRevision, workspaceId
+      }
+    })).resolves.toMatchObject({ state: 'failed' });
+    expect((await operations.read(actor.ownerUserId, controlRequest.operationId))?.state).toBe('failed');
+    expect(await operations.unresolved(actor.ownerUserId, workspaceId, generation)).toEqual([]);
+    await registrationListener?.({
+      generation, ownerUserId: actor.ownerUserId, resumeAfterCommandSequence: 0,
+      sessionId: 'session-after-change', workspaceId
+    });
+    expect(dispatches).toBe(0);
+    dispatcher.close();
   });
 
   test('rejects result schema leaks and mismatched full socket bindings', async () => {

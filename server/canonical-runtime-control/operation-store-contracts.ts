@@ -82,7 +82,7 @@ export interface CanonicalRuntimeControlPredispatchFailureInput {
     'dispatch_outcome_unknown' | 'runtime_failed' | 'runtime_stopping'>;
   fingerprint: string;
   identity: CanonicalRuntimeControlOperationIdentity;
-  result: Extract<CanonicalRuntimeControlResult, { state: 'failed' }>;
+  result: CanonicalRuntimeControlResult & { state: 'failed' };
 }
 
 export interface CanonicalRuntimeControlOperationStore {
