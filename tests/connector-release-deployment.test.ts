@@ -178,18 +178,12 @@ describe('connector release and production deployment contract', () => {
     expect(workflow).not.toContain('1password/');
     expect(workflow).not.toContain('PRIVATE_KEY');
     expect(workflow).not.toContain('contents: write');
-    expect(workflow).toContain(
-      '502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1'
-    );
+    expect(workflow).not.toContain('connector-command-signing-public-key.pem');
     expect(workflow).toContain(
       'aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451'
     );
 
     const roots = [
-      [
-        'packaging/release/trust-roots/connector-command-signing-public-key.pem',
-        '502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1'
-      ],
       [
         'packaging/release/trust-roots/release-manifest-signing-public-key.pem',
         'aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451'

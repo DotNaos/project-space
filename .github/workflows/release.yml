@@ -243,8 +243,6 @@ jobs:
             "$RUNNER_TEMP/release-linux" \
             "$RUNNER_TEMP/release-macos" \
             "$RUNNER_TEMP/release-assets"
-          cmp packaging/release/trust-roots/connector-command-signing-public-key.pem \
-            "$RUNNER_TEMP/release-trust-roots/connector-command-signing-public-key.pem"
           cmp packaging/release/trust-roots/release-manifest-signing-public-key.pem \
             "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem"
           source_epoch=$(git show -s --format=%ct "$SOURCE_SHA")
@@ -409,8 +407,6 @@ jobs:
             "$RUNNER_TEMP/release-linux" \
             "$RUNNER_TEMP/release-macos" \
             "$RUNNER_TEMP/release-assets"
-          cmp packaging/release/trust-roots/connector-command-signing-public-key.pem \
-            "$RUNNER_TEMP/release-trust-roots/connector-command-signing-public-key.pem"
           cmp packaging/release/trust-roots/release-manifest-signing-public-key.pem \
             "$RUNNER_TEMP/release-trust-roots/release-manifest-signing-public-key.pem"
           (

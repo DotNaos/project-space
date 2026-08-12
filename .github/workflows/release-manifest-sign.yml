@@ -328,7 +328,7 @@ jobs:
           PY
 
           trust_root="$RUNNER_TEMP/trust-roots"
-          expected_roots=$'connector-command-signing-public-key.pem\nrelease-manifest-signing-public-key.pem'
+          expected_roots='release-manifest-signing-public-key.pem'
           actual_roots=$(/usr/bin/find "$trust_root" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C /usr/bin/sort)
           [[ $actual_roots == "$expected_roots" ]]
           [[ -z $(/usr/bin/find "$trust_root" -mindepth 1 \( -type l -o ! -type f \) -print -quit) ]]
@@ -339,9 +339,7 @@ jobs:
             root_size=$(/usr/bin/stat --format='%s' "$root_file")
             (( root_size > 0 && root_size <= 65536 ))
           done
-          /usr/bin/openssl pkey -pubin -in "$trust_root/connector-command-signing-public-key.pem" -noout
           /usr/bin/openssl pkey -pubin -in "$trust_root/release-manifest-signing-public-key.pem" -noout
-          [[ $(/usr/bin/sha256sum "$trust_root/connector-command-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1) == 502f8b9dbbabec58aa8d2c794c7c052d5974215e2180f9e47ed4d7cff4ee45c1 ]]
           [[ $(/usr/bin/sha256sum "$trust_root/release-manifest-signing-public-key.pem" | /usr/bin/cut -d ' ' -f 1) == aff71d44e194f87e7e958296306059d3d5b55d7c369963b61d57627e03f4a451 ]]
 
       - name: Revalidate queued release before key access

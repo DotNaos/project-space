@@ -9,13 +9,10 @@ import {
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-export const commandTrustRootFileName =
-  'connector-command-signing-public-key.pem';
 export const releaseTrustRootFileName =
   'release-manifest-signing-public-key.pem';
 
 interface TrustRootInput {
-  commandPrivateKeyBase64: string;
   outputDirectory: string;
   releasePrivateKeyBase64: string;
 }
@@ -46,45 +43,31 @@ function publicPem(privateKey: KeyObject) {
 
 async function writeTrustRoots(
   outputDirectory: string,
-  commandPublicKey: string,
   releasePublicKey: string
 ) {
   const directory = resolve(outputDirectory);
   await mkdir(directory, { mode: 0o700, recursive: true });
-  await Promise.all([
-    writeFile(resolve(directory, commandTrustRootFileName), commandPublicKey, {
-      flag: 'wx',
-      mode: 0o644
-    }),
-    writeFile(resolve(directory, releaseTrustRootFileName), releasePublicKey, {
-      flag: 'wx',
-      mode: 0o644
-    })
-  ]);
+  await writeFile(resolve(directory, releaseTrustRootFileName), releasePublicKey, {
+    flag: 'wx',
+    mode: 0o644
+  });
 }
 
 export async function deriveReleaseTrustRoots(input: TrustRootInput) {
-  const commandKey = privateEd25519Key(
-    input.commandPrivateKeyBase64,
-    'The connector command-signing key'
-  );
   const releaseKey = privateEd25519Key(
     input.releasePrivateKeyBase64,
     'The release manifest-signing key'
   );
   await writeTrustRoots(
     input.outputDirectory,
-    publicPem(commandKey),
     publicPem(releaseKey)
   );
 }
 
 export async function createValidationTrustRoots(outputDirectory: string) {
-  const commandKey = generateKeyPairSync('ed25519').privateKey;
   const releaseKey = generateKeyPairSync('ed25519').privateKey;
   await writeTrustRoots(
     outputDirectory,
-    publicPem(commandKey),
     publicPem(releaseKey)
   );
 }
@@ -102,8 +85,6 @@ async function main() {
     return;
   }
   await deriveReleaseTrustRoots({
-    commandPrivateKeyBase64:
-      process.env.PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64 ?? '',
     outputDirectory,
     releasePrivateKeyBase64:
       process.env.PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 ?? ''
