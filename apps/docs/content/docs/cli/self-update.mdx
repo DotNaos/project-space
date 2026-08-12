@@ -3,7 +3,7 @@ title: Self-update
 description: Safely check and install a matching signed Project CLI and connector release.
 ---
 
-`project self-update` checks the signed stable release manifest and keeps the Project CLI and connector on one matching machine-tools release. It only runs when you invoke it; Project does not perform silent or background updates.
+`project self-update` checks the signed stable release manifest and keeps the Project CLI and connector on one matching machine-tools release. Project never installs an update unless you invoke this command and confirm it.
 
 If `project --help` does not list `self-update`, your installed binary predates this source command. Follow the guidance for its installation source in [Setup](/docs/setup).
 
@@ -20,6 +20,33 @@ project self-update --check
 ```
 
 `--check` verifies the approved release and reports what would happen without changing files.
+
+## Automatic Update Notice
+
+Normal interactive `project` commands reuse a private local cache and, when it
+is stale, start a bounded read-only check of the signed approved release in the
+background. If that verified check found a newer compatible release, later
+interactive commands show this notice on the terminal's error stream:
+
+```text
+Project 0.21.10 is available (current: 0.20.0). Run `project self-update` to install it.
+```
+
+The cached release state is refreshed after 24 hours. A failed check is silent
+and can be retried after 15 minutes. The check never downloads the release
+archive, installs an update, prompts, delays the command for the network, or
+changes that command's exit status. It is skipped for redirected output, pipes,
+shell completion, help, and `project self-update` itself. When JSON is printed
+directly to an interactive terminal, the notice remains on stderr so stdout
+stays valid JSON.
+
+To disable automatic release checks, set:
+
+```sh
+export PROJECT_CLI_NO_UPDATE_CHECK=1
+```
+
+An empty value, `0`, `false`, or `no` keeps the check enabled.
 
 The normal update flow shows the verified plan and asks for confirmation. The default answer is no:
 

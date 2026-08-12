@@ -13,6 +13,7 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), projectTerminationSignals()...)
 	defer stop()
+	maybeShowProjectUpdateNotice(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	root := newRootCommand()
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "VIOLATION", err)
@@ -57,6 +58,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newPrepareCommand())
 	root.AddCommand(newRuntimeLogCommand())
 	root.AddCommand(newRuntimeTmuxCommand())
+	root.AddCommand(newUpdateNoticeRefreshCommand())
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newRoadmapCommand())
 	root.AddCommand(newSelfUpdateCommand())
