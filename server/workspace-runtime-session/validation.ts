@@ -8,6 +8,8 @@ import {
   type WorkspaceRuntimeRegistration
 } from '../../src/shared/workspace-runtime-session-api';
 import type { IssueRuntimeCredentialInput } from './contracts';
+import type { RuntimeCredentialScope } from './contracts';
+import type { WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
 import { RuntimeSessionError } from './contracts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -50,10 +52,10 @@ export function parseCredentialRequest(value: unknown): WorkspaceRuntimeCredenti
 export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration {
   const input = object(value);
   exactKeys(input, [
-    'branch', 'commit', 'environmentId', 'generation', 'manifestDigest',
+    'branch', 'codexControllerState', 'commit', 'environmentId', 'generation', 'manifestDigest',
     'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence', 'resumeAfterSequence',
     'runtimeVersion', 'schemaVersion', 'type', 'workspaceId'
-  ], ['resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence']);
+  ], ['codexControllerState', 'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence']);
   if (input.type !== 'runtime.register' || input.schemaVersion !== workspaceRuntimeSessionSchemaVersion ||
     !Number.isSafeInteger(input.resumeAfterSequence) || Number(input.resumeAfterSequence) < 0 ||
     !optionalSequence(input.resumeAfterCodexCommandSequence) ||
@@ -62,7 +64,11 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
     !uuid.test(string(input.generation)) || !workspace.test(string(input.workspaceId)) ||
     !digest.test(string(input.manifestDigest)) || !commit.test(string(input.commit))) invalid();
   return {
-    branch: safeText(input.branch, 256), commit: string(input.commit),
+    branch: safeText(input.branch, 256),
+    ...(input.codexControllerState === undefined ? {} : {
+      codexControllerState: input.codexControllerState === 'ready' ? 'ready' as const : invalid()
+    }),
+    commit: string(input.commit),
     environmentId: string(input.environmentId),
     generation: string(input.generation), manifestDigest: string(input.manifestDigest),
     ...(input.resumeAfterCodexCommandSequence === undefined ? {} : {
@@ -123,6 +129,27 @@ export function parseRuntimeEvent(value: unknown): WorkspaceRuntimeEvent {
   invalid();
 }
 
+export function parseRuntimeCodexMessage(
+  value: unknown,
+  scope: RuntimeCredentialScope,
+  sessionId: string
+): WorkspaceRuntimeCodexMessage {
+  if (!scope.capabilities.includes('runtime.codex.v1')) invalid();
+  const input = object(value);
+  if (![
+    'runtime.codex.command-accepted', 'runtime.codex.event', 'runtime.codex.result',
+    'runtime.codex.error'
+  ].includes(string(input.type)) || input.schemaVersion !== 1 ||
+      input.workspaceId !== scope.workspaceId || input.environmentId !== scope.environmentId ||
+      input.generation !== scope.generation || input.sessionId !== sessionId ||
+      input.actorUserId !== scope.ownerUserId || !eventId.test(string(input.actorId)) ||
+      !eventId.test(string(input.commandId)) || !eventId.test(string(input.operationId)) ||
+      !Number.isSafeInteger(input.commandSequence) || Number(input.commandSequence) < 1) invalid();
+  if (input.type === 'runtime.codex.event' &&
+      (!Number.isSafeInteger(input.eventSequence) || Number(input.eventSequence) < 1)) invalid();
+  return input as unknown as WorkspaceRuntimeCodexMessage;
+}
+
 function parseDevServers(value: unknown): WorkspaceRuntimeDevServer[] {
   if (!Array.isArray(value) || value.length > 32) invalid();
   const names = new Set<string>();
@@ -145,6 +172,8 @@ export function parseCapabilities(value: unknown): WorkspaceRuntimeCapability[] 
   if (!Array.isArray(value) || value.length === 0 || value.length > workspaceRuntimeCapabilities.length) invalid();
   const capabilities = value.map(string);
   if (new Set(capabilities).size !== capabilities.length || capabilities.some((entry) => !capabilitySet.has(entry))) invalid();
+  if (capabilities.includes('runtime.codex.v1') &&
+      (!capabilities.includes('runtime.lifecycle') || !capabilities.includes('runtime.heartbeat'))) invalid();
   return capabilities.sort() as WorkspaceRuntimeCapability[];
 }
 

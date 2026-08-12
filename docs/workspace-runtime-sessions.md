@@ -17,7 +17,9 @@ The credential is passed through the typed SSH start request into a `0600` boots
 flowchart LR
   CP[Trusted control plane] -->|preallocate generation + issue credential| SSH[Typed SSH start]
   SSH -->|0600 bootstrap file| RT[Workspace Runtime]
-  RT -->|Bearer-authenticated WSS| WS[Project Space session gateway]
+  RT -->|start and supervise over private pipes| CH[Generation-local Codex host]
+  CH -->|typed Codex App Server protocol| CA[Codex App Server]
+  RT -->|Bearer-authenticated WSS after controller ready| WS[Project Space session gateway]
   WS --> DB[(Generation and replay ledger)]
   SSH -. explicit recovery only .-> RT
 ```
@@ -36,17 +38,24 @@ Subsequent frames have a strictly increasing sequence number and one bounded typ
 - bounded CPU and memory telemetry;
 - opaque `runtime-log:/…` pointers.
 
-The protocol reserves the capability `runtime.codex.v1` for a bidirectional Codex command channel.
-It is intentionally not advertised by the current runtime. Enabling it requires a generation-local
-host controller that runs the shared Codex executor and owns App Server lifecycle; the telemetry
-client must not claim the capability or receive unsolicited commands before that controller exists.
+The capability `runtime.codex.v1` enables the bidirectional Codex command channel only after the
+generation-local host controller has started the shared Codex executor and successfully initialized
+the App Server. Registration must include that ready state plus durable command and event watermarks;
+a telemetry-only registration cannot activate Codex authority.
 
 When enabled, server commands and runtime Codex events use independent durable sequences. Every
 command remains bound to the authenticated owner, Workspace, Environment, generation, socket
-session, originating actor, operation ID, and typed Codex request. Results, status, approvals, input requests, and
+session, originating actor, operation ID, exact target thread, and typed Codex request. Results, approvals, input requests, and
 stream events must repeat that binding. Disconnected, stale, stopped, superseded, or mismatched
 generations receive no commands. Reconnect registration carries command and event watermarks so
 accepted work and stored stream events resume without duplicate mutations.
+
+The Go supervisor starts only the authenticated bundled controller in its dedicated host mode. The
+controller communicates through bounded private pipes, exposes no listener, and accepts only the
+typed list, read, inspect, continue/steer, interrupt, approval, input, settings, stream, start/status,
+and stop contracts. It does not expose shell execution, arbitrary process launch, or file access.
+It reuses the same Codex executor, pending approval/input identities, operation ledger, and App Server
+lifecycle used by the existing connector path.
 
 The server acknowledges the durable sequence. The runtime journals unacknowledged events in a protected generation-local file and replays them after reconnect. Repeating the exact event ID, sequence, and content is idempotent; changing any part is rejected.
 

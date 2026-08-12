@@ -72,6 +72,7 @@ type controlGatewayOperationRequest struct {
 	RuntimeSessionExpiresAt    string   `json:"runtimeSessionExpiresAt,omitempty"`
 	RuntimeSessionVersion      string   `json:"runtimeSessionVersion,omitempty"`
 	RuntimeSessionCapabilities []string `json:"runtimeSessionCapabilities,omitempty"`
+	RuntimeSessionOwnerUserID  string   `json:"runtimeSessionOwnerUserId,omitempty"`
 }
 
 type controlGatewayIdentity struct {

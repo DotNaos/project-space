@@ -27,10 +27,7 @@ func TestWorkspaceRuntimeWrapperWaitsForGracefulSessionFlushWhenCodexExitsWithIt
 	if err := os.WriteFile(ready, []byte("ready\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bootstrap := workspacesession.Bootstrap{
-		AppServerSocket: filepath.Join(directory, "codex.sock"), CodexBinary: codex,
-		ReadyPath: ready,
-	}
+	bootstrap := workspacesession.Bootstrap{ReadyPath: ready}
 	command := &cobra.Command{}
 	command.SetOut(io.Discard)
 	command.SetErr(io.Discard)

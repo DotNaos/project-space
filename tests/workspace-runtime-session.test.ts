@@ -31,10 +31,20 @@ function fixture() {
     operationId: `start:${nextGeneration}:${nextEnvironment}`, ownerUserId: 'owner',
     runtimeVersion: '0.4.66', workspaceId
   });
-  const registration = (resumeAfterSequence = 0, nextGeneration = generation, nextEnvironment = environmentId) => ({
+  const registration = (
+    resumeAfterSequence = 0,
+    nextGeneration = generation,
+    nextEnvironment = environmentId,
+    codex = true
+  ) => ({
     branch: 'issue-625', commit, environmentId: nextEnvironment, generation: nextGeneration,
     manifestDigest, resumeAfterSequence, runtimeVersion: '0.4.66', schemaVersion: 1 as const,
-    type: 'runtime.register' as const, workspaceId
+    type: 'runtime.register' as const, workspaceId,
+    ...(codex ? {
+      codexControllerState: 'ready' as const,
+      resumeAfterCodexCommandSequence: 0,
+      resumeAfterCodexEventSequence: 0
+    } : {})
   });
   return { issue, registration, service, setNow: (value: string) => { now = new Date(value); }, store };
 }
@@ -138,7 +148,7 @@ describe('Workspace Runtime outbound sessions', () => {
     })).rejects.toMatchObject({ code: 'invalid_message' });
   });
 
-  test('accepts bounded Codex reconnect watermarks without granting Codex authority', () => {
+  test('accepts bounded Codex reconnect watermarks without deriving authority from telemetry', () => {
     expect(parseRegistration({
       ...fixture().registration(),
       resumeAfterCodexCommandSequence: 12,
@@ -151,6 +161,38 @@ describe('Workspace Runtime outbound sessions', () => {
       ...fixture().registration(),
       resumeAfterCodexCommandSequence: -1
     })).toThrow();
+  });
+
+  test('does not activate Codex authority from a telemetry-only registration', async () => {
+    const runtime = fixture();
+    const issued = await runtime.issue();
+    const scope = await runtime.store.authenticate(issued.credential.token);
+    await expect(runtime.service.register(connection(), scope!, {
+      ...runtime.registration(0, generation, environmentId, false)
+    })).rejects.toMatchObject({ code: 'invalid_message' });
+  });
+
+  test('dispatches Codex commands only to the exact owner, generation, and socket binding', async () => {
+    const runtime = fixture();
+    const issued = await runtime.issue();
+    const scope = await runtime.store.authenticate(issued.credential.token);
+    const socket = connection();
+    const active = await runtime.service.register(socket, scope!, runtime.registration());
+    const command = {
+      actorId: 'actor-owner', actorKind: 'human' as const, actorUserId: 'owner',
+      commandId: 'command-start', commandSequence: 1, environmentId, generation,
+      kind: 'runtime-start' as const, operationId: 'operation.start',
+      request: { operationId: 'operation.start' }, schemaVersion: 1 as const,
+      sessionId: active.sessionId, type: 'runtime.codex.command' as const, workspaceId
+    };
+    runtime.service.dispatchCodex('owner', command);
+    expect(JSON.parse(socket.messages.at(-1)!)).toEqual(command);
+    expect(() => runtime.service.dispatchCodex('other-owner', command))
+      .toThrowError(RuntimeSessionError);
+    expect(() => runtime.service.dispatchCodex('owner', {
+      ...command,
+      generation: '55555555-5555-4555-8555-555555555555'
+    })).toThrowError(RuntimeSessionError);
   });
 
   test('uses server receive time for staleness and never infers host state', async () => {
@@ -287,7 +329,9 @@ describe('Workspace Runtime outbound sessions', () => {
       runtimeVersion: '0.4.66', workspaceId
     });
     const scope = await runtime.store.authenticate(limited.credential.token);
-    const active = await runtime.service.register(connection(), scope!, runtime.registration());
+    const active = await runtime.service.register(
+      connection(), scope!, runtime.registration(0, generation, environmentId, false)
+    );
     await expect(runtime.service.append(active, {
       eventId: 'gap', observedAt: '2026-08-12T10:00:00.000Z', schemaVersion: 1,
       sequence: 2, state: 'running', type: 'runtime.lifecycle'

@@ -36,7 +36,8 @@ describe('Workspace Runtime WebSocket gateway', () => {
     socket.on('error', () => {});
     await opened(socket);
     socket.send(JSON.stringify({
-      branch: 'issue-625', commit, environmentId, generation, manifestDigest,
+      branch: 'issue-625', codexControllerState: 'ready', commit, environmentId, generation, manifestDigest,
+      resumeAfterCodexCommandSequence: 0, resumeAfterCodexEventSequence: 0,
       resumeAfterSequence: 0, runtimeVersion: '0.4.66', schemaVersion: 1,
       type: 'runtime.register', workspaceId
     }));

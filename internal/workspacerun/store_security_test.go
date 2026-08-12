@@ -18,6 +18,9 @@ func TestWorkspaceRuntimeLockRefusesSymlinkWithoutChangingForeignFile(t *testing
 	if err := os.WriteFile(foreign, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(foreign, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	workspaceID := "ws_0123456789abcdef01234567"
 	if err := os.Symlink(foreign, filepath.Join(store.root, "locks", workspaceID+".lock")); err != nil {
 		t.Fatal(err)

@@ -12,6 +12,7 @@ import type {
   RuntimeSessionConnection,
   RuntimeSessionStore
 } from './contracts';
+import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
 import { RuntimeSessionError } from './contracts';
 
 const heartbeatIntervalSeconds = 15;
@@ -55,6 +56,15 @@ export class WorkspaceRuntimeSessionService {
     scope: RuntimeCredentialScope,
     registration: WorkspaceRuntimeRegistration
   ) {
+    const codexAuthority = scope.capabilities.includes('runtime.codex.v1');
+    if (codexAuthority !== (registration.codexControllerState === 'ready') ||
+        codexAuthority !== (registration.resumeAfterCodexCommandSequence !== undefined) ||
+        codexAuthority !== (registration.resumeAfterCodexEventSequence !== undefined)) {
+      throw new RuntimeSessionError(
+        'invalid_message',
+        'Workspace Runtime Codex authority requires a ready host controller.'
+      );
+    }
     const sessionId = this.createSessionId();
     const receivedAt = this.now().toISOString();
     const result = await this.store.register(scope, sessionId, receivedAt, registration);
@@ -91,6 +101,27 @@ export class WorkspaceRuntimeSessionService {
       type: 'runtime.accepted'
     };
     return { response, stopped: result.snapshot.lifecycleState === 'stopped' };
+  }
+
+  acceptCodex(
+    active: { scope: RuntimeCredentialScope; sessionId: string },
+    message: WorkspaceRuntimeCodexMessage
+  ) {
+    if (!active.scope.capabilities.includes('runtime.codex.v1')) {
+      throw new RuntimeSessionError('invalid_message', 'Workspace Runtime Codex authority is unavailable.');
+    }
+    return message;
+  }
+
+  dispatchCodex(ownerUserId: string, command: WorkspaceRuntimeCodexCommand) {
+    const active = this.connections.get(workspaceKey(ownerUserId, command.workspaceId));
+    if (!active || !active.scope.capabilities.includes('runtime.codex.v1') ||
+        active.scope.ownerUserId !== ownerUserId || command.actorUserId !== ownerUserId ||
+        command.environmentId !== active.scope.environmentId ||
+        command.generation !== active.scope.generation || command.sessionId !== active.sessionId) {
+      throw new RuntimeSessionError('generation_replaced', 'Workspace Runtime Codex generation is unavailable.');
+    }
+    active.connection.send(JSON.stringify(command));
   }
 
   async disconnect(active: { scope: RuntimeCredentialScope; sessionId: string }) {

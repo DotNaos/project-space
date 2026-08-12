@@ -179,12 +179,14 @@ type LaunchRequest struct {
 }
 
 type RuntimeSessionBootstrap struct {
-	Endpoint       string
-	Token          string
-	EnvironmentID  string
-	ExpiresAt      string
-	RuntimeVersion string
-	Capabilities   []string
+	Endpoint         string
+	Token            string
+	EnvironmentID    string
+	ExpiresAt        string
+	RuntimeVersion   string
+	Capabilities     []string
+	OwnerUserID      string
+	ControllerBinary string
 }
 
 type RuntimeProvider interface {

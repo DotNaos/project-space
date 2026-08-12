@@ -5,7 +5,8 @@ export const workspaceRuntimeCapabilities = [
   'runtime.heartbeat',
   'runtime.dev-servers',
   'runtime.telemetry',
-  'runtime.log-pointers'
+  'runtime.log-pointers',
+  'runtime.codex.v1'
 ] as const;
 
 export type WorkspaceRuntimeCapability = typeof workspaceRuntimeCapabilities[number];
@@ -45,6 +46,7 @@ export interface WorkspaceRuntimeCredential {
 export interface WorkspaceRuntimeRegistration {
   branch: string;
   commit: string;
+  codexControllerState?: 'ready';
   environmentId: string;
   generation: string;
   manifestDigest: string;

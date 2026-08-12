@@ -1,15 +1,20 @@
 import type {
   CodexSessionApprovalRequest,
   CodexSessionContinueRequest,
+  CodexSessionInspectRequest,
+  CodexSessionInspectResult,
   CodexSessionInterruptRequest,
+  CodexSessionListRequest,
+  CodexSessionListResult,
   CodexSessionOperationResult,
+  CodexSessionReadRequest,
   CodexSessionReadResult,
   CodexSessionSettingsRequest,
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from './codex-sessions-api';
 
-/** Reserved until a generation-local shared executor is available on the runtime host. */
+/** Advertised only after the generation-local controller reports ready. */
 export const workspaceRuntimeCodexCapability = 'runtime.codex.v1' as const;
 
 interface WorkspaceRuntimeCodexBinding {
@@ -23,6 +28,7 @@ interface WorkspaceRuntimeCodexBinding {
   operationId: string;
   schemaVersion: 1;
   sessionId: string;
+  targetThreadId?: string;
   workspaceId: string;
 }
 
@@ -32,16 +38,28 @@ export type WorkspaceRuntimeCodexCommand = WorkspaceRuntimeCodexBinding & {
   | { kind: 'approval'; request: CodexSessionApprovalRequest }
   | { kind: 'continue'; request: CodexSessionContinueRequest }
   | { kind: 'input'; request: CodexSessionUserInputResponse }
+  | { kind: 'inspect'; request: CodexSessionInspectRequest }
   | { kind: 'interrupt'; request: CodexSessionInterruptRequest }
+  | { kind: 'list'; request: CodexSessionListRequest }
+  | { kind: 'read'; request: CodexSessionReadRequest }
   | { kind: 'settings'; request: CodexSessionSettingsRequest }
-  | { kind: 'status'; request: { threadId: string } }
+  | { kind: 'stream-start'; request: CodexSessionReadRequest & { afterSequence?: number } }
+  | { kind: 'stream-stop'; request: { machineId: string; threadId: string } }
   | { kind: 'runtime-start'; request: { operationId: string } }
   | { kind: 'runtime-stop'; request: { operationId: string; reason?: string } }
 );
 
+export type WorkspaceRuntimeCodexResult =
+  | CodexSessionInspectResult
+  | CodexSessionListResult
+  | CodexSessionOperationResult
+  | CodexSessionReadResult
+  | { state: 'ready' | 'stopped' | 'streaming' };
+
 export type WorkspaceRuntimeCodexMessage =
   | (WorkspaceRuntimeCodexBinding & {
       acceptedCommandSequence: number;
+      replayed: boolean;
       type: 'runtime.codex.command-accepted';
     })
   | (WorkspaceRuntimeCodexBinding & {
@@ -50,12 +68,8 @@ export type WorkspaceRuntimeCodexMessage =
       type: 'runtime.codex.event';
     })
   | (WorkspaceRuntimeCodexBinding & {
-      result: CodexSessionOperationResult;
+      result: WorkspaceRuntimeCodexResult;
       type: 'runtime.codex.result';
-    })
-  | (WorkspaceRuntimeCodexBinding & {
-      result: CodexSessionReadResult;
-      type: 'runtime.codex.status';
     })
   | (WorkspaceRuntimeCodexBinding & {
       code: 'invalid_command' | 'runtime_stopping' | 'unavailable' | 'uncertain';

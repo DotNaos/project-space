@@ -5,7 +5,7 @@ import { type RawData, WebSocket, WebSocketServer } from 'ws';
 
 import type { RuntimeCredentialScope } from './contracts';
 import { WorkspaceRuntimeSessionService, runtimeSessionFailure } from './service';
-import { parseRegistration, parseRuntimeEvent } from './validation';
+import { parseRegistration, parseRuntimeCodexMessage, parseRuntimeEvent } from './validation';
 
 const socketPath = '/api/workspace-runtimes/socket';
 const registrationTimeoutMs = 10_000;
@@ -44,9 +44,16 @@ export function createWorkspaceRuntimeSessionUpgradeHandler(
           active = await service.register(socket, scope, parseRegistration(parsed));
           clearTimeout(registrationTimeout);
         } else {
-          const result = await service.append(active, parseRuntimeEvent(parsed));
-          socket.send(JSON.stringify(result.response));
-          if (result.stopped) socket.close(1000, 'Workspace Runtime stopped gracefully.');
+          const type = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as { type?: unknown }).type
+            : undefined;
+          if (typeof type === 'string' && type.startsWith('runtime.codex.')) {
+            service.acceptCodex(active, parseRuntimeCodexMessage(parsed, active.scope, active.sessionId));
+          } else {
+            const result = await service.append(active, parseRuntimeEvent(parsed));
+            socket.send(JSON.stringify(result.response));
+            if (result.stopped) socket.close(1000, 'Workspace Runtime stopped gracefully.');
+          }
         }
       } catch (error) {
         const failure = runtimeSessionFailure(error);

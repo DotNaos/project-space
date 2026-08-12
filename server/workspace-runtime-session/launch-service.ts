@@ -31,6 +31,7 @@ export interface WorkspaceRuntimeStartDispatch {
   operationId: string;
   ownerUserId: string;
   runtimeSessionCapabilities: string[];
+  runtimeSessionOwnerUserId: string;
   runtimeSessionEndpoint: string;
   runtimeSessionExpiresAt: string;
   runtimeSessionToken: string;
@@ -162,6 +163,7 @@ export class WorkspaceRuntimeLaunchService {
         ownerUserId: input.ownerUserId,
         expectedRuntimeVersion: input.runtimeVersion,
         runtimeSessionCapabilities: [...issued.credential.capabilities],
+        runtimeSessionOwnerUserId: input.ownerUserId,
         runtimeSessionEndpoint: this.dependencies.endpoint,
         runtimeSessionExpiresAt: issued.credential.expiresAt,
         runtimeSessionToken: issued.credential.token,

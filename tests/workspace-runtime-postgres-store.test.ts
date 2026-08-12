@@ -47,7 +47,8 @@ describe('Workspace Runtime PostgreSQL authority boundary', () => {
     const input = {
       branch: 'issue-625', capabilities: ['runtime.lifecycle', 'runtime.heartbeat'] as const,
       commit: 'a'.repeat(40), environmentId, generation, manifestDigest: 'b'.repeat(64),
-      operationId: 'workspace-start:625', ownerUserId, runtimeVersion: '0.4.66', workspaceId
+      operationId: 'workspace-start:625', ownerUserId, requestedCapabilities: [] as const,
+      runtimeVersion: '0.4.66', workspaceId
     };
     await expect(store.issue(input)).resolves.toMatchObject({ credential: { credentialId } });
     const insertion = database.calls.find((call) => call.sql.includes('insert into workspace_runtime_credentials'));
@@ -73,7 +74,7 @@ class CredentialIssueClient implements DatabaseQueryClient {
       return { rows: (this.issued ? [{
         branch: 'issue-625', capabilities: ['runtime.lifecycle', 'runtime.heartbeat'],
         commit: 'a'.repeat(40), environment_id: environmentId, generation,
-        manifest_digest: 'b'.repeat(64), runtime_version: '0.4.66', workspace_id: workspaceId
+        manifest_digest: 'b'.repeat(64), requested_capabilities: [], runtime_version: '0.4.66', workspace_id: workspaceId
       }] : []) as Row[] };
     }
     if (sql.includes('where g.owner_user_id = $1 and g.workspace_id = $2')) return { rows: [] as Row[] };
