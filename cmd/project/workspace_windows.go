@@ -33,6 +33,11 @@ func newWorkspaceCommand() *cobra.Command {
 		command.Flags().String("thread-id", "", "exact Project-managed Worktree owner")
 		runtimeCommand.AddCommand(command)
 	}
+	retention := newWindowsRuntimeCommand(
+		"retention", "Run the privileged Workspace Runtime archive collector through WSL",
+		cobra.ArbitraryArgs, "workspace runtime retention", "wsl.exe --distribution <distribution> -- project workspace runtime retention",
+	)
+	runtimeCommand.AddCommand(retention)
 	workspace.AddCommand(runtimeCommand)
 	return workspace
 }

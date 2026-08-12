@@ -1708,6 +1708,54 @@ project workspace runtime resume [directory]
 | `--mode` | `string` | local | runtime provider: process or devcontainer |
 | `--thread-id` | `string` | local | exact Project-managed Worktree owner (defaults to CODEX_THREAD_ID) |
 
+<h3 id="project-workspace-runtime-retention" className="scroll-m-28"><code>project workspace runtime retention</code></h3>
+
+Inspect or reclaim proof-bound retained Runtime archives
+
+```sh
+project workspace runtime retention
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for retention |
+
+<h3 id="project-workspace-runtime-retention-collect" className="scroll-m-28"><code>project workspace runtime retention collect</code></h3>
+
+Reclaim eligible archives inside an exclusive collector boundary
+
+```sh
+project workspace runtime retention collect
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--collector-root` | `string` | local | existing private collector-owned root on the same filesystem |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for collect |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--maximum-bytes` | `int64` | local | maximum archive bytes reclaimed in one run |
+| `--minimum-age` | `duration` | local | minimum age of terminal evidence and retained archive |
+| `--source-root` | `string` | local | exact Workspace Runtime state root owned by the Workspace user |
+
+<h3 id="project-workspace-runtime-retention-status" className="scroll-m-28"><code>project workspace runtime retention status</code></h3>
+
+Inspect retained Runtime archives without deleting them
+
+```sh
+project workspace runtime retention status
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--collector-root` | `string` | local | existing private collector-owned root on the same filesystem |
+| `--format` | `string` | local | output format: pretty or json |
+| `-h`, `--help` | `bool` | local | help for status |
+| `--json` | `bool` | local | print machine-readable JSON output |
+| `--maximum-bytes` | `int64` | local | maximum archive bytes reclaimed in one run |
+| `--minimum-age` | `duration` | local | minimum age of terminal evidence and retained archive |
+| `--source-root` | `string` | local | exact Workspace Runtime state root owned by the Workspace user |
+
 <h3 id="project-workspace-runtime-start" className="scroll-m-28"><code>project workspace runtime start</code></h3>
 
 Start or reuse an exact Workspace runtime
