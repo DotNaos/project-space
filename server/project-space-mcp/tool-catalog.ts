@@ -164,11 +164,20 @@ export const toolSchemas = {
     task: z.number().int().positive()
   }),
   send_codex_message: selectorSchema({
+    delivery: z.enum(['auto', 'new-turn', 'queue', 'steer']).optional(),
+    expectedTurnId: z.string().trim().min(1).max(256).optional(),
     last: z.number().int().min(1).max(100).optional(),
     message: z.string().trim().min(1).max(100_000),
     operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/).optional(),
     threadId: z.string().uuid(),
     wait: z.boolean().optional()
+  }).superRefine((value, context) => {
+    if (value.delivery === 'steer' && !value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'Steer delivery requires expectedTurnId.' });
+    }
+    if (value.delivery !== 'steer' && value.expectedTurnId) {
+      context.addIssue({ code: 'custom', message: 'expectedTurnId is only valid for steer delivery.' });
+    }
   })
 };
 
@@ -349,7 +358,10 @@ export const tools: OAuthTool[] = [
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false }),
   tool('send_codex_message', 'Send Codex message', 'Send a follow-up message to an existing Codex task in one exact execution Environment.', {
     type: 'object', required: ['message', 'threadId'], properties: {
-      ...selectorProperties, last: { type: 'integer', minimum: 1, maximum: 100 }, message: { type: 'string' },
+      ...selectorProperties,
+      delivery: { type: 'string', enum: ['auto', 'new-turn', 'queue', 'steer'] },
+      expectedTurnId: { type: 'string', description: 'Required exact active turn for steer delivery.' },
+      last: { type: 'integer', minimum: 1, maximum: 100 }, message: { type: 'string' },
       operationId: { type: 'string' }, threadId: { type: 'string', format: 'uuid' }, wait: { type: 'boolean' }
     }, ...selectorConstraints, additionalProperties: false
   }, { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false })

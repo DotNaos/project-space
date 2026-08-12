@@ -221,6 +221,28 @@ describe('Codex machine-task HTTP boundary', () => {
     expect(await response.text()).not.toContain('header-only-secret');
   });
 
+  test('forwards explicit delivery and fences steer without an exact active turn', async () => {
+    const { calls, stub } = service();
+    const origin = await startApi(stub);
+    const queued = await fetch(
+      `${origin}/api/codex/tasks/${threadId}/send`,
+      mutation('send-queued', { delivery: 'queue', message: 'Run later.' })
+    );
+    const invalidSteer = await fetch(
+      `${origin}/api/codex/tasks/${threadId}/send`,
+      mutation('send-steer', { delivery: 'steer', message: 'Adjust now.' })
+    );
+    expect(queued.status).toBe(200);
+    expect(invalidSteer.status).toBe(400);
+    expect(calls).toContainEqual({
+      kind: 'send',
+      request: expect.objectContaining({
+        delivery: 'queue', expectedTurnId: undefined, operationId: 'send-queued'
+      })
+    });
+    expect(calls.filter(({ kind }) => kind === 'send')).toHaveLength(1);
+  });
+
   test('requires the idempotency header for mutations', async () => {
     const { calls, stub } = service();
     const origin = await startApi(stub);

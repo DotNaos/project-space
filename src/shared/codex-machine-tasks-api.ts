@@ -23,6 +23,8 @@ export type CodexMachineTaskBlockedReason =
   | 'unauthorized'
   | 'worktree_failure';
 
+export type CodexMachineTaskMessageDelivery = 'auto' | 'new-turn' | 'queue' | 'steer';
+
 export interface CodexMachineTaskTarget {
   connector: {
     environment?: string;
@@ -185,6 +187,8 @@ export type CodexMachineTaskReadResult =
   | Omit<CodexMachineTaskBlockedResult, 'operationId'>;
 
 export interface CodexMachineTaskSendRequest extends CodexMachineTaskReadRequest {
+  delivery?: CodexMachineTaskMessageDelivery;
+  expectedTurnId?: string;
   message: string;
   operationId: string;
   wait?: boolean;
@@ -199,6 +203,14 @@ export type CodexMachineTaskSendResult =
       target: CodexMachineTaskTarget;
       threadId: string;
       turnId: string;
+    }
+  | {
+      apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
+      operationId: string;
+      queuedAt: string;
+      state: 'queued';
+      target: CodexMachineTaskTarget;
+      threadId: string;
     }
   | CodexMachineTaskBlockedResult
   | CodexMachineTaskUncertainResult;

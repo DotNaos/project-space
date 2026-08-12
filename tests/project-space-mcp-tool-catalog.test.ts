@@ -332,4 +332,24 @@ describe('Project Space MCP Task Execution catalogue', () => {
       requestId: 'request-1', turnId: 'turn-1'
     }).success).toBe(true);
   });
+
+  test('requires an exact active turn only for steer message delivery', () => {
+    const base = {
+      executionId: '11111111-1111-4111-8111-111111111111',
+      message: 'Continue safely.',
+      operationId: 'task-execution:message:001'
+    };
+    expect(toolSchemas.send_task_execution_message.safeParse({
+      ...base, delivery: 'steer', expectedTurnId: 'turn-active'
+    }).success).toBe(true);
+    expect(toolSchemas.send_task_execution_message.safeParse({
+      ...base, delivery: 'steer'
+    }).success).toBe(false);
+    expect(toolSchemas.send_task_execution_message.safeParse({
+      ...base, delivery: 'queue', expectedTurnId: 'turn-active'
+    }).success).toBe(false);
+    expect(toolSchemas.send_codex_message.safeParse({
+      delivery: 'queue', message: 'Later.', threadId: '22222222-2222-4222-8222-222222222222'
+    }).success).toBe(true);
+  });
 });

@@ -10,6 +10,7 @@ import {
   memoryStore,
   request,
   service,
+  taskSession,
   threadId
 } from './fixtures/codex-machine-tasks-service';
 
@@ -524,6 +525,359 @@ describe('Codex machine-task service', () => {
     }).send({ userId: 'user-owner' }, base)).toEqual(expect.objectContaining({
       reconcile: 'required', state: 'uncertain'
     }));
+  });
+
+  test('auto-steers only the exact active turn and replays the same operation', async () => {
+    const calls: Array<{ delivery: string; expectedTurnId?: string; operationId: string }> = [];
+    let reads = 0;
+    const tasks = service({
+      read: async () => {
+        reads += 1;
+        if (reads > 1) throw new Error('session discovery unavailable');
+        return {
+          openedReadOnly: true,
+          session: {
+            ...taskSession('active'),
+            activity: { currentTurnId: 'turn-active' }
+          },
+          turns: [{ id: 'turn-active', status: 'in-progress' }]
+        };
+      },
+      send: async (input) => {
+        calls.push(input);
+        return {
+          operationId: input.operationId,
+          replayed: false,
+          status: 'accepted',
+          threadId,
+          turnId: 'turn-active'
+        };
+      }
+    });
+    const message = {
+      delivery: 'auto' as const,
+      message: 'Adjust the current implementation.',
+      operationId: 'send-auto-steer',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toMatchObject({
+      state: 'accepted', turnId: 'turn-active'
+    });
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toMatchObject({
+      state: 'accepted', turnId: 'turn-active'
+    });
+    expect(calls).toEqual([expect.objectContaining({
+      delivery: 'steer', expectedTurnId: 'turn-active'
+    })]);
+    expect(reads).toBe(1);
+  });
+
+  test('replays a completed send before consulting disconnected target inventory', async () => {
+    let inventoryAvailable = true;
+    const tasks = service({
+      inventory: async () => {
+        if (!inventoryAvailable) throw new Error('inventory disconnected');
+        return {
+          connectors: [connector()],
+          physicalMachines: [{
+            connectorIds: ['connector-local'], id: 'physical-local', name: 'Mac'
+          }]
+        };
+      }
+    });
+    const request = {
+      message: 'Replay this exact result offline.',
+      operationId: 'send-offline-replay',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    const first = await tasks.send({ userId: 'user-owner' }, request);
+    inventoryAvailable = false;
+    expect(await tasks.send({ userId: 'user-owner' }, request)).toEqual(first);
+    await expect(tasks.send({ userId: 'user-owner' }, {
+      ...request, message: 'Changed input must still conflict.'
+    })).rejects.toBeInstanceOf(CodexMachineTasksConflictError);
+  });
+
+  test('reconciles an auto send with its persisted exact-turn decision', async () => {
+    let reads = 0;
+    const reconciliations: Array<{ delivery?: string; expectedTurnId?: string }> = [];
+    const tasks = service({
+      read: async () => {
+        reads += 1;
+        if (reads > 1) throw new Error('must not reinterpret the operation');
+        return {
+          openedReadOnly: true,
+          session: {
+            ...taskSession('active'),
+            activity: { currentTurnId: 'turn-original' }
+          },
+          turns: [{ id: 'turn-original', status: 'in-progress' }]
+        };
+      },
+      send: async (input) => {
+        throw new Error(`lost response for ${input.operationId}`);
+      },
+      reconcileSend: async (input) => {
+        reconciliations.push(input);
+        return {
+          operationId: 'send-auto-crash',
+          replayed: true,
+          status: 'accepted',
+          threadId,
+          turnId: 'turn-original'
+        };
+      }
+    });
+    const message = {
+      delivery: 'auto' as const,
+      message: 'Keep steering this exact turn.',
+      operationId: 'send-auto-crash',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toMatchObject({
+      state: 'uncertain'
+    });
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toMatchObject({
+      state: 'accepted', turnId: 'turn-original'
+    });
+    expect(reads).toBe(1);
+    expect(reconciliations).toEqual([expect.objectContaining({
+      delivery: 'steer', expectedTurnId: 'turn-original'
+    })]);
+  });
+
+  test('persists, replays, and dispatches a queued message after the thread becomes idle', async () => {
+    let status: 'active' | 'idle' = 'active';
+    let generation = 7;
+    let releaseRetry!: () => void;
+    let resolveDispatched!: () => void;
+    const dispatched = new Promise<void>((resolve) => { resolveDispatched = resolve; });
+    const tasks = service({
+      generationFor: () => generation,
+      queueRetryDelay: () => new Promise<void>((resolve) => {
+        releaseRetry = () => { generation = 8; status = 'idle'; resolve(); };
+      }),
+      read: async () => ({
+        openedReadOnly: true,
+        session: taskSession(status),
+        turns: status === 'active' ? [{ id: 'turn-active', status: 'in-progress' }] : []
+      }),
+      send: async (input) => {
+        expect(input).toMatchObject({ delivery: 'new-turn', generation: 8 });
+        expect(input.operationId).toMatch(/^queue:dispatch:/);
+        resolveDispatched();
+        return {
+          operationId: input.operationId,
+          replayed: false,
+          status: 'accepted',
+          threadId,
+          turnId: 'turn-queued'
+        };
+      }
+    });
+    const message = {
+      delivery: 'queue' as const,
+      message: 'Run this after the active turn.',
+      operationId: 'send-queued-once',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    const queued = await tasks.send({ userId: 'user-owner' }, message);
+    expect(queued).toMatchObject({ state: 'queued' });
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toEqual(queued);
+    while (!releaseRetry) await Promise.resolve();
+    releaseRetry();
+    await dispatched;
+    await Promise.resolve();
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toMatchObject({
+      state: 'accepted', target: { connector: { generation: 8 } }, turnId: 'turn-queued'
+    });
+  });
+
+  test('keeps queue delivery durable when another turn wins the idle dispatch race', async () => {
+    let reads = 0;
+    let sends = 0;
+    const tasks = service({
+      queueRetryDelay: () => new Promise<void>(() => undefined),
+      read: async () => ({
+        openedReadOnly: true,
+        session: taskSession(reads++ === 0 ? 'idle' : 'active'),
+        turns: reads > 1 ? [{ id: 'turn-racing', status: 'in-progress' }] : []
+      }),
+      send: async (input) => {
+        sends += 1;
+        return {
+          operationId: input.operationId,
+          reason: 'thread_active' as const,
+          replayed: false,
+          status: 'rejected' as const,
+          threadId
+        };
+      }
+    });
+    const request = {
+      delivery: 'queue' as const,
+      message: 'Keep this queued through the race.',
+      operationId: 'send-queued-race',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    expect(await tasks.send({ userId: 'user-owner' }, request)).toMatchObject({ state: 'queued' });
+    expect(await tasks.send({ userId: 'user-owner' }, request)).toMatchObject({ state: 'queued' });
+    expect(sends).toBe(1);
+  });
+
+  test('resumes a queue dispatch after losing its response', async () => {
+    const store = memoryStore();
+    const message = {
+      delivery: 'queue' as const,
+      message: 'Resume this queued operation once.',
+      operationId: 'send-queued-recover',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    const stalled = service({
+      store,
+      read: async () => ({
+        openedReadOnly: true,
+        session: taskSession('active'),
+        turns: [{ id: 'turn-active', status: 'in-progress' }]
+      }),
+      queueRetryDelay: () => new Promise<void>(() => undefined)
+    });
+    expect(await stalled.send({ userId: 'user-owner' }, message)).toMatchObject({ state: 'queued' });
+    const operation = store.sends.get(message.operationId)!;
+    expect(await store.resumeQueuedSend(operation)).toBe(1);
+
+    let firstAttempt!: () => void;
+    let recovered!: () => void;
+    const attempted = new Promise<void>((resolve) => { firstAttempt = resolve; });
+    const recovery = new Promise<void>((resolve) => { recovered = resolve; });
+    let reconciliations = 0;
+    let dispatchOperationId: string | undefined;
+    const resumed = service({
+      store,
+      reconcileSend: async (input) => {
+        expect(input).toMatchObject({ delivery: 'new-turn', generation: 7 });
+        reconciliations += 1;
+        dispatchOperationId ??= input.operationId;
+        expect(input.operationId).toBe(dispatchOperationId);
+        if (reconciliations === 1) {
+          firstAttempt();
+          return {
+            operationId: input.operationId,
+            replayed: true,
+            status: 'ambiguous',
+            threadId
+          };
+        }
+        recovered();
+        return {
+          operationId: input.operationId,
+          replayed: true,
+          status: 'accepted',
+          threadId,
+          turnId: 'turn-recovered'
+        };
+      }
+    });
+    await attempted;
+    while (store.sends.get(message.operationId)?.state !== 'uncertain') await Promise.resolve();
+    expect(await resumed.send({ userId: 'user-owner' }, message)).toMatchObject({ state: 'queued' });
+    await recovery;
+    for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    expect(await resumed.send({ userId: 'user-owner' }, message)).toMatchObject({
+      state: 'accepted', turnId: 'turn-recovered'
+    });
+    expect(reconciliations).toBe(2);
+  });
+
+  test('reconciles the parent operation after crashing before a queue transition', async () => {
+    const store = memoryStore();
+    const message = {
+      delivery: 'queue' as const,
+      message: 'Recover the initial queue reservation.',
+      operationId: 'send-queue-initial-crash',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    const stalled = service({
+      store,
+      read: async () => ({
+        openedReadOnly: true, session: taskSession('active'),
+        turns: [{ id: 'turn-active', status: 'in-progress' }]
+      }),
+      queueRetryDelay: () => new Promise<void>(() => undefined)
+    });
+    expect(await stalled.send({ userId: 'user-owner' }, message)).toMatchObject({ state: 'queued' });
+    const operation = store.sends.get(message.operationId)!;
+    store.sends.set(message.operationId, { ...operation, dispatchAttempt: 0, state: 'pending' });
+
+    let reconciled!: () => void;
+    const recovery = new Promise<void>((resolve) => { reconciled = resolve; });
+    const resumed = service({
+      store,
+      reconcileSend: async (input) => {
+        expect(input.operationId).toBe(message.operationId);
+        reconciled();
+        return {
+          operationId: input.operationId, replayed: true, status: 'accepted', threadId,
+          turnId: 'turn-parent-recovered'
+        };
+      }
+    });
+    await recovery;
+    for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    expect(await resumed.send({ userId: 'user-owner' }, message)).toMatchObject({
+      state: 'accepted', turnId: 'turn-parent-recovered'
+    });
+  });
+
+  test('never dispatches a queued message to a stale non-durable generation', async () => {
+    let generation = 7;
+    let releaseRetry!: () => void;
+    let sends = 0;
+    const tasks = service({
+      durableGenerationFor: () => false,
+      generationFor: () => generation,
+      queueRetryDelay: () => new Promise<void>((resolve) => {
+        releaseRetry = resolve;
+      }),
+      read: async () => ({
+        openedReadOnly: true,
+        session: taskSession('active'),
+        turns: [{ id: 'turn-active', status: 'in-progress' }]
+      }),
+      send: async (input) => {
+        sends += 1;
+        return {
+          operationId: input.operationId,
+          replayed: false,
+          status: 'accepted',
+          threadId,
+          turnId: 'must-not-run'
+        };
+      }
+    });
+    const message = {
+      delivery: 'queue' as const,
+      message: 'Do not cross generations.',
+      operationId: 'send-queued-stale',
+      physicalMachineId: 'physical-local',
+      threadId
+    };
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toMatchObject({ state: 'queued' });
+    while (!releaseRetry) await Promise.resolve();
+    generation = 8;
+    releaseRetry();
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    expect(await tasks.send({ userId: 'user-owner' }, message)).toMatchObject({
+      reason: 'stale_connector', state: 'blocked'
+    });
+    expect(sends).toBe(0);
   });
 
   test('reconciles a first ambiguous send through the same connector generation', async () => {

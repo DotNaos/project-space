@@ -142,8 +142,18 @@ export function createCodexMachineTasksHttpApi(
         if (typeof body.message !== 'string' || !body.message || body.message.length > 16_000) {
           throw invalid('Message is required and must be 16000 characters or fewer.');
         }
+        const messageDelivery = delivery(body.delivery);
+        const expectedTurnId = optionalSelector(body.expectedTurnId);
+        if (messageDelivery === 'steer' && !expectedTurnId) {
+          throw invalid('Steer delivery requires expectedTurnId.');
+        }
+        if (messageDelivery !== 'steer' && expectedTurnId) {
+          throw invalid('expectedTurnId is only valid for steer delivery.');
+        }
         writeJson(response, 200, await service.send(actor, {
           ...selector,
+          delivery: messageDelivery,
+          expectedTurnId,
           message: body.message,
           operationId,
           wait: body.wait === true
@@ -295,6 +305,14 @@ function optionalSelector(value: unknown) {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || !safeSelector.test(value)) throw invalid('Target selector is invalid.');
   return value;
+}
+
+function delivery(value: unknown) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === 'auto' || value === 'new-turn' || value === 'queue' || value === 'steer') {
+    return value;
+  }
+  throw invalid('Delivery must be auto, new-turn, queue, or steer.');
 }
 
 function optionalPhysicalMachineName(value: unknown) {

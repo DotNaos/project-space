@@ -51,10 +51,13 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
   const input = object(value);
   exactKeys(input, [
     'branch', 'commit', 'environmentId', 'generation', 'manifestDigest',
-    'resumeAfterSequence', 'runtimeVersion', 'schemaVersion', 'type', 'workspaceId'
-  ]);
+    'resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence', 'resumeAfterSequence',
+    'runtimeVersion', 'schemaVersion', 'type', 'workspaceId'
+  ], ['resumeAfterCodexCommandSequence', 'resumeAfterCodexEventSequence']);
   if (input.type !== 'runtime.register' || input.schemaVersion !== workspaceRuntimeSessionSchemaVersion ||
     !Number.isSafeInteger(input.resumeAfterSequence) || Number(input.resumeAfterSequence) < 0 ||
+    !optionalSequence(input.resumeAfterCodexCommandSequence) ||
+    !optionalSequence(input.resumeAfterCodexEventSequence) ||
     !uuid.test(string(input.environmentId)) ||
     !uuid.test(string(input.generation)) || !workspace.test(string(input.workspaceId)) ||
     !digest.test(string(input.manifestDigest)) || !commit.test(string(input.commit))) invalid();
@@ -62,10 +65,20 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
     branch: safeText(input.branch, 256), commit: string(input.commit),
     environmentId: string(input.environmentId),
     generation: string(input.generation), manifestDigest: string(input.manifestDigest),
+    ...(input.resumeAfterCodexCommandSequence === undefined ? {} : {
+      resumeAfterCodexCommandSequence: Number(input.resumeAfterCodexCommandSequence)
+    }),
+    ...(input.resumeAfterCodexEventSequence === undefined ? {} : {
+      resumeAfterCodexEventSequence: Number(input.resumeAfterCodexEventSequence)
+    }),
     resumeAfterSequence: Number(input.resumeAfterSequence), runtimeVersion: safeText(input.runtimeVersion, 64),
     schemaVersion: workspaceRuntimeSessionSchemaVersion, type: 'runtime.register',
     workspaceId: string(input.workspaceId)
   };
+}
+
+function optionalSequence(value: unknown) {
+  return value === undefined || Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
 export function parseRuntimeEvent(value: unknown): WorkspaceRuntimeEvent {

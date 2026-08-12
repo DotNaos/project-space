@@ -8,6 +8,7 @@ import { MemoryTaskHandoffStore } from '../server/task-execution/handoff-store';
 import { MemoryTaskExecutionOperationStore } from '../server/task-execution/operation-store';
 import { createTaskExecutionService } from '../server/task-execution/service';
 import type { TaskExecutionServiceDependencies } from '../server/task-execution/service';
+import { TaskExecutionConflictError } from '../server/task-execution/service-contracts';
 
 const environmentId = '10000000-0000-4000-8000-000000000001';
 const threadId = '20000000-0000-4000-8000-000000000002';
@@ -233,6 +234,27 @@ describe('Task Execution service', () => {
     expect(fixture.counts.send).toBe(1);
   });
 
+  it('preserves exact steering identity and rejects changed delivery on operation replay', async () => {
+    const fixture = createFixture();
+    const started = await fixture.service.start(actor, startRequest());
+    const request = {
+      delivery: 'steer' as const,
+      executionId: started.execution.id,
+      expectedTurnId: 'turn-1',
+      message: 'Adjust the active turn.',
+      operationId: 'send-operation-steer'
+    };
+    await fixture.service.send(actor, request);
+    expect(fixture.sendRequests.at(-1)).toMatchObject({
+      delivery: 'steer', expectedTurnId: 'turn-1', threadId
+    });
+    await expect(fixture.service.send(actor, {
+      ...request,
+      delivery: 'new-turn',
+      expectedTurnId: undefined
+    })).rejects.toBeInstanceOf(TaskExecutionConflictError);
+  });
+
   it('reconciles an uncertain message with the same nested operation', async () => {
     const fixture = createFixture();
     const started = await fixture.service.start(actor, startRequest());
@@ -247,6 +269,39 @@ describe('Task Execution service', () => {
     expect((await fixture.service.send(actor, request)).execution.state).toBe('running');
     expect(fixture.counts.send).toBe(2);
     expect(new Set(fixture.sendOperationIds).size).toBe(1);
+  });
+
+  it('records the MCP client actor on delivery state changes', async () => {
+    const fixture = createFixture();
+    const mcpActor = { clientId: 'mcp-client-delivery', userId: actor.userId };
+    const started = await fixture.service.start(mcpActor, startRequest());
+    fixture.setSendState('uncertain');
+    const result = await fixture.service.send(mcpActor, {
+      delivery: 'new-turn',
+      executionId: started.execution.id,
+      message: 'Continue once.',
+      operationId: 'send-operation-audited'
+    });
+    expect(result.events.at(-1)).toMatchObject({
+      actor: { id: 'mcp-client-delivery', kind: 'orchestrator' },
+      state: 'uncertain'
+    });
+
+    const queued = createFixture();
+    const queuedStart = await queued.service.start(mcpActor, startRequest());
+    queued.setSendState('queued');
+    const queuedResult = await queued.service.send(mcpActor, {
+      delivery: 'queue', executionId: queuedStart.execution.id,
+      message: 'Run after this turn.', operationId: 'send-operation-queued-audit'
+    });
+    expect(queuedResult.events.at(-1)).toMatchObject({
+      actor: { id: 'mcp-client-delivery', kind: 'orchestrator' },
+      message: 'The message was queued for the executor.'
+    });
+    queued.setActiveTurnId('turn-after-queue');
+    expect((await queued.service.get(mcpActor, {
+      executionId: queuedStart.execution.id
+    })).execution.executor?.turnId).toBe('turn-after-queue');
   });
 
   it('does not send new work after confirmed cancellation', async () => {
@@ -459,7 +514,7 @@ function createFixture() {
   let managedStopped = false;
   let readThrows = false;
   let releaseThrowsOnce = false;
-  let sendState: 'accepted' | 'uncertain' = 'accepted';
+  let sendState: 'accepted' | 'queued' | 'uncertain' = 'accepted';
   let sessionMutationStatus: 'ambiguous' | 'completed' = 'completed';
   let activeTurnId: string | undefined;
   let interruptStatus: 'ambiguous' | 'completed' = 'completed';
@@ -471,6 +526,7 @@ function createFixture() {
   const approvalOperationIds: string[] = [];
   const interruptOperationIds: string[] = [];
   const sendOperationIds: string[] = [];
+  const sendRequests: unknown[] = [];
   const startOperationIds: string[] = [];
   const executionStore = new MemoryTaskExecutionStore();
   const capacityStore = new MemoryTaskExecutionCapacityStore();
@@ -504,14 +560,24 @@ function createFixture() {
       service: {
         read: async () => {
           if (readThrows) throw new Error('Connector is offline.');
-          return confirmedRead(attention);
+          return confirmedRead(attention, activeTurnId);
         },
-        send: async (_actor: unknown, request: { operationId: string; threadId: string }) => {
+        send: async (_actor: unknown, request: {
+          delivery?: string;
+          expectedTurnId?: string;
+          operationId: string;
+          threadId: string;
+        }) => {
           counts.send += 1;
+          sendRequests.push(request);
           sendOperationIds.push(request.operationId);
           return sendState === 'uncertain'
             ? { apiVersion: 1, message: 'Unknown outcome.', operationId: request.operationId,
                 reconcile: 'required', state: 'uncertain' }
+            : sendState === 'queued'
+              ? { apiVersion: 1, operationId: request.operationId,
+                  queuedAt: new Date().toISOString(), state: 'queued', target: target(),
+                  threadId: request.threadId }
             : { apiVersion: 1, operationId: request.operationId, state: 'accepted',
                 target: target(), threadId: request.threadId, turnId: 'turn-2' };
         },
@@ -625,7 +691,7 @@ function createFixture() {
   };
   return {
     approvalOperationIds, capacityStore, counts, environmentOperationIds, executionStore,
-    interruptOperationIds, sendOperationIds, startOperationIds,
+    interruptOperationIds, sendOperationIds, sendRequests, startOperationIds,
     get approval() { return approval; },
     get input() { return input; },
     service: createTaskExecutionService(dependencies),
@@ -662,7 +728,7 @@ function target() {
   };
 }
 
-function confirmedRead(attention?: 'approval' | 'input') {
+function confirmedRead(attention?: 'approval' | 'input', currentTurnId?: string) {
   return {
     apiVersion: 1 as const,
     result: {
@@ -678,6 +744,7 @@ function confirmedRead(attention?: 'approval' | 'input') {
       session: {
         archived: false, id: threadId, lastActivityAt: new Date().toISOString(),
         loadedByProjectSpace: true, machineId: 'connector-a', machineName: 'Runner',
+        ...(currentTurnId ? { activity: { currentTurnId } } : {}),
         ...(attention ? { attention } : {}),
         status: 'active' as const, title: 'Task execution tools'
       },

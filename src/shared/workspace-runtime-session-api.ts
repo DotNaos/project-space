@@ -49,6 +49,8 @@ export interface WorkspaceRuntimeRegistration {
   generation: string;
   manifestDigest: string;
   resumeAfterSequence: number;
+  resumeAfterCodexCommandSequence?: number;
+  resumeAfterCodexEventSequence?: number;
   runtimeVersion: string;
   schemaVersion: typeof workspaceRuntimeSessionSchemaVersion;
   type: 'runtime.register';

@@ -47,34 +47,45 @@ export function createTaskExecutionMutations(
       if (!['running', 'waiting_for_approval', 'waiting_for_input'].includes(execution.state)) {
         return unchangedBlocked(execution, `A ${execution.state} Task Execution cannot accept messages.`);
       }
-      if (!binding) return blocked(execution, 'agent_runtime_missing',
+      if (!binding) return blocked(actor, execution, 'agent_runtime_missing',
         'The Task Execution has no executor binding.');
       const result = await dependencies.codex.service.send(actor, {
         connectorId: execution.connectorBinding?.connectorId,
+        delivery: request.delivery,
         environmentId: execution.environmentId,
+        expectedTurnId: request.expectedTurnId,
         message: request.message,
         operationId: nestedOperationId(request.operationId, 'codex-message'),
         threadId: binding.externalId,
         wait: request.wait ?? false
       });
-      if (result.state === 'uncertain') return uncertain(execution, result.message);
+      if (result.state === 'uncertain') return uncertain(actor, execution, result.message);
       if (result.state === 'blocked') {
         if (result.reason === 'approval_required') {
-          return state(execution, 'waiting_for_approval', result.message);
+          return state(actor, execution, 'waiting_for_approval', result.message);
         }
         if (result.reason === 'input_required') {
-          return state(execution, 'waiting_for_input', result.message);
+          return state(actor, execution, 'waiting_for_input', result.message);
         }
         if (result.reason === 'thread_active') return unchangedBlocked(execution, result.message);
-        return blocked(execution, 'connector_stale', result.message);
+        return blocked(actor, execution, 'connector_stale', result.message);
       }
-      if (result.turnId) {
+      if (result.state !== 'queued' && result.turnId) {
         await dependencies.store.updateExecutorTurn({
           executionId: execution.id, expectedVersion: binding.version,
           ownerUserId: actor.userId, turnId: result.turnId, updatedAt: now().toISOString()
         });
       }
-      return state(execution, 'running', 'The message was accepted by the executor.');
+      if (result.state === 'queued') {
+        const message = 'The message was queued for the executor.';
+        await dependencies.store.appendEvent({
+          actor: { id: actor.clientId ?? actor.userId, kind: 'orchestrator' },
+          createdAt: now().toISOString(), executionId: execution.id, message,
+          ownerUserId: actor.userId, state: execution.state, type: 'state_changed'
+        });
+        return { execution, kind: 'completed', message };
+      }
+      return state(actor, execution, 'running', 'The message was accepted by the executor.');
     });
   }
 
@@ -89,7 +100,7 @@ export function createTaskExecutionMutations(
         return unchangedBlocked(execution, 'The Task Execution has no current approval request.');
       }
       if (!binding || !execution.connectorBinding) {
-        return blocked(execution, 'connector_required', 'The exact executor is unavailable.');
+        return blocked(actor, execution, 'connector_required', 'The exact executor is unavailable.');
       }
       const approvalRequest = {
         approvalId: request.approvalId,
@@ -105,7 +116,7 @@ export function createTaskExecutionMutations(
       const result = reconciling
         ? await dependencies.codex.sessions.service.reconcileApproval(actor, approvalRequest)
         : await dependencies.codex.sessions.service.approve(actor, approvalRequest);
-      return fromSessionMutation(execution, result, 'approval');
+      return fromSessionMutation(actor, execution, result, 'approval');
     });
   }
 
@@ -120,7 +131,7 @@ export function createTaskExecutionMutations(
         return unchangedBlocked(execution, 'The Task Execution has no current input request.');
       }
       if (!binding || !execution.connectorBinding) {
-        return blocked(execution, 'connector_required', 'The exact executor is unavailable.');
+        return blocked(actor, execution, 'connector_required', 'The exact executor is unavailable.');
       }
       const inputRequest = {
         answers: request.answers,
@@ -134,7 +145,7 @@ export function createTaskExecutionMutations(
       const result = reconciling
         ? await dependencies.codex.sessions.service.reconcileUserInput(actor, inputRequest)
         : await dependencies.codex.sessions.service.respondToUserInput(actor, inputRequest);
-      return fromSessionMutation(execution, result, 'input');
+      return fromSessionMutation(actor, execution, result, 'input');
     });
   }
 
@@ -148,13 +159,13 @@ export function createTaskExecutionMutations(
         terminal: true as const
       };
       if (binding && !execution.connectorBinding) {
-        return uncertain(execution, 'The exact executor connector cannot be confirmed.');
+        return uncertain(actor, execution, 'The exact executor connector cannot be confirmed.');
       }
       if (!binding && [
         'starting_agent', 'running', 'waiting_for_approval', 'waiting_for_input',
         'verifying', 'delivering', 'uncertain'
       ].includes(execution.state)) {
-        return uncertain(execution, 'The executor state cannot be confirmed for cancellation.');
+        return uncertain(actor, execution, 'The executor state cannot be confirmed for cancellation.');
       }
       if (binding && execution.connectorBinding) {
         let activeTurnId: string | undefined;
@@ -166,7 +177,7 @@ export function createTaskExecutionMutations(
           });
           activeTurnId = inspected.activeTurnId;
         } catch {
-          return uncertain(execution, 'The active executor turn could not be confirmed.');
+          return uncertain(actor, execution, 'The active executor turn could not be confirmed.');
         }
         if (activeTurnId) {
           const interruptRequest = {
@@ -180,7 +191,7 @@ export function createTaskExecutionMutations(
             ? await dependencies.codex.sessions.service.reconcileInterrupt(actor, interruptRequest)
             : await dependencies.codex.sessions.service.interrupt(actor, interruptRequest);
           if (interrupted.status === 'ambiguous' || interrupted.status === 'rejected') {
-            return uncertain(execution, 'The cancellation outcome could not be confirmed.');
+            return uncertain(actor, execution, 'The cancellation outcome could not be confirmed.');
           }
         }
       }
@@ -250,6 +261,7 @@ export function createTaskExecutionMutations(
       }
       if (execution.state === 'uncertain') {
         execution = await transitionTaskExecution({
+          actorId: actor.clientId ?? actor.userId,
           execution, message: 'Reconciling the exact previous mutation.', now: now(),
           state: reconcileState, store: dependencies.store
         });
@@ -275,6 +287,7 @@ export function createTaskExecutionMutations(
       );
     } catch {
       const uncertainExecution = await transitionTaskExecution({
+        actorId: actor.clientId ?? actor.userId,
         execution, message: 'The executor outcome requires reconciliation.', now: now(),
         state: 'uncertain', store: dependencies.store
       });
@@ -310,27 +323,30 @@ export function createTaskExecutionMutations(
   }
 
   function fromSessionMutation(
+    actor: TaskExecutionActor,
     execution: StoredTaskExecution,
     result: CodexSessionOperationResult,
     kind: 'approval' | 'input'
   ): Promise<MutationOutcome> {
     if (result.status === 'ambiguous') {
-      return uncertain(execution, `The ${kind} response outcome could not be confirmed.`);
+      return uncertain(actor, execution, `The ${kind} response outcome could not be confirmed.`);
     }
     if (result.status === 'rejected') {
-      return blocked(execution, kind === 'approval' ? 'approval_required' : 'input_required',
+      return blocked(actor, execution, kind === 'approval' ? 'approval_required' : 'input_required',
         `The pending ${kind} request changed or disappeared.`);
     }
-    return state(execution, 'running', `The ${kind} response was accepted.`);
+    return state(actor, execution, 'running', `The ${kind} response was accepted.`);
   }
 
   async function state(
+    actor: TaskExecutionActor,
     execution: StoredTaskExecution,
     next: StoredTaskExecution['state'],
     message: string
   ): Promise<MutationOutcome> {
     return {
       execution: await transitionTaskExecution({
+        actorId: actor.clientId ?? actor.userId,
         execution, message, now: now(), state: next, store: dependencies.store
       }),
       kind: 'completed', message
@@ -338,12 +354,14 @@ export function createTaskExecutionMutations(
   }
 
   async function blocked(
+    actor: TaskExecutionActor,
     execution: StoredTaskExecution,
     reason: NonNullable<StoredTaskExecution['blockedReason']>,
     message: string
   ): Promise<MutationOutcome> {
     return {
       execution: await transitionTaskExecution({
+        actorId: actor.clientId ?? actor.userId,
         execution, message, now: now(), reason, state: 'blocked', store: dependencies.store
       }),
       kind: 'blocked', message
@@ -357,9 +375,14 @@ export function createTaskExecutionMutations(
     return { execution, kind: 'blocked', message };
   }
 
-  async function uncertain(execution: StoredTaskExecution, message: string): Promise<MutationOutcome> {
+  async function uncertain(
+    actor: TaskExecutionActor,
+    execution: StoredTaskExecution,
+    message: string
+  ): Promise<MutationOutcome> {
     return {
       execution: await transitionTaskExecution({
+        actorId: actor.clientId ?? actor.userId,
         execution, message, now: now(), state: 'uncertain', store: dependencies.store
       }),
       kind: 'uncertain', message, reconcileState: execution.state

@@ -3,8 +3,9 @@ import { describe, expect, test } from 'bun:test';
 import { MemoryRuntimeSessionStore } from '../server/workspace-runtime-session/memory-store';
 import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import { RuntimeSessionError } from '../server/workspace-runtime-session/contracts';
-import { parseRuntimeEvent } from '../server/workspace-runtime-session/validation';
+import { parseRegistration, parseRuntimeEvent } from '../server/workspace-runtime-session/validation';
 import { workspaceRuntimeCapabilities } from '../src/shared/workspace-runtime-session-api';
+import { workspaceRuntimeCodexCapability } from '../src/shared/workspace-runtime-codex-api';
 
 const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const environmentId = '11111111-1111-4111-8111-111111111111';
@@ -126,10 +127,30 @@ describe('Workspace Runtime outbound sessions', () => {
       operationId: 'start:invalid-capability', runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
     await expect(runtime.store.issue({
+      branch: 'issue-625', capabilities: [workspaceRuntimeCodexCapability as never], commit,
+      environmentId, generation, manifestDigest, ownerUserId: 'owner',
+      runtimeVersion: '0.4.66', workspaceId
+    })).rejects.toMatchObject({ code: 'invalid_message' });
+    await expect(runtime.store.issue({
       branch: 'issue-625', capabilities: [...workspaceRuntimeCapabilities], commit,
       environmentId, expiresInSeconds: 3_601, generation, manifestDigest,
       operationId: 'start:invalid-expiry', ownerUserId: 'owner', runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
+  });
+
+  test('accepts bounded Codex reconnect watermarks without granting Codex authority', () => {
+    expect(parseRegistration({
+      ...fixture().registration(),
+      resumeAfterCodexCommandSequence: 12,
+      resumeAfterCodexEventSequence: 34
+    })).toMatchObject({
+      resumeAfterCodexCommandSequence: 12,
+      resumeAfterCodexEventSequence: 34
+    });
+    expect(() => parseRegistration({
+      ...fixture().registration(),
+      resumeAfterCodexCommandSequence: -1
+    })).toThrow();
   });
 
   test('uses server receive time for staleness and never infers host state', async () => {

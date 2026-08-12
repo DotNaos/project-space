@@ -10,6 +10,10 @@ import {
   codexMachineTasksMigrationId,
   codexMachineTasksMigrationSql
 } from '../server/database/codex-machine-tasks-migration';
+import {
+  codexMachineTaskMessageDeliveryMigrationId,
+  codexMachineTaskMessageDeliveryMigrationSql
+} from '../server/database/codex-machine-task-message-delivery-migration';
 import { computeInventoryMigrationSql } from '../server/database/compute-inventory-migration';
 import {
   computeEnvironmentIdentityResolutionMigrationId,
@@ -177,7 +181,8 @@ describe('database migrations', () => {
   });
 
   test('fences Workspace Runtime generations, credentials, sessions, and replay evidence', () => {
-    expect(databaseMigrations.at(-1)?.id).toBe(workspaceRuntimeSessionMigrationId);
+    expect(databaseMigrations.find((migration) => migration.id === workspaceRuntimeSessionMigrationId)?.id)
+      .toBe(workspaceRuntimeSessionMigrationId);
     expect(workspaceRuntimeSessionMigrationSql).toContain(
       'create unique index workspace_runtime_generations_current_idx'
     );
@@ -203,6 +208,18 @@ describe('database migrations', () => {
     expect(workspaceRuntimeSessionMigrationSql).toContain(
       'pg_column_size(safe_payload) <= 65536'
     );
+  });
+
+  test('persists explicit Codex message delivery and durable queue state', () => {
+    expect(databaseMigrations.at(-1)?.id).toBe(codexMachineTaskMessageDeliveryMigrationId);
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain(
+      "state in ('pending', 'queued', 'completed', 'uncertain')"
+    );
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain(
+      "where state in ('pending', 'queued', 'uncertain')"
+    );
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain('dispatch_attempt integer');
+    expect(codexMachineTaskMessageDeliveryMigrationSql).toContain('request_fingerprint_sha256');
   });
 
   test('preserves the original machine-task migration and backfills durability conservatively', () => {
@@ -261,7 +278,8 @@ describe('database migrations', () => {
       '0040_private_network_access_routes',
       '0041_ssh_control_gateway_operations',
       '0042_workspace_runtime_control',
-      '0043_workspace_runtime_sessions'
+      '0043_workspace_runtime_sessions',
+      '0044_codex_machine_task_message_delivery'
     ]);
 
     const sql = databaseMigrations.map((migration) => migration.sql).join('\n');

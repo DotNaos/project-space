@@ -36,6 +36,18 @@ Subsequent frames have a strictly increasing sequence number and one bounded typ
 - bounded CPU and memory telemetry;
 - opaque `runtime-log:/…` pointers.
 
+The protocol reserves the capability `runtime.codex.v1` for a bidirectional Codex command channel.
+It is intentionally not advertised by the current runtime. Enabling it requires a generation-local
+host controller that runs the shared Codex executor and owns App Server lifecycle; the telemetry
+client must not claim the capability or receive unsolicited commands before that controller exists.
+
+When enabled, server commands and runtime Codex events use independent durable sequences. Every
+command remains bound to the authenticated owner, Workspace, Environment, generation, socket
+session, originating actor, operation ID, and typed Codex request. Results, status, approvals, input requests, and
+stream events must repeat that binding. Disconnected, stale, stopped, superseded, or mismatched
+generations receive no commands. Reconnect registration carries command and event watermarks so
+accepted work and stored stream events resume without duplicate mutations.
+
 The server acknowledges the durable sequence. The runtime journals unacknowledged events in a protected generation-local file and replays them after reconnect. Repeating the exact event ID, sequence, and content is idempotent; changing any part is rejected.
 
 One socket session owns writes at a time. A reconnect replaces and fences the earlier socket. Issuing a new generation revokes the previous credential, supersedes its persisted state, and prevents late events from overwriting the current generation.

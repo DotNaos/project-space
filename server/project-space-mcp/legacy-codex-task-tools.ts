@@ -178,6 +178,8 @@ async function send(input: Parameters<typeof callLegacyCodexTaskTool>[0]) {
     );
     if (execution) return toolResult(await (await taskExecutions).send({ userId: input.userId }, {
       executionId: execution.execution.id,
+      delivery: request.delivery,
+      expectedTurnId: request.expectedTurnId,
       message: request.message,
       operationId: request.operationId ?? `mcp:send:${randomUUID()}`,
       wait: request.wait

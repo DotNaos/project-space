@@ -332,10 +332,14 @@ describe('Codex machine-task durable start store', () => {
 describe('Codex machine-task durable send store', () => {
   const send = {
     connectorId: 'connector-one',
+    delivery: 'new-turn' as const,
+    dispatchDelivery: 'new-turn' as const,
     durableOperations: true,
     fingerprint: 'f'.repeat(64),
     generation: 9,
+    message: 'Continue safely.',
     operationId: 'send-operation-one',
+    requestFingerprint: 'e'.repeat(64),
     threadId: completed.task.threadId,
     userId: 'user-owner'
   };
@@ -350,14 +354,136 @@ describe('Codex machine-task durable send store', () => {
     const uncertain = new FakeDatabase();
     uncertain.responses.push({ rows: [] }, { rows: [{
       connector_generation: '9', connector_id: send.connectorId,
+      delivery: 'new-turn', dispatch_attempt: 0, dispatch_delivery: 'new-turn',
       durable_operations: true,
       fingerprint_sha256: send.fingerprint, operation_id: send.operationId,
       result: null, state: 'uncertain', thread_id: send.threadId
     }] });
     expect(await new PostgresCodexMachineTasksStore(uncertain).reserveSend(send)).toEqual({
       generation: 9,
+      dispatchDelivery: 'new-turn',
       durableOperations: true,
       kind: 'uncertain'
+    });
+  });
+
+  test('persists and replays the exact queued delivery payload', async () => {
+    const queuedResult = {
+      apiVersion: 1 as const,
+      operationId: send.operationId,
+      queuedAt: '2026-08-12T10:00:00.000Z',
+      state: 'queued' as const,
+      target: completed.task,
+      threadId: send.threadId
+    };
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [] }, { rows: [{
+      connector_generation: 9,
+      connector_id: send.connectorId,
+      delivery: 'queue',
+      dispatch_attempt: 0,
+      dispatch_delivery: 'new-turn',
+      durable_operations: true,
+      fingerprint_sha256: send.fingerprint,
+      operation_id: send.operationId,
+      result: queuedResult,
+      state: 'queued',
+      thread_id: send.threadId
+    }] });
+    expect(await new PostgresCodexMachineTasksStore(database).reserveSend({
+      ...send, delivery: 'queue'
+    })).toEqual({
+      dispatchAttempt: 0, kind: 'queued', result: queuedResult, state: 'queued'
+    });
+    expect(database.calls.find(({ sql }) => sql.includes('insert into codex_machine_task_sends')))
+      ?.toMatchObject({ values: expect.arrayContaining(['queue', send.message]) });
+  });
+
+  test('looks up replay and the persisted dispatch decision before session discovery', async () => {
+    const replayedSend = {
+      apiVersion: 1 as const,
+      operationId: send.operationId,
+      state: 'accepted' as const,
+      target: completed.task,
+      threadId: send.threadId,
+      turnId: 'turn-exact'
+    };
+    const replay = new FakeDatabase();
+    replay.responses.push({ rows: [{
+      connector_generation: 9,
+      connector_id: send.connectorId,
+      delivery: 'auto',
+      dispatch_attempt: 0,
+      dispatch_delivery: 'steer',
+      durable_operations: true,
+      expected_turn_id: 'turn-exact',
+      fingerprint_sha256: send.fingerprint,
+      operation_id: send.operationId,
+      result: replayedSend,
+      request_fingerprint_sha256: send.requestFingerprint,
+      state: 'completed',
+      thread_id: send.threadId
+    }] });
+    expect(await new PostgresCodexMachineTasksStore(replay).lookupSend({
+      connectorId: send.connectorId,
+      fingerprint: send.fingerprint,
+      operationId: send.operationId,
+      threadId: send.threadId,
+      userId: send.userId
+    })).toEqual({ kind: 'replayed', result: replayedSend });
+
+    const earlyReplay = new FakeDatabase();
+    earlyReplay.responses.push({ rows: [{
+      connector_generation: 9,
+      connector_id: send.connectorId,
+      delivery: 'auto',
+      dispatch_attempt: 0,
+      dispatch_delivery: 'steer',
+      durable_operations: true,
+      expected_turn_id: 'turn-exact',
+      fingerprint_sha256: send.fingerprint,
+      operation_id: send.operationId,
+      request_fingerprint_sha256: send.requestFingerprint,
+      result: replayedSend,
+      state: 'completed',
+      thread_id: send.threadId
+    }] });
+    expect(await new PostgresCodexMachineTasksStore(earlyReplay).lookupSendRequest({
+      fingerprint: send.requestFingerprint,
+      operationId: send.operationId,
+      userId: send.userId
+    })).toEqual({ kind: 'replayed', result: replayedSend });
+
+    const reserved = new FakeDatabase();
+    reserved.responses.push({ rows: [{
+      connector_generation: '9',
+      connector_id: send.connectorId,
+      delivery: 'auto',
+      dispatch_attempt: 0,
+      dispatch_delivery: 'steer',
+      durable_operations: true,
+      expected_turn_id: 'turn-exact',
+      fingerprint_sha256: send.fingerprint,
+      operation_id: send.operationId,
+      result: null,
+      request_fingerprint_sha256: send.requestFingerprint,
+      state: 'uncertain',
+      thread_id: send.threadId
+    }] });
+    expect(await new PostgresCodexMachineTasksStore(reserved).lookupSend({
+      connectorId: send.connectorId,
+      fingerprint: send.fingerprint,
+      operationId: send.operationId,
+      threadId: send.threadId,
+      userId: send.userId
+    })).toEqual({
+      connectorId: send.connectorId,
+      dispatchDelivery: 'steer',
+      durableOperations: true,
+      expectedTurnId: 'turn-exact',
+      generation: 9,
+      kind: 'reserved',
+      state: 'uncertain'
     });
   });
 
@@ -365,6 +491,7 @@ describe('Codex machine-task durable send store', () => {
     const database = new FakeDatabase();
     database.responses.push({ rows: [] }, { rows: [{
       connector_generation: 9, connector_id: send.connectorId,
+      delivery: 'new-turn', dispatch_attempt: 0, dispatch_delivery: 'new-turn',
       durable_operations: true,
       fingerprint_sha256: send.fingerprint, operation_id: 'send-operation-earlier',
       result: null, state: 'uncertain', thread_id: send.threadId

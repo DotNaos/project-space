@@ -31,6 +31,10 @@ import {
   codexMachineTaskStartPayloadMigrationSql
 } from './codex-machine-task-start-payload-migration';
 import {
+  codexMachineTaskMessageDeliveryMigrationId,
+  codexMachineTaskMessageDeliveryMigrationSql
+} from './codex-machine-task-message-delivery-migration';
+import {
   prDevServerLeaseMigrationId,
   prDevServerLeaseMigrationSql
 } from './pr-dev-server-lease-migration';
@@ -787,6 +791,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: workspaceRuntimeSessionMigrationId,
     sql: workspaceRuntimeSessionMigrationSql
+  },
+  {
+    id: codexMachineTaskMessageDeliveryMigrationId,
+    sql: codexMachineTaskMessageDeliveryMigrationSql
   }
 ];
 
