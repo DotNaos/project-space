@@ -10,7 +10,21 @@ import (
 	"path/filepath"
 
 	"github.com/DotNaos/project-space/internal/projectrun"
+	"github.com/DotNaos/project-space/internal/worktreeownership"
 )
+
+// LaunchPlan is the trusted, read-only description needed to launch one exact
+// Workspace Runtime from a Project-managed worktree.
+type LaunchPlan struct {
+	Branch                string
+	Commit                string
+	Directory             string
+	ManifestDigest        string
+	Mode                  Mode
+	RuntimeVersion        string
+	WorkspaceID           string
+	WorktreeOwnerThreadID string
+}
 
 type resolvedPlan struct {
 	Resolution  ManifestResolution
@@ -34,6 +48,35 @@ type digestPlan struct {
 type digestInput struct {
 	Path   string `json:"path"`
 	Digest string `json:"digest"`
+}
+
+// ResolveLaunchPlan derives the launch binding from the current managed
+// worktree without creating or mutating runtime state.
+func ResolveLaunchPlan(ctx context.Context, directory string, requested Mode) (LaunchPlan, error) {
+	plan, err := resolvePlan(ctx, GitIdentityResolver{}, directory, requested)
+	if err != nil {
+		return LaunchPlan{}, err
+	}
+	managed, err := worktreeownership.InspectManaged(plan.Identity.Directory)
+	if err != nil {
+		return LaunchPlan{}, err
+	}
+	if managed.Path != plan.Identity.Directory || managed.Branch != plan.Identity.Branch ||
+		managed.WorkspaceID != plan.Identity.WorkspaceID {
+		return LaunchPlan{}, fmt.Errorf("managed Worktree inspection resolved a different checkout")
+	}
+	if plan.Identity.Owner != "" && managed.Owner != plan.Identity.Owner {
+		return LaunchPlan{}, fmt.Errorf("managed Worktree belongs to a different Codex task")
+	}
+	if plan.Identity.Dirty {
+		return LaunchPlan{}, fmt.Errorf("Workspace checkout must be clean before runtime launch")
+	}
+	return LaunchPlan{
+		Branch: plan.Identity.Branch, Commit: plan.Identity.Head, Directory: plan.Identity.Directory,
+		ManifestDigest: plan.Digest, Mode: plan.Mode,
+		RuntimeVersion: plan.Resolution.Manifest.ProjectRuntime.Version,
+		WorkspaceID:    plan.Identity.WorkspaceID, WorktreeOwnerThreadID: managed.Owner,
+	}, nil
 }
 
 func resolvePlan(ctx context.Context, resolver IdentityResolver, directory string, requested Mode) (resolvedPlan, error) {

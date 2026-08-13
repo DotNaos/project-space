@@ -1,6 +1,6 @@
+import { useEffect } from 'react';
 import { SsoCallbackScreen } from '@/auth/sso-callback';
 import { PrototypeReviewAuthBoundary } from '@/auth/prototype-review-auth-boundary';
-import { EnvironmentSetupPage } from '@/features/environment-setup/components/environment-setup-page';
 import { MachineConnectionApprovalPage } from '@/features/machine-connection/components/machine-connection-approval-page';
 import { PrototypeReviewPage } from '@/features/pr-preview-review/prototype-review-page';
 import { PreviewAccessGatePage } from '@/features/pr-preview-navigation/preview-access-gate-page';
@@ -9,6 +9,14 @@ import { ProjectDesktopShell } from '@/features/project-desktop/components/proje
 import { PreviewHubPage } from '@/features/pr-preview-hub/preview-hub-page';
 import { McpOAuthAuthorizationPage } from '@/features/mcp/mcp-oauth-authorization-page';
 import { isCentralPreviewHubHostname, previewPullRequestNumberFromHostname } from '@/shared/preview-host';
+
+function EnvironmentSetupRedirect() {
+  useEffect(() => {
+    window.location.replace('/docs/environments/setup');
+  }, []);
+
+  return null;
+}
 
 export function App() {
   const previewPullRequestNumber = previewPullRequestNumberFromHostname(window.location.hostname);
@@ -23,7 +31,7 @@ export function App() {
   }
 
   if (window.location.pathname === '/environments/setup') {
-    return <EnvironmentSetupPage />;
+    return <EnvironmentSetupRedirect />;
   }
 
   if (window.location.pathname.startsWith('/sso-callback')) {

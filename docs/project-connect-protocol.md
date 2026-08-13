@@ -26,9 +26,9 @@ commit, manifest, generation, and owner.
 Use this flow after enrollment:
 
 ```text
-project environment list --format json
-  -> resolve one exact Environment Instance
-  -> project environment bootstrap <environment-instance> ...
+project environment bootstrap
+  -> detect the managed Workspace and one exact Environment Instance
+  -> ask for project environment bootstrap <environment> only when ambiguous
   -> generation-bound Workspace Runtime session
 ```
 

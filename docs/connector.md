@@ -8,11 +8,12 @@ Use the canonical runtime flow instead:
 
 1. Register the machine once with `project connect`. This stores an
    owner-bound Machine Credential; it does not start a background process.
-2. Discover an exact Environment Instance with `project environment list
-   --format json`.
-3. Start the requested, pinned Workspace Runtime with `project environment
-   bootstrap <environment-instance>` and its required identity, commit, and
-   manifest flags.
+2. From a Project-managed worktree, run `project environment bootstrap`. The
+   CLI detects the Workspace, commit, resolved Runtime plan, version, mode,
+   owner, and unambiguous Environment Instance.
+3. If more than one Environment is valid, list them with `project environment
+   instance list` and pass the selected reference to `project environment
+   bootstrap <environment>`.
 4. Manage the resulting generation with the Workspace Runtime lifecycle
    commands documented in [Workspace runtimes](./workspace-runtimes.md).
 

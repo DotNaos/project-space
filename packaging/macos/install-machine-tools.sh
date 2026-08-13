@@ -241,5 +241,4 @@ committed=1
 rm -rf -- "$transaction_root"
 trap - EXIT
 printf 'Installed Project Space machine tools %s in %s\n' "$version" "$install_directory"
-printf 'Next: run %s/project environment list --format json\n' "$install_directory"
-printf 'Then launch a pinned Runtime with project environment bootstrap.\n'
+printf 'Next: from a managed worktree, run %s/project environment bootstrap.\n' "$install_directory"

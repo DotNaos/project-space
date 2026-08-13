@@ -69,22 +69,21 @@ project connect
 List the exact Environment Instances available to the current account:
 
 ```sh
-project environment list --format json
+project environment instance list
 ```
 
-Launch a pinned Workspace Runtime for one exact Environment Instance. Supply
-the required Workspace, commit, generation, manifest digest, and runtime
-version values from the selected managed Workspace:
+From the managed worktree, let Project detect the Workspace identity, commit,
+resolved Runtime plan, version, mode, owner, and unambiguous Environment
+Instance, then create the generation identity:
 
 ```sh
-project environment bootstrap <environment-instance> \
-  --workspace <workspace-id> \
-  --branch <branch> \
-  --commit <commit> \
-  --generation <generation> \
-  --manifest-digest <sha256> \
-  --runtime-version <version>
+project environment bootstrap
 ```
+
+If the Workspace can run in more than one Environment, pass the exact
+Environment Instance reference: `project environment bootstrap <environment>`.
+See the [Environment bootstrap guide](https://projects.os-home.net/docs/environments/setup)
+for advanced explicit values used by automation.
 
 The bootstrap is scoped to that Environment and generation. It starts no
 permanent Connector and does not accept a Connector ID as a substitute for an

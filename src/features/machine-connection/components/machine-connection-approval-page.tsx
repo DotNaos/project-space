@@ -72,7 +72,7 @@ function ApprovalFrame({ children }: { children: React.ReactNode }) {
 
       <div className="relative w-full max-w-xl">
         <a
-          href="/environments/setup"
+          href="/docs/environments/setup"
           className="mb-6 inline-flex items-center gap-1.5 text-sm text-neutral-500 transition hover:text-neutral-200"
         >
           <ChevronLeft className="size-4" />

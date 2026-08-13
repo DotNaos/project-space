@@ -8,6 +8,7 @@ import (
 
 	"github.com/DotNaos/project-space/internal/computecontrol"
 	"github.com/DotNaos/project-space/internal/computeinventory"
+	"github.com/spf13/cobra"
 )
 
 type bootstrapControlAPI struct {
@@ -100,5 +101,80 @@ func TestEnvironmentBootstrapUsesCanonicalTypedBoundary(t *testing.T) {
 	if err := command.Execute(); err != nil || api.request.Profile != "mutation" ||
 		api.request.WorktreeOwnerThreadID != "33333333-3333-4333-8333-333333333333" {
 		t.Fatalf("mutation request = %#v, err = %v", api.request, err)
+	}
+}
+
+func TestEnvironmentBootstrapDetectsWorkspaceAndEnvironment(t *testing.T) {
+	api := &bootstrapControlAPI{}
+	inventory := commandTestInventory()
+	inventory.EnvironmentInstances[0].ID = "11111111-1111-4111-8111-111111111111"
+	inventory.EnvironmentInstances[0].Reference = "platform-local/host-a/environment-a"
+	inventory.EnvironmentInstances[0].Workspaces = []computeinventory.WorkspaceSummary{{
+		ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Name: "current",
+	}}
+	inventory.EnvironmentInstances[1].ID = "33333333-3333-4333-8333-333333333333"
+	command := newEnvironmentBootstrapCommand(environmentBootstrapDependencies{
+		Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
+			return &fakeComputeInventoryAPI{value: inventory}, nil
+		}},
+		LoadControl: func(context.Context) (computecontrol.WorkspaceRuntimeAPI, error) { return api, nil },
+		NewGeneration: func() (string, error) {
+			return "22222222-2222-4222-8222-222222222222", nil
+		},
+		NewOperationID: func(string) (string, error) { return "detected-bootstrap", nil },
+		ResolvePlan: func(context.Context, string, string) (environmentLaunchPlan, error) {
+			return environmentLaunchPlan{
+				WorkspaceID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Branch: "issue-650",
+				Commit: strings.Repeat("a", 40), ManifestDigest: strings.Repeat("b", 64),
+				RuntimeVersion: "0.21.23", Mode: "process",
+				WorktreeOwnerThreadID: "44444444-4444-4444-8444-444444444444",
+			}, nil
+		},
+	})
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs(nil)
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if api.request.EnvironmentID != inventory.EnvironmentInstances[0].ID ||
+		api.request.WorkspaceID != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" ||
+		api.request.Generation != "22222222-2222-4222-8222-222222222222" ||
+		api.request.Branch != "issue-650" || api.request.RuntimeVersion != "0.21.23" ||
+		api.request.Mode != "process" {
+		t.Fatalf("detected request = %#v", api.request)
+	}
+}
+
+func TestEnvironmentBootstrapRejectsAmbiguousEnvironmentAndDetectedMismatch(t *testing.T) {
+	plan := environmentLaunchPlan{
+		WorkspaceID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Branch: "issue-650",
+		Commit: strings.Repeat("a", 40), ManifestDigest: strings.Repeat("b", 64),
+		RuntimeVersion: "0.21.23", Mode: "process",
+	}
+	newCommand := func(inventory computeinventory.Inventory) *cobra.Command {
+		return newEnvironmentBootstrapCommand(environmentBootstrapDependencies{
+			Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
+				return &fakeComputeInventoryAPI{value: inventory}, nil
+			}},
+			NewGeneration:  func() (string, error) { return "22222222-2222-4222-8222-222222222222", nil },
+			NewOperationID: func(string) (string, error) { return "operation", nil },
+			ResolvePlan: func(context.Context, string, string) (environmentLaunchPlan, error) {
+				return plan, nil
+			},
+		})
+	}
+
+	ambiguous := commandTestInventory()
+	command := newCommand(ambiguous)
+	command.SetArgs(nil)
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "project environment bootstrap <environment>") {
+		t.Fatalf("ambiguous environment error = %v", err)
+	}
+
+	command = newCommand(commandTestInventory())
+	command.SetArgs([]string{"--branch", "different"})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "--branch does not match") {
+		t.Fatalf("detected mismatch error = %v", err)
 	}
 }
