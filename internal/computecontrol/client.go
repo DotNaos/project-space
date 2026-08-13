@@ -43,6 +43,7 @@ type API interface {
 }
 
 type WorkspaceRuntimeAPI interface {
+	SupportsWorkspaceRuntimePresentation(context.Context) bool
 	LaunchWorkspaceRuntime(context.Context, WorkspaceRuntimeLaunchRequest) (WorkspaceRuntimeLaunchExecution, error)
 }
 
@@ -195,6 +196,49 @@ func (client *Client) LaunchWorkspaceRuntime(
 	return result, nil
 }
 
+func (client *Client) SupportsWorkspaceRuntimePresentation(ctx context.Context) bool {
+	probeContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	endpoint := *client.baseURL
+	endpoint.Path = strings.TrimRight(client.baseURL.Path, "/") +
+		"/api/compute/control/workspace-runtime/capabilities"
+	request, err := http.NewRequestWithContext(probeContext, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return false
+	}
+	token, err := client.credentials.AccessToken(probeContext)
+	if err != nil || strings.TrimSpace(token) == "" {
+		return false
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-Project-Machine-ID", client.callerMachineID)
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return false
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, (1<<20)+1))
+	decoder.DisallowUnknownFields()
+	var result struct {
+		Capabilities  []string `json:"capabilities"`
+		SchemaVersion int      `json:"schemaVersion"`
+	}
+	if decoder.Decode(&result) != nil || decoder.Decode(&struct{}{}) != io.EOF ||
+		result.SchemaVersion != 1 {
+		return false
+	}
+	for _, capability := range result.Capabilities {
+		if capability == "workspace-runtime-presentation.v1" {
+			return true
+		}
+	}
+	return false
+}
+
 func validLaunchRequest(value WorkspaceRuntimeLaunchRequest) bool {
 	return uuidPattern.MatchString(value.EnvironmentID) && uuidPattern.MatchString(value.WorkspaceID) &&
 		uuidPattern.MatchString(value.Generation) && operationPattern.MatchString(value.OperationID) &&
@@ -203,7 +247,8 @@ func validLaunchRequest(value WorkspaceRuntimeLaunchRequest) bool {
 		regexp.MustCompile(`^[A-Za-z0-9._+-]{1,64}$`).MatchString(value.RuntimeVersion) &&
 		(value.Mode == "process" || value.Mode == "devcontainer") &&
 		(value.Profile == "codex" || value.Profile == "inspection" || value.Profile == "mutation") &&
-		(value.Profile == "mutation") == uuidPattern.MatchString(value.WorktreeOwnerThreadID) &&
+		(value.Profile != "mutation" || uuidPattern.MatchString(value.WorktreeOwnerThreadID)) &&
+		(value.WorktreeOwnerThreadID == "" || uuidPattern.MatchString(value.WorktreeOwnerThreadID)) &&
 		value.Branch != "" && len(value.Branch) <= 256 && !strings.ContainsAny(value.Branch, "\x00\r\n")
 }
 

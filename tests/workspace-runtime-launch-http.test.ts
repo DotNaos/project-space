@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createWorkspaceRuntimeLaunchHttpApi } from '../server/workspace-runtime-session/launch-http';
 
 const servers: Server[] = [];
+const worktreeOwnerThreadId = '44444444-4444-4444-8444-444444444444';
 const request = {
   branch: 'issue-625', commit: 'a'.repeat(40),
   environmentId: '11111111-1111-4111-8111-111111111111',
@@ -31,9 +32,20 @@ describe('Workspace Runtime productive launch HTTP boundary', () => {
         }
       },
       resolveActor: async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' }),
+      resolvePresentation: async (input) => {
+        expect(input).toEqual({
+          branch: request.branch, commit: request.commit,
+          environmentId: request.environmentId, ownerUserId: 'owner-one',
+          workspaceId: request.workspaceId, worktreeOwnerThreadId
+        });
+        return { repository: 'DotNaos/project-space', task: { number: 717 } };
+      },
       sessions: {
         async issue(input) {
           expect(input.ownerUserId).toBe('owner-one');
+          expect(input.presentation).toEqual({
+            repository: 'DotNaos/project-space', task: { number: 717 }
+          });
           return { credential: {
             capabilities: input.capabilities, credentialId: '33333333-3333-4333-8333-333333333333',
             environmentId: input.environmentId, expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -44,7 +56,10 @@ describe('Workspace Runtime productive launch HTTP boundary', () => {
       }
     }));
     const response = await fetch(`${origin}/api/compute/control/workspace-runtime/launch`, {
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        ...request,
+        worktreeOwnerThreadId
+      }),
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': request.operationId },
       method: 'POST'
     });
@@ -53,13 +68,64 @@ describe('Workspace Runtime productive launch HTTP boundary', () => {
     expect(body).toMatchObject({ replayed: false, result: { generation: request.generation, state: 'running' } });
     expect(JSON.stringify(body)).not.toContain(token);
     expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ input: { operationId: request.operationId } });
+  });
+
+  test('replays a completed launch when optional presentation discovery disappears', async () => {
+    let completed: ReturnType<typeof success> | undefined;
+    let issues = 0;
+    const origin = await start(createWorkspaceRuntimeLaunchHttpApi({
+      endpoint: () => 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      gateway: {
+        async execute(actor, input) {
+          completed = success(actor.id, input, request.generation);
+          return completed;
+        },
+        async replaySucceeded() { return completed; }
+      },
+      resolveActor: async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' }),
+      resolvePresentation: async () => ({
+        repository: 'DotNaos/project-space', task: { number: 717 }
+      }),
+      sessions: {
+        async issue(input) {
+          issues += 1;
+          return { credential: {
+            capabilities: input.capabilities,
+            credentialId: '33333333-3333-4333-8333-333333333333',
+            environmentId: input.environmentId,
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            generation: input.generation,
+            schemaVersion: 1,
+            token: 'A'.repeat(43),
+            workspaceId: input.workspaceId
+          } };
+        },
+        async revoke() { throw new Error('must not revoke'); }
+      }
+    }));
+
+    const first = await post(origin, {
+      ...request,
+      worktreeOwnerThreadId
+    });
+    expect(first.status).toBe(200);
+    expect((await first.json()).replayed).toBe(false);
+
+    const retry = await post(origin, request);
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).replayed).toBe(true);
+    expect(issues).toBe(1);
   });
 
   test('rejects browser actors, owner injection, and changed idempotency before issuance', async () => {
     let issues = 0;
     const handler = createWorkspaceRuntimeLaunchHttpApi({
       endpoint: () => 'wss://projects.os-home.net/api/workspace-runtimes/socket',
-      gateway: { async execute() { throw new Error('must not execute'); }, async replaySucceeded() { return undefined; } },
+      gateway: {
+        async execute(actor, input) { return success(actor.id, input, request.generation); },
+        async replaySucceeded() { return undefined; }
+      },
       resolveActor: async () => ({ userId: 'owner-one' }),
       sessions: {
         async issue() { issues += 1; throw new Error('must not issue'); },
@@ -84,6 +150,67 @@ describe('Workspace Runtime productive launch HTTP boundary', () => {
       body: JSON.stringify(request), headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'changed' }, method: 'POST'
     })).status).toBe(409);
     expect(issues).toBe(0);
+  });
+
+  test('rejects malformed Worktree binding and ignores optional context that cannot be verified', async () => {
+    let issues = 0;
+    const handler = createWorkspaceRuntimeLaunchHttpApi({
+      endpoint: () => 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      gateway: { async execute() { throw new Error('must not execute'); }, async replaySucceeded() { return undefined; } },
+      resolveActor: async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' }),
+      sessions: {
+        async issue() { issues += 1; throw new Error('must not issue'); },
+        async revoke() {}
+      }
+    });
+    const malformed = await start(handler);
+    expect((await post(malformed, {
+      ...request, worktreeOwnerThreadId: 'caller-selected-label'
+    })).status).toBe(409);
+
+    const unavailable = await start(createWorkspaceRuntimeLaunchHttpApi({
+      endpoint: () => 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      gateway: {
+        async execute(actor, input) { return success(actor.id, input, request.generation); },
+        async replaySucceeded() { return undefined; }
+      },
+      resolveActor: async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' }),
+      resolvePresentation: async () => undefined,
+      sessions: {
+        async issue(input) {
+          issues += 1;
+          expect(input.presentation).toBeUndefined();
+          return { credential: {
+            capabilities: input.capabilities, credentialId: '33333333-3333-4333-8333-333333333333',
+            environmentId: input.environmentId, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            generation: input.generation, schemaVersion: 1, token: 'A'.repeat(43), workspaceId: input.workspaceId
+          } };
+        },
+        async revoke() {}
+      }
+    }));
+    expect((await post(unavailable, {
+      ...request,
+      worktreeOwnerThreadId
+    })).status).toBe(200);
+    expect(issues).toBe(1);
+  });
+
+  test('advertises presentation support only to authenticated machines', async () => {
+    const origin = await start(createWorkspaceRuntimeLaunchHttpApi({
+      endpoint: () => 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      gateway: { async execute() { throw new Error('unused'); }, async replaySucceeded() { return undefined; } },
+      resolveActor: async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' }),
+      sessions: {
+        async issue() { throw new Error('unused'); },
+        async revoke() { throw new Error('unused'); }
+      }
+    }));
+    const response = await fetch(`${origin}/api/compute/control/workspace-runtime/capabilities`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      capabilities: ['workspace-runtime-presentation.v1'], schemaVersion: 1
+    });
   });
 });
 

@@ -112,6 +112,36 @@ func TestLaunchWorkspaceRuntimeUsesTypedMachineBoundary(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRuntimePresentationCapabilityNegotiation(t *testing.T) {
+	capabilityResponse := `{"capabilities":["workspace-runtime-presentation.v1"],"schemaVersion":1}`
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/compute/control/workspace-runtime/capabilities" ||
+			request.Method != http.MethodGet || request.Header.Get("Authorization") != "Bearer token" ||
+			request.Header.Get("X-Project-Machine-ID") != "machine-one" {
+			t.Fatalf("request = %#v, headers = %#v", request.URL, request.Header)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(response, capabilityResponse)
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{
+		BaseURL: server.URL, CallerMachineID: "machine-one",
+		CredentialProvider: CredentialProviderFunc(
+			func(context.Context) (string, error) { return "token", nil },
+		),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !client.SupportsWorkspaceRuntimePresentation(context.Background()) {
+		t.Fatal("expected presentation capability")
+	}
+	capabilityResponse = `{"error":"Route not found."}`
+	if client.SupportsWorkspaceRuntimePresentation(context.Background()) {
+		t.Fatal("old or malformed server response must disable optional presentation fields")
+	}
+}
+
 func TestLaunchWorkspaceRuntimeRejectsUnboundInputAndResponse(t *testing.T) {
 	client, err := NewClient(Config{
 		BaseURL: "https://projects.invalid", CallerMachineID: "machine-one",
@@ -152,6 +182,33 @@ func TestLaunchWorkspaceRuntimeRejectsUnboundInputAndResponse(t *testing.T) {
 		WorkspaceID: "33333333-3333-4333-8333-333333333333",
 	})
 	if err != ErrInvalidResponse {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLaunchWorkspaceRuntimeAcceptsOptionalPresentationBinding(t *testing.T) {
+	client, err := NewClient(Config{
+		BaseURL: "https://projects.invalid", CallerMachineID: "machine-one",
+		CredentialProvider: CredentialProviderFunc(
+			func(context.Context) (string, error) { return "token", nil },
+		),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := WorkspaceRuntimeLaunchRequest{
+		Branch: "issue-717", Commit: strings.Repeat("a", 40),
+		EnvironmentID: "11111111-1111-4111-8111-111111111111",
+		Generation:    "22222222-2222-4222-8222-222222222222", ManifestDigest: strings.Repeat("b", 64),
+		Mode: "process", OperationID: "bootstrap-presentation", Profile: "codex", RuntimeVersion: "0.5.0",
+		WorkspaceID: "33333333-3333-4333-8333-333333333333",
+	}
+	valid.WorktreeOwnerThreadID = "44444444-4444-4444-8444-444444444444"
+	if !validLaunchRequest(valid) {
+		t.Fatal("an exact managed Worktree owner should be valid for presentation binding")
+	}
+	valid.WorktreeOwnerThreadID = "caller-selected-label"
+	if _, err := client.LaunchWorkspaceRuntime(context.Background(), valid); err != ErrInvalidInput {
 		t.Fatalf("error = %v", err)
 	}
 }

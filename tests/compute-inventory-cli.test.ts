@@ -423,6 +423,11 @@ describe('agent-safe compute inventory', () => {
       generation: 'private-generation-id', lastEventAt: '2026-08-11T10:00:59.000Z',
       lastHeartbeatAt: '2026-08-11T10:00:59.000Z', lastSequence: 4,
       lifecycleState: 'running' as const, manifestDigest: 'private-manifest',
+      localPath: '/private/checkout', rawOutput: 'raw-command-output',
+      presentation: {
+        repository: 'DotNaos/project-space',
+        task: { number: 717 }
+      },
       runtimeVersion: '0.4.66', schemaVersion: 1 as const, sessionId: 'private-session-id',
       workspaceId: 'private-workspace-id'
     };
@@ -444,7 +449,7 @@ describe('agent-safe compute inventory', () => {
     });
     const workspace = inventory.environmentInstances.find(({ id }) => id === environment.id)?.workspaces[0];
     expect(workspace).toMatchObject({
-      name: 'Workspace Runtime 1', state: 'active', runtime: {
+      name: 'Task #717', repository: 'DotNaos/project-space', state: 'active', runtime: {
         codex: 'available', connection: 'online', evidence: 'project-hostd',
         lifecycle: 'running', devServers: [{ name: 'web', state: 'ready' }]
       }
@@ -454,7 +459,7 @@ describe('agent-safe compute inventory', () => {
     for (const forbidden of [
       'private-commit-sha', 'private-generation-id', 'private-manifest',
       'private-session-id', 'private-workspace-id', 'private-device-id', 'private-credential-id',
-      '127.0.0.1', '3000'
+      '/private/checkout', 'raw-command-output', '127.0.0.1', '3000'
     ]) expect(serialized).not.toContain(forbidden);
 
     const withoutHostd = buildProjectCliComputeInventory({

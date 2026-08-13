@@ -135,6 +135,10 @@ import {
   canonicalRuntimeMutationMigrationId,
   canonicalRuntimeMutationMigrationSql
 } from './canonical-runtime-mutation-migration';
+import {
+  workspaceRuntimePresentationMigrationId,
+  workspaceRuntimePresentationMigrationSql
+} from './workspace-runtime-presentation-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -851,6 +855,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: canonicalRuntimeMutationMigrationId,
     sql: canonicalRuntimeMutationMigrationSql
+  },
+  {
+    id: workspaceRuntimePresentationMigrationId,
+    sql: workspaceRuntimePresentationMigrationSql
   }
 ];
 

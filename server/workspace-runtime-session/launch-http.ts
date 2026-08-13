@@ -14,6 +14,7 @@ import type { RuntimeSessionStore } from './contracts';
 import { RuntimeSessionError } from './contracts';
 
 export const workspaceRuntimeLaunchRoute = '/api/compute/control/workspace-runtime/launch';
+export const workspaceRuntimeCapabilitiesRoute = '/api/compute/control/workspace-runtime/capabilities';
 const maximumBodyBytes = 16 * 1024;
 
 export function createWorkspaceRuntimeLaunchHttpApi(options: {
@@ -21,12 +22,35 @@ export function createWorkspaceRuntimeLaunchHttpApi(options: {
   endpoint(request: IncomingMessage): string;
   gateway: WorkspaceRuntimeSshGateway;
   resolveActor(request: IncomingMessage): Promise<{ callerMachineId?: string; userId: string }>;
+  resolvePresentation?(input: {
+    branch: string;
+    commit: string;
+    environmentId: string;
+    ownerUserId: string;
+    workspaceId: string;
+    worktreeOwnerThreadId: string;
+  }): Promise<NonNullable<WorkspaceRuntimeStartAuthority['presentation']> | undefined>;
   sessions: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
 }) {
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
-    if (url.pathname !== workspaceRuntimeLaunchRoute) return false;
+    if (url.pathname !== workspaceRuntimeLaunchRoute &&
+      url.pathname !== workspaceRuntimeCapabilitiesRoute) return false;
     response.setHeader('Cache-Control', 'private, no-store');
     try {
+      if (url.pathname === workspaceRuntimeCapabilitiesRoute) {
+        if (request.method !== 'GET' || [...url.searchParams.keys()].length > 0) {
+          throw invalid('Workspace Runtime capabilities require one GET request without query parameters.');
+        }
+        const identity = await options.resolveActor(request);
+        if (!identity.callerMachineId) {
+          throw new SshGatewayError('authorization_denied', 'Machine authentication is required.');
+        }
+        writeJson(response, 200, {
+          capabilities: ['workspace-runtime-presentation.v1'],
+          schemaVersion: 1
+        });
+        return true;
+      }
       if (request.method !== 'POST' || [...url.searchParams.keys()].length > 0) {
         throw invalid('Workspace Runtime launch requires one POST request without query parameters.');
       }
@@ -34,10 +58,25 @@ export function createWorkspaceRuntimeLaunchHttpApi(options: {
       if (!identity.callerMachineId) {
         throw new SshGatewayError('authorization_denied', 'Machine authentication is required.');
       }
-      const input = parseLaunch(await readBody(request), identity.userId);
-      if (request.headers['idempotency-key'] !== input.operationId) {
+      const parsed = parseLaunch(await readBody(request));
+      if (request.headers['idempotency-key'] !== parsed.operationId) {
         throw invalid('Idempotency-Key must match operationId.');
       }
+      const presentation = parsed.worktreeOwnerThreadId && options.resolvePresentation
+          ? await options.resolvePresentation({
+            branch: parsed.branch,
+            commit: parsed.commit,
+            environmentId: parsed.environmentId,
+            ownerUserId: identity.userId,
+            workspaceId: parsed.workspaceId,
+            worktreeOwnerThreadId: parsed.worktreeOwnerThreadId
+          })
+        : undefined;
+      const input: WorkspaceRuntimeStartAuthority = {
+        ...parsed,
+        ownerUserId: identity.userId,
+        ...(presentation ? { presentation } : {})
+      };
       const actor: SshGatewayActor = {
         id: identity.callerMachineId,
         kind: 'machine',
@@ -69,11 +108,11 @@ export function createWorkspaceRuntimeLaunchHttpApi(options: {
   };
 }
 
-function parseLaunch(body: Record<string, unknown>, ownerUserId: string): WorkspaceRuntimeStartAuthority {
+function parseLaunch(body: Record<string, unknown>) {
   const keys = [
     'branch', 'commit', 'environmentId', 'generation', 'manifestDigest',
     'mode', 'operationId', 'profile', 'runtimeVersion', 'workspaceId',
-    ...(body.profile === 'mutation' ? ['worktreeOwnerThreadId'] : [])
+    ...(body.worktreeOwnerThreadId === undefined ? [] : ['worktreeOwnerThreadId'])
   ];
   if (Object.keys(body).sort().join('\0') !== keys.sort().join('\0') ||
     !text(body.branch, 256) || !commit(body.commit) || !uuid(body.environmentId) ||
@@ -82,10 +121,11 @@ function parseLaunch(body: Record<string, unknown>, ownerUserId: string): Worksp
     body.profile !== 'codex' && body.profile !== 'inspection' && body.profile !== 'mutation' ||
     !text(body.operationId, 256, /^[A-Za-z0-9:._-]+$/) ||
     !text(body.runtimeVersion, 64, /^[A-Za-z0-9._+-]+$/) || !uuid(body.workspaceId) ||
-    (body.profile === 'mutation') !== uuid(body.worktreeOwnerThreadId)) {
+    (body.profile === 'mutation' && !uuid(body.worktreeOwnerThreadId)) ||
+    (body.worktreeOwnerThreadId !== undefined && !uuid(body.worktreeOwnerThreadId))) {
     throw invalid('Workspace Runtime launch request is invalid.');
   }
-  return { ...body, ownerUserId } as WorkspaceRuntimeStartAuthority;
+  return body as unknown as Omit<WorkspaceRuntimeStartAuthority, 'ownerUserId' | 'presentation'>;
 }
 
 async function readBody(request: IncomingMessage) {

@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
 import { createCodexMachineTasksAuthResolver } from '../codex-machine-tasks/auth-context';
 import {
   getMachineConnectionDatabaseClient,
@@ -14,8 +15,10 @@ import { requestPublicOrigin } from '../public-origin';
 import type { RuntimeSessionStore } from '../workspace-runtime-session/contracts';
 import { PostgresTaskExecutionStore } from '../task-execution/execution-store';
 import { createWorkspaceRuntimeMutationLaunchAuthorizer } from '../workspace-runtime-session/mutation-launch-authorizer';
+import { createWorkspaceRuntimePresentationResolver } from '../workspace-runtime-session/presentation-resolver';
 import {
   createWorkspaceRuntimeLaunchHttpApi,
+  workspaceRuntimeCapabilitiesRoute,
   workspaceRuntimeLaunchRoute
 } from '../workspace-runtime-session/launch-http';
 import type { SshGatewayAuthorizationProvider } from './contracts';
@@ -32,6 +35,7 @@ const routes = new Set([
   '/api/compute/control/status',
   '/api/compute/control/workspace-runtime',
   '/api/compute/control/worktree/prepare',
+  workspaceRuntimeCapabilitiesRoute,
   workspaceRuntimeLaunchRoute
 ]);
 
@@ -40,6 +44,7 @@ export function isConfiguredSshControlGatewayRoute(pathname: string) {
 }
 
 export function createConfiguredSshControlGatewayHandler(options: {
+  backend: Pick<ProjectSpaceBackend, 'getGitHubCatalog'>;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   runtimeSessions?: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
 }) {
@@ -66,6 +71,7 @@ export function createConfiguredSshControlGatewayHandler(options: {
 }
 
 async function createHandler(options: {
+  backend: Pick<ProjectSpaceBackend, 'getGitHubCatalog'>;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   runtimeSessions?: Pick<RuntimeSessionStore, 'issue' | 'revoke'>;
 }) {
@@ -126,6 +132,7 @@ async function createHandler(options: {
     },
     gateway: service,
     resolveActor,
+    resolvePresentation: createWorkspaceRuntimePresentationResolver(options.backend, taskExecutions),
     sessions: options.runtimeSessions
   });
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {

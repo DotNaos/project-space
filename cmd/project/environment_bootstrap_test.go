@@ -12,11 +12,16 @@ import (
 )
 
 type bootstrapControlAPI struct {
-	request computecontrol.WorkspaceRuntimeLaunchRequest
+	request              computecontrol.WorkspaceRuntimeLaunchRequest
+	supportsPresentation bool
 }
 
 func (api *bootstrapControlAPI) Status(context.Context, computecontrol.StatusRequest) (computecontrol.ExecutionResult, error) {
 	return computecontrol.ExecutionResult{}, nil
+}
+
+func (api *bootstrapControlAPI) SupportsWorkspaceRuntimePresentation(context.Context) bool {
+	return api.supportsPresentation
 }
 
 func (api *bootstrapControlAPI) LaunchWorkspaceRuntime(
@@ -105,7 +110,7 @@ func TestEnvironmentBootstrapUsesCanonicalTypedBoundary(t *testing.T) {
 }
 
 func TestEnvironmentBootstrapDetectsWorkspaceAndEnvironment(t *testing.T) {
-	api := &bootstrapControlAPI{}
+	api := &bootstrapControlAPI{supportsPresentation: true}
 	inventory := commandTestInventory()
 	inventory.EnvironmentInstances[0].ID = "11111111-1111-4111-8111-111111111111"
 	inventory.EnvironmentInstances[0].Reference = "platform-local/host-a/environment-a"
@@ -141,8 +146,41 @@ func TestEnvironmentBootstrapDetectsWorkspaceAndEnvironment(t *testing.T) {
 		api.request.WorkspaceID != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" ||
 		api.request.Generation != "22222222-2222-4222-8222-222222222222" ||
 		api.request.Branch != "issue-650" || api.request.RuntimeVersion != "0.21.23" ||
-		api.request.Mode != "process" {
+		api.request.Mode != "process" ||
+		api.request.WorktreeOwnerThreadID != "44444444-4444-4444-8444-444444444444" {
 		t.Fatalf("detected request = %#v", api.request)
+	}
+}
+
+func TestEnvironmentBootstrapOmitsPresentationForRollbackServer(t *testing.T) {
+	api := &bootstrapControlAPI{}
+	inventory := commandTestInventory()
+	inventory.EnvironmentInstances = inventory.EnvironmentInstances[:1]
+	inventory.EnvironmentInstances[0].Workspaces = []computeinventory.WorkspaceSummary{{
+		ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Name: "current",
+	}}
+	command := newEnvironmentBootstrapCommand(environmentBootstrapDependencies{
+		Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
+			return &fakeComputeInventoryAPI{value: inventory}, nil
+		}},
+		LoadControl:    func(context.Context) (computecontrol.WorkspaceRuntimeAPI, error) { return api, nil },
+		NewGeneration:  func() (string, error) { return "22222222-2222-4222-8222-222222222222", nil },
+		NewOperationID: func(string) (string, error) { return "rollback-bootstrap", nil },
+		ResolvePlan: func(context.Context, string, string) (environmentLaunchPlan, error) {
+			return environmentLaunchPlan{
+				WorkspaceID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Branch: "issue-717",
+				Commit: strings.Repeat("a", 40), ManifestDigest: strings.Repeat("b", 64),
+				RuntimeVersion: "0.21.23", Mode: "process",
+				WorktreeOwnerThreadID: "44444444-4444-4444-8444-444444444444",
+			}, nil
+		},
+	})
+	command.SetOut(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if api.request.WorktreeOwnerThreadID != "" {
+		t.Fatalf("rollback request = %#v", api.request)
 	}
 }
 

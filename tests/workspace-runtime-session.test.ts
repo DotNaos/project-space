@@ -62,6 +62,100 @@ function connection() {
 }
 
 describe('Workspace Runtime outbound sessions', () => {
+  test('keeps the first presentation when an exact launch retry loses optional context', async () => {
+    const store = new MemoryRuntimeSessionStore(undefined, undefined, () => 'P'.repeat(43));
+    const input = {
+      branch: 'issue-717', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:presentation', ownerUserId: 'owner',
+      presentation: { repository: 'DotNaos/project-space', task: { number: 717 } },
+      requestedCapabilities: [...workspaceRuntimeReadyCapabilities], runtimeVersion: '0.4.66', workspaceId
+    };
+    const issued = await store.issue(input);
+    expect(await store.authenticate(issued.credential.token)).toMatchObject({
+      presentation: input.presentation
+    });
+    await expect(store.issue({
+      ...input,
+      presentation: undefined
+    })).rejects.toMatchObject({ code: 'operation_in_progress' });
+    expect(await store.authenticate(issued.credential.token)).toMatchObject({
+      presentation: input.presentation
+    });
+  });
+
+  test('keeps presentation immutable when a revoked generation is retried under a new operation', async () => {
+    let credential = 0;
+    const store = new MemoryRuntimeSessionStore(
+      undefined,
+      () => credential++ === 0 ? '33333333-3333-4333-8333-333333333330' : '33333333-3333-4333-8333-333333333331',
+      () => credential === 1 ? 'Q'.repeat(43) : 'R'.repeat(43)
+    );
+    const input = {
+      branch: 'issue-717', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:presentation-one', ownerUserId: 'owner',
+      presentation: { repository: 'DotNaos/project-space', task: { number: 717 } },
+      requestedCapabilities: [...workspaceRuntimeReadyCapabilities], runtimeVersion: '0.4.66', workspaceId
+    };
+    const issued = await store.issue(input);
+    await store.revoke('owner', workspaceId, issued.credential.credentialId);
+    const retried = await store.issue({
+      ...input,
+      operationId: 'start:presentation-two',
+      presentation: { repository: 'DotNaos/project-space', task: { number: 718 } }
+    });
+    expect(await store.authenticate(retried.credential.token)).toMatchObject({
+      presentation: input.presentation
+    });
+  });
+
+  test('keeps missing presentation immutable when a revoked generation is retried', async () => {
+    let credential = 0;
+    const store = new MemoryRuntimeSessionStore(
+      undefined,
+      () => credential++ === 0 ? '33333333-3333-4333-8333-333333333330' : '33333333-3333-4333-8333-333333333331',
+      () => credential === 1 ? 'S'.repeat(43) : 'T'.repeat(43)
+    );
+    const input = {
+      branch: 'issue-717', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:generic-one', ownerUserId: 'owner',
+      requestedCapabilities: [...workspaceRuntimeReadyCapabilities], runtimeVersion: '0.4.66', workspaceId
+    };
+    const issued = await store.issue(input);
+    await store.revoke('owner', workspaceId, issued.credential.credentialId);
+    const retried = await store.issue({
+      ...input,
+      operationId: 'start:generic-two',
+      presentation: { repository: 'DotNaos/project-space', task: { number: 717 } }
+    });
+    expect((await store.authenticate(retried.credential.token))?.presentation).toBeUndefined();
+  });
+
+  test('uses newly verified presentation when a new generation replaces the Workspace', async () => {
+    let credential = 0;
+    const store = new MemoryRuntimeSessionStore(
+      undefined,
+      () => credential++ === 0 ? '33333333-3333-4333-8333-333333333330' : '33333333-3333-4333-8333-333333333331',
+      () => credential === 1 ? 'U'.repeat(43) : 'V'.repeat(43)
+    );
+    const input = {
+      branch: 'issue-717', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:generation-one', ownerUserId: 'owner',
+      presentation: { repository: 'DotNaos/project-space', task: { number: 717 } },
+      requestedCapabilities: [...workspaceRuntimeReadyCapabilities], runtimeVersion: '0.4.66', workspaceId
+    };
+    await store.issue(input);
+    const nextPresentation = { repository: 'DotNaos/project-space', task: { number: 718 } };
+    const replaced = await store.issue({
+      ...input,
+      generation: '55555555-5555-4555-8555-555555555555',
+      operationId: 'start:generation-two',
+      presentation: nextPresentation
+    });
+    expect(await store.authenticate(replaced.credential.token)).toMatchObject({
+      presentation: nextPresentation
+    });
+  });
+
   test('registers, accepts exact replay, reconnects after a lost ack, and fences the old socket', async () => {
     const runtime = fixture();
     const issued = await runtime.issue();
@@ -151,6 +245,12 @@ describe('Workspace Runtime outbound sessions', () => {
       environmentId, expiresInSeconds: 3_601, generation, manifestDigest,
       operationId: 'start:invalid-expiry', ownerUserId: 'owner', requestedCapabilities: [...workspaceRuntimeReadyCapabilities],
       runtimeVersion: '0.4.66', workspaceId
+    })).rejects.toMatchObject({ code: 'invalid_message' });
+    await expect(runtime.store.issue({
+      branch: 'issue-625', capabilities: [...workspaceRuntimeBaseCapabilities], commit,
+      environmentId, generation, manifestDigest, operationId: 'start:invalid-presentation', ownerUserId: 'owner',
+      presentation: { repository: '/private/checkout' },
+      requestedCapabilities: [...workspaceRuntimeReadyCapabilities], runtimeVersion: '0.4.66', workspaceId
     })).rejects.toMatchObject({ code: 'invalid_message' });
   });
 
