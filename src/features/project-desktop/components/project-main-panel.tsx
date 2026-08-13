@@ -615,6 +615,7 @@ export function ProjectMainPanel({
             onSelectWorktree={onSelectWorktree}
             project={project}
             projects={projects}
+            repositories={githubCatalog.repositories}
             selectedExplorerTarget={selectedExplorerTarget}
             selectedIssueNumber={selectedIssueNumber}
             selectedWorkflowRunId={selectedWorkflowRunId}

@@ -1,6 +1,7 @@
 import { Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type { GitHubIssueRecord } from '@/shared/project-space-api';
+import { Check } from 'lucide-react';
 import {
   authorAvatarStyle,
   issueColumnById,
@@ -9,15 +10,24 @@ import {
   type IssueColumnId
 } from './issue-board-model';
 
-export function IssueLabelChip({ className, label }: { className?: string; label: string }) {
+export function IssueLabelChip({
+  className,
+  label,
+  selected = false
+}: {
+  className?: string;
+  label: string;
+  selected?: boolean;
+}) {
   return (
     <span
       style={labelChipStyle(label)}
       className={cn(
-        'inline-flex max-w-36 items-center truncate rounded-full border px-1.5 py-px text-[10px] font-medium leading-4',
+        'inline-flex max-w-36 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10px] font-medium leading-4',
         className
       )}
     >
+      {selected ? <Check aria-hidden="true" className="size-3 shrink-0" strokeWidth={3} /> : null}
       {label}
     </span>
   );

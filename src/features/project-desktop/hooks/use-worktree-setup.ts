@@ -121,12 +121,14 @@ export function useWorktreeSetup({
           next.delete(worktreeId);
           return next;
         });
-      } catch {
+      } catch (nextError) {
         if (requestKeyRef.current !== activeKey) return;
-        setErrors((current) =>
-          new Map(current).set(worktreeId, 'Trusted setup did not complete. You can retry it safely.')
-        );
         await refresh();
+        if (requestKeyRef.current !== activeKey) return;
+        const message = nextError instanceof Error
+          ? nextError.message
+          : 'Trusted setup did not complete. You can retry it safely.';
+        setErrors((current) => new Map(current).set(worktreeId, message));
       } finally {
         if (requestKeyRef.current === activeKey) {
           setPendingKeys((current) => removeSetupOperation(current, operationKey));

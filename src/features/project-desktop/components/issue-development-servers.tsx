@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ExternalLink,
   LoaderCircle,
-  MonitorPlay,
   Play,
-  Server,
   Wrench
 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
@@ -13,13 +11,14 @@ import type { ProjectSpaceRecord } from '@/shared/project-space-api';
 import { useWorktreeDevServers } from '../hooks/use-worktree-dev-servers';
 import { useWorktreeSetup } from '../hooks/use-worktree-setup';
 import {
-  physicalMachineSummary,
+  onlineIssueMachineRows,
   type IssueMachineConnectorOption,
   type IssueMachineProjectRow
 } from './issue-development-machine-actions';
 import {
   canPrepareIssueDevelopmentWorkspace,
   findDesignSpaceProject,
+  isConnectorCommandChannelUnavailable,
   issueDevelopmentEmptyState,
   issueDevelopmentSurfaceRefreshAt,
   issueDevelopmentSurfaces,
@@ -217,12 +216,14 @@ function ConnectorServerGroup({
   branchName,
   canManage,
   localMachineId,
+  machineName,
   option,
   projects,
 }: {
   branchName: string;
   canManage: boolean;
   localMachineId: string;
+  machineName: string;
   option: IssueMachineConnectorOption;
   projects: ProjectSpaceRecord[];
 }) {
@@ -260,15 +261,33 @@ function ConnectorServerGroup({
     surfaceCount: projectRuntime.rows.length
   });
   const environmentLabel = option.environmentLabel || option.connectorName;
-  const connectorLabel = environmentLabel.toLocaleLowerCase() === option.connectorName.toLocaleLowerCase()
-    ? ''
-    : option.connectorName;
+  const repeatedConnectorSuffix = ` · ${option.connectorName}`;
+  const compactEnvironmentLabel = environmentLabel.toLocaleLowerCase().endsWith(
+    repeatedConnectorSuffix.toLocaleLowerCase()
+  )
+    ? environmentLabel.slice(0, -repeatedConnectorSuffix.length)
+    : environmentLabel;
+  let conciseEnvironmentLabel = compactEnvironmentLabel;
+  if (machineName.toLowerCase().includes('local')) {
+    conciseEnvironmentLabel = conciseEnvironmentLabel.replace(/\s*·\s*local$/iu, '');
+  }
+  if (machineName.toLowerCase().includes('codespace')) {
+    conciseEnvironmentLabel = conciseEnvironmentLabel.replace(/^codespace\s*·\s*/iu, '');
+  }
   const notices = [
     projectRuntime.rows.length > 0 ? projectRuntime.error : '',
     designSpaceProject && designSpaceRuntime.error
       ? `Design Space: ${designSpaceRuntime.error}`
       : ''
-  ].filter((message, index, messages) => message && messages.indexOf(message) === index);
+  ].filter((message, index, messages) => {
+    if (!message) return false;
+    if (isConnectorCommandChannelUnavailable(message)) return false;
+    const normalized = message.replace(/^Design Space:\s*/u, '');
+    if (normalized === primaryEmptyState?.message) return false;
+    return messages.findIndex(
+      (candidate) => candidate.replace(/^Design Space:\s*/u, '') === normalized
+    ) === index;
+  });
   const isUpdating = option.isOnline && (
     projectRuntime.isChecking ||
     designSpaceRuntime.isChecking ||
@@ -278,6 +297,13 @@ function ConnectorServerGroup({
   const canPrepareWorkspace = Boolean(
     canManage && option.project && canPrepareIssueDevelopmentWorkspace(primaryEmptyState)
   );
+  const isDisconnected = isConnectorCommandChannelUnavailable(projectRuntime.error) ||
+    isConnectorCommandChannelUnavailable(designSpaceRuntime.error);
+  const connectorStatus = !option.isOnline
+    ? 'Offline'
+    : isDisconnected
+      ? 'Disconnected'
+      : 'Online';
 
   async function prepareWorkspace() {
     if (!option.project || !canPrepareWorkspace || isPreparingWorkspace) return;
@@ -304,19 +330,19 @@ function ConnectorServerGroup({
   }
 
   return (
-    <div className="border-t border-current/[.06] px-3 py-1.5 first:border-t-0">
+    <div className="border-t border-current/[.06] px-1 py-1.5 first:border-t-0">
       <div className="flex min-h-8 min-w-0 items-center gap-2 text-xs">
         <span
-          aria-label={option.isOnline ? 'Online' : 'Offline'}
-          className={`size-2 shrink-0 rounded-full ${option.isOnline ? 'bg-emerald-400' : 'bg-current/20'}`}
+          aria-label={connectorStatus}
+          className={`size-2 shrink-0 rounded-full ${connectorStatus === 'Online' ? 'bg-emerald-400' : connectorStatus === 'Disconnected' ? 'bg-amber-300' : 'bg-current/20'}`}
         />
-        <span className="min-w-0 truncate font-medium text-current/60">{environmentLabel}</span>
-        {connectorLabel ? (
-          <span className="min-w-0 flex-1 truncate text-[10px] text-current/30">{connectorLabel}</span>
-        ) : <span className="flex-1" />}
+        <span className="min-w-0 flex-1 truncate text-current/40">
+          <span className="font-medium text-current/65">{machineName}</span>
+          {conciseEnvironmentLabel ? <span> · {conciseEnvironmentLabel}</span> : null}
+        </span>
         {isUpdating ? <LoaderCircle aria-label="Checking servers" className="size-3 animate-spin text-current/35" /> : null}
-        <span className={`shrink-0 text-[10px] ${option.isOnline ? 'text-emerald-300/80' : 'text-current/30'}`}>
-          {option.isOnline ? 'Online' : 'Offline'}
+        <span className={`shrink-0 text-[10px] ${connectorStatus === 'Online' ? 'text-emerald-300/80' : connectorStatus === 'Disconnected' ? 'text-amber-300/75' : 'text-current/30'}`}>
+          {connectorStatus}
         </span>
       </div>
       <div className="ml-1.5 border-l border-current/[.07] pl-1.5">
@@ -353,14 +379,14 @@ function ConnectorServerGroup({
             onStart={onStart}
           />
         ))}
-        {primaryEmptyState ? (
+        {primaryEmptyState && primaryEmptyState.kind !== 'connector-offline' ? (
           <div className="flex min-h-8 min-w-0 items-start gap-2 px-2 py-1.5">
             <span
               aria-live={primaryEmptyState.kind === 'checking' ? 'polite' : undefined}
-              className={`min-w-0 flex-1 text-[11px] leading-4 ${primaryEmptyState.kind === 'runtime-error' ? 'text-red-300/80' : 'text-current/35'}`}
+              className={`min-w-0 flex-1 text-[11px] leading-4 ${primaryEmptyState.kind === 'runtime-error' ? 'text-amber-300/75' : 'text-current/35'}`}
             >
               {primaryEmptyState.message}
-              {primaryEmptyState.kind !== 'checking' ? (
+              {primaryEmptyState.kind !== 'checking' && primaryEmptyState.kind !== 'runtime-error' ? (
                 <span className="mt-0.5 block text-current/30">
                   {emptyStateNextStep(primaryEmptyState.kind)}
                 </span>
@@ -386,7 +412,7 @@ function ConnectorServerGroup({
           <p className="px-2 py-1 text-[11px] leading-4 text-red-300/80">{prepareError}</p>
         ) : null}
         {notices.map((message) => (
-          <p className="px-2 py-1 text-[11px] leading-4 text-red-300/80" key={message}>{message}</p>
+          <p className="px-2 py-1 text-[11px] leading-4 text-amber-300/75" key={message}>{message}</p>
         ))}
       </div>
     </div>
@@ -417,26 +443,18 @@ function MachineServerGroup({
     surfaceCount: 0
   });
 
-  return (
-    <div>
-      <div className="flex min-h-10 items-center gap-2 border-t border-current/[.08] px-1 text-xs font-medium text-current/65">
-        <Server className="size-3.5 text-current/30" />
-        <span className="min-w-0 flex-1 truncate">{machineName}</span>
-        <span className="text-[10px] font-normal text-current/30">
-          {options.length} {options.length === 1 ? 'environment' : 'environments'}
-        </span>
-      </div>
-      {options.length > 0 ? options.map((option) => (
+  return options.length > 0 ? options.map((option) => (
         <ConnectorServerGroup
           branchName={branchName}
           canManage={canManage}
           key={option.connectorId}
           localMachineId={localMachineId}
+          machineName={machineName}
           option={option}
           projects={projects}
         />
       )) : (
-        <div className="border-t border-current/[.06] px-4 py-2 text-[11px] text-current/35">
+        <div className="border-t border-current/[.06] px-1 py-2 text-[11px] text-current/35">
           {noConnectorState?.message}
           {noConnectorState ? (
             <span className="mt-0.5 block text-current/30">
@@ -444,8 +462,6 @@ function MachineServerGroup({
             </span>
           ) : null}
         </div>
-      )}
-    </div>
   );
 }
 
@@ -462,19 +478,15 @@ export function IssueDevelopmentServers({
   machineRows: IssueMachineProjectRow[];
   projects: ProjectSpaceRecord[];
 }) {
-  if (machineRows.length === 0) return null;
-  const summary = physicalMachineSummary(machineRows);
+  const onlineMachineRows = onlineIssueMachineRows(machineRows);
+  if (onlineMachineRows.length === 0) return null;
   return (
     <section>
-      <div className="mb-2 flex h-8 items-center gap-2">
-        <MonitorPlay className="size-3.5 text-current/30" />
-        <h3 className="text-xs font-semibold text-current/55">Development servers</h3>
-        <span className="ml-auto text-[10px] tabular-nums text-current/30">
-          {summary.online} online · {summary.configured} configured
-        </span>
+      <div className="mb-1 flex h-8 items-center gap-2">
+        <h3 className="text-xs font-semibold text-current/55">Runtime</h3>
       </div>
       <div className="border-b border-current/[.08]">
-        {machineRows.map((row) => (
+        {onlineMachineRows.map((row) => (
           <MachineServerGroup
             branchName={branchName}
             canManage={canManage}

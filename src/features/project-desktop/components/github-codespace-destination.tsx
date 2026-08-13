@@ -1,14 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
-import { Modal } from '@heroui/react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react';
 import {
   Bot,
   Circle,
-  Cloud,
-  Copy,
   ExternalLink,
   LoaderCircle,
-  RefreshCw,
-  Trash2
+  Play,
+  RefreshCw
 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button } from '@/app/dotnaos-ui';
@@ -16,11 +20,25 @@ import type { CodexAuthorizationResult } from '@/shared/codex-authorization-api'
 import type { CodexMachineTaskExistingResult } from '@/shared/codex-machine-tasks-api';
 import type { GitHubCodespaceRunnerResult } from '@/shared/github-codespace-runner-api';
 import type { GitHubOAuthDeviceStartResult } from '@/shared/project-space-api';
+import { createBrowserRandomUuid } from '@/shared/browser-random-uuid';
 import { codexSessionRoute } from '../../codex-sessions/codex-session-route';
+import { GitHubMark } from './github-mark';
+import {
+  GitHubCodespaceConnectionPanel,
+  type GitHubCodespaceFlowFailure
+} from './github-codespace-connection-panel';
+import {
+  githubCodespaceLaunchAction,
+  GitHubCodespacePicker,
+  preserveCodespaceChoices
+} from './github-codespace-picker';
+import { getGitHubReauthorizationAction } from './github-reauthorization-action';
+import type { IssueCodexDialogFooterAction } from './issue-codex-start-dialog';
 
 interface GitHubCodespaceDestinationProps {
   availableConnectorIds: readonly string[];
   branch: string;
+  embedded?: boolean;
   issue: number;
   onExistingTaskChange?(task?: GitHubCodespaceExistingTask): void;
   onStart(input: {
@@ -30,6 +48,18 @@ interface GitHubCodespaceDestinationProps {
   }): void;
   probeOnly?: boolean;
   repositoryFullName: string;
+  children?(state: GitHubCodespaceDestinationRenderState): ReactNode;
+}
+
+export interface GitHubCodespaceLaunchStatus {
+  kind: 'error' | 'pending';
+  message: string;
+}
+
+export interface GitHubCodespaceDestinationRenderState {
+  content: ReactNode;
+  footerAction: IssueCodexDialogFooterAction;
+  launchStatus?: GitHubCodespaceLaunchStatus;
 }
 
 export interface GitHubCodespaceExistingTask {
@@ -40,17 +70,30 @@ export interface GitHubCodespaceExistingTask {
 }
 
 function operation(prefix: 'authorization' | 'codespace') {
-  return `${prefix}:${globalThis.crypto.randomUUID()}`;
+  return `${prefix}:${createBrowserRandomUuid()}`;
 }
+
+const codespaceOperationPattern = /^codespace:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const codespaceTransitionStates = new Set([
+  'provisioning',
+  'queued',
+  'rebuilding',
+  'shuttingdown',
+  'starting',
+  'stopping'
+]);
+const codespaceLaunchTimeoutMs = 3 * 60 * 1_000;
 
 export function GitHubCodespaceDestination({
   availableConnectorIds,
   branch,
+  embedded = false,
   issue,
   onExistingTaskChange,
   onStart,
   probeOnly = false,
-  repositoryFullName
+  repositoryFullName,
+  children
 }: GitHubCodespaceDestinationProps) {
   const [runner, setRunner] = useState<GitHubCodespaceRunnerResult>();
   const [authorization, setAuthorization] = useState<CodexAuthorizationResult>();
@@ -59,37 +102,56 @@ export function GitHubCodespaceDestination({
   const [existingTaskError, setExistingTaskError] = useState('');
   const [checkingExistingTask, setCheckingExistingTask] = useState(false);
   const [flowModalOpen, setFlowModalOpen] = useState(false);
-  const [flowFailure, setFlowFailure] = useState<{
-    message: string;
-    retry: 'codex' | 'github' | 'status';
-  }>();
+  const [flowFailure, setFlowFailure] = useState<GitHubCodespaceFlowFailure>();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [selectedCodespaceName, setSelectedCodespaceName] = useState<string>();
+  const [launchRequested, setLaunchRequested] = useState(false);
+  const [launchAttempted, setLaunchAttempted] = useState(false);
+  const [existingTaskCheckedFor, setExistingTaskCheckedFor] = useState('');
   const statusOperation = useRef(operation('codespace'));
   const authorizationOperation = useRef('');
   const runnerPollInFlight = useRef(false);
+  const launchMutationInFlight = useRef(false);
+  const launchStartedAt = useRef<number | undefined>(undefined);
   const authorizationPollInFlight = useRef(false);
+  const githubPollInFlight = useRef(false);
 
-  async function run(action: 'delete' | 'provision' | 'start' | 'status' | 'stop') {
-    setBusy(action);
-    setError('');
-    setFlowFailure(undefined);
+  async function run(
+    action: 'delete' | 'provision' | 'start' | 'status' | 'stop',
+    requestedCodespaceName: string | null | undefined = selectedCodespaceName,
+    silent = false
+  ): Promise<GitHubCodespaceRunnerResult | undefined> {
+    const codespaceName = requestedCodespaceName ?? undefined;
+    if (!silent) {
+      setBusy(action);
+      setError('');
+      setFlowFailure(undefined);
+    }
     try {
+      if (!codespaceOperationPattern.test(statusOperation.current)) {
+        statusOperation.current = operation('codespace');
+      }
       const next = await projectSpaceClient.runGitHubCodespace({
         action,
         branch,
+        ...(codespaceName ? { codespaceName } : {}),
         issue,
+        ...(action === 'status' && !codespaceName ? { listOnly: true } : {}),
         operationId: action === 'status' ? statusOperation.current : operation('codespace'),
         repositoryFullName
       });
-      if (next.connectorId) setCheckingExistingTask(true);
-      setRunner(next);
+      if (next.codespace?.name) setSelectedCodespaceName(next.codespace.name);
+      setRunner((current) => preserveCodespaceChoices(next, current));
+      if (silent) setError('');
+      return next;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'The Codespace could not be updated.';
       setError(message);
-      setFlowFailure({ message, retry: 'status' });
+      if (!silent) setFlowFailure({ message, retry: 'status' });
+      return undefined;
     } finally {
-      setBusy('');
+      if (!silent) setBusy('');
     }
   }
 
@@ -98,7 +160,13 @@ export function GitHubCodespaceDestination({
     setError('');
     setFlowFailure(undefined);
     try {
-      setGitHubFlow(await projectSpaceClient.startGitHubOAuthDeviceFlow());
+      const next = await projectSpaceClient.startGitHubOAuthDeviceFlow();
+      setGitHubFlow(next);
+      if (next.status !== 'pending') {
+        const message = next.message ?? 'GitHub authorization could not be started.';
+        setError(message);
+        setFlowFailure({ message, retry: 'github' });
+      }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'GitHub authorization could not be started.';
       setError(message);
@@ -108,37 +176,58 @@ export function GitHubCodespaceDestination({
     }
   }
 
-  async function checkGitHubLogin() {
+  async function checkGitHubLogin(silent = false) {
     if (!githubFlow?.deviceCode) return;
-    setBusy('github-login');
-    setFlowFailure(undefined);
+    if (githubPollInFlight.current) return;
+    githubPollInFlight.current = true;
+    if (!silent) {
+      setBusy('github-login');
+      setFlowFailure(undefined);
+    }
     try {
       const next = await projectSpaceClient.pollGitHubOAuthDeviceFlow({
         deviceCode: githubFlow.deviceCode
       });
       if (next.status === 'connected') {
         setGitHubFlow(undefined);
-        await run('status');
-      } else if (next.status !== 'pending') {
-        setError(next.message ?? 'GitHub authorization was not completed.');
+        await run('status', undefined, silent);
+      } else if (next.status === 'pending') {
+        if (next.intervalSeconds) {
+          setGitHubFlow((current) => current
+            ? { ...current, intervalSeconds: next.intervalSeconds }
+            : current);
+        }
+      } else {
+        const message = next.message ?? 'GitHub authorization was not completed.';
+        setGitHubFlow(undefined);
+        setError(message);
+        setFlowFailure({ message, retry: 'github' });
       }
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'GitHub authorization could not be checked.';
-      setError(message);
-      setFlowFailure({ message, retry: 'github' });
+      if (!silent) {
+        const message = cause instanceof Error ? cause.message : 'GitHub authorization could not be checked.';
+        setError(message);
+        setFlowFailure({ message, retry: 'github' });
+      }
     } finally {
-      setBusy('');
+      githubPollInFlight.current = false;
+      if (!silent) setBusy('');
     }
   }
 
-  async function authorizeCodex(action: 'cancel' | 'start' | 'status') {
+  async function authorizeCodex(
+    action: 'cancel' | 'start' | 'status',
+    silent = false
+  ) {
     if (!runner?.connectorId || !runner.environmentId) return;
     if (!authorizationOperation.current || action === 'start') {
       authorizationOperation.current = operation('authorization');
     }
-    setBusy('authorization');
-    setError('');
-    setFlowFailure(undefined);
+    if (!silent) {
+      setBusy('authorization');
+      setError('');
+      setFlowFailure(undefined);
+    }
     try {
       const next = await projectSpaceClient.authorizeCodex({
         action,
@@ -147,13 +236,15 @@ export function GitHubCodespaceDestination({
         operationId: authorizationOperation.current
       });
       setAuthorization(next);
-      if (next.state === 'ready') await run('status');
+      if (next.state === 'ready') await run('status', undefined, silent);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Codex authorization failed safely.';
-      setError(message);
-      setFlowFailure({ message, retry: 'codex' });
+      if (!silent) {
+        setError(message);
+        setFlowFailure({ message, retry: 'codex' });
+      }
     } finally {
-      setBusy('');
+      if (!silent) setBusy('');
     }
   }
 
@@ -161,7 +252,7 @@ export function GitHubCodespaceDestination({
     if (runnerPollInFlight.current) return;
     runnerPollInFlight.current = true;
     try {
-      await run('status');
+      await run('status', undefined, true);
     } finally {
       runnerPollInFlight.current = false;
     }
@@ -171,7 +262,7 @@ export function GitHubCodespaceDestination({
     if (authorizationPollInFlight.current) return;
     authorizationPollInFlight.current = true;
     try {
-      await authorizeCodex('status');
+      await authorizeCodex('status', true);
     } finally {
       authorizationPollInFlight.current = false;
     }
@@ -183,17 +274,23 @@ export function GitHubCodespaceDestination({
     setGitHubFlow(undefined);
     setExistingTask(undefined);
     setExistingTaskError('');
+    setSelectedCodespaceName(undefined);
+    setLaunchRequested(false);
+    setLaunchAttempted(false);
+    setExistingTaskCheckedFor('');
     statusOperation.current = operation('codespace');
     authorizationOperation.current = '';
-    void pollRunner();
+    void run('status', null);
   }, [branch, issue, repositoryFullName]);
 
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
+    let hasChecked = false;
     if (!runner) return;
     if (!runner.connectorId) {
       setCheckingExistingTask(false);
+      setExistingTaskCheckedFor('');
       return;
     }
     const connectorId = runner.connectorId;
@@ -202,8 +299,8 @@ export function GitHubCodespaceDestination({
     async function refreshExistingTask() {
       if (inFlight) return;
       inFlight = true;
-      setCheckingExistingTask(true);
-      setExistingTaskError('');
+      const showPending = !hasChecked;
+      if (showPending) setCheckingExistingTask(true);
       try {
         const result = await projectSpaceClient.getExistingCodexMachineTask({
           connectorId,
@@ -211,6 +308,9 @@ export function GitHubCodespaceDestination({
           repositoryId: repositoryFullName
         });
         if (cancelled) return;
+        hasChecked = true;
+        setExistingTaskError('');
+        setExistingTaskCheckedFor(connectorId);
         setExistingTask(result);
         onExistingTaskChange?.(result.state === 'missing'
           ? undefined
@@ -224,12 +324,14 @@ export function GitHubCodespaceDestination({
             });
       } catch (cause) {
         if (cancelled) return;
+        hasChecked = true;
+        setExistingTaskCheckedFor(connectorId);
         setExistingTaskError(
           cause instanceof Error ? cause.message : 'Existing tasks could not be checked.'
         );
       } finally {
         inFlight = false;
-        if (!cancelled) setCheckingExistingTask(false);
+        if (!cancelled && showPending) setCheckingExistingTask(false);
       }
     }
 
@@ -242,10 +344,22 @@ export function GitHubCodespaceDestination({
   }, [issue, onExistingTaskChange, repositoryFullName, runner?.codespace?.name, runner?.connectorId]);
 
   useEffect(() => {
-    if (!runner || !['provisioning', 'connector-approval-required'].includes(runner.state)) return;
+    if (!runner || (
+      !launchRequested
+      &&
+      !['provisioning', 'connector-approval-required'].includes(runner.state)
+      && !codespaceTransitionStates.has(runner.codespace?.state.toLowerCase() ?? '')
+    )) return;
     const timer = window.setInterval(() => void pollRunner(), 4_000);
     return () => window.clearInterval(timer);
-  }, [runner?.state]);
+  }, [launchRequested, runner?.codespace?.state, runner?.state]);
+
+  useEffect(() => {
+    if (githubFlow?.status !== 'pending' || !githubFlow.deviceCode) return;
+    const intervalMs = Math.max(githubFlow.intervalSeconds ?? 5, 5) * 1_000;
+    const timer = window.setInterval(() => void checkGitHubLogin(true), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [githubFlow?.deviceCode, githubFlow?.intervalSeconds, githubFlow?.status]);
 
   useEffect(() => {
     if (authorization?.state !== 'pending') return;
@@ -291,8 +405,12 @@ export function GitHubCodespaceDestination({
           : flowFailure
             ? 'connection'
             : undefined;
+  const githubReauthorizationAction = getGitHubReauthorizationAction({
+    embedded,
+    flowPending: githubFlow?.status === 'pending'
+  });
 
-  function openExistingTask() {
+  const openExistingTask = useCallback(() => {
     if (existingTask?.state === 'attention') {
       setError(existingTask.message);
       return;
@@ -302,173 +420,235 @@ export function GitHubCodespaceDestination({
       machineId: existingTask.task.connector.id,
       threadId: existingTask.task.threadId
     }));
-  }
+  }, [existingTask]);
+
+  const launchAction = githubCodespaceLaunchAction(runner, selectedCodespaceName);
+  const startDisabled = Boolean(busy)
+    || launchRequested
+    || !launchAction;
+  const startPending = launchRequested || busy === 'provision' || busy === 'start';
+  const runLaunchMutation = useCallback(async (action: 'provision' | 'start') => {
+    if (launchMutationInFlight.current) return;
+    launchMutationInFlight.current = true;
+    try {
+      await run(action, action === 'start' ? selectedCodespaceName : null);
+    } finally {
+      launchMutationInFlight.current = false;
+    }
+  }, [selectedCodespaceName]);
+  const startCodespaceDevelopment = useCallback(() => {
+    if (!launchAction) return;
+    launchStartedAt.current = Date.now();
+    setLaunchAttempted(true);
+    setLaunchRequested(true);
+    setError('');
+    if (launchAction === 'provision') {
+      void runLaunchMutation('provision');
+      return;
+    }
+    if (launchAction === 'start') {
+      void runLaunchMutation('start');
+      return;
+    }
+    void pollRunner();
+  }, [launchAction, runLaunchMutation]);
+
+  useEffect(() => {
+    if (!launchRequested || busy || launchAction !== 'start') return;
+    void runLaunchMutation('start');
+  }, [busy, launchAction, launchRequested, runLaunchMutation]);
+
+  useEffect(() => {
+    if (!launchRequested) {
+      launchStartedAt.current = undefined;
+      return;
+    }
+    launchStartedAt.current ??= Date.now();
+    const remaining = Math.max(
+      0,
+      codespaceLaunchTimeoutMs - (Date.now() - launchStartedAt.current)
+    );
+    const timer = window.setTimeout(() => {
+      setLaunchRequested(false);
+      setError(
+        'The Codespace did not become ready within three minutes. It may still be starting; check its status and try again.'
+      );
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [launchRequested]);
+
+  useEffect(() => {
+    if (!launchRequested || !runner) return;
+    if (runner.state === 'failed' || existingTaskError) {
+      setLaunchRequested(false);
+      return;
+    }
+    if (
+      runner.state !== 'ready'
+      || !runner.connectorId
+      || !runner.environmentId
+      || !connectorAvailable
+      || checkingExistingTask
+      || existingTaskCheckedFor !== runner.connectorId
+    ) return;
+    setLaunchRequested(false);
+    if (existingAction) {
+      openExistingTask();
+      return;
+    }
+    onStart({
+      connectorId: runner.connectorId,
+      environmentId: runner.environmentId,
+      name
+    });
+  }, [
+    checkingExistingTask,
+    connectorAvailable,
+    existingAction,
+    existingTaskCheckedFor,
+    existingTaskError,
+    launchRequested,
+    name,
+    onStart,
+    openExistingTask,
+    runner
+  ]);
+  const dialogFooterAction = useMemo(() => ({
+    isDisabled: startDisabled,
+    isPending: startPending,
+    label: startPending ? 'Starting…' : undefined,
+    onPress: startCodespaceDevelopment
+  }), [busy, launchRequested, startCodespaceDevelopment, startDisabled, startPending]);
 
   if (probeOnly) return null;
 
-  return (
-    <div className="grid gap-2">
-      <div className="flex min-h-11 min-w-0 flex-wrap items-center gap-2 rounded-2xl bg-current/[.04] px-3 py-2 sm:flex-nowrap sm:py-0">
-        <Cloud className="size-3.5 shrink-0 text-current/30" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">
-          GitHub Codespace · {name}
-        </span>
-        {pending ? (
-          <LoaderCircle aria-label="Working" className="size-3.5 animate-spin text-sky-300" />
-        ) : (
-          <Circle aria-label={online ? 'Online' : 'Offline'} className={`size-2.5 fill-current ${online ? 'text-emerald-400' : 'text-current/20'}`} />
-        )}
+  const launchStatus: GitHubCodespaceLaunchStatus | undefined = launchRequested
+    ? {
+        kind: 'pending',
+        message: runner?.message ?? 'Starting the selected Codespace…'
+      }
+    : launchAttempted && (error || existingTaskError || runner?.state === 'failed')
+      ? {
+          kind: 'error',
+          message: error || existingTaskError || runner?.message || 'The Codespace could not be started.'
+        }
+      : undefined;
 
-        {runner?.state === 'not-created' ? (
-          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('provision')}>
-            <Cloud className="size-3.5" /> Create
-          </Button>
-        ) : runner?.state === 'github-reauthorization-required' ? (
-          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => githubFlow?.status === 'pending' ? setFlowModalOpen(true) : void startGitHubLogin()}>
-            <RefreshCw className="size-3.5" /> {githubFlow?.status === 'pending' ? 'Continue GitHub login' : 'Reconnect GitHub'}
+  const content = (
+    <div className="grid gap-2">
+      <div className={embedded
+        ? 'grid min-w-0 gap-2'
+        : 'grid min-w-0 gap-3 rounded-2xl bg-current/[.04] px-3 py-3'}>
+        {!embedded ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <GitHubMark className="size-3.5 shrink-0 text-current/30" />
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-current/65">
+              GitHub Codespace · {name}
+            </span>
+            {pending ? (
+              <LoaderCircle aria-label="Working" className="size-3.5 shrink-0 animate-spin text-sky-300" />
+            ) : (
+              <Circle aria-label={online ? 'Online' : 'Offline'} className={`size-2.5 shrink-0 fill-current ${online ? 'text-emerald-400' : 'text-current/20'}`} />
+            )}
+          </div>
+        ) : null}
+
+        {runner && runner.state !== 'github-reauthorization-required' ? (
+          <GitHubCodespacePicker
+            codespaces={runner.codespaces ?? []}
+            isDisabled={Boolean(busy)}
+            onChange={(codespaceName) => {
+              setSelectedCodespaceName(codespaceName);
+              setLaunchRequested(false);
+              setLaunchAttempted(false);
+              setExistingTask(undefined);
+              setExistingTaskCheckedFor('');
+              setExistingTaskError('');
+              void run('status', codespaceName ?? null);
+            }}
+            value={selectedCodespaceName}
+          />
+        ) : null}
+
+        {runner?.state === 'github-reauthorization-required' && githubReauthorizationAction ? (
+          <Button className={`${embedded ? 'mx-3 w-[calc(100%-1.5rem)]' : 'w-full'} shrink-0 whitespace-nowrap rounded-full`} isDisabled={Boolean(busy)} size="sm" variant={githubReauthorizationAction.variant} onPress={() => githubFlow?.status === 'pending' ? setFlowModalOpen(true) : void startGitHubLogin()}>
+            <RefreshCw className="size-3.5" /> {githubReauthorizationAction.label}
           </Button>
         ) : runner?.state === 'connector-approval-required' && runner.approvalUrl ? (
-          <Button className="ml-auto shrink-0" size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
+          <Button className={`${embedded ? 'mx-3 w-[calc(100%-1.5rem)]' : 'w-full'} shrink-0 whitespace-nowrap rounded-full`} size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
             Approve connector <ExternalLink className="size-3.5" />
           </Button>
         ) : runner?.state === 'authorization-required' ? (
-          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => authorization?.state === 'pending' ? setFlowModalOpen(true) : void authorizeCodex('start')}>
+          <Button className={`${embedded ? 'mx-3 w-[calc(100%-1.5rem)]' : 'w-full'} shrink-0 whitespace-nowrap rounded-full`} isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => authorization?.state === 'pending' ? setFlowModalOpen(true) : void authorizeCodex('start')}>
             <Bot className="size-3.5" /> {authorization?.state === 'pending' ? 'Continue Codex sign in' : 'Sign in to Codex'}
           </Button>
-        ) : runner?.state === 'failed' ? (
-          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
+        ) : runner?.state === 'failed' && !embedded ? (
+          <Button className={`${embedded ? 'mx-3 w-[calc(100%-1.5rem)]' : 'w-full'} shrink-0 whitespace-nowrap rounded-full`} isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => setFlowModalOpen(true)}>
             <RefreshCw className="size-3.5" /> Resolve connection
-          </Button>
-        ) : runner?.state === 'offline' ? (
-          <Button className="ml-auto shrink-0" isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('start')}>
-            Start Codespace
-          </Button>
-        ) : runner?.state === 'ready' && runner.connectorId && runner.environmentId ? (
-          <Button
-            className="ml-auto shrink-0"
-            isDisabled={
-              Boolean(busy)
-              || !connectorAvailable
-              || checkingExistingTask
-              || Boolean(existingTaskError)
-            }
-            size="sm"
-            variant="ghost"
-            onPress={() => existingAction
-              ? openExistingTask()
-              : onStart({
-                  connectorId: runner.connectorId!,
-                  environmentId: runner.environmentId!,
-                  name
-                })}
-          >
-            {!connectorAvailable
-              ? <LoaderCircle className="size-3.5 animate-spin" />
-              : <Bot className="size-3.5" />}
-            {!connectorAvailable
-              ? 'Refreshing environment…'
-              : checkingExistingTask
-              ? 'Checking task…'
-              : existingTaskError
-                ? 'Task check unavailable'
-                : existingAction ?? 'Start Codex'}
           </Button>
         ) : null}
       </div>
 
-      <p className="px-3 text-[11px] leading-5 text-current/40">
-        {runner?.message ?? 'Checking GitHub Codespaces…'}
-      </p>
-
-      {runner?.codespace ? (
-        <details className="px-3 text-[11px] text-current/35">
-          <summary className="cursor-pointer">Codespace controls</summary>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {runner.codespace.url ? <a href={runner.codespace.url} rel="noreferrer" target="_blank"><Button size="sm" variant="ghost">Open <ExternalLink className="size-3.5" /></Button></a> : null}
-            <Button isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('stop')}>Stop</Button>
-            <Button isDisabled={Boolean(busy)} size="sm" variant="ghost" onPress={() => void run('delete')}><Trash2 className="size-3.5" /> Delete</Button>
-          </div>
-        </details>
+      {!embedded ? (
+        <p className="px-3 text-[11px] leading-5 text-current/40">
+          {runner?.message ?? 'Checking GitHub Codespaces…'}
+        </p>
       ) : null}
-      {error ? <p className="px-3 text-xs text-red-300">{error}</p> : null}
+      {error && !(embedded && flowFailure) ? (
+        <p className="px-3 text-xs text-red-300">{error}</p>
+      ) : null}
       {existingTaskError ? (
         <p className="px-3 text-xs text-red-300">{existingTaskError}</p>
       ) : null}
+    </div>
+  );
 
-      <Modal isOpen={Boolean(modalKind) && flowModalOpen} onOpenChange={setFlowModalOpen}>
-        <Modal.Backdrop className="z-[140] bg-black/75" variant="blur">
-          <Modal.Container className="p-3" placement="center" scroll="inside" size="sm">
-            <Modal.Dialog className="overflow-hidden border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl shadow-black/70">
-              <Modal.CloseTrigger aria-label="Close Codespace connection dialog" />
-              <Modal.Header className="block border-b border-neutral-800 px-5 py-4 pr-12">
-                <Modal.Heading className="text-base font-semibold">
-                  {modalKind === 'github'
-                    ? 'Connect GitHub'
-                    : modalKind === 'codex'
-                      ? 'Sign in to Codex'
-                      : modalKind === 'connector'
-                        ? 'Approve Codespace connector'
-                        : 'Restore Codespace connection'}
-                </Modal.Heading>
-                <p className="mt-1 text-xs leading-5 text-neutral-400">
-                  {modalKind === 'github'
-                    ? 'Authorize Project Space to inspect and prepare this Codespace.'
-                    : modalKind === 'codex'
-                      ? 'Use your ChatGPT subscription. No API key is required.'
-                      : flowFailure?.message ?? runner?.message}
-                </p>
-              </Modal.Header>
-              <Modal.Body className="grid gap-4 px-5 py-5">
-                {modalKind === 'github' && githubFlow ? (
-                  <>
-                    <span className="text-xs text-neutral-400">Enter this one-time code on GitHub:</span>
-                    <code className="rounded-xl bg-neutral-900 px-4 py-3 text-center font-mono text-xl font-semibold tracking-[0.22em] text-neutral-50">{githubFlow.userCode}</code>
-                  </>
-                ) : modalKind === 'codex' && authorization ? (
-                  <>
-                    <span className="text-xs text-neutral-400">Enter this one-time code on ChatGPT:</span>
-                    <code className="rounded-xl bg-neutral-900 px-4 py-3 text-center font-mono text-xl font-semibold tracking-[0.22em] text-neutral-50">{authorization.userCode}</code>
-                  </>
-                ) : modalKind === 'connector' ? (
-                  <p className="text-sm leading-6 text-neutral-300">GitHub requires approval before the Project Space connector can run in this Codespace.</p>
-                ) : (
-                  <p className="text-sm leading-6 text-neutral-300">Retry the status check. Existing task and Codespace state will be preserved.</p>
-                )}
-              </Modal.Body>
-              <Modal.Footer className="flex-wrap border-t border-neutral-800 px-5 py-4">
-                {modalKind === 'github' && githubFlow ? (
-                  <>
-                    <Button size="sm" variant="ghost" onPress={() => void navigator.clipboard.writeText(githubFlow.userCode ?? '')}><Copy className="size-3.5" /> Copy code</Button>
-                    {githubFlow.verificationUri ? <a href={githubFlow.verificationUri} rel="noreferrer" target="_blank"><Button size="sm" variant="secondary">Open GitHub <ExternalLink className="size-3.5" /></Button></a> : null}
-                    <Button isDisabled={Boolean(busy)} size="sm" variant="primary" onPress={() => void checkGitHubLogin()}>Check login</Button>
-                  </>
-                ) : modalKind === 'codex' && authorization ? (
-                  <>
-                    <Button size="sm" variant="ghost" onPress={() => void navigator.clipboard.writeText(authorization.userCode ?? '')}><Copy className="size-3.5" /> Copy code</Button>
-                    {authorization.verificationUrl ? <a href={authorization.verificationUrl} rel="noreferrer" target="_blank"><Button size="sm" variant="secondary">Open ChatGPT <ExternalLink className="size-3.5" /></Button></a> : null}
-                    <Button size="sm" variant="ghost" onPress={() => void authorizeCodex('cancel')}>Cancel sign in</Button>
-                  </>
-                ) : modalKind === 'connector' && runner?.approvalUrl ? (
-                  <a href={runner.approvalUrl} rel="noreferrer" target="_blank"><Button size="sm" variant="primary">Open approval <ExternalLink className="size-3.5" /></Button></a>
-                ) : modalKind === 'connection' ? (
-                  <Button
-                    isDisabled={Boolean(busy)}
-                    size="sm"
-                    variant="primary"
-                    onPress={() => flowFailure?.retry === 'github'
-                      ? void startGitHubLogin()
-                      : flowFailure?.retry === 'codex'
-                        ? void authorizeCodex('start')
-                        : void run('status')}
-                  >
-                    <RefreshCw className="size-3.5" /> Retry connection
-                  </Button>
-                ) : null}
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+  const connectionPanel = (
+    <GitHubCodespaceConnectionPanel
+      authorization={authorization}
+      busy={Boolean(busy)}
+      embedded={embedded}
+      failure={flowFailure}
+      githubFlow={githubFlow}
+      isOpen={flowModalOpen}
+      kind={modalKind}
+      onAuthorizeCodex={(action) => void authorizeCodex(action)}
+      onCheckGitHub={() => void checkGitHubLogin()}
+      onOpenChange={setFlowModalOpen}
+      onRetry={() => flowFailure?.retry === 'github'
+        ? void startGitHubLogin()
+        : flowFailure?.retry === 'codex'
+          ? void authorizeCodex('start')
+          : void run('status')}
+      runner={runner}
+    />
+  );
+
+  if (children) {
+    return (
+      <>
+        {children({ content, footerAction: dialogFooterAction, launchStatus })}
+        {connectionPanel}
+      </>
+    );
+  }
+
+  return (
+    <div className="grid gap-2">
+      {content}
+      <Button
+        className="h-10 min-h-10 w-full whitespace-nowrap !rounded-full"
+        isDisabled={startDisabled}
+        size="sm"
+        variant="primary"
+        onPress={startCodespaceDevelopment}
+      >
+        {startPending
+          ? <LoaderCircle className="size-3.5 animate-spin" />
+          : <Play className="size-3.5" />}
+        {busy ? 'Starting…' : existingAction ?? 'Start development'}
+      </Button>
+      {connectionPanel}
     </div>
   );
 }

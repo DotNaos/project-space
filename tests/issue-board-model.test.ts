@@ -4,6 +4,7 @@ import {
   filterIssues,
   groupIssuesByColumn,
   issuePlacementIndices,
+  labelChipStyle,
   normalizeIssueColumnOrder,
   resolveIssueColumn,
   resolveIssueColumnFromPlacement,
@@ -51,6 +52,11 @@ describe('issue board model', () => {
       issues[2]
     ]);
     expect(topIssueLabels(issues)).toEqual(['frontend', 'backend', 'mobile']);
+  });
+
+  test('assigns stable, distinct label colors from the label text', () => {
+    expect(labelChipStyle('enhancement')).toEqual(labelChipStyle('Enhancement'));
+    expect(labelChipStyle('enhancement')).not.toEqual(labelChipStyle('local-development'));
   });
 
   test('keeps derived placement stable while filtering cards', () => {

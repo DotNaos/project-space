@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
   clearCodexTaskStartAttempt,
+  createCodexTaskStartOperationId,
   readOrCreateCodexTaskStartAttempt
 } from '../src/features/project-desktop/components/codex-task-start-attempt';
 
@@ -27,6 +28,11 @@ const input = {
 afterEach(() => values.clear());
 
 describe('Codex task start attempts', () => {
+  test('creates a local id when secure-context UUIDs are unavailable', () => {
+    expect(createCodexTaskStartOperationId(null)).toMatch(/^task:[a-z0-9]+-[a-z0-9]+$/);
+    expect(createCodexTaskStartOperationId(() => 'fixed-uuid')).toBe('task:fixed-uuid');
+  });
+
   test('reuses the original operation and exact revision until it is cleared', () => {
     const first = readOrCreateCodexTaskStartAttempt(input, () => 'task:first');
     const retry = readOrCreateCodexTaskStartAttempt({

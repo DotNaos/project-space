@@ -18,6 +18,7 @@ type projectServeOptions struct {
 	Format       string
 	JSON         bool
 	LocalOnly    bool
+	NoTailnet    bool
 	Tailnet      bool
 	APIs         string
 	Data         string
@@ -41,8 +42,8 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 		Short: "Run a project script with an explicit backend binding",
 		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if options.LocalOnly && options.Tailnet {
-				return fmt.Errorf("--local-only cannot be combined with --tailnet")
+			if (options.LocalOnly || options.NoTailnet) && options.Tailnet {
+				return fmt.Errorf("--no-tailnet cannot be combined with --tailnet")
 			}
 			script, directory, err := resolveServeStartArguments(args)
 			if err != nil {
@@ -56,9 +57,6 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 			if err != nil {
 				return err
 			}
-			if options.Tailnet && apis == projectrun.APIsModeSimulated {
-				return fmt.Errorf("simulated APIs are loopback-only until local owner authentication is available")
-			}
 			if apis == projectrun.APIsModeExternal {
 				return fmt.Errorf(
 					"external APIs are reserved but secure 1Password service-account delivery is not configured yet",
@@ -70,7 +68,7 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 			}
 			result, startErr := manager.StartWithOptions(cmd.Context(), directory, script, projectrun.StartOptions{
 				AllowedHosts: options.AllowedHosts,
-				LocalOnly:    !options.Tailnet,
+				LocalOnly:    options.LocalOnly || options.NoTailnet,
 				APIs:         apis,
 				Data:         data,
 			})
@@ -82,8 +80,9 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	}
 	bindServeOutputFlags(cmd, &options)
 	cmd.Flags().StringArrayVar(&options.AllowedHosts, "allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
-	cmd.Flags().BoolVar(&options.LocalOnly, "local-only", false, "start without a Tailscale route (the default; retained for compatibility)")
-	cmd.Flags().BoolVar(&options.Tailnet, "tailnet", false, "publish the verified listener through Tailscale")
+	cmd.Flags().BoolVar(&options.LocalOnly, "local-only", false, "deprecated alias for --no-tailnet")
+	cmd.Flags().BoolVar(&options.NoTailnet, "no-tailnet", false, "keep the server on this machine instead of publishing it through Tailscale")
+	cmd.Flags().BoolVar(&options.Tailnet, "tailnet", false, "publish through Tailscale (the default; retained for compatibility)")
 	cmd.Flags().StringVar(&options.APIs, "apis", "simulated", "backend API binding: simulated or external")
 	cmd.Flags().StringVar(&options.Data, "data", "local", "backend data binding: local or remote")
 	must(cmd.RegisterFlagCompletionFunc("apis", fixedValuesCompletion("simulated", "external")))

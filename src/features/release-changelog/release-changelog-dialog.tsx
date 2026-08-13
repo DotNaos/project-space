@@ -29,10 +29,10 @@ export function ReleaseChangelogDialog({
   selectedRelease?: ReleaseChangelogEntry;
   selectedVersion?: string;
 }) {
-  const [isTreeOpen, setIsTreeOpen] = useState(false);
+  const [isTreeOpen, setIsTreeOpen] = useState(true);
 
   useEffect(() => {
-    if (isOpen) setIsTreeOpen(false);
+    if (isOpen) setIsTreeOpen(true);
   }, [isOpen]);
 
   const viewingCurrent = Boolean(
@@ -53,9 +53,8 @@ export function ReleaseChangelogDialog({
             <Modal.Header className="flex-row items-start gap-3 border-b border-neutral-800 px-4 py-4 pr-12 sm:px-5">
               <Button
                 aria-label={isTreeOpen ? 'Collapse version history' : 'Expand version history'}
-                className="mt-0.5 size-8 min-w-8 text-neutral-500 hover:text-neutral-100"
+                className="mt-0.5 h-8 min-w-0 gap-1.5 px-2 text-neutral-500 hover:text-neutral-100"
                 isDisabled={releases.length === 0}
-                isIconOnly
                 onPress={() => setIsTreeOpen((current) => !current)}
                 size="sm"
                 variant="ghost"
@@ -65,6 +64,7 @@ export function ReleaseChangelogDialog({
                 ) : (
                   <PanelLeftOpen className="size-4" />
                 )}
+                <span className="hidden sm:inline">Versions</span>
               </Button>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">

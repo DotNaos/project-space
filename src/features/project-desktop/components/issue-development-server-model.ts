@@ -48,6 +48,12 @@ export interface IssueDevelopmentSetupState {
   setupStepId?: string;
 }
 
+export function isConnectorCommandChannelUnavailable(message?: string) {
+  return Boolean(message?.toLocaleLowerCase().includes(
+    'live command channel is not connected'
+  ));
+}
+
 export function issueDevelopmentSetupState({
   error,
   isChecking,
@@ -137,6 +143,12 @@ export function issueDevelopmentEmptyState({
     return {
       kind: 'no-declaration',
       message: DEV_SERVER_DECLARATION_MISSING_MESSAGE
+    };
+  }
+  if (isConnectorCommandChannelUnavailable(error)) {
+    return {
+      kind: 'connector-offline',
+      message: 'Connector is disconnected.'
     };
   }
   if (error) {

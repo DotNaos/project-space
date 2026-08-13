@@ -64,6 +64,30 @@ describe('release changelog service', () => {
     expect(result.releases.map((entry) => entry.version)).toEqual(['0.9.0']);
   });
 
+  test('loads every page of published release history', async () => {
+    const calls: string[] = [];
+    const firstPage = Array.from(
+      { length: 100 },
+      (_, patch) => release(`1.0.${patch}`)
+    );
+    const result = await loadReleaseChangelog('1.0.99', {
+      fetch: (async (input: string | URL | Request) => {
+        const url = String(input);
+        calls.push(url);
+        return Response.json(url.endsWith('&page=2')
+          ? [release('0.9.0')]
+          : firstPage);
+      }) as typeof fetch
+    });
+
+    expect(calls).toEqual([
+      'https://api.github.com/repos/DotNaos/project-space/releases?per_page=100',
+      'https://api.github.com/repos/DotNaos/project-space/releases?per_page=100&page=2'
+    ]);
+    expect(result.releases).toHaveLength(101);
+    expect(result.releases.at(-1)?.version).toBe('0.9.0');
+  });
+
   test('authenticates the server-side GitHub request when a token is configured', async () => {
     let authorization: string | undefined;
     await loadReleaseChangelog('0.9.1', {

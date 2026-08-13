@@ -8,6 +8,7 @@ import type { CodexMachine, CodexSession } from '../../codex-sessions/codex-sess
 import { projectForCodexSession } from '../../codex-sessions/project-codex-task-model';
 import type {
   IssueMachineConnectorOption,
+  IssueMachineEnvironmentKind,
   IssueMachineProjectRow
 } from './issue-development-machine-actions';
 import { canRunMachineCommand } from './issue-development-machine-actions';
@@ -19,6 +20,7 @@ export interface IssueCodexInventoryTarget {
 
 export interface IssueCodexConnectorTarget extends IssueCodexInventoryTarget {
   environmentId?: string;
+  environmentKind?: IssueMachineEnvironmentKind;
   environmentLabel: string;
   isOnline: boolean;
   key: string;
@@ -109,6 +111,9 @@ export function issueCodexConnectorTargets(
         connectorInstanceId: option?.machine?.connector.runtime?.instanceId
           ?? row.machine?.connector.runtime?.instanceId,
         environmentId,
+        environmentKind: option?.environmentKind
+          ?? row.machine?.compute?.environmentKind
+          ?? row.machine?.environment?.kind,
         environmentLabel: environmentLabel(row, option),
         isOnline: option?.isOnline ?? canRunMachineCommand(row.machine),
         key,

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   canPrepareIssueDevelopmentWorkspace,
   findDesignSpaceProject,
+  isConnectorCommandChannelUnavailable,
   issueDevelopmentEmptyState,
   issueDevelopmentSetupState,
   issueDevelopmentSurfaceRefreshAt,
@@ -188,6 +189,23 @@ describe('issue development server model', () => {
     })).toEqual({
       kind: 'no-declaration',
       message: 'No development servers are declared for this worktree.'
+    });
+  });
+
+  test('turns a disconnected command channel into a safe connector state', () => {
+    const rawError = 'cc01e88f-b873-4148-a356-86fec62b224a is registered, but its live command channel is not connected yet. Restart or update the Project Space connector on that machine.';
+
+    expect(isConnectorCommandChannelUnavailable(rawError)).toBe(true);
+    expect(issueDevelopmentEmptyState({
+      connectorConfigured: true,
+      error: rawError,
+      hasProject: true,
+      isChecking: false,
+      isOnline: true,
+      surfaceCount: 0
+    })).toEqual({
+      kind: 'connector-offline',
+      message: 'Connector is disconnected.'
     });
   });
 

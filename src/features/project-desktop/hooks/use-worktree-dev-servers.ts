@@ -198,8 +198,8 @@ export function useWorktreeDevServers({
         const message =
           nextError instanceof Error ? nextError.message : 'Could not start the development server.';
         if (targetKeyRef.current === requestKey) {
-          setError(message);
           await refresh();
+          if (targetKeyRef.current === requestKey) setError(message);
         }
         return { message, status: 'failed' as const };
       } finally {
@@ -303,10 +303,11 @@ export function useWorktreeDevServers({
         }
       } catch (nextError) {
         if (targetKeyRef.current === requestKey) {
-          setError(
-            nextError instanceof Error ? nextError.message : 'Could not stop the development server.'
-          );
+          const message = nextError instanceof Error
+            ? nextError.message
+            : 'Could not stop the development server.';
           await refresh();
+          if (targetKeyRef.current === requestKey) setError(message);
         }
       } finally {
         if (targetKeyRef.current === requestKey) {

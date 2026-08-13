@@ -10,7 +10,9 @@ export type GitHubCodespaceRunnerAction =
 export interface GitHubCodespaceRunnerRequest {
   action: GitHubCodespaceRunnerAction;
   branch: string;
+  codespaceName?: string;
   issue: number;
+  listOnly?: boolean;
   operationId: string;
   repositoryFullName: string;
 }
@@ -33,6 +35,11 @@ export interface GitHubCodespaceRunnerResult {
     state: string;
     url?: string;
   };
+  codespaces?: Array<{
+    name: string;
+    state: string;
+    url?: string;
+  }>;
   connectorId?: string;
   environmentId?: string;
   message: string;

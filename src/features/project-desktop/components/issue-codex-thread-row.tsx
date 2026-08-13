@@ -1,12 +1,13 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Bot,
   CheckCircle2,
-  Clock3,
   Monitor,
   WifiOff
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Button } from '@/app/dotnaos-ui';
 import type { CodexMachineTaskExistingResult } from '@/shared/codex-machine-tasks-api';
 import type { CodexSession } from '../../codex-sessions/codex-sessions-types';
@@ -169,12 +170,28 @@ function ThreadState({ presentation }: { presentation: IssueCodexThreadPresentat
   return <span className={className}><CheckCircle2 className="size-3" />{presentation.stateLabel}</span>;
 }
 
+function threadLocationLabel(entry: IssueCodexThreadEntry) {
+  const machineName = entry.physicalMachineName.toLowerCase();
+  let environmentLabel = entry.environmentLabel;
+  if (machineName.includes('local')) {
+    environmentLabel = environmentLabel.replace(/\s*·\s*local$/iu, '');
+  }
+  if (machineName.includes('codespace')) {
+    environmentLabel = environmentLabel.replace(/^codespace\s*·\s*/iu, '');
+  }
+  return environmentLabel
+    ? `${entry.physicalMachineName} · ${environmentLabel}`
+    : entry.physicalMachineName;
+}
+
 export function IssueCodexThreadRow({
+  controls,
   entry,
   issueNumber,
   now,
   onError
 }: {
+  controls?: ReactNode;
   entry: IssueCodexThreadEntry;
   issueNumber: number;
   now: Date;
@@ -200,39 +217,39 @@ export function IssueCodexThreadRow({
 
   return (
     <div
-      className="grid min-w-0 gap-2 border-t border-current/[.07] py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+      className="min-w-0 border-t border-current/[.07] py-2.5"
       data-codex-thread-state={presentation.state}
     >
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {presentation.running
             ? <Activity className="size-3.5 shrink-0 animate-pulse text-emerald-300" />
             : <Bot className="size-3.5 shrink-0 text-current/35" />}
-          <span className="min-w-0 truncate text-xs font-semibold text-current/75">
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-current/75">
             {presentation.title}
           </span>
-          <ThreadState presentation={presentation} />
         </div>
-        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 pl-5 text-[10px] text-current/40">
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            <Monitor className="size-3 shrink-0" />
-            <span className="truncate">{entry.physicalMachineName} · {entry.environmentLabel}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5" title={presentation.activityLabel}>
-            <Clock3 className="size-3 shrink-0" />
-            {formatIssueCodexActivity(presentation.activityAt, now)}
-          </span>
-        </div>
+        <Button
+          className="h-7 min-h-7 shrink-0 rounded-full px-2.5"
+          onPress={open}
+          size="sm"
+          title={presentation.message}
+          variant={presentation.state === 'attention' ? 'outline' : 'primary'}
+        >
+          {presentation.actionLabel ?? 'Resolve'} <ArrowRight className="size-3" />
+        </Button>
       </div>
-      <Button
-        className="justify-self-start sm:justify-self-end"
-        onPress={open}
-        size="sm"
-        title={presentation.message}
-        variant={presentation.state === 'attention' ? 'outline' : presentation.running ? 'primary' : 'ghost'}
-      >
-        {presentation.actionLabel ?? 'Resolve'}
-      </Button>
+      <div className="mt-1 flex min-w-0 items-center gap-2 pl-5 text-[10px] text-current/40">
+        <span className="inline-flex min-w-0 flex-1 items-center gap-1.5">
+          <Monitor className="size-3 shrink-0" />
+          <span className="truncate">{threadLocationLabel(entry)}</span>
+        </span>
+        <ThreadState presentation={presentation} />
+        <span className="shrink-0" title={presentation.activityLabel}>
+          {formatIssueCodexActivity(presentation.activityAt, now)}
+        </span>
+      </div>
+      {controls ? <div>{controls}</div> : null}
     </div>
   );
 }

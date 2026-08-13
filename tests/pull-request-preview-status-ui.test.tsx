@@ -69,6 +69,8 @@ describe('pull request Preview status UI', () => {
       returnPath="/projects/project-space/issues/263"
     />);
     expect(html).toContain('Open app Preview');
+    expect(html).toContain('text-emerald-300');
+    expect(html).not.toContain('border-emerald-400/30');
     expect(html).toContain(
       'https://pr.projects.os-home.net/?pr=263&amp;return=%2Fprojects%2Fproject-space%2Fissues%2F263'
     );

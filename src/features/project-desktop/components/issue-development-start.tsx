@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
-  Check,
-  GitBranch,
+  Button as HeroUIButton,
+  Input,
+  Label,
+  Modal,
+  TextField
+} from '@heroui/react';
+import {
   GitBranchPlus,
   GitPullRequestDraft,
-  LoaderCircle,
-  Plus
+  LoaderCircle
 } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button } from '@/app/dotnaos-ui';
@@ -37,22 +41,20 @@ export function IssueDevelopmentStart({
 }: IssueDevelopmentStartProps) {
   const suggestedBranch = branchNameForIssue(issue);
   const [branchName, setBranchName] = useState(suggestedBranch);
-  const [showSetup, setShowSetup] = useState(Boolean(linkedBranch || recoveryMessage));
+  const [isOpen, setIsOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const [hasReadyPullRequest, setHasReadyPullRequest] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const isBlockedRecovery = Boolean(recoveryMessage && !linkedBranch);
 
   useEffect(() => {
     setBranchName(linkedBranch?.name ?? suggestedBranch);
-    setShowSetup(Boolean(linkedBranch || recoveryMessage));
   }, [linkedBranch?.name, recoveryMessage, suggestedBranch]);
 
   useEffect(() => {
     setMessage('');
     setError('');
-    setHasReadyPullRequest(false);
+    setIsOpen(false);
   }, [issue.number]);
 
   async function startDevelopment() {
@@ -78,7 +80,6 @@ export function IssueDevelopmentStart({
       if (result.state !== 'blocked') onBranchReady(result.branch);
       if (result.state === 'ready') {
         if (result.pullRequest) {
-          setHasReadyPullRequest(true);
           onPullRequestReady(result.pullRequest);
         }
         setMessage(result.message ?? (
@@ -86,6 +87,7 @@ export function IssueDevelopmentStart({
             ? `Draft pull request #${result.pullRequest.number} is ready.`
             : `Branch ${result.branch.name} is active.`
         ));
+        setIsOpen(false);
         return;
       }
       setError(result.message ?? (
@@ -100,99 +102,115 @@ export function IssueDevelopmentStart({
     }
   }
 
-  if (!showSetup) {
-    return (
-      <section className="grid gap-3">
-        <div>
-          <p className="text-xs font-medium text-current/55">Backlog</p>
-          <p className="mt-1 text-sm leading-6 text-current/45">
-            Create a linked branch and start coding. Open a Draft PR after the first real commit.
-          </p>
-        </div>
-        <Button className="w-full" onPress={() => setShowSetup(true)}>
-          <GitBranchPlus className="size-4" /> Start development
-        </Button>
-      </section>
-    );
+  if (linkedBranch && !canCreatePullRequest && !recoveryMessage && !message) {
+    return null;
   }
 
   return (
-    <section className="issue-rise-in grid gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium text-current/60">
+    <section className="grid gap-3">
+      {recoveryMessage ? <p className="text-xs leading-5 text-amber-300">{recoveryMessage}</p> : null}
+      {message ? <p className="text-xs leading-5 text-emerald-300">{message}</p> : null}
+
+      {(!linkedBranch || canCreatePullRequest || isBlockedRecovery) ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-neutral-950/90 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl md:static md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+          <Button
+            className="w-full !rounded-full"
+            isDisabled={isStarting || !repoFullName}
+            onPress={() => setIsOpen(true)}
+            size="lg"
+            variant="primary"
+          >
+            {linkedBranch ? <GitPullRequestDraft className="size-4" /> : <GitBranchPlus className="size-4" />}
             {linkedBranch
-              ? 'Active · Branch'
+              ? 'Create Draft PR'
               : isBlockedRecovery
                 ? 'Resolve development setup'
                 : 'Start development'}
-          </p>
-          <p className="mt-1 text-xs leading-5 text-current/40">
-            {linkedBranch
-              ? 'The linked branch is ready for coding. A Draft PR is the next Active step once it has a real commit.'
-              : isBlockedRecovery
-                ? 'Project Space found GitHub state that must be verified or resolved before coding can start.'
-              : 'Create the GitHub branch, then choose where to code.'}
-          </p>
-        </div>
-      </div>
-
-      <label className="grid gap-1.5">
-        <span className="px-1 text-[11px] font-medium text-current/35">
-          {linkedBranch ? 'Linked branch' : isBlockedRecovery ? 'Requested branch' : 'New branch'}
-        </span>
-        <span className="flex h-10 min-w-0 items-center gap-2 rounded-xl bg-current/[.055] px-3 ring-1 ring-inset ring-current/[.07]">
-          <GitBranch className="size-3.5 shrink-0 text-current/35" />
-          <input
-            className="min-w-0 flex-1 bg-transparent font-mono text-xs text-current outline-none disabled:text-current/45"
-            disabled={Boolean(linkedBranch) || isBlockedRecovery || isStarting}
-            onChange={(event) => setBranchName(event.currentTarget.value)}
-            value={linkedBranch?.name ?? branchName}
-          />
-        </span>
-      </label>
-
-      <div aria-live="polite" className="grid gap-1 rounded-xl bg-current/[.035] px-3 py-2 text-xs">
-        <div className="flex min-h-7 items-center gap-2">
-          {isStarting ? <LoaderCircle className="size-3.5 animate-spin text-blue-300" /> : <GitBranch className="size-3.5 text-current/35" />}
-          <span className="text-current/55">Branch</span>
-          <span className="ml-auto text-current/30">{linkedBranch ? 'Active' : 'Create'}</span>
-        </div>
-        <div className="flex min-h-7 items-center gap-2">
-          {hasReadyPullRequest ? <Check className="size-3.5 text-emerald-300" /> : isStarting ? <LoaderCircle className="size-3.5 animate-spin text-blue-300" /> : <GitPullRequestDraft className="size-3.5 text-current/35" />}
-          <span className="text-current/55">Draft PR</span>
-          <span className="ml-auto text-current/30">
-            {hasReadyPullRequest ? 'Ready' : linkedBranch && !canCreatePullRequest ? 'After first commit' : 'Next'}
-          </span>
-        </div>
-      </div>
-
-      {recoveryMessage && !error ? <p className="text-xs leading-5 text-amber-300">{recoveryMessage}</p> : null}
-      {message ? <p className="text-xs leading-5 text-emerald-300">{message}</p> : null}
-      {error ? <p className="text-xs leading-5 text-red-300">{error}</p> : null}
-
-      <div className="flex flex-col gap-2 sm:flex-row">
-        {!linkedBranch ? (
-          <Button className="flex-1" isDisabled={isStarting} size="sm" variant="ghost" onPress={() => setShowSetup(false)}>
-            Cancel
           </Button>
-        ) : null}
-        <Button
-          className="flex-1"
-          isDisabled={isStarting || !repoFullName || !(linkedBranch?.name ?? branchName).trim() || Boolean(linkedBranch && !canCreatePullRequest)}
-          size="sm"
-          onPress={() => void startDevelopment()}
+        </div>
+      ) : null}
+
+      <Modal
+        isOpen={isOpen}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen || !isStarting) setIsOpen(nextOpen);
+        }}
+      >
+        <Modal.Backdrop
+          className="z-[140] bg-black/75"
+          isDismissable={!isStarting}
+          isKeyboardDismissDisabled={isStarting}
+          variant="blur"
         >
-          {!isStarting ? linkedBranch ? <GitPullRequestDraft className="size-4" /> : <Plus className="size-4" /> : null}
-          {isStarting
-            ? linkedBranch ? 'Creating Draft PR…' : 'Creating branch…'
-            : linkedBranch
-              ? 'Create Draft PR'
-              : isBlockedRecovery
-                ? 'Retry verification'
-                : 'Create branch'}
-        </Button>
-      </div>
+          <Modal.Container className="p-4" placement="center" size="sm">
+            <Modal.Dialog className="bg-neutral-950 text-neutral-100 shadow-2xl shadow-black/70 sm:max-w-[360px]">
+              {!isStarting ? <Modal.CloseTrigger aria-label="Close development setup" /> : null}
+              <Modal.Header className="flex-col items-start text-left">
+                <Modal.Icon className="bg-blue-500/15 text-blue-400">
+                  {linkedBranch
+                    ? <GitPullRequestDraft className="size-5" />
+                    : <GitBranchPlus className="size-5" />}
+                </Modal.Icon>
+                <Modal.Heading className="text-xl font-semibold tracking-tight">
+                  {linkedBranch
+                    ? 'Create Draft PR'
+                    : isBlockedRecovery
+                      ? 'Resolve development setup'
+                      : 'Start development'}
+                </Modal.Heading>
+              </Modal.Header>
+              <Modal.Body className="grid gap-4 !overflow-visible">
+                <TextField
+                  fullWidth
+                  isDisabled={isStarting}
+                  isReadOnly={Boolean(linkedBranch) || isBlockedRecovery}
+                  onChange={setBranchName}
+                  value={linkedBranch?.name ?? branchName}
+                >
+                  <Label>
+                    {linkedBranch ? 'Linked branch' : isBlockedRecovery ? 'Requested branch' : 'New branch'}
+                  </Label>
+                  <Input
+                    autoFocus={!linkedBranch && !isBlockedRecovery}
+                    className="w-full font-mono text-xs"
+                    variant="secondary"
+                  />
+                </TextField>
+
+                {recoveryMessage && !error ? <p className="text-xs leading-5 text-amber-300">{recoveryMessage}</p> : null}
+                {error ? <p className="text-xs leading-5 text-red-300">{error}</p> : null}
+              </Modal.Body>
+              <Modal.Footer className="!flex-col gap-2">
+                <HeroUIButton
+                  className="w-full !rounded-full whitespace-nowrap"
+                  isDisabled={isStarting}
+                  onPress={() => setIsOpen(false)}
+                  size="sm"
+                  variant="secondary"
+                >
+                  Close
+                </HeroUIButton>
+                <HeroUIButton
+                  className="w-full !rounded-full whitespace-nowrap"
+                  isDisabled={isStarting || !repoFullName || !(linkedBranch?.name ?? branchName).trim() || Boolean(linkedBranch && !canCreatePullRequest)}
+                  size="sm"
+                  variant="primary"
+                  onPress={() => void startDevelopment()}
+                >
+                  {isStarting ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                  {isStarting
+                    ? linkedBranch ? 'Creating Draft PR…' : 'Creating branch…'
+                    : linkedBranch
+                      ? 'Create Draft PR'
+                      : isBlockedRecovery
+                        ? 'Retry verification'
+                        : 'Create branch'}
+                </HeroUIButton>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     </section>
   );
 }

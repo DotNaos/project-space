@@ -17,6 +17,7 @@ import type {
   ConnectorOverviewResult,
   ExplorerTarget,
   FullstackTemplateCheck,
+  GitHubCatalogRepository,
   ProjectSpaceRecord,
   ProjectWorktreeDiscoveryState,
   ProjectWorktreeRecord
@@ -264,7 +265,7 @@ export interface ProjectDetailProps {
   launcherError: string;
   onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
   onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
-  onOpenIssue(issueNumber: number): void;
+  onOpenIssue(issueNumber: number, projectIdOverride?: string): void;
   onOpenHistory(focus: Omit<GitHistoryFocus, 'requestId'>): void;
   onOpenWorkflowRun(runId: number): void;
   onCloseWorkflowRun(): void;
@@ -275,6 +276,7 @@ export interface ProjectDetailProps {
   onSelectWorktree(worktreeId: string): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
+  repositories: GitHubCatalogRepository[];
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
   selectedWorkflowRunId?: number;
@@ -306,6 +308,7 @@ export function ProjectDetail({
   onSelectWorktree,
   project,
   projects,
+  repositories,
   selectedExplorerTarget,
   selectedIssueNumber,
   selectedWorkflowRunId,
@@ -440,6 +443,7 @@ export function ProjectDetail({
             onShowTasks={() => onSelectTab('issues')}
             project={project}
             projects={projects}
+            repositories={repositories}
             repository={selectedRepository}
             selectedIssueNumber={selectedIssueNumber}
             targetPath={selectedTargetPath}
