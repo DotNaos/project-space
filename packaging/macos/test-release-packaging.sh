@@ -39,18 +39,16 @@ write_source() {
   cat > "$directory/project-codex-host" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then
-  printf 'project-codex-host %s\n' "\${PROJECT_FIXTURE_CONNECTOR_VERSION:-$version}"
+  printf 'project-codex-host %s\n' "\${PROJECT_FIXTURE_CODEX_HOST_VERSION:-$version}"
   exit 0
 fi
-printf '%s\n' 'connector $label'
+printf '%s\n' 'codex host $label'
 EOF
   chmod 0755 "$directory/project-codex-host"
   write_trust_roots "$directory"
 }
 
 write_source "$temporary_root/source-v1" v1
-: > "$temporary_root/source-v1/project-approval-signer"
-chmod 0755 "$temporary_root/source-v1/project-approval-signer"
 mkdir -p "$temporary_root/first" "$temporary_root/second"
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temporary_root/source-v1" "$temporary_root/first" >/dev/null
 SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temporary_root/source-v1" "$temporary_root/second" >/dev/null
@@ -60,10 +58,9 @@ cmp "$temporary_root/first/$archive" "$temporary_root/second/$archive"
 mkdir "$temporary_root/extracted-v1"
 gtar -xzf "$temporary_root/first/$archive" -C "$temporary_root/extracted-v1"
 bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64-v${version}"
-expected_members=$'SHA256SUMS.txt\nVERSION\ninstall.sh\nproject\nproject-approval-signer\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
+expected_members=$'SHA256SUMS.txt\nVERSION\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
 [[ $actual_members == "$expected_members" ]]
-[[ ! -s $bundle_v1/project-approval-signer ]]
 
 home="$temporary_root/home"
 install_root="$home/.local/bin"
@@ -97,7 +94,7 @@ first_current=$(readlink "$install_root/.project-space-machine-tools/current")
 [[ $first_current == versions/${version}-* ]]
 
 # On the affected macOS build, cmp was killed while comparing the large
-# standalone connector binary. Reinstalling an identical release must use a
+# standalone Codex host binary. Reinstalling an identical release must use a
 # streaming comparison instead.
 mkdir "$temporary_root/killed-cmp-bin"
 cat > "$temporary_root/killed-cmp-bin/cmp" <<'EOF'
@@ -110,7 +107,7 @@ PATH="$temporary_root/killed-cmp-bin:$PATH" \
 [[ $(readlink "$install_root/.project-space-machine-tools/current") == "$first_current" ]]
 
 # A real content mismatch must still fail closed before the active release or
-# connector service is changed.
+# retired service is changed.
 installed_connector="$install_root/.project-space-machine-tools/current/project-codex-host"
 printf 'tampered\n' >> "$installed_connector"
 existing_release_error="$temporary_root/existing-release.error"
@@ -158,8 +155,8 @@ SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temp
 gtar -xzf "$temporary_root/output-v2/$archive" -C "$temporary_root/extracted-v2"
 bundle_v2="$temporary_root/extracted-v2/project-space-machine-tools-darwin-arm64-v${version}"
 
-# Upgrading from an approval-enabled release removes only the managed legacy
-# helper link. An unrelated file at the same path remains user-owned.
+# An unrelated file at the retired helper path remains user-owned, while a
+# managed legacy link is removed during the one-way cleanup.
 printf 'user-owned\n' > "$install_root/project-approval-signer"
 "$bundle_v1/install.sh" --install-dir "$install_root" >/dev/null
 grep -Fx 'user-owned' "$install_root/project-approval-signer"
@@ -171,7 +168,7 @@ legacy_plist="$home/Library/LaunchAgents/net.os-home.project-space-connector.pli
 printf 'legacy\n' > "$legacy_plist"
 "$bundle_v2/install.sh" --install-dir "$install_root" >/dev/null
 [[ $($install_root/project) == v2 ]]
-[[ $($install_root/project-codex-host) == 'connector v2' ]]
+[[ $($install_root/project-codex-host) == 'codex host v2' ]]
 [[ ! -e $install_root/project-approval-signer && ! -L $install_root/project-approval-signer ]]
 [[ ! -e $install_root/project-space-connector && ! -L $install_root/project-space-connector ]]
 [[ ! -e $legacy_plist && ! -e $modern_plist ]]
@@ -188,7 +185,7 @@ fi
 # restores the previous current pointer.
 version_failure_log="$temporary_root/version-failure.log"
 set +e
-PROJECT_FIXTURE_CONNECTOR_VERSION=0.4.7 \
+PROJECT_FIXTURE_CODEX_HOST_VERSION=0.4.7 \
   "$bundle_v2/install.sh" --install-dir "$install_root" \
   >/dev/null 2>"$version_failure_log"
 version_failure_status=$?

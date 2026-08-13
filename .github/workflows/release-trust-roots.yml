@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   derive:
-    name: Derive isolated connector trust roots
+    name: Derive isolated release trust roots
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -73,7 +73,7 @@ jobs:
           EXPECTED_SHA: ${{ inputs.source-sha }}
           PATH: /usr/bin:/bin
         run: |
-          echo "artifact-name=connector-runtime-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${EXPECTED_SHA}" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=project-space-release-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${EXPECTED_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Materialize pinned public trust roots
         shell: /bin/bash --noprofile --norc -euo pipefail {0}
@@ -81,7 +81,7 @@ jobs:
           BASH_ENV: /dev/null
           PATH: /usr/bin:/bin
         run: |
-          public_root="$RUNNER_TEMP/connector-runtime-trust-roots"
+          public_root="$RUNNER_TEMP/project-space-release-trust-roots"
           umask 077
           /bin/rm -rf "$public_root"
           /bin/mkdir -p "$public_root"
@@ -98,7 +98,7 @@ jobs:
           BASH_ENV: /dev/null
           PATH: /usr/bin:/bin
         run: |
-          root="$RUNNER_TEMP/connector-runtime-trust-roots"
+          root="$RUNNER_TEMP/project-space-release-trust-roots"
           expected='release-manifest-signing-public-key.pem'
           actual=$(/usr/bin/find "$root" -mindepth 1 -maxdepth 1 -type f -print | /usr/bin/sed "s#^$root/##" | LC_ALL=C /usr/bin/sort)
           [[ $actual == "$expected" ]]
@@ -114,5 +114,5 @@ jobs:
           name: ${{ steps.metadata.outputs.artifact-name }}
           if-no-files-found: error
           overwrite: false
-          path: ${{ runner.temp }}/connector-runtime-trust-roots/*.pem
+          path: ${{ runner.temp }}/project-space-release-trust-roots/*.pem
           retention-days: 7

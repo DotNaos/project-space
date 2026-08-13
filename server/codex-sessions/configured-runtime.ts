@@ -1,55 +1,25 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type {
-  CodexSessionApprovalRequest,
-  CodexSessionBrowserRequest,
-  CodexSessionContinueRequest,
-  CodexSessionInspectRequest,
-  CodexSessionInterruptRequest,
-  CodexSessionReadRequest,
-  CodexSessionSettingsRequest,
-  CodexSessionUserInputResponse
+  CodexSessionMachineRecord
 } from '../../src/shared/codex-sessions-api';
-import { CODEX_SESSION_LIST_DEADLINE_MS } from '../../src/shared/codex-session-inventory-window';
 import { CodexSessionsStore } from '../codex-sessions-store';
-import {
-  CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
-  CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
-} from '../codex-sessions-connector-contract';
 import type { CodexSessionsHttpHandler } from '../codex-sessions-http';
 import {
   isDatabaseConfigured,
   getCodexSessionsDatabaseClient,
   readMachineMembership
 } from '../local-database-store';
-import { getRegisteredConnectorMachines } from '../connector-hub';
-import { isConnectorCommandChannelAvailable } from '../connector-command-session-registry';
-import {
-  CodexConnectorNotDispatchedError,
-  CodexConnectorRemoteError
-} from './connector-hub';
-import {
-  requestConnectorCodexSessions,
-  streamConnectorCodexSessions
-} from './connector-hub';
 import { writeJson } from '../project-space-http-response';
 import {
   CodexSessionsAccessError,
-  CodexThreadMissingError,
-  CodexTransportUncertainError,
   CodexTransportUnavailableError,
   type CodexSessionsTransport
 } from './service';
 import { createCodexSessionsRuntime, type CodexSessionsRuntime } from './runtime';
+import { retireCodexHttp } from './retirement';
 
 const codexApiPrefix = '/api/codex/sessions';
-
-type MutationRequest =
-  | CodexSessionApprovalRequest
-  | CodexSessionContinueRequest
-  | CodexSessionInterruptRequest
-  | CodexSessionSettingsRequest
-  | CodexSessionUserInputResponse;
 
 export interface ConfiguredCodexSessionsRuntimeOptions {
   createStore?: () => Promise<CodexSessionsStore>;
@@ -73,13 +43,20 @@ export async function createConfiguredCodexSessionsRuntime(
       }
     },
     store,
-    transport: options.transport ?? createConnectorCodexSessionsTransport()
+    transport: options.transport ?? createRetiredCodexSessionsTransport()
   });
 }
 
 export function createConfiguredCodexSessionsHandler(
   options: ConfiguredCodexSessionsRuntimeOptions = {}
 ): CodexSessionsHttpHandler {
+  if (!options.transport) {
+    return async (_request, response, url) => {
+      if (!url.pathname.startsWith(codexApiPrefix)) return false;
+      retireCodexHttp(response);
+      return true;
+    };
+  }
   let runtime: Promise<CodexSessionsRuntime> | undefined;
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     if (!url.pathname.startsWith(codexApiPrefix)) return false;
@@ -98,179 +75,17 @@ export function createConfiguredCodexSessionsHandler(
   };
 }
 
-export function createConnectorCodexSessionsTransport(): CodexSessionsTransport {
+export function createRetiredCodexSessionsTransport(): CodexSessionsTransport {
   return {
-    async browser({ afterImageRevision, machineId, threadId, userId }) {
-      try {
-        const result = await request('browser', {
-          ...(afterImageRevision ? { afterImageRevision } : {}),
-          machineId,
-          threadId
-        }, userId);
-        if (result.operation !== 'browser') {
-          throw new CodexTransportUncertainError();
-        }
-        return result.result;
-      } catch (error) {
-        if (error instanceof CodexConnectorRemoteError && error.code === 'rejected') {
-          throw new CodexTransportUncertainError(
-            'The connector could not prove the current Codex browser identity.'
-          );
-        }
-        if (error instanceof CodexTransportUncertainError) throw error;
-        throw new CodexTransportUnavailableError();
-      }
+    async describeMachine({ machineId }): Promise<CodexSessionMachineRecord> {
+      return { id: machineId, name: 'Unavailable', online: false };
     },
-    async describeMachine({ machineId }) {
-      const machine = (await getRegisteredConnectorMachines())
-        .find((candidate) => candidate.id === machineId);
-      return {
-        id: machineId,
-        name: machine?.name ?? machineId,
-        online: machine?.connector.status === 'online' &&
-          isConnectorCommandChannelAvailable(machineId),
-        statusMessage: machine
-          ? undefined
-          : 'The owning machine is no longer registered.',
-        supportsModelSelection: machine?.connector.capabilities?.includes(
-          CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY
-        ) === true,
-        supportsModelSettings: machine?.connector.capabilities?.includes(
-          CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
-        ) === true
-      };
-    },
-    async list({ machineId, userId }) {
-      const result = await request('list', { includeArchived: true, machineId }, userId);
-      if (result.operation !== 'list') throw new CodexTransportUncertainError();
-      const machine = (await getRegisteredConnectorMachines())
-        .find((candidate) => candidate.id === machineId);
-      return {
-        ...result.result,
-        machine: {
-          ...result.result.machine,
-          supportsModelSelection: machine?.connector.capabilities?.includes(
-            CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY
-          ) === true,
-          supportsModelSettings: machine?.connector.capabilities?.includes(
-            CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
-          ) === true
-        }
-      };
-    },
-    async inspect({ machineId, threadId, userId }) {
-      try {
-        const result = await request('inspect', { machineId, threadId }, userId);
-        if (result.operation !== 'inspect') throw new CodexTransportUncertainError();
-        return result.result;
-      } catch (error) {
-        if (error instanceof CodexConnectorRemoteError && error.code === 'rejected') {
-          throw new CodexTransportUncertainError(
-            'The connector could not prove the current Codex task identity.'
-          );
-        }
-        if (error instanceof CodexConnectorRemoteError && error.code === 'unavailable') {
-          throw new CodexTransportUnavailableError();
-        }
-        if (error instanceof CodexTransportUncertainError) throw error;
-        throw new CodexTransportUnavailableError();
-      }
-    },
-    async mutate({ kind, machineId, request: mutation, threadId, userId }) {
-      const result = await mutate(kind, mutation, userId);
-      if (result.operation !== kind) throw new CodexTransportUncertainError();
-      return { machineId, result: result.result, threadId };
-    },
-    async read({ connectorGeneration, machineId, threadId, userId }) {
-      try {
-        const result = await request('read', { machineId, threadId }, userId, connectorGeneration);
-        if (result.operation !== 'read') throw new CodexTransportUncertainError();
-        return result.result;
-      } catch (error) {
-        if (error instanceof CodexConnectorRemoteError && error.code === 'rejected') {
-          throw new CodexThreadMissingError();
-        }
-        if (error instanceof CodexConnectorRemoteError && error.code === 'unavailable') {
-          throw new CodexTransportUnavailableError();
-        }
-        if (error instanceof CodexTransportUncertainError) throw error;
-        throw new CodexTransportUnavailableError();
-      }
-    },
-    async stream({ connectorGeneration, machineId, onDispatched, threadId, userId }, emit, signal) {
-      try {
-        await streamConnectorCodexSessions(
-          { machineId, threadId },
-          emit,
-          { generation: connectorGeneration, onDispatched, signal, userId }
-        );
-      } catch {
-        throw new CodexTransportUnavailableError();
-      }
-    }
+    async list() { throw new CodexTransportUnavailableError(); },
+    async inspect() { throw new CodexTransportUnavailableError(); },
+    async mutate() { throw new CodexTransportUnavailableError(); },
+    async read() { throw new CodexTransportUnavailableError(); },
+    async stream() { throw new CodexTransportUnavailableError(); }
   };
-}
-
-async function request(
-  operation: 'browser' | 'inspect' | 'list' | 'read',
-  payload: {
-    afterImageRevision?: string;
-    includeArchived?: boolean;
-    machineId: string;
-    threadId?: string;
-  },
-  userId: string,
-  generation?: number
-) {
-  try {
-    return await requestConnectorCodexSessions(
-      operation,
-      payload as CodexSessionBrowserRequest | CodexSessionInspectRequest | CodexSessionReadRequest,
-      {
-        ...(operation === 'inspect'
-          ? { timeoutMs: 30_000 }
-          : operation === 'browser'
-            ? { timeoutMs: 8_000 }
-          : operation === 'list'
-            ? { timeoutMs: CODEX_SESSION_LIST_DEADLINE_MS }
-            : operation === 'read'
-              ? { timeoutMs: 15_000 }
-              : {}),
-        generation,
-        userId
-      }
-    );
-  } catch (error) {
-    if ((operation === 'browser' || operation === 'inspect' || operation === 'read') &&
-      error instanceof CodexConnectorRemoteError) throw error;
-    throw new CodexTransportUnavailableError();
-  }
-}
-
-async function mutate(
-  operation: 'approval' | 'continue' | 'input' | 'interrupt' | 'settings',
-  payload: MutationRequest,
-  userId: string
-) {
-  try {
-    const connectorGeneration = 'connectorGeneration' in payload
-      ? payload.connectorGeneration
-      : undefined;
-    const connectorPayload = { ...payload } as MutationRequest & { connectorGeneration?: number };
-    delete connectorPayload.connectorGeneration;
-    return await requestConnectorCodexSessions(operation, connectorPayload, {
-      generation: connectorGeneration,
-      operationId: payload.operationId,
-      userId
-    });
-  } catch (error) {
-    if (error instanceof CodexConnectorNotDispatchedError) {
-      throw new CodexTransportUnavailableError();
-    }
-    throw new CodexTransportUncertainError(
-      error instanceof Error ? error.message : 'The Codex session operation is uncertain.'
-    );
-  }
 }
 
 function writeUnavailable(response: ServerResponse, message: string) {

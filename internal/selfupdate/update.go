@@ -104,14 +104,14 @@ func (service *Service) Apply(
 		return result, nil
 	case ApplyOutcomeRolledBack:
 		result.State = StateRolledBack
-		result.ActionableBlocker = "The update failed and the previous matching CLI and connector release was restored."
+		result.ActionableBlocker = "The update failed and the previous matching machine-tools release was restored."
 		if err == nil {
 			err = errors.New("self-update rolled back")
 		}
 		return result, err
 	case ApplyOutcomeRecoveryRequired:
 		result.State = StateUpdateFailed
-		result.ActionableBlocker = "Rollback could not restore the previous connector service. Manual recovery is required."
+		result.ActionableBlocker = "Rollback could not restore the previous machine-tools service. Manual recovery is required."
 		if err == nil {
 			err = errors.New("self-update requires manual recovery")
 		}

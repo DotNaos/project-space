@@ -83,7 +83,7 @@ jobs:
           [[ "$SHARED_QUALITY_RESULT" == success ]]
 
   trust-roots:
-    name: Derive connector trust roots
+    name: Derive release trust roots
     needs: classify
     uses: ./.github/workflows/release-trust-roots.yml
     with:

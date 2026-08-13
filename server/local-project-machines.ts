@@ -4,29 +4,20 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
 import type { FileSystemEntry, MachineRecord } from '../src/shared/project-space-api';
-import { getRegisteredConnectorMachines } from './connector-hub';
 import { getConnectorOverview } from './local-machine-registry';
 import { configuredConnectorMachineId } from './project-connector-config';
 
 export async function loadMergedConnectorOverview() {
   const connector = await getConnectorOverview();
-  const registeredMachines = await getRegisteredConnectorMachines();
   const assignedMachineId = configuredConnectorMachineId();
-  const localMachines = connector.machines
-    .filter((machine) => !isWebHubMachine(machine))
-    .map((machine) =>
-      assignedMachineId && (machine.connector.status === 'local' || machine.kind === 'local')
-        ? { ...machine, id: assignedMachineId }
-        : machine
-    );
-  const knownMachineIds = new Set(localMachines.map((machine) => machine.id));
 
   return {
     ...connector,
-    machines: [
-      ...localMachines,
-      ...registeredMachines.filter((machine) => !knownMachineIds.has(machine.id))
-    ]
+    machines: connector.machines.map((machine) =>
+      assignedMachineId && (machine.connector.status === 'local' || machine.kind === 'local')
+        ? { ...machine, id: assignedMachineId }
+        : machine
+    )
   };
 }
 

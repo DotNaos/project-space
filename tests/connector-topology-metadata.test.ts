@@ -4,10 +4,6 @@ import {
   isConnectorProjectRegistryPayload
 } from '../server/connector-command-protocol';
 import {
-  getRegisteredConnectorMachines,
-  registerConnectorProjectRegistry
-} from '../server/connector-hub';
-import {
   isConnectorEnvironmentRecord,
   loadConnectorTopologyMetadata
 } from '../server/connector-topology-metadata';
@@ -153,21 +149,6 @@ describe('connector topology metadata', () => {
         daemon: { ...valid.connector.daemon, authenticated: false }
       }
     })).toBe(false);
-  });
-
-  test('preserves reported topology through the connector hub projection', async () => {
-    const payload = registry('topology-hub-projection');
-    payload.connector.environment = { kind: 'wsl', label: 'Ubuntu-24.04' };
-    payload.connector.executionScopeId = 'scope-topology-hub';
-    await registerConnectorProjectRegistry(payload);
-
-    const projected = (await getRegisteredConnectorMachines()).find(
-      (machine) => machine.id === 'topology-hub-projection'
-    );
-    expect(projected).toMatchObject({
-      environment: { kind: 'wsl', label: 'Ubuntu-24.04' },
-      executionScopeId: 'scope-topology-hub'
-    });
   });
 
   test('adds explicit topology to the local connector overview', async () => {

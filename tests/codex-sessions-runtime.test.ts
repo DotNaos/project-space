@@ -168,20 +168,15 @@ describe('configured Codex sessions runtime', () => {
     expect(scopes).toHaveLength(0);
   });
 
-  test('returns a safe unavailable response when runtime initialization fails', async () => {
+  test('retires the legacy default runtime before database or machine lookup', async () => {
     const origin = await start({
       createStore: async () => { throw new Error('database details must stay private'); }
     });
 
     const response = await fetch(`${origin}/api/codex/sessions?machineId=${machineId}`);
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: {
-        code: 'codex_sessions_unavailable',
-        message: 'Codex sessions are temporarily unavailable.'
-      }
-    });
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ code: 'canonical_runtime_required' });
   });
 
   test('fails closed when an inspect still targets the retired Connector channel', async () => {
@@ -194,12 +189,7 @@ describe('configured Codex sessions runtime', () => {
       `${origin}/api/codex/sessions/${threadId}/inspect?machineId=${machineId}`
     );
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: {
-        code: 'connector_unavailable',
-        message: 'The owning machine is offline or unavailable.'
-      }
-    });
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ code: 'canonical_runtime_required' });
   });
 });

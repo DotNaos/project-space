@@ -3,7 +3,6 @@ import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { describe, expect, test } from 'bun:test';
 import pg from 'pg';
 
-import { ConnectorCredentialRepository } from '../server/database/connector-credentials';
 import type { DatabaseQueryClient } from '../server/database/client';
 import { databaseMigrations } from '../server/database/migrations';
 import {
@@ -142,33 +141,15 @@ describe('machine connection PostgreSQL integration', () => {
           publicOrigin: 'https://projects.os-home.net',
           store
         });
-        const connectorCredentials = new ConnectorCredentialRepository(client, {
-          createId: randomUUID
-        });
         const keys = machineKeyPair();
 
         const first = await connectMachine(service, keys, '0.2.0');
-        await expect(
-          connectorCredentials.authenticate({
-            machineId: first.machineId,
-            token: first.credential
-          })
-        ).resolves.toMatchObject({ machineId: first.machineId });
 
         const second = await connectMachine(service, keys, '0.3.0');
         expect(second.machineId).toBe(first.machineId);
         await expect(
-          connectorCredentials.authenticate({
-            machineId: first.machineId,
-            token: first.credential
-          })
-        ).resolves.toBeNull();
-        await expect(
-          connectorCredentials.authenticate({
-            machineId: second.machineId,
-            token: second.credential
-          })
-        ).resolves.toMatchObject({ machineId: second.machineId });
+          service.markMachineOnline(first.machineId, first.credential)
+        ).rejects.toMatchObject({ code: 'invalid_credential' });
 
         await service.markMachineOnline(second.machineId, second.credential);
         onlineMachines.set(second.machineId, second.credential);
@@ -177,12 +158,6 @@ describe('machine connection PostgreSQL integration', () => {
         ).resolves.toMatchObject({ status: 'online' });
 
         await service.revokeMachine(second.machineId, second.credential);
-        await expect(
-          connectorCredentials.authenticate({
-            machineId: second.machineId,
-            token: second.credential
-          })
-        ).resolves.toBeNull();
         await expect(
           service.getConnectionStatus(second.machineId, second.credential)
         ).resolves.toMatchObject({ status: 'revoked' });

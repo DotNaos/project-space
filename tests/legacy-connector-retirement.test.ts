@@ -85,6 +85,47 @@ describe('legacy Connector retirement boundary', () => {
     }
   });
 
+  test('does not dispatch retired Connector requests to backend or database surfaces', async () => {
+    const backend = createLocalProjectSpaceBackend();
+    const dispatched: string[] = [];
+    const guardedBackend = {
+      ...backend,
+      async getConnectorOverview() {
+        dispatched.push('getConnectorOverview');
+        throw new Error('Retired Connector request reached getConnectorOverview.');
+      },
+      async getConnectorProjectRegistry() {
+        dispatched.push('getConnectorProjectRegistry');
+        throw new Error('Retired Connector request reached getConnectorProjectRegistry.');
+      },
+      async loadProjectDiscovery() {
+        dispatched.push('loadProjectDiscovery');
+        throw new Error('Retired Connector request reached loadProjectDiscovery.');
+      }
+    };
+    const server = await createProjectSpaceServer({
+      backend: guardedBackend,
+      host: '127.0.0.1',
+      port: 0
+    });
+
+    try {
+      for (const pathname of [
+        '/api/connectors/credentials',
+        '/api/connectors/credentials/credential-id',
+        '/api/connectors/overview',
+        '/api/connectors/project-registry'
+      ]) {
+        const response = await fetch(`${server.origin}${pathname}`);
+        expect(response.status).toBe(410);
+      }
+    } finally {
+      await server.close();
+    }
+
+    expect(dispatched).toEqual([]);
+  });
+
   test.each([
     ['POST', '/api/connectors/project-registry'],
     ['POST', '/api/connectors/install-command'],

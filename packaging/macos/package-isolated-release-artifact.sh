@@ -95,11 +95,6 @@ release_root_sha=${release_root_sha%% *}
 /usr/bin/install -m 0644 "$trust_directory/release-manifest-signing-public-key.pem" \
   "$staging_directory/release-manifest-signing-public-key.pem"
 
-# Published clients before this removal require this exact archive member before
-# they can install the new verifier. It is empty, is never installed, and has no
-# signing capability; the next release can omit it after clients cross this bridge.
-/usr/bin/install -m 0755 /dev/null "$staging_directory/project-approval-signer"
-
 (
   cd "$repository_root"
   CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 /usr/bin/env go build \
@@ -128,7 +123,7 @@ gtar_path=$(command -v gtar)
 "$gtar_path" -xzf "$archive_path" -C "$extracted_root"
 bundle_root="$extracted_root/project-space-machine-tools-darwin-arm64-v${version}"
 assert_exact_files "$bundle_root" \
-  project:157286400 project-codex-host:157286400 project-approval-signer:0:0 \
+  project:157286400 project-codex-host:157286400 \
   release-manifest-signing-public-key.pem:8192 \
   install.sh:1048576 VERSION:128 SHA256SUMS.txt:4096
 [[ $(<"$bundle_root/VERSION") == "$version" ]]
@@ -138,6 +133,5 @@ assert_exact_files "$bundle_root" \
 )
 /usr/bin/cmp "$staging_directory/project" "$bundle_root/project"
 /usr/bin/cmp "$staging_directory/project-codex-host" "$bundle_root/project-codex-host"
-/usr/bin/cmp /dev/null "$bundle_root/project-approval-signer"
 /usr/bin/cmp "$staging_directory/release-manifest-signing-public-key.pem" \
   "$bundle_root/release-manifest-signing-public-key.pem"
