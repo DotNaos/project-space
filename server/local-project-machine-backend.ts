@@ -3,27 +3,15 @@ import { basename, join } from 'node:path';
 
 import type {
   MachineDirectoryMutationResult,
+  MachineRecord,
   ProjectSpaceBackend
 } from '../src/shared/project-space-api';
-import {
-  requestConnectorDirectory,
-  requestConnectorFile,
-  requestConnectorFileSystemRoot,
-  requestConnectorFolderCreate,
-  requestConnectorFolderDelete,
-  requestConnectorFolderRename,
-  requestConnectorModels,
-  requestConnectorProjectWorktrees,
-  requestConnectorTerminalCommand,
-  streamConnectorCodexChat
-} from './connector-command-hub';
-import { isConnectorHubMachine, isHubLocalMachine } from './connector-hub';
 import {
   getCodexModels as getLocalCodexModels,
   runCodexChat,
   streamCodexChat as streamLocalCodexChat
 } from './local-codex-client';
-import { runSshTerminalCommand, runTerminalCommand } from './local-command-runner';
+import { runTerminalCommand } from './local-command-runner';
 import {
   createMachineSshTarget,
   loadMergedConnectorOverview,
@@ -54,10 +42,22 @@ type MachineBackendMethod =
   | 'streamCodexChat';
 type WorktreeLoadOptions = { signal?: AbortSignal; timeoutMs?: number };
 
+const canonicalRuntimeRequired =
+  'This operation requires the canonical Environment and Workspace Runtime.';
+
+function isLocalMachine(machine: MachineRecord) {
+  // Connector registrations are never trusted as local process authority.
+  return machine.connector.status === 'local' && machine.sourcePath !== 'connector-hub';
+}
+
+function isRetiredConnectorMachine(machine: MachineRecord) {
+  return machine.sourcePath === 'connector-hub';
+}
+
 function directoryMutationError(message: string): MachineDirectoryMutationResult {
   return {
     affectedPaths: [],
-    errorCode: 'disconnected',
+    errorCode: 'unsupported',
     message,
     status: 'error'
   };
@@ -66,7 +66,6 @@ function directoryMutationError(message: string): MachineDirectoryMutationResult
 async function runDirectoryMutation(
   machineId: string,
   localAction: () => Promise<MachineDirectoryMutationResult>,
-  connectorAction: () => Promise<MachineDirectoryMutationResult>,
   loadConnectorOverview: typeof loadMergedConnectorOverview = loadMergedConnectorOverview
 ) {
   const overview = await loadConnectorOverview();
@@ -74,19 +73,10 @@ async function runDirectoryMutation(
   if (!machine) {
     return directoryMutationError('This machine is not in the connector registry.');
   }
-  if (isHubLocalMachine(machine)) {
+  if (isLocalMachine(machine)) {
     return localAction();
   }
-  if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
-    return directoryMutationError(`${machine.name} is ${machine.connector.status}.`);
-  }
-  try {
-    return await connectorAction();
-  } catch (error) {
-    return directoryMutationError(
-      error instanceof Error ? error.message : 'The machine connector is not available right now.'
-    );
-  }
+  return directoryMutationError(canonicalRuntimeRequired);
 }
 
 export function createLocalProjectMachineBackend(
@@ -108,22 +98,10 @@ export function createLocalProjectMachineBackend(
       if (!machine) {
         throw new Error(`Machine ${machineId} was not found.`);
       }
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         return loadLocalProjectWorktrees(projectPath, options);
       }
-      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
-        throw new Error(`${machine.name} cannot provide its worktrees right now.`);
-      }
-
-      try {
-        return await requestConnectorProjectWorktrees({ machineId, projectPath }, options);
-      } catch (error) {
-        throw new Error(
-          error instanceof Error
-            ? error.message
-            : 'Could not load worktrees from the machine connector.'
-        );
-      }
+      throw new Error(canonicalRuntimeRequired);
     },
     async getCodexModels(request) {
       const overview = await loadConnectorOverview();
@@ -137,8 +115,12 @@ export function createLocalProjectMachineBackend(
         };
       }
 
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         return getLocalCodexModels(request);
+      }
+
+      if (isRetiredConnectorMachine(machine)) {
+        return { message: canonicalRuntimeRequired, models: [], status: 'error' };
       }
 
       if (machine.connector.status !== 'online') {
@@ -147,19 +129,6 @@ export function createLocalProjectMachineBackend(
           models: [],
           status: 'error'
         };
-      }
-
-      if (isConnectorHubMachine(machine)) {
-        try {
-          return await requestConnectorModels(request);
-        } catch (error) {
-          return {
-            message:
-              error instanceof Error ? error.message : 'Could not reach the machine connector.',
-            models: [],
-            status: 'error'
-          };
-        }
       }
 
       const target = createMachineSshTarget(machine);
@@ -184,8 +153,12 @@ export function createLocalProjectMachineBackend(
         };
       }
 
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         return runCodexChat(request);
+      }
+
+      if (isRetiredConnectorMachine(machine)) {
+        return { message: canonicalRuntimeRequired, status: 'error' };
       }
 
       if (machine.connector.status !== 'online') {
@@ -193,29 +166,6 @@ export function createLocalProjectMachineBackend(
           message: `${machine.name} is ${machine.connector.status}.`,
           status: 'error'
         };
-      }
-
-      if (isConnectorHubMachine(machine)) {
-        let result = '';
-        let failure = '';
-        try {
-          await streamConnectorCodexChat(request, (event) => {
-            if (event.type === 'done') {
-              result = event.response;
-            } else if (event.type === 'error') {
-              failure = event.message;
-            }
-          });
-          return failure
-            ? { message: failure, status: 'error' }
-            : { response: result, status: 'success' };
-        } catch (error) {
-          return {
-            message:
-              error instanceof Error ? error.message : 'Could not reach the machine connector.',
-            status: 'error'
-          };
-        }
       }
 
       const target = createMachineSshTarget(machine);
@@ -238,26 +188,18 @@ export function createLocalProjectMachineBackend(
         return;
       }
 
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         await streamLocalCodexChat(request, emit, undefined, signal);
+        return;
+      }
+
+      if (isRetiredConnectorMachine(machine)) {
+        emit({ message: canonicalRuntimeRequired, type: 'error' });
         return;
       }
 
       if (machine.connector.status !== 'online') {
         emit({ message: `${machine.name} is ${machine.connector.status}.`, type: 'error' });
-        return;
-      }
-
-      if (isConnectorHubMachine(machine)) {
-        try {
-          await streamConnectorCodexChat(request, emit);
-        } catch (error) {
-          emit({
-            message:
-              error instanceof Error ? error.message : 'Could not reach the machine connector.',
-            type: 'error'
-          });
-        }
         return;
       }
 
@@ -290,37 +232,20 @@ export function createLocalProjectMachineBackend(
           status: 'error'
         };
       }
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         return {
           defaultPath: join(homedir(), 'projects'),
           homePath: homedir(),
           status: 'success'
         };
       }
-      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
-        return {
-          defaultPath: '',
-          errorCode: 'disconnected',
-          homePath: '',
-          message: `${machine.name} is ${machine.connector.status}.`,
-          status: 'error'
-        };
-      }
-
-      try {
-        return await requestConnectorFileSystemRoot(request);
-      } catch (error) {
-        return {
-          defaultPath: '',
-          errorCode: 'disconnected',
-          homePath: '',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'The machine connector is not available right now.',
-          status: 'error'
-        };
-      }
+      return {
+        defaultPath: '',
+        errorCode: 'unsupported',
+        homePath: '',
+        message: canonicalRuntimeRequired,
+        status: 'error'
+      };
     },
     async readMachineDirectory(request) {
       const overview = await loadConnectorOverview();
@@ -334,33 +259,16 @@ export function createLocalProjectMachineBackend(
           status: 'error'
         };
       }
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         return readHomeDirectory(request.path);
       }
-      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
-        return {
-          entries: [],
-          errorCode: 'disconnected',
-          message: `${machine.name} is ${machine.connector.status}.`,
-          path: request.path,
-          status: 'error'
-        };
-      }
-
-      try {
-        return await requestConnectorDirectory(request);
-      } catch (error) {
-        return {
-          entries: [],
-          errorCode: 'disconnected',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'The machine connector is not available right now.',
-          path: request.path,
-          status: 'error'
-        };
-      }
+      return {
+        entries: [],
+        errorCode: 'unsupported',
+        message: canonicalRuntimeRequired,
+        path: request.path,
+        status: 'error'
+      };
     },
     async readMachineFile(request) {
       const overview = await loadConnectorOverview();
@@ -374,39 +282,21 @@ export function createLocalProjectMachineBackend(
           status: 'error'
         };
       }
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         return readHomeFile(request.path);
       }
-      if (!isConnectorHubMachine(machine) || machine.connector.status !== 'online') {
-        return {
-          errorCode: 'disconnected',
-          message: `${machine.name} is ${machine.connector.status}.`,
-          name: basename(request.path),
-          path: request.path,
-          status: 'error'
-        };
-      }
-
-      try {
-        return await requestConnectorFile(request);
-      } catch (error) {
-        return {
-          errorCode: 'disconnected',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'The machine connector is not available right now.',
-          name: basename(request.path),
-          path: request.path,
-          status: 'error'
-        };
-      }
+      return {
+        errorCode: 'unsupported',
+        message: canonicalRuntimeRequired,
+        name: basename(request.path),
+        path: request.path,
+        status: 'error'
+      };
     },
     async createMachineDirectory(request) {
       return runDirectoryMutation(
         request.machineId,
         () => createHomeFolder(request.parentPath, request.name),
-        () => requestConnectorFolderCreate(request),
         loadConnectorOverview
       );
     },
@@ -414,7 +304,6 @@ export function createLocalProjectMachineBackend(
       return runDirectoryMutation(
         request.machineId,
         () => renameHomeFolder(request.path, request.name),
-        () => requestConnectorFolderRename(request),
         loadConnectorOverview
       );
     },
@@ -422,7 +311,6 @@ export function createLocalProjectMachineBackend(
       return runDirectoryMutation(
         request.machineId,
         () => deleteHomeFolders(request.paths),
-        () => requestConnectorFolderDelete(request),
         loadConnectorOverview
       );
     },
@@ -441,59 +329,21 @@ export function createLocalProjectMachineBackend(
         };
       }
 
-      if (isHubLocalMachine(machine)) {
+      if (isLocalMachine(machine)) {
         return runTerminalCommand({
           command: request.command,
           cwd: homedir()
         });
       }
 
-      if (machine.connector.status !== 'online') {
-        return {
-          command: request.command,
-          cwd: `machine:${machine.id}`,
-          durationMs: 0,
-          exitCode: 1,
-          stderr: `${machine.name} is ${machine.connector.status}.`,
-          stdout: ''
-        };
-      }
-
-      if (isConnectorHubMachine(machine)) {
-        try {
-          return await requestConnectorTerminalCommand(request);
-        } catch (error) {
-          return {
-            command: request.command,
-            cwd: `machine:${machine.id}`,
-            durationMs: 0,
-            exitCode: 1,
-            stderr:
-              error instanceof Error
-                ? error.message
-                : 'The machine connector is not available right now.',
-            stdout: ''
-          };
-        }
-      }
-
-      const target = createMachineSshTarget(machine);
-
-      if (!target) {
-        return {
-          command: request.command,
-          cwd: `machine:${machine.id}`,
-          durationMs: 0,
-          exitCode: 1,
-          stderr: `${machine.name} does not have an SSH target.`,
-          stdout: ''
-        };
-      }
-
-      return runSshTerminalCommand({
+      return {
         command: request.command,
-        target
-      });
+        cwd: `machine:${machine.id}`,
+        durationMs: 0,
+        exitCode: 1,
+        stderr: canonicalRuntimeRequired,
+        stdout: ''
+      };
     }
   };
 }

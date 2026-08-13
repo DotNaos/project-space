@@ -33,6 +33,7 @@ describe('legacy Machines route canonicalization', () => {
       '/machines',
       '/machines/',
       '/machines/machine%3Aos-pc',
+      '/machines/machine%3Aos-pc/explorer',
       '/machines/machine%3Aos-pc/projects',
       '/machines/machine%3Aos-pc/terminal'
     ]) {

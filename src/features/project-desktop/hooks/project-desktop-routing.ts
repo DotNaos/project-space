@@ -41,7 +41,7 @@ export const projectDetailTabs = [
 ] as const;
 export type ProjectDetailTab = (typeof projectDetailTabs)[number];
 
-export const machineDetailTabs = ['overview', 'projects', 'explorer', 'terminal'] as const;
+export const machineDetailTabs = ['overview', 'projects', 'terminal'] as const;
 export type MachineDetailTab = (typeof machineDetailTabs)[number];
 
 /**
