@@ -518,7 +518,13 @@ printf '200\\n'
     expect(statusEntrypoint).not.toContain('apply|destroy');
     expect(statusEntrypoint).toContain('/opt/platform/share/project-space-preview-current');
     expect(statusEntrypoint).toContain('PROJECT_SPACE_PREVIEW_ASSET_ROOT="$asset_root"');
-    expect(gatewayDockerfile).toContain('COPY src ./src');
+    expect(gatewayDockerfile).toContain(
+      'COPY src/shared/preview-access-gate.ts ./src/shared/preview-access-gate.ts'
+    );
+    expect(gatewayDockerfile).toContain(
+      'COPY src/shared/preview-host.ts ./src/shared/preview-host.ts'
+    );
+    expect(gatewayDockerfile).not.toContain('COPY src ./src');
     expect(gatewayDockerfile).toContain('COPY server ./server');
     expect(gatewayDockerfile).toContain('CMD ["bun", "server/preview-gateway.ts"]');
   });
