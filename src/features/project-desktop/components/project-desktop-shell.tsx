@@ -361,7 +361,6 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           selectedExplorerTarget={desktop.selectedExplorerTarget}
           selectedIssueNumber={desktop.selectedIssueNumber}
           selectedWorkflowRunId={desktop.selectedWorkflowRunId}
-          selectedMachineId={desktop.selectedMachineId}
           selectedTargetPath={desktop.selectedTargetPath}
           settingsSection={desktop.settingsSection}
           structureViolations={desktop.structureViolations}

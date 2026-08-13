@@ -254,7 +254,6 @@ export interface ProjectDetailProps {
   selectedWorkflowRunId?: number;
   selectedRepository?: ProjectSpaceRecord['github'];
   selectedTargetPath: string;
-  selectedMachineId: string;
   showNavigationTabs?: boolean;
   tab: ProjectDetailTab;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
@@ -282,7 +281,6 @@ export function ProjectDetail({
   selectedWorkflowRunId,
   selectedRepository,
   selectedTargetPath,
-  selectedMachineId,
   showNavigationTabs = true,
   tab,
   worktreeDiscovery,
@@ -380,7 +378,6 @@ export function ProjectDetail({
             project={project}
             repository={selectedRepository}
             selectedExplorerTarget={selectedExplorerTarget}
-            selectedMachineId={selectedMachineId}
             worktreeDiscovery={worktreeDiscovery}
             worktrees={worktrees}
           />

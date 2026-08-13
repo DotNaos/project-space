@@ -209,7 +209,6 @@ export interface ProjectMainPanelProps {
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
   selectedWorkflowRunId?: number;
-  selectedMachineId: string;
   selectedTargetPath: string;
   settingsSection: SettingsSection;
   structureViolations: ProjectStructureViolationRecord[];
@@ -263,7 +262,6 @@ export function ProjectMainPanel({
   selectedExplorerTarget,
   selectedIssueNumber,
   selectedWorkflowRunId,
-  selectedMachineId,
   selectedTargetPath,
   settingsSection,
   structureViolations,
@@ -529,7 +527,6 @@ export function ProjectMainPanel({
             selectedWorkflowRunId={selectedWorkflowRunId}
             selectedRepository={selectedRepository}
             selectedTargetPath={selectedTargetPath}
-            selectedMachineId={selectedMachineId}
             showNavigationTabs={!useWorkspaceChrome}
             tab={projectTab}
             worktreeDiscovery={worktreeDiscovery}

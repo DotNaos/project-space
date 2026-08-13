@@ -98,7 +98,6 @@ export function ProjectRepositoryPanel({
   project,
   repository,
   selectedExplorerTarget,
-  selectedMachineId,
   worktreeDiscovery,
   worktrees
 }: {
@@ -109,7 +108,6 @@ export function ProjectRepositoryPanel({
   project: ProjectSpaceRecord;
   repository?: GitHubCatalogRepository;
   selectedExplorerTarget: ExplorerTarget;
-  selectedMachineId: string;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }) {
@@ -233,7 +231,6 @@ export function ProjectRepositoryPanel({
           project={project}
           repository={repository}
           selectedExplorerTarget={selectedExplorerTarget}
-          selectedMachineId={selectedMachineId}
           worktreeDiscovery={worktreeDiscovery}
           worktrees={worktrees}
         />

@@ -181,7 +181,6 @@ export function useProjectDesktop() {
     refresh: refreshWorktreeDiscovery,
     worktrees
   } = useProjectWorktreeDiscovery({
-    machineId: selectedMachineId,
     project,
     selectedTarget: selectedExplorerTarget,
     setSelectedTarget: setSelectedExplorerTarget
@@ -394,15 +393,7 @@ export function useProjectDesktop() {
 
     if (!nextDiscovery) return [];
 
-    if (nextDiscovery.state !== 'ready') {
-      throw new Error(
-        nextDiscovery.state === 'blocked'
-          ? nextDiscovery.message
-          : 'The authoritative worktree scan completed without finding a checkout.'
-      );
-    }
-
-    return nextDiscovery.worktrees;
+    throw new Error(nextDiscovery.message);
   }
 
   async function openSelectedTargetInApp() {

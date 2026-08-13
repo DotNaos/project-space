@@ -157,7 +157,6 @@ export function ProjectHomeOverview({
         .map((project) => {
           matchedProjectIds.add(project.id);
           return {
-            machineId: project.machineId ?? 'local',
             project
           };
         });
@@ -178,7 +177,6 @@ export function ProjectHomeOverview({
         isLocalOnly: true,
         localMatches: [
           {
-            machineId: project.machineId ?? 'local',
             project
           }
         ],
@@ -363,7 +361,7 @@ export function ProjectHomeOverview({
     void Promise.all(
       missingProjects.map(async (project) => {
         const discovery = await projectSpaceClient
-          .discoverProjectWorktrees(project.id, project.machineId)
+          .discoverProjectWorktrees(project.id)
           .catch(() => undefined);
         const worktrees = discovery?.state === 'ready' ? discovery.worktrees : [];
 
