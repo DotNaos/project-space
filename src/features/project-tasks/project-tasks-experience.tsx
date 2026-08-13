@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  ConnectorOverviewResult,
-  GitHubCatalogRepository,
-  ProjectSpaceRecord
-} from '@/shared/project-space-api';
+import type { GitHubCatalogRepository, ProjectSpaceRecord } from '@/shared/project-space-api';
 import { IssueCreationOverlay } from '@/features/project-desktop/components/issue-creation-overlay';
 import {
   browserIssueCreationHistory,
@@ -15,19 +11,14 @@ import { ProjectTasksPage } from './project-tasks-page';
 import { useProjectTasks } from './use-project-tasks';
 
 export function ProjectTasksExperience({
-  connectorOverview,
-  onOpenHistory,
   onOpenTask,
   onShowTasks,
   project,
   projects,
   repositories,
   repository,
-  selectedIssueNumber,
-  targetPath
+  selectedIssueNumber
 }: {
-  connectorOverview: ConnectorOverviewResult;
-  onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
   onOpenTask(issueNumber: number, projectIdOverride?: string): void;
   onShowTasks(): void;
   project: ProjectSpaceRecord;
@@ -35,7 +26,6 @@ export function ProjectTasksExperience({
   repositories: GitHubCatalogRepository[];
   repository?: GitHubCatalogRepository;
   selectedIssueNumber?: number;
-  targetPath: string;
 }) {
   const [creationOpen, setCreationOpen] = useState(() =>
     typeof window !== 'undefined' && isIssueCreationPath(window.location.pathname, project.id)
@@ -51,15 +41,12 @@ export function ProjectTasksExperience({
   onOpenTaskRef.current = onOpenTask;
   const {
     addComment,
-    details,
     error,
     isLoading,
     loadComments,
     refresh,
     tasks,
-    upsertBranch,
-    upsertIssue,
-    upsertPullRequest
+    upsertIssue
   } = useProjectTasks(repository);
   const selectedTask = useMemo(
     () => tasks.find((task) => task.issue.number === selectedIssueNumber),
@@ -116,21 +103,10 @@ export function ProjectTasksExperience({
       {selectedTask ? (
         <ProjectTaskDetail
           addComment={(body) => addComment(selectedTask.issue.number, body)}
-          branches={details?.branches ?? []}
           comments={selectedTask.comments}
-          connectorOverview={connectorOverview}
           isLoadingComments={commentsLoadingFor === selectedTask.issue.number}
           onBack={onShowTasks}
-          onBranchCreated={upsertBranch}
-          onIssueUpdated={upsertIssue}
-          onOpenHistory={onOpenHistory}
-          onPullRequestCreated={upsertPullRequest}
-          project={project}
-          projects={projects}
-          pullRequests={details?.pullRequests ?? []}
           repositoryFullName={repository?.fullName}
-          repositoryUrl={repository?.url}
-          targetPath={targetPath}
           task={selectedTask}
         />
       ) : (

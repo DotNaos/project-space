@@ -8,7 +8,7 @@ import { useCodexDesktop } from './use-codex-desktop';
 import { createProjectDesktopTopologyNavigation } from './project-desktop-topology-navigation';
 import { dedupeProjectCatalog } from './project-catalog-model';
 import {
-  connectorOverviewRefreshIntervalMs,
+  computeInventoryRefreshIntervalMs,
   createGitHubProjectRecord,
   findMatchingProject,
   githubCatalogTimeoutMs,
@@ -49,7 +49,6 @@ import {
 } from './project-route-model';
 import type {
   AppMeta,
-  ConnectorOverviewResult,
   ExplorerTarget,
   GitHubCatalogRepository,
   GitHubCatalogResult,
@@ -68,21 +67,6 @@ const emptyDiscovery: ProjectDiscoveryResult = {
   rootItems: [],
   rootPath: '',
   structureViolations: []
-};
-
-const connectorFallback: ConnectorOverviewResult = {
-  machines: [],
-  machinesRepo: {
-    exists: false,
-    path: ''
-  },
-  tailscale: {
-    connected: false,
-    installed: false,
-    ips: [],
-    peersOnline: 0,
-    serveOrigins: []
-  }
 };
 
 const githubFallback: GitHubCatalogResult = {
@@ -142,8 +126,6 @@ export function useProjectDesktop() {
   const [historyFocus, setHistoryFocus] = useState<GitHistoryFocus>();
   const [launcherApps, setLauncherApps] = useState<LauncherAppRecord[]>([]);
   const [launcherError, setLauncherError] = useState('');
-  const [connectorOverview, setConnectorOverview] =
-    useState<ConnectorOverviewResult>(connectorFallback);
   const [computeInventory, setComputeInventory] = useState<ProjectCliComputeInventory>();
   const [computeInventoryStatus, setComputeInventoryStatus] =
     useState<'error' | 'loading' | 'ready' | 'refreshing'>('loading');
@@ -151,10 +133,12 @@ export function useProjectDesktop() {
   const computeInventoryRef = useRef<ProjectCliComputeInventory | undefined>(undefined);
   const [githubCatalog, setGitHubCatalog] = useState<GitHubCatalogResult>(githubFallback);
   const [appMeta, setAppMeta] = useState<AppMeta>(appMetaFallback);
-  const [isConnectorRefreshing, setIsConnectorRefreshing] = useState(false);
   const [isGitHubRefreshing, setIsGitHubRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
-  const codexDesktop = useCodexDesktop({ connectorOverview, setMainView });
+  const codexDesktop = useCodexDesktop({
+    machineIds: discovery.projects.flatMap((entry) => entry.machineId ? [entry.machineId] : []),
+    setMainView
+  });
 
   const githubProjects = useMemo(() => {
     if (githubCatalog.status !== 'connected') {
@@ -191,9 +175,6 @@ export function useProjectDesktop() {
   const project = selectedProjectId
     ? (projectsById[selectedProjectId] ?? resolveRouteProject(projects, selectedProjectId))
     : undefined;
-  const selectedMachine = selectedMachineId
-    ? connectorOverview.machines.find((machine) => machine.id === selectedMachineId)
-    : undefined;
   const activeGroup = project?.groupId ? groupsById[project.groupId] : undefined;
   const {
     discovery: worktreeDiscovery,
@@ -214,35 +195,6 @@ export function useProjectDesktop() {
   const selectedLauncherAppLabel =
     selectedLauncherApp?.label ??
     (selectedLauncherAppId ? launcherAppLabels[selectedLauncherAppId] : undefined);
-
-  useEffect(() => {
-    if (mainView !== 'project' || connectorOverview.machines.length === 0) {
-      return;
-    }
-
-    if (selectedMachine) {
-      return;
-    }
-
-    const localMachine = connectorOverview.machines.find(
-      (machine) => machine.connector.status === 'local'
-    );
-    const onlineMachine = connectorOverview.machines.find(
-      (machine) => machine.connector.status === 'online'
-    );
-    const projectMachine = project?.machineId
-      ? connectorOverview.machines.find((machine) => machine.id === project.machineId)
-      : undefined;
-    const nextMachine = projectMachine ?? localMachine ?? onlineMachine ?? connectorOverview.machines[0];
-
-    setSelectedMachineId(nextMachine.id);
-  }, [
-    connectorOverview.machines,
-    mainView,
-    project?.machineId,
-    selectedMachine,
-    selectedMachineId
-  ]);
 
   const selectedTargetPath =
     selectedExplorerTarget.kind === 'worktree' && selectedWorktree
@@ -295,26 +247,6 @@ export function useProjectDesktop() {
     });
   }, [hasLoaded, mainView, project?.id]);
 
-  const refreshConnectorOverview = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setIsConnectorRefreshing(true);
-    }
-
-    try {
-      const nextOverview = await projectSpaceClient.getConnectorOverview();
-      const normalizedOverview = nextOverview ?? connectorFallback;
-      setConnectorOverview(normalizedOverview);
-      return normalizedOverview;
-    } catch {
-      setConnectorOverview(connectorFallback);
-      return connectorFallback;
-    } finally {
-      if (!silent) {
-        setIsConnectorRefreshing(false);
-      }
-    }
-  }, []);
-
   const refreshComputeInventory = useCallback(async ({ silent = false } = {}) => {
     setComputeInventoryStatus(computeInventoryRef.current ? 'refreshing' : 'loading');
     if (silent && !computeInventoryRef.current) {
@@ -347,7 +279,7 @@ export function useProjectDesktop() {
       void refreshComputeInventory({ silent: true }).finally(() => {
         isRefreshing = false;
       });
-    }, connectorOverviewRefreshIntervalMs);
+    }, computeInventoryRefreshIntervalMs);
     return () => window.clearInterval(interval);
   }, [refreshComputeInventory]);
 
@@ -391,7 +323,6 @@ export function useProjectDesktop() {
     projects,
     projectTab,
     recentProjectIds,
-    refreshConnectorOverview,
     refreshGitHubCatalog,
     selectedExplorerTarget,
     selectedIssueNumber,
@@ -530,7 +461,6 @@ export function useProjectDesktop() {
   return {
     ...codexDesktop,
     appMeta,
-    connectorOverview,
     computeInventory,
     computeInventoryError,
     computeInventoryStatus,
@@ -542,7 +472,6 @@ export function useProjectDesktop() {
     historyFocus,
     launcherApps,
     launcherError,
-    isConnectorRefreshing,
     isGitHubRefreshing,
     machineTab,
     mainView,
@@ -556,7 +485,6 @@ export function useProjectDesktop() {
     projectTab,
     refreshProjectDiscovery,
     refreshProjectWorktrees,
-    refreshConnectorOverview,
     refreshComputeInventory,
     refreshGitHubCatalog,
     selectedExplorerTarget,
@@ -564,7 +492,6 @@ export function useProjectDesktop() {
     selectedWorkflowRunId,
     selectedLauncherApp,
     selectedLauncherAppLabel,
-    selectedMachine,
     selectedMachineId,
     selectedProjectId,
     selectedTargetName,

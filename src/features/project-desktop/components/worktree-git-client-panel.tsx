@@ -11,7 +11,7 @@ import {
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
-import type { GitStatusEntry, MachineRecord, ProjectWorktreeRecord } from '@/shared/project-space-api';
+import type { GitStatusEntry, ProjectWorktreeRecord } from '@/shared/project-space-api';
 import { useRuntimeBinding } from './runtime-binding-context';
 
 interface WorktreeGitStatus {
@@ -182,11 +182,11 @@ function StatusBadge({ entry }: { entry: GitStatusEntry }) {
 }
 
 export function WorktreeGitClientPanel({
-  machine,
+  machineId,
   onStatusChange,
   worktree
 }: {
-  machine?: MachineRecord;
+  machineId?: string;
   onStatusChange?(status?: WorktreeGitStatusSnapshot): void;
   worktree?: ProjectWorktreeRecord;
 }) {
@@ -197,9 +197,7 @@ export function WorktreeGitClientPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [busyAction, setBusyAction] = useState('');
   const targetPath = worktree?.path ?? '';
-  const canRun = Boolean(
-    machine && (machine.connector.status === 'local' || machine.connector.status === 'online')
-  );
+  const canRun = Boolean(machineId);
 
   const summary = useMemo(() => {
     const entries = status?.entries ?? [];
@@ -212,7 +210,7 @@ export function WorktreeGitClientPanel({
   }, [status?.entries]);
 
   async function refreshStatus() {
-    if (!machine || !targetPath || !canRun) {
+    if (!machineId || !targetPath || !canRun) {
       setStatus(undefined);
       onStatusChange?.(undefined);
       return;
@@ -224,7 +222,7 @@ export function WorktreeGitClientPanel({
     try {
       const result = await projectSpaceClient.runMachineTerminalCommand({
         command: createStatusCommand(targetPath),
-        machineId: machine.id
+        machineId
       });
 
       if (result.exitCode !== 0) {
@@ -261,10 +259,10 @@ export function WorktreeGitClientPanel({
   useEffect(() => {
     void refreshStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machine?.id, machine?.connector.status, targetPath]);
+  }, [machineId, targetPath]);
 
   async function runGitAction(action: string, command: string, successMessage: string) {
-    if (!machine || !targetPath || !canRun) {
+    if (!machineId || !targetPath || !canRun) {
       return;
     }
 
@@ -274,7 +272,7 @@ export function WorktreeGitClientPanel({
     try {
       const result = await projectSpaceClient.runMachineTerminalCommand({
         command,
-        machineId: machine.id
+        machineId
       });
 
       if (result.exitCode !== 0) {
@@ -334,7 +332,7 @@ export function WorktreeGitClientPanel({
         <Text className="px-4 py-4 text-sm text-neutral-500">Select a worktree first.</Text>
       ) : !canRun ? (
         <Text className="px-4 py-4 text-sm text-neutral-500">
-          {machine ? `${machine.name} is ${machine.connector.status}.` : 'Select a machine first.'}
+          {machineId ? 'Workspace Runtime is unavailable.' : 'Select a workspace runtime first.'}
         </Text>
       ) : !status?.isRepository ? (
         <Text className="px-4 py-4 text-sm text-neutral-500">
@@ -499,7 +497,7 @@ export function WorktreeGitClientPanel({
               onPress={() => {
                 if (
                   window.confirm(
-                    `Push ${status?.branchName ?? 'this branch'} from ${machine?.name ?? 'this machine'}?`
+                    `Push ${status?.branchName ?? 'this branch'} from Workspace Runtime?`
                   )
                 ) {
                   void runGitAction('Push', createPushCommand(targetPath), 'Pushed branch.');

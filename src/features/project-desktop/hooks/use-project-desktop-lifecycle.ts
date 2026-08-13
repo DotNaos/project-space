@@ -11,8 +11,8 @@ import type {
 import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
 import { parseCodexSessionRoute } from '../../codex-sessions/codex-session-route';
 import { shouldPreserveUnresolvedProjectRoute } from './project-route-model';
+import { loadProjectDesktopBootstrap } from './project-desktop-bootstrap';
 import {
-  connectorOverviewRefreshIntervalMs,
   parseProjectNavigationRoute,
   parseProjectRoute,
   replaceLegacyMachinesRoute,
@@ -43,7 +43,6 @@ interface LifecycleOptions {
   projects: ProjectSpaceRecord[];
   projectTab: ProjectDetailTab;
   recentProjectIds: string[];
-  refreshConnectorOverview(options?: { silent?: boolean }): Promise<unknown>;
   refreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
@@ -83,7 +82,6 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
     projects,
     projectTab,
     recentProjectIds,
-    refreshConnectorOverview,
     refreshGitHubCatalog,
     selectedExplorerTarget,
     selectedIssueNumber,
@@ -172,11 +170,7 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
     useEffect(() => {
       const initialRoute = parseProjectRoute(window.location.pathname);
       replaceLegacyMachinesRoute(window.location.pathname);
-      void Promise.all([
-        projectSpaceClient.loadProjectsState(),
-        projectSpaceClient.loadProjectDiscovery(),
-        projectSpaceClient.getAppMeta()
-      ])
+      void loadProjectDesktopBootstrap(projectSpaceClient)
         .then(([state, nextDiscovery, nextMeta]) => {
           if (!nextMeta?.runtime) {
             throw new Error('Runtime binding evidence is unavailable.');
@@ -261,34 +255,6 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
         });
     }, []);
 
-    useEffect(() => {
-      if (mainView === 'machines' || mainView === 'settings') {
-        return;
-      }
-      void refreshConnectorOverview();
-    }, [mainView, refreshConnectorOverview]);
-  
-    useEffect(() => {
-      if (mainView === 'machines' || mainView === 'settings') {
-        return;
-      }
-      let isRefreshing = false;
-      const interval = window.setInterval(() => {
-        if (isRefreshing) {
-          return;
-        }
-  
-        isRefreshing = true;
-        void refreshConnectorOverview({ silent: true }).finally(() => {
-          isRefreshing = false;
-        });
-      }, connectorOverviewRefreshIntervalMs);
-  
-      return () => {
-        window.clearInterval(interval);
-      };
-    }, [mainView, refreshConnectorOverview]);
-  
     useEffect(() => {
       function handlePopState() {
         const nextRoute = parseProjectNavigationRoute(window.location.pathname);

@@ -14,15 +14,8 @@ import {
   Send
 } from 'lucide-react';
 import type {
-  ConnectorOverviewResult,
-  GitHubBranchRecord,
-  GitHubIssueCommentRecord,
-  GitHubIssueRecord,
-  GitHubPullRequestRecord,
-  ProjectSpaceRecord
+  GitHubIssueCommentRecord
 } from '@/shared/project-space-api';
-import { IssueDevelopmentSession } from '@/features/project-desktop/components/issue-development-session';
-import { IssueDevelopmentPipeline } from '@/features/project-desktop/components/issue-development-pipeline';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
 import { IssueLabelChip } from '@/features/project-desktop/components/issue-visuals';
 import { useRuntimeBinding } from '@/features/project-desktop/components/runtime-binding-context';
@@ -36,6 +29,23 @@ function taskStateLabel(task: ProjectTaskViewModel) {
   if (task.state === 'review') return 'Review';
   if (task.state === 'active') return 'Active';
   return 'Backlog';
+}
+
+function WorkspaceRuntimeNotice() {
+  return (
+    <section className="grid gap-3 rounded-xl border border-current/[.08] bg-current/[.025] p-5">
+      <div>
+        <h2 className="text-sm font-semibold text-current/85">Workspace Runtime</h2>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-current/55">
+          Task execution and pipeline actions are available through the canonical Compute view.
+          Open Compute to inspect the available runtime before continuing.
+        </p>
+      </div>
+      <a className="inline-flex w-fit" href="/settings">
+        <Button size="sm" variant="secondary">Open Compute</Button>
+      </a>
+    </section>
+  );
 }
 
 function TaskStateChipIcon({ task }: { task: ProjectTaskViewModel }) {
@@ -103,39 +113,17 @@ function CommentTimeline({ comments, repositoryFullName }: {
 
 export function ProjectTaskDetail({
   addComment,
-  branches,
   comments,
-  connectorOverview,
   isLoadingComments,
   onBack,
-  onBranchCreated,
-  onIssueUpdated,
-  onOpenHistory,
-  onPullRequestCreated,
-  project,
-  projects,
-  pullRequests,
   repositoryFullName,
-  repositoryUrl,
-  targetPath,
   task
 }: {
   addComment(body: string): Promise<void>;
-  branches: GitHubBranchRecord[];
   comments: GitHubIssueCommentRecord[];
-  connectorOverview: ConnectorOverviewResult;
   isLoadingComments: boolean;
   onBack(): void;
-  onBranchCreated(branch: GitHubBranchRecord): void;
-  onIssueUpdated(issue: GitHubIssueRecord): void;
-  onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
-  onPullRequestCreated(pullRequest: GitHubPullRequestRecord): void;
-  project: ProjectSpaceRecord;
-  projects: ProjectSpaceRecord[];
-  pullRequests: GitHubPullRequestRecord[];
   repositoryFullName?: string;
-  repositoryUrl?: string;
-  targetPath: string;
   task: ProjectTaskViewModel;
 }) {
   const runtime = useRuntimeBinding();
@@ -144,7 +132,6 @@ export function ProjectTaskDetail({
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const pullRequest = task.pullRequest;
-  const pipeline = task.pipeline;
   const hasLongDescription = (task.issue.body?.length ?? 0) > 420;
   const stateChip = taskStateChip(task);
   const pullRequestChip = pullRequest ? pullRequestChipPresentation(pullRequest) : undefined;
@@ -246,36 +233,11 @@ export function ProjectTaskDetail({
           </div>
         )}
         pipeline={(
-          <IssueDevelopmentPipeline
-            connectorOverview={connectorOverview}
-            health={task.health}
-            issueNumber={task.issue.number}
-            pipeline={pipeline}
-            project={project}
-            projects={projects}
-            pullRequest={pullRequest}
-            repositoryFullName={repositoryFullName}
-          />
+          <WorkspaceRuntimeNotice />
         )}
         resetKey={task.issue.number}
         runner={(
-          <section className="py-5">
-            <IssueDevelopmentSession
-              branches={branches}
-              connectorOverview={connectorOverview}
-              issue={task.issue}
-              onBranchCreated={onBranchCreated}
-              onOpenHistory={onOpenHistory}
-              onPullRequestCreated={onPullRequestCreated}
-              project={project}
-              projects={projects}
-              pullRequests={pullRequests}
-              repoFullName={repositoryFullName}
-              repoUrl={repositoryUrl}
-              showDelivery={false}
-              targetPath={targetPath}
-            />
-          </section>
+          <div className="py-5"><WorkspaceRuntimeNotice /></div>
         )}
       />
     </section>

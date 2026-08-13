@@ -172,17 +172,7 @@ export function sourceLabelForRow(row: MatrixRow) {
     return row.repo.owner;
   }
 
-  const machineIds = Array.from(new Set(row.localMatches.map((match) => match.machineId)));
-
-  if (machineIds.length === 1) {
-    return machineIds[0];
-  }
-
-  if (machineIds.length > 1) {
-    return `${machineIds.length} machines`;
-  }
-
-  return 'local';
+  return 'Local workspace';
 }
 
 function cloneSourceForRow(row: MatrixRow) {

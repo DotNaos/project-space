@@ -11,7 +11,6 @@ import {
   writeCodexSessionRoute,
   type CodexSessionTarget
 } from '../../codex-sessions/codex-session-route';
-import type { ConnectorOverviewResult } from '@/shared/project-space-api';
 import type { ProjectMainView } from './project-desktop-routing';
 
 function currentTarget(): CodexSessionTarget | undefined {
@@ -23,10 +22,10 @@ function currentTarget(): CodexSessionTarget | undefined {
 }
 
 export function useCodexDesktop({
-  connectorOverview,
+  machineIds,
   setMainView
 }: {
-  connectorOverview: ConnectorOverviewResult;
+  machineIds: string[];
   setMainView: Dispatch<SetStateAction<ProjectMainView>>;
 }) {
   const [selectedOrigin, setSelectedOrigin] = useState<CodexSessionTarget | undefined>(currentTarget);
@@ -39,9 +38,7 @@ export function useCodexDesktop({
         ),
     getAuthToken: refreshProjectSpaceAuthToken
   }), undefined, (machineId, signal) => projectSpaceClient.getMachineRuntime(machineId, signal)), []);
-  const machineIds = useMemo(() => (
-    [...new Set(connectorOverview.machines.map((machine) => machine.id).filter(Boolean))]
-  ), [connectorOverview.machines]);
+  const codexMachineIds = useMemo(() => [...new Set(machineIds.filter(Boolean))], [machineIds]);
 
   useEffect(() => () => controller.dispose(), [controller]);
 
@@ -78,7 +75,7 @@ export function useCodexDesktop({
 
   return {
     codexController: controller,
-    codexMachineIds: machineIds,
+    codexMachineIds,
     selectedCodexOrigin: selectedOrigin,
     openCodex(target?: CodexSessionTarget) {
       setSelectedOrigin(target);

@@ -586,7 +586,7 @@ export function ProjectCodexTasks({
     const connector = connectorOverview?.machines.find((machine) => machine.id === machineId);
     return [machineId, codexInventoryTruth({
       connector,
-      connectorRequired: connectorOverview !== undefined,
+      connectorRequired: false,
       inventory: inventoryByMachineId.get(machineId),
       loading: state.loadingMachineIds.includes(machineId),
       now,
@@ -607,7 +607,7 @@ export function ProjectCodexTasks({
       truthByConnectorId.size > 0
         ? [...truthByConnectorId.values()]
         : [codexInventoryTruth({
-            connectorRequired: true,
+            connectorRequired: false,
             overviewRefreshing: isConnectorRefreshing
           })]
     ),
