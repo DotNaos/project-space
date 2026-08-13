@@ -18,5 +18,7 @@ ENV PROJECT_SPACE_HOST=0.0.0.0
 ENV PORT=4173
 COPY --from=deps /workspace/node_modules /workspace/node_modules
 COPY package.json ./
+COPY src/shared/preview-access-gate.ts ./src/shared/preview-access-gate.ts
+COPY src/shared/preview-host.ts ./src/shared/preview-host.ts
 COPY server ./server
 CMD ["bun", "server/preview-gateway.ts"]

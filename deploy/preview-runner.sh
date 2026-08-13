@@ -332,6 +332,24 @@ emit_receipt() {
   printf '%s%s\n' "$PREVIEW_RECEIPT_PREFIX" "$compact_record"
 }
 
+sanitize_preview_diagnostics() {
+  sed -E \
+    -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
+    -e 's/(Bearer|Basic)[[:space:]]+[A-Za-z0-9._~+\/-]+/\1 [REDACTED]/Ig' \
+    | tail -n 80
+}
+
+capture_preview_failure_diagnostics() {
+  printf '%s\n' 'Sanitized Preview gateway diagnostics:' >&2
+  compose ps -a gateway 2>&1 | sanitize_preview_diagnostics >&2 || true
+  compose logs --no-color --tail=80 gateway 2>&1 | sanitize_preview_diagnostics >&2 || true
+  gateway_container=$(compose ps -aq gateway 2>/dev/null || true)
+  if [ -n "$gateway_container" ]; then
+    docker inspect --format '{{range .State.Health.Log}}{{println .Start .End .ExitCode .Output}}{{end}}' \
+      "$gateway_container" 2>&1 | sanitize_preview_diagnostics >&2 || true
+  fi
+}
+
 destroy_resources() {
   if [ -f "$env_file" ]; then compose down --volumes --remove-orphans --timeout 30 >/dev/null 2>&1 || true; fi
   containers=$(docker ps -aq --filter "label=com.dotnaos.project-space.repository=$repository" --filter "label=com.dotnaos.project-space.pr=$pr")
@@ -492,6 +510,7 @@ apply_preview() {
     emit_receipt "$record"
     return
   fi
+  capture_preview_failure_diagnostics
   if [ -n "$previous_record" ] && [ -f "$previous_env" ] && [ -d "$runtime_dir/repository.previous" ]; then
     rm -rf -- "$repo_path"
     mv -- "$runtime_dir/repository.previous" "$repo_path"
@@ -505,6 +524,7 @@ apply_preview() {
       emit_receipt "$record"
       exit 72
     fi
+    capture_preview_failure_diagnostics
   fi
   destroy_resources
   remove_runtime_tree
