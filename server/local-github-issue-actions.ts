@@ -73,6 +73,7 @@ interface GitHubApiIssueComment {
   id: number;
   updated_at?: string | null;
   user?: {
+    avatar_url?: string;
     login?: string;
   } | null;
 }
@@ -107,6 +108,7 @@ function repoApiPath(fullName: string) {
 function mapGitHubComment(comment: GitHubApiIssueComment): GitHubIssueCommentRecord {
   return {
     author: comment.user?.login,
+    authorAvatarUrl: comment.user?.avatar_url,
     body: comment.body ?? '',
     createdAt: comment.created_at ?? undefined,
     id: comment.id,

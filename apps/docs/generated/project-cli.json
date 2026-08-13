@@ -2842,13 +2842,19 @@
           {
             "name": "local-only",
             "type": "bool",
-            "description": "start without a Tailscale route (the default; retained for compatibility)",
+            "description": "deprecated alias for --no-tailnet",
+            "inherited": false
+          },
+          {
+            "name": "no-tailnet",
+            "type": "bool",
+            "description": "keep the server on this machine instead of publishing it through Tailscale",
             "inherited": false
           },
           {
             "name": "tailnet",
             "type": "bool",
-            "description": "publish the verified listener through Tailscale",
+            "description": "publish through Tailscale (the default; retained for compatibility)",
             "inherited": false
           }
         ],

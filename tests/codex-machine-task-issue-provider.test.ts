@@ -23,6 +23,7 @@ const issue = {
   title: 'Build Codex machine task core and CLI',
   url: 'https://github.com/DotNaos/project-space/issues/262'
 };
+const issueBranch = '262-build-codex-machine-task-core-and-cli';
 
 describe('Codex machine-task issue provider', () => {
   test('creates one deterministic issue branch from the exact default branch and commit', async () => {
@@ -50,7 +51,7 @@ describe('Codex machine-task issue provider', () => {
                 {
                   commitSha: commit,
                   isDefault: false,
-                  name: 'issue-262-build-codex-machine-task-core-and-cli'
+                  name: issueBranch
                 }
               ],
           checkedAt: '', issues: [issue], pullRequests: [], status: 'connected' as const
@@ -63,7 +64,7 @@ describe('Codex machine-task issue provider', () => {
       repositoryId: 'DotNaos/project-space',
       userId: 'user-owner'
     })).resolves.toEqual({
-      branch: 'issue-262-build-codex-machine-task-core-and-cli',
+      branch: issueBranch,
       commit,
       issue: { number: 262, url: issue.url },
       repository: { id: '42', nameWithOwner: repository.fullName }
@@ -71,7 +72,7 @@ describe('Codex machine-task issue provider', () => {
     expect(calls).toEqual([{
       fullName: repository.fullName,
       issueNumber: 262,
-      name: 'issue-262-build-codex-machine-task-core-and-cli',
+      name: issueBranch,
       sourceBranch: 'main'
     }]);
     expect(detailReads).toBe(2);
@@ -119,7 +120,7 @@ describe('Codex machine-task issue provider', () => {
           branches: [{
             commitSha: commit,
             isDefault: false,
-            name: 'issue-262-build-codex-machine-task-core-and-cli'
+            name: issueBranch
           }],
           checkedAt: '',
           issues: [issue],
@@ -130,7 +131,7 @@ describe('Codex machine-task issue provider', () => {
     });
 
     const rejected = provider({
-      expectedBranch: 'issue-262-build-codex-machine-task-core-and-cli',
+      expectedBranch: issueBranch,
       expectedCommit: 'b'.repeat(40),
       issue: 262,
       repositoryId: repository.fullName,

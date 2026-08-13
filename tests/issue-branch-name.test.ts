@@ -7,10 +7,10 @@ describe('issueBranchName', () => {
     expect(issueBranchName(
       445,
       'Show the current project and Tasks page in the browser tab title'
-    )).toBe('issue-445-show-the-current-project-and-tasks-page-in-the-b');
+    )).toBe('445-show-the-current-project-and-tasks-page-in-the-b');
   });
 
   test('falls back to the issue number when the title has no slug characters', () => {
-    expect(issueBranchName(12, '---')).toBe('issue-12');
+    expect(issueBranchName(12, '---')).toBe('12');
   });
 });

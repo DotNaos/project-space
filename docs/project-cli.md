@@ -363,6 +363,7 @@ project serve --apis simulated --data local
 project serve --apis external --data local
 project serve --apis external --data remote
 project serve --tailnet
+project serve --no-tailnet
 project serve dev <directory>
 project serve dev <directory> --allowed-host preview.example.com
 project serve status <directory> --script dev --json
@@ -396,14 +397,13 @@ delivery to the detached server has not been finalized. A raw token is never a
 CLI option. Remote data must never be migrated, seeded, reset, or otherwise
 mutated automatically during startup.
 
-API and data options select only the backend composition. They do not imply
-public exposure, Tailscale, ngrok, or another tunnel. Plain `project serve`
-uses local-only transport and never contacts Tailscale. `--tailnet` is the
-separate explicit publication control. Simulated APIs remain loopback-only
-until local owner authentication is available; external API publication
-remains blocked with the rest of the external profile. The older
-`--local-only` spelling remains a compatible explicit statement of the default
-and cannot be combined with `--tailnet`.
+API and data options select only the backend composition. They do not choose
+where the server can be reached. Plain `project serve` publishes its verified
+listener through Tailscale while still using simulated APIs and local data by
+default. `--no-tailnet` is the explicit network opt-out and keeps the server on
+the current machine. `--tailnet` remains a compatible explicit statement of
+the default. The older `--local-only` spelling is a deprecated alias for
+`--no-tailnet`; neither opt-out can be combined with `--tailnet`.
 
 Simulation state is stored per managed worktree at
 `<Project Space serve state>/simulations/<server-id>.json`. On macOS the serve

@@ -14,10 +14,11 @@ interface PackageJson {
 }
 
 export async function readAppMeta(): Promise<AppMeta> {
-  const [packageJson, gitCommit, gitBranch] = await Promise.all([
+  const [packageJson, gitCommit, gitBranch, gitReleaseTag] = await Promise.all([
     readPackageJson(),
     envOrGit('PROJECT_SPACE_BUILD_COMMIT', ['rev-parse', 'HEAD']),
-    envOrGit('PROJECT_SPACE_BUILD_REF', ['branch', '--show-current'])
+    envOrGit('PROJECT_SPACE_BUILD_REF', ['branch', '--show-current']),
+    gitValue(['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*'])
   ]);
   const commit = gitCommit || undefined;
   const preview = pullRequestPreviewMetadataFromBuild(
@@ -35,11 +36,28 @@ export async function readAppMeta(): Promise<AppMeta> {
     platform: process.platform,
     ...(preview ? { preview } : {}),
     ref: gitBranch || undefined,
-    version:
-      process.env.PROJECT_SPACE_BUILD_VERSION ||
-      packageJson.version ||
-      'unknown'
+    version: resolveAppVersion({
+      buildVersion: process.env.PROJECT_SPACE_BUILD_VERSION,
+      gitReleaseTag,
+      packageVersion: packageJson.version
+    })
   };
+}
+
+export function resolveAppVersion(input: {
+  buildVersion?: string;
+  gitReleaseTag?: string;
+  packageVersion?: string;
+}) {
+  const buildVersion = input.buildVersion?.trim();
+  if (buildVersion) return buildVersion;
+
+  const releaseVersion = input.gitReleaseTag?.trim().match(
+    /^v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/
+  )?.[1];
+  if (releaseVersion) return releaseVersion;
+
+  return input.packageVersion?.trim() || 'unknown';
 }
 
 async function readPackageJson(): Promise<PackageJson> {
@@ -56,6 +74,10 @@ async function envOrGit(envName: string, gitArgs: string[]) {
     return envValue;
   }
 
+  return gitValue(gitArgs);
+}
+
+async function gitValue(gitArgs: string[]) {
   try {
     const { stdout } = await execFileAsync('git', gitArgs, {
       cwd: process.env.PROJECT_SPACE_BACKEND_REPO_PATH || process.cwd(),

@@ -41,6 +41,7 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 		!containsEnvironment(command.Env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=") ||
 		!containsEnvironment(command.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
 		!containsEnvironment(command.Env, "PROJECT_SPACE_SERVE_MODE=managed") ||
+		!containsEnvironment(command.Env, "PROJECT_SPACE_RUNTIME_ACCESS_URL="+*started.PublicURL) ||
 		!containsEnvironment(command.Env, "PORTLESS_URL="+*started.LocalURL) {
 		t.Fatalf("managed environment = %#v", command.Env)
 	}
@@ -310,7 +311,7 @@ func TestLocalOnlyRequiresExplicitModeAndNeverPublishesTailnet(t *testing.T) {
 	}
 	if len(processes.started) != 1 || !containsEnvironment(
 		processes.started[0].Env, "PROJECT_SPACE_SERVE_MODE=local-only",
-	) {
+	) || !containsEnvironment(processes.started[0].Env, "PROJECT_SPACE_RUNTIME_ACCESS_URL="+*started.LocalURL) {
 		t.Fatalf("local-only command = %#v", processes.started)
 	}
 	stopped, err := manager.Stop(context.Background(), project, "dev")

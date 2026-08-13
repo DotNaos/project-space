@@ -8,7 +8,7 @@ import {
 } from './pull-request-preview-model';
 import { PublicDeploymentLink, visibleDeploymentUrl } from './public-deployment-link';
 import { useRuntimeBinding } from './runtime-binding-context';
-import { StatusChip, StatusIcon } from './deployment-status-ui';
+import { StatusIcon } from './deployment-status-ui';
 
 export function PullRequestPreviewStatusView({
   inventory,
@@ -28,6 +28,13 @@ export function PullRequestPreviewStatusView({
     repositoryFullName
   });
   const active = presentation.state === 'checking' || presentation.state === 'progress';
+  const statusTextTone = presentation.tone === 'success'
+    ? 'text-emerald-300'
+    : presentation.tone === 'warning'
+      ? 'text-amber-300'
+      : presentation.tone === 'danger'
+        ? 'text-rose-300'
+        : 'text-neutral-400';
   const publicHref = runtime.apis === 'simulated'
     ? presentation.href
     : presentation.href && pullRequest && typeof returnPath === 'string'
@@ -38,7 +45,7 @@ export function PullRequestPreviewStatusView({
     <div className="grid min-w-0 gap-2">
       <div className="flex min-w-0 items-center gap-2">
         <StatusIcon active={active} tone={presentation.tone} />
-        <StatusChip tone={presentation.tone}>{presentation.label}</StatusChip>
+        <span className={`text-xs font-medium ${statusTextTone}`}>{presentation.label}</span>
       </div>
       <Text className="text-xs leading-5 text-neutral-500">{presentation.detail}</Text>
       {publicHref ? (

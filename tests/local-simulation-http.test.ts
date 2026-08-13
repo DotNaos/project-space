@@ -55,6 +55,9 @@ describe('local simulation HTTP runtime', () => {
     });
     expect(start.state).toBe('confirmed');
     expect((await json('/api/codex/tasks/existing?connectorId=local-simulation-machine&issue=616&repositoryId=DotNaos%2Fproject-space')).state).toBe('confirmed');
+    expect((await json('/api/codex/tasks/existing?connectorId=local-simulation-machine&issue=617&repositoryId=DotNaos%2Fproject-space')).state).toBe('missing');
+    expect((await json('/api/codex/tasks/existing?connectorId=another-machine&issue=616&repositoryId=DotNaos%2Fproject-space')).state).toBe('missing');
+    expect((await json('/api/codex/tasks/existing?connectorId=local-simulation-machine&issue=616&repositoryId=DotNaos%2Fanother-repository')).state).toBe('missing');
 
     const reset = await json('/api/local-simulation/reset', { method: 'POST' });
     expect(Number(reset.revision)).toBeGreaterThan(1);
@@ -97,6 +100,23 @@ describe('local simulation HTTP runtime', () => {
     }
   });
 
+  test('provides an author profile picture for simulated comments', async () => {
+    const comments = await json('/api/github/issue-comments?number=616');
+    expect(comments.comments).toMatchObject([{
+      author: 'Hecate',
+      authorAvatarUrl: expect.stringMatching(/^data:image\/svg\+xml,/)
+    }]);
+
+    const created = await json('/api/github/issue-comments', {
+      body: JSON.stringify({ body: 'A comment with a local profile picture.', number: 616 }),
+      method: 'POST'
+    });
+    expect(created.comment).toMatchObject({
+      author: 'Hecate',
+      authorAvatarUrl: expect.stringMatching(/^data:image\/svg\+xml,/)
+    });
+  });
+
   test('materializes a simulated branch into coherent local worktree state', async () => {
     const created = await json('/api/worktrees/materialize', {
       body: JSON.stringify({
@@ -122,6 +142,17 @@ describe('local simulation HTTP runtime', () => {
     expect((worktrees.worktrees as Array<{ branchName: string }>).filter(
       (worktree) => worktree.branchName === 'main'
     )).toHaveLength(1);
+  });
+
+  test('supports local development server controls', async () => {
+    const stopped = await json('/api/dev-servers/stop', { method: 'POST' });
+    expect(stopped.servers).toMatchObject([{ state: 'stopped' }]);
+
+    const inspected = await json('/api/dev-servers/inspect', { method: 'POST' });
+    expect(inspected.servers).toMatchObject([{ state: 'stopped' }]);
+
+    const started = await json('/api/dev-servers/start', { method: 'POST' });
+    expect(started.servers).toMatchObject([{ state: 'running' }]);
   });
 
   test('supports an idempotent issue-to-branch-to-pull-request journey', async () => {

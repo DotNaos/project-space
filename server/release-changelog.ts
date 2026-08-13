@@ -12,6 +12,8 @@ const repository = 'DotNaos/project-space';
 const cacheTtlMs = 5 * 60 * 1_000;
 const fetchTimeoutMs = 5_000;
 const maximumBodyLength = 100_000;
+const releasesPerPage = 100;
+const maximumReleasePages = 10;
 
 interface CacheEntry {
   expiresAt: number;
@@ -81,21 +83,7 @@ export async function loadReleaseChangelog(
     'x-github-api-version': '2022-11-28'
   };
   if (githubToken) headers.authorization = `Bearer ${githubToken}`;
-  const response = await fetchRelease(
-    `https://api.github.com/repos/${repository}/releases?per_page=100`,
-    {
-      headers,
-      signal: AbortSignal.timeout(fetchTimeoutMs)
-    }
-  );
-  if (!response.ok) {
-    throw new Error(`GitHub release history is unavailable (${response.status}).`);
-  }
-
-  const source: unknown = await response.json();
-  if (!Array.isArray(source)) {
-    throw new Error('GitHub returned invalid release history.');
-  }
+  const source = await fetchReleaseHistory(fetchRelease, headers);
 
   const releases = source
     .map(parsePublishedRelease)
@@ -112,6 +100,35 @@ export async function loadReleaseChangelog(
     releases,
     schema: releaseChangelogSchema
   };
+}
+
+async function fetchReleaseHistory(
+  fetchRelease: typeof fetch,
+  headers: Record<string, string>
+) {
+  const releases: unknown[] = [];
+  for (let page = 1; page <= maximumReleasePages; page += 1) {
+    const pageQuery = page === 1 ? '' : `&page=${page}`;
+    const response = await fetchRelease(
+      `https://api.github.com/repos/${repository}/releases?per_page=${releasesPerPage}${pageQuery}`,
+      {
+        headers,
+        signal: AbortSignal.timeout(fetchTimeoutMs)
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`GitHub release history is unavailable (${response.status}).`);
+    }
+
+    const source: unknown = await response.json();
+    if (!Array.isArray(source)) {
+      throw new Error('GitHub returned invalid release history.');
+    }
+    releases.push(...source);
+    if (source.length < releasesPerPage) return releases;
+  }
+
+  throw new Error('GitHub release history exceeds the supported page limit.');
 }
 
 function parsePublishedRelease(value: unknown): ReleaseChangelogEntry | undefined {

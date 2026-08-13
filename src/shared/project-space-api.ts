@@ -51,6 +51,7 @@ export interface AppMeta {
   preview?: PullRequestPreviewBuildMetadata;
   ref?: string;
   runtime?: {
+    accessUrl?: string;
     apis: 'simulated' | 'external';
     data: 'local' | 'remote';
     network: 'loopback-only' | 'external';
@@ -562,6 +563,7 @@ export interface GitHubIssueRecord {
 
 export interface GitHubIssueCommentRecord {
   author?: string;
+  authorAvatarUrl?: string;
   body: string;
   createdAt?: string;
   id: number;

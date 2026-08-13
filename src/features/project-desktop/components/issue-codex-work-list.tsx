@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Bot, LoaderCircle, Monitor, Play, Server } from 'lucide-react';
+import { Bot, CheckCircle2, LoaderCircle, Play, TriangleAlert } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button } from '@/app/dotnaos-ui';
 import type {
@@ -8,7 +8,6 @@ import type {
 } from '@/shared/codex-machine-tasks-api';
 import { useIssueCodexInventory } from '../hooks/use-issue-codex-inventory';
 import {
-  physicalMachineSummary,
   type IssueMachineProjectRow
 } from './issue-development-machine-actions';
 import {
@@ -26,6 +25,14 @@ import {
   mergeIssueCodexThreadEntries,
   type IssueCodexThreadEntry
 } from './issue-codex-thread-row';
+import {
+  IssueCodexStartDialog,
+  type IssueCodexDialogFooterAction,
+  type IssueCodexOfflineDialogGroup,
+  type IssueCodexStartDialogGroup
+} from './issue-codex-start-dialog';
+import type { GitHubCodespaceLaunchStatus } from './github-codespace-destination';
+import { useIssueCodexHostWake } from './use-issue-codex-host-wake';
 
 export interface IssueCodexExternalTask {
   environmentLabel: string;
@@ -43,8 +50,11 @@ export interface IssueCodexLookupTarget extends IssueCodexInventoryTarget {
 
 export interface IssueCodexWorkListProps {
   busyConnectorId?: string;
+  busyDestinationName?: string;
   canStart: boolean;
   cloudDestination?: ReactNode;
+  cloudFooterAction?: IssueCodexDialogFooterAction;
+  cloudLaunchStatus?: GitHubCodespaceLaunchStatus;
   expectedBranch?: string;
   expectedCommit?: string;
   externalTasks?: IssueCodexExternalTask[];
@@ -54,6 +64,9 @@ export interface IssueCodexWorkListProps {
   onError(message: string): void;
   onStart(row: IssueMachineProjectRow): void;
   repositoryId: string;
+  renderThreadControls?(connectorId: string): ReactNode;
+  startError?: string;
+  startMessage?: string;
 }
 
 interface ConnectorSnapshot {
@@ -95,60 +108,34 @@ function unavailablePresentation(message: string, stateLabel: string): IssueCode
   return { canStart: false, message, state: 'unavailable', stateLabel };
 }
 
-function StartRow({
-  busy,
-  onError,
-  onStart,
-  presentation,
-  target
-}: {
-  busy: boolean;
-  onError(message: string): void;
-  onStart(row: IssueMachineProjectRow): void;
-  presentation: IssueCodexStartPresentation;
-  target: IssueCodexConnectorTarget;
-}) {
-  const showDetails = presentation.state === 'blocked'
-    || presentation.state === 'attention'
-    || presentation.state === 'unavailable';
-  return (
-    <div
-      className="flex min-h-12 min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-current/[.07] py-2.5 pl-5"
-      data-codex-start-state={presentation.state}
-      title={presentation.message}
-    >
-      <Server className="size-3.5 shrink-0 text-current/30" />
-      <div className="min-w-36 flex-1">
-        <p className="truncate text-xs font-medium text-current/65">{target.environmentLabel}</p>
-        <p className={`mt-0.5 truncate text-[10px] ${presentation.state === 'ready' ? 'text-emerald-300' : presentation.state === 'blocked' || presentation.state === 'attention' ? 'text-amber-300' : 'text-current/35'}`}>
-          {presentation.stateLabel}
-        </p>
-      </div>
-      {presentation.canStart ? (
-        <Button
-          isDisabled={busy}
-          onPress={() => onStart(target.row)}
-          size="sm"
-          variant="ghost"
-        >
-          {busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-          {busy ? 'Starting…' : 'Start'}
-        </Button>
-      ) : showDetails ? (
-        <Button onPress={() => onError(presentation.message)} size="sm" variant="ghost">
-          Details
-        </Button>
-      ) : presentation.state === 'checking' ? (
-        <LoaderCircle aria-label="Checking readiness" className="mr-2 size-3.5 animate-spin text-current/30" />
-      ) : null}
-    </div>
-  );
+export function groupIssueCodexTargetsByHost(targets: readonly IssueCodexConnectorTarget[]) {
+  const groups = new Map<string, {
+    key: string;
+    name: string;
+    targets: IssueCodexConnectorTarget[];
+  }>();
+
+  for (const target of targets) {
+    const key = target.physicalMachineName.trim().toLowerCase();
+    const group = groups.get(key) ?? {
+      key,
+      name: target.physicalMachineName,
+      targets: []
+    };
+    group.targets.push(target);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()];
 }
 
 export function IssueCodexWorkList({
   busyConnectorId,
+  busyDestinationName,
   canStart,
   cloudDestination,
+  cloudFooterAction,
+  cloudLaunchStatus,
   expectedBranch,
   expectedCommit,
   externalTasks = [],
@@ -157,14 +144,36 @@ export function IssueCodexWorkList({
   machineRows,
   onError,
   onStart,
-  repositoryId
+  repositoryId,
+  renderThreadControls,
+  startError,
+  startMessage
 }: IssueCodexWorkListProps) {
-  const targets = useMemo(() => issueCodexConnectorTargets(machineRows), [machineRows]);
+  const cloudConnectorIds = useMemo(
+    () => new Set(supplementalLookupTargets.map((target) => target.connectorId)),
+    [supplementalLookupTargets]
+  );
+  const allTargets = useMemo(
+    () => issueCodexConnectorTargets(machineRows).filter(
+      (target) => !cloudConnectorIds.has(target.connectorId)
+    ),
+    [cloudConnectorIds, machineRows]
+  );
+  const targets = useMemo(
+    () => allTargets.filter((target) => target.isOnline),
+    [allTargets]
+  );
+  const offlineTargets = useMemo(
+    () => allTargets.filter((target) => !target.isOnline),
+    [allTargets]
+  );
   const lookupTargets = useMemo(() => {
     const connectorIds = new Set(targets.map((target) => target.connectorId));
     return [
       ...targets,
-      ...supplementalLookupTargets.filter((target) => !connectorIds.has(target.connectorId))
+      ...supplementalLookupTargets.filter(
+        (target) => target.isOnline !== false && !connectorIds.has(target.connectorId)
+      )
     ];
   }, [supplementalLookupTargets, targets]);
   const inventory = useIssueCodexInventory(lookupTargets);
@@ -201,7 +210,12 @@ export function IssueCodexWorkList({
     values: {}
   });
   const [now, setNow] = useState(() => new Date());
-  const machineSummary = useMemo(() => physicalMachineSummary(machineRows), [machineRows]);
+  const [startDialogOpen, setStartDialogOpen] = useState(false);
+  const offlineGroups: IssueCodexOfflineDialogGroup[] = useMemo(
+    () => groupIssueCodexTargetsByHost(offlineTargets),
+    [offlineTargets]
+  );
+  const hostWake = useIssueCodexHostWake({ groups: offlineGroups, isOpen: startDialogOpen });
   const currentSnapshotState = snapshotState.scopeKey === scopeKey
     ? snapshotState
     : { checked: false, refreshing: true, scopeKey, values: {} };
@@ -338,27 +352,14 @@ export function IssueCodexWorkList({
   const cloudTargetHasThread = supplementalLookupTargets.some((target) =>
     Boolean(existingFromSnapshot(snapshots[target.key]))
     || inventoryThreadConnectorIds.has(target.connectorId));
-  const cloudDiscoveryBlocked = supplementalLookupTargets.some((target) =>
-    !currentSnapshotState.checked
-    || Boolean(snapshots[target.key]?.existingError)
-    || !inventory.verifiedConnectorIds.has(target.connectorId));
-  const visibleCloudDestination = cloudTargetHasThread || cloudDiscoveryBlocked ? undefined : cloudDestination;
+  const visibleCloudDestination = cloudTargetHasThread ? undefined : cloudDestination;
   const startTargets = canStart
     ? targets.filter((target) => (
         !existingFromSnapshot(snapshots[target.key])
         && !inventoryThreadConnectorIds.has(target.connectorId)
       ))
     : [];
-  const startGroups = [...new Map(startTargets.map((target) => [
-    target.physicalMachineId ?? target.physicalMachineName,
-    {
-      key: target.physicalMachineId ?? target.physicalMachineName,
-      name: target.physicalMachineName,
-      targets: startTargets.filter((candidate) => (
-        candidate.physicalMachineId ?? candidate.physicalMachineName
-      ) === (target.physicalMachineId ?? target.physicalMachineName))
-    }
-  ])).values()];
+  const groupedStartTargets = groupIssueCodexTargetsByHost(startTargets);
 
   function startPresentation(target: IssueCodexConnectorTarget) {
     const snapshot = snapshots[target.key];
@@ -397,44 +398,78 @@ export function IssueCodexWorkList({
     return presentIssueCodexStartResult(snapshot?.startResult);
   }
 
+  const startGroups: IssueCodexStartDialogGroup[] = groupedStartTargets.map((group) => ({
+    ...group,
+    targets: group.targets.map((target) => ({
+      presentation: startPresentation(target),
+      target
+    }))
+  }));
+  const startEnvironmentCount = startGroups.reduce(
+    (count, group) => count + group.targets.length,
+    0
+  );
+  const canOpenStartDialog = canStart && (
+    startGroups.length > 0
+    || offlineGroups.length > 0
+    || Boolean(visibleCloudDestination)
+  );
+  const wakingHost = offlineGroups.find(
+    (group) => hostWake.states[group.key]?.phase === 'waking'
+  );
+  const wakeError = offlineGroups.map((group) => ({
+    group,
+    state: hostWake.states[group.key]
+  })).find(({ state }) => state?.phase === 'error');
+  const startPendingMessage = busyConnectorId
+    ? `Starting development on ${busyDestinationName ?? 'the selected machine'}…`
+    : cloudLaunchStatus?.kind === 'pending'
+      ? cloudLaunchStatus.message
+      : wakingHost
+        ? hostWake.states[wakingHost.key]?.message
+        : undefined;
+  const visibleStartError = cloudLaunchStatus?.kind === 'error'
+    ? cloudLaunchStatus.message
+    : wakeError?.state?.message ?? startError;
+  const startActionPending = Boolean(startPendingMessage);
+  const controlledCodespaceConnectorIds = new Set<string>();
+
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       <section aria-labelledby="issue-codex-threads-title">
-        <div className="flex min-h-9 items-center justify-between gap-3">
+        <div className="flex min-h-8 items-center justify-between gap-3">
           <h3 className="text-xs font-semibold text-current/65" id="issue-codex-threads-title">
-            Threads for this task
+            Threads
           </h3>
           <span className="text-[10px] tabular-nums text-current/35">
-            {threads.length} total · {runningCount} running
+            {lookupErrors.length > 0 && threads.length === 0
+              ? 'Status unavailable'
+              : runningCount > 0
+                ? `${threads.length} · ${runningCount} running`
+                : threads.length}
           </span>
         </div>
         <div className="border-b border-current/[.08]">
-          {threads.map((entry) => (
-            <IssueCodexThreadRow
-              entry={entry}
-              issueNumber={issueNumber}
-              key={issueCodexThreadIdentity(entry)}
-              now={now}
-              onError={onError}
-            />
-          ))}
-          {lookupErrors.length > 0 ? (
-            <div className="flex min-h-12 items-center gap-2 border-t border-current/[.07] py-3 text-[11px] text-amber-300/80">
-              <AlertTriangle className="size-3.5 shrink-0" />
-              <span className="min-w-0 flex-1">
-                {lookupErrors.length === 1
-                  ? 'One environment could not be checked for existing threads.'
-                  : `${lookupErrors.length} environments could not be checked for existing threads.`}
-              </span>
-              <Button
-                onPress={() => onError(lookupErrors.join('\n'))}
-                size="sm"
-                variant="ghost"
-              >
-                Details
-              </Button>
-            </div>
-          ) : null}
+          {threads.map((entry) => {
+            const connectorId = entry.kind === 'inventory'
+              ? entry.session.machineId
+              : entry.result.state === 'confirmed'
+                ? entry.result.task.connector.id
+                : entry.key;
+            const showControls = entry.physicalMachineName === 'GitHub Codespace'
+              && !controlledCodespaceConnectorIds.has(connectorId);
+            if (showControls) controlledCodespaceConnectorIds.add(connectorId);
+            return (
+              <IssueCodexThreadRow
+                controls={showControls ? renderThreadControls?.(connectorId) : undefined}
+                entry={entry}
+                issueNumber={issueNumber}
+                key={issueCodexThreadIdentity(entry)}
+                now={now}
+                onError={onError}
+              />
+            );
+          })}
           {threads.length === 0 && lookupErrors.length === 0 ? (
             <div className="flex min-h-12 items-center gap-2 border-t border-current/[.07] py-3 text-[11px] text-current/35">
               {refreshing || !currentSnapshotState.checked
@@ -448,51 +483,69 @@ export function IssueCodexWorkList({
         </div>
       </section>
 
-      {canStart && (startGroups.length > 0 || visibleCloudDestination) ? (
-        <section aria-labelledby="issue-codex-start-title">
-          <div className="flex min-h-9 items-center justify-between gap-3">
+      {canOpenStartDialog ? (
+        <section className="border-b border-current/[.08] pb-4" aria-labelledby="issue-codex-start-title">
+          <div>
             <h3 className="text-xs font-semibold text-current/65" id="issue-codex-start-title">
-              Start new thread
+              Runner
             </h3>
-            {machineSummary.configured > 0 ? (
-              <span className="inline-flex items-center gap-1.5 text-[10px] tabular-nums text-current/30">
-                {refreshing ? <LoaderCircle aria-label="Refreshing readiness" className="size-3 animate-spin" /> : null}
-                {machineSummary.online} online · {machineSummary.configured} configured
-              </span>
-            ) : refreshing ? (
-              <span className="text-[10px] text-current/30">Refreshing readiness…</span>
-            ) : null}
+            <p className="mt-1 text-[11px] text-current/35">
+              {startEnvironmentCount > 0
+                ? `${startEnvironmentCount} ${startEnvironmentCount === 1 ? 'environment' : 'environments'} available`
+                : visibleCloudDestination
+                  ? 'GitHub Codespace available'
+                  : 'No destinations online'}
+            </p>
           </div>
-          <div className="border-b border-current/[.08]">
-            {startGroups.map((group) => (
-              <div key={group.key}>
-                <div className="flex min-h-9 items-center gap-2 border-t border-current/[.08] text-[11px] font-medium text-current/55">
-                  <Monitor className="size-3.5" />
-                  <span className="truncate">{group.name}</span>
-                  <span className="text-[10px] font-normal text-current/30">
-                    {group.targets.length} {group.targets.length === 1 ? 'environment' : 'environments'}
-                  </span>
-                </div>
-                {group.targets.map((target) => (
-                  <StartRow
-                    busy={busyConnectorId === target.connectorId}
-                    key={target.key}
-                    onError={onError}
-                    onStart={onStart}
-                    presentation={startPresentation(target)}
-                    target={target}
-                  />
-                ))}
-              </div>
-            ))}
-            {visibleCloudDestination ? (
-              <div className="border-t border-current/[.08] py-1.5">
-                {visibleCloudDestination}
-              </div>
-            ) : null}
+          {startPendingMessage ? (
+            <div aria-live="polite" className="mt-3 flex items-start gap-2 rounded-xl bg-blue-400/[.08] px-3 py-2.5 text-[11px] leading-5 text-blue-200">
+              <LoaderCircle aria-hidden className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+              <span>{startPendingMessage}</span>
+            </div>
+          ) : visibleStartError ? (
+            <div aria-live="polite" className="mt-3 flex items-start gap-2 rounded-xl bg-amber-400/[.09] px-3 py-2.5 text-[11px] leading-5 text-amber-200">
+              <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+              <span>{visibleStartError}</span>
+            </div>
+          ) : startMessage ? (
+            <div aria-live="polite" className="mt-3 flex items-start gap-2 px-1 text-[11px] leading-5 text-emerald-300">
+              <CheckCircle2 aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+              <span>{startMessage}</span>
+            </div>
+          ) : null}
+          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-neutral-950/90 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl md:static md:border-0 md:bg-transparent md:p-0 md:pt-3 md:backdrop-blur-none">
+            <Button
+              className="w-full !rounded-full whitespace-nowrap"
+              isDisabled={startActionPending}
+              onPress={() => setStartDialogOpen(true)}
+              size="lg"
+              variant="primary"
+            >
+              {startActionPending || refreshing
+                ? <LoaderCircle aria-label="Refreshing readiness" className="size-4 animate-spin" />
+                : <Play className="size-4" />}
+              {startActionPending ? 'Starting development…' : 'Start development'}
+            </Button>
           </div>
         </section>
       ) : null}
+
+      <IssueCodexStartDialog
+        busyConnectorId={busyConnectorId}
+        cloudDestination={visibleCloudDestination}
+        cloudFooterAction={cloudFooterAction}
+        groups={startGroups}
+        hostWakeStates={hostWake.states}
+        isOpen={startDialogOpen && canOpenStartDialog}
+        offlineGroups={offlineGroups}
+        onOpenChange={setStartDialogOpen}
+        onStart={onStart}
+        onWake={(group) => {
+          void hostWake.wake(group).then((row) => {
+            if (row) onStart(row);
+          });
+        }}
+      />
     </div>
   );
 }

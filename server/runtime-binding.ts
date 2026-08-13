@@ -4,6 +4,7 @@ export type RuntimeApiBinding = 'simulated' | 'external';
 export type RuntimeDataBinding = 'local' | 'remote';
 
 export interface RuntimeBindingEvidence {
+  accessUrl: string;
   apis: RuntimeApiBinding;
   data: RuntimeDataBinding;
   network: 'loopback-only' | 'external';
@@ -36,16 +37,42 @@ export function resolveManagedRuntimeBinding(
     );
   }
 
+  const mode = environment.PROJECT_SPACE_SERVE_MODE;
+  if (mode !== 'managed' && mode !== 'local-only') {
+    throw new Error('PROJECT_SPACE_SERVE_MODE must be managed or local-only.');
+  }
+  const accessUrl = validatedAccessUrl(
+    environment.PROJECT_SPACE_RUNTIME_ACCESS_URL ?? environment.PORTLESS_URL
+  );
+
   const simulationStatePath = environment.PROJECT_SPACE_SIMULATION_STATE?.trim();
   if (!simulationStatePath || !isAbsolute(simulationStatePath)) {
     throw new Error('Simulated APIs require an absolute Project-managed simulation state path.');
   }
 
   return {
+    accessUrl,
     apis,
     data,
-    network: 'loopback-only',
+    network: mode === 'managed' ? 'external' : 'loopback-only',
     secrets: 'none',
     simulationStatePath
   };
+}
+
+function validatedAccessUrl(value: string | undefined): string {
+  const candidate = value?.trim();
+  if (!candidate) {
+    throw new Error('A Project-managed runtime access URL is required.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error('The Project-managed runtime access URL must be absolute.');
+  }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+    throw new Error('The Project-managed runtime access URL must be an HTTP URL without credentials.');
+  }
+  return candidate;
 }

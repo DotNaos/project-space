@@ -99,6 +99,12 @@ import type {
   GitHubCodespaceRunnerRequest,
   GitHubCodespaceRunnerResult
 } from '@/shared/github-codespace-runner-api';
+import type {
+  MachinePowerOperationResult,
+  MachinePowerRequest,
+  MachinePowerSelector,
+  MachinePowerStatusResult
+} from '@/shared/machine-power-api';
 import { GitHubProjectSpaceClient } from './project-space-client-github';
 import { resolveApiBaseUrl, resolveApiRequestUrl } from './project-space-client-http';
 
@@ -155,6 +161,24 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Omit<Pr
 
   getConnectorOverview(): Promise<ConnectorOverviewResult> {
     return this.request('/api/connectors/overview');
+  }
+
+  getMachinePowerStatus(selector: MachinePowerSelector): Promise<MachinePowerStatusResult> {
+    const query = new URLSearchParams();
+    if (selector.physicalMachineId) {
+      query.set('physicalMachineId', selector.physicalMachineId);
+    } else if (selector.physicalMachineName) {
+      query.set('physicalMachineName', selector.physicalMachineName);
+    }
+    return this.request(`/api/machine-power?${query.toString()}`);
+  }
+
+  requestMachinePower(request: MachinePowerRequest): Promise<MachinePowerOperationResult> {
+    return this.request('/api/machine-power', {
+      body: JSON.stringify(request),
+      headers: { 'Idempotency-Key': request.operationId },
+      method: 'POST'
+    });
   }
 
   getMachineRuntime(machineId: string, signal?: AbortSignal): Promise<MachineRuntimeStatusResult> {

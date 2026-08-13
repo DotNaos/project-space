@@ -7,9 +7,12 @@ import {
   Unplug
 } from 'lucide-react';
 import { useId } from 'react';
-import { cn } from '@/lib/utils';
-import type { MachineRecord } from '@/shared/project-space-api';
-import { machineOsFamily } from './machine-platform-model';
+import { cn } from '../../../lib/utils';
+import type { MachineRecord } from '../../../shared/project-space-api';
+import {
+  machineOsFamily,
+  type MachineOsFamily
+} from './machine-platform-model';
 
 type BatteryState = NonNullable<MachineRecord['battery']>['state'] | 'unavailable';
 
@@ -125,8 +128,16 @@ export function MachineOsMark({
   className?: string;
   machine: MachineRecord;
 }) {
-  const family = machineOsFamily(machine);
+  return <MachineOsFamilyMark className={className} family={machineOsFamily(machine)} />;
+}
 
+export function MachineOsFamilyMark({
+  className,
+  family
+}: {
+  className?: string;
+  family: MachineOsFamily;
+}) {
   if (family === 'macos') {
     return (
       <svg

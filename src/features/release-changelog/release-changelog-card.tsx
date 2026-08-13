@@ -45,7 +45,6 @@ export function ReleaseChangelogCard({
         <span className="flex items-center gap-2 text-xs font-medium text-neutral-200">
           <Sparkles className="size-3.5 text-blue-300" strokeWidth={1.8} />
           What&apos;s new
-          <span aria-hidden className="ml-auto size-2 rounded-full bg-blue-400" />
         </span>
         <span className="mt-1.5 block text-sm font-medium text-neutral-100">
           v{release.version}

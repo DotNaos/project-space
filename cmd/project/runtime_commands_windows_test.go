@@ -17,7 +17,7 @@ func TestWindowsRuntimeCommandsKeepStableShape(t *testing.T) {
 	assertWindowsRuntimeFlags(t, run, "format", "json")
 
 	serve := newServeCommand()
-	assertWindowsRuntimeFlags(t, serve, "allowed-host", "apis", "data", "format", "json", "local-only", "tailnet")
+	assertWindowsRuntimeFlags(t, serve, "allowed-host", "apis", "data", "format", "json", "local-only", "no-tailnet", "tailnet")
 	for _, test := range []struct {
 		name  string
 		flags []string

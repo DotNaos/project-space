@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useReducer, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type FormEvent
+} from 'react';
 import { Modal } from '@heroui/react';
 
 import { loadGitHubIssueMetadata } from '@/api/github-issue-metadata-client';
@@ -44,6 +52,7 @@ interface IssueCreationOverlayProps {
   onClose(): void;
   onIssueCreated(issue: GitHubIssueRecord, repositoryKey: string): void;
   open: boolean;
+  repositories?: readonly GitHubCatalogRepository[];
   repository?: GitHubCatalogRepository;
 }
 
@@ -56,10 +65,25 @@ export function IssueCreationOverlay({
   onClose,
   onIssueCreated,
   open,
+  repositories = [],
   repository
 }: IssueCreationOverlayProps) {
-  const repositoryKey = repository?.fullName ?? null;
-  const repositoryConnected = Boolean(repository);
+  const repositoryOptions = useMemo(() => {
+    const options = new Map<string, GitHubCatalogRepository>();
+    if (repository) options.set(repository.fullName, repository);
+    for (const option of repositories) options.set(option.fullName, option);
+    return [...options.values()].sort((left, right) =>
+      left.fullName.localeCompare(right.fullName)
+    );
+  }, [repositories, repository]);
+  const [selectedRepositoryKey, setSelectedRepositoryKey] = useState<string | null>(
+    repository?.fullName ?? null
+  );
+  const selectedRepository = repositoryOptions.find(
+    (option) => option.fullName === selectedRepositoryKey
+  );
+  const repositoryKey = selectedRepository?.fullName ?? null;
+  const repositoryConnected = Boolean(selectedRepository);
   const [state, dispatch] = useReducer(
     issueCreationReducer,
     createInitialIssueCreationState({
@@ -85,6 +109,10 @@ export function IssueCreationOverlay({
   stateRef.current = state;
   repositoryKeyRef.current = repositoryKey;
   createdIssueRef.current = createdIssue;
+
+  useEffect(() => {
+    if (open) setSelectedRepositoryKey(repository?.fullName ?? null);
+  }, [open, repository?.fullName]);
 
   const currentCapabilities = capabilities?.repositoryKey === repositoryKey
     ? capabilities
@@ -510,6 +538,8 @@ export function IssueCreationOverlay({
                 <IssueCreationFormHeader
                   busy={isBusy}
                   onClose={requestClose}
+                  onRepositoryChange={setSelectedRepositoryKey}
+                  repositories={repositoryOptions}
                   repositoryKey={repositoryKey}
                 />
 
@@ -520,15 +550,9 @@ export function IssueCreationOverlay({
                   controlsBusy={isBusy}
                   createdIssueNumber={createdIssue?.issue.number}
                   creationUncertain={creationUncertain}
-                  labelsState={visibleLabelsState}
-                  labelWriteDenied={labelWriteDenied}
-                  onLabelsRetry={loadLabels}
-                  onLabelToggle={(name) => dispatch({ name, type: 'label-toggled' })}
                   onTitleBlur={() => setTitleTouched(true)}
                   onTitleChange={(title) => dispatch({ title, type: 'title-changed' })}
                   repositoryAvailable={Boolean(repository)}
-                  repositoryKey={repositoryKey}
-                  selectedLabels={state.selectedLabels}
                   submissionError={
                     scopeRecoveryError ?? (repositoryStateCurrent
                       && state.submission.status === 'failed'
@@ -547,11 +571,17 @@ export function IssueCreationOverlay({
                     || (attachmentWriteDenied && attachments.hasUnresolvedAttachments)
                   }
                   isBusy={isBusy}
+                  labelsDisabled={isBusy || draftLocked}
+                  labelsState={visibleLabelsState}
+                  labelWriteDenied={labelWriteDenied}
                   onCancel={requestClose}
                   onFinish={() => void finishAndView()}
+                  onLabelsRetry={loadLabels}
+                  onLabelToggle={(name) => dispatch({ name, type: 'label-toggled' })}
                   recoveryStage={recoveryStage}
                   retrying={state.submission.status === 'failed'}
                   creationUncertain={creationUncertain}
+                  selectedLabels={state.selectedLabels}
                 />
               </form>
             </Modal.Dialog>

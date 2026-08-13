@@ -28,6 +28,14 @@ function storage() {
   }
 }
 
+export function createCodexTaskStartOperationId(
+  randomUUID: (() => string) | null = globalThis.crypto?.randomUUID?.bind(globalThis.crypto) ?? null
+) {
+  const suffix = randomUUID?.()
+    ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `task:${suffix}`;
+}
+
 function isAttempt(value: unknown): value is CodexTaskStartAttempt {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<CodexTaskStartAttempt>;
@@ -43,7 +51,7 @@ function isAttempt(value: unknown): value is CodexTaskStartAttempt {
 
 export function readOrCreateCodexTaskStartAttempt(
   input: Omit<CodexTaskStartAttempt, 'operationId'>,
-  createOperationId: () => string = () => `task:${globalThis.crypto.randomUUID()}`
+  createOperationId: () => string = createCodexTaskStartOperationId
 ) {
   const key = storageKey(input);
   const target = storage();
@@ -56,12 +64,20 @@ export function readOrCreateCodexTaskStartAttempt(
     }
   }
   const attempt = { ...input, operationId: createOperationId() };
-  target?.setItem(key, JSON.stringify(attempt));
+  try {
+    target?.setItem(key, JSON.stringify(attempt));
+  } catch {
+    // The start can still be safely dispatched when browser storage is unavailable.
+  }
   return attempt;
 }
 
 export function clearCodexTaskStartAttempt(
   input: Pick<CodexTaskStartAttempt, 'connectorId' | 'environmentId' | 'issue' | 'physicalMachineId' | 'repositoryId'>
 ) {
-  storage()?.removeItem(storageKey(input));
+  try {
+    storage()?.removeItem(storageKey(input));
+  } catch {
+    // Storage cleanup is best effort and must not break a confirmed start.
+  }
 }

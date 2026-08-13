@@ -7,6 +7,9 @@ const pullRequestNumber = 617;
 const headSha = '6166166166166166166166166166166166166166';
 const branchName = 'issue-616-offline-first-runtime';
 
+export const localSimulationAvatarUrl =
+  'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2232%22 fill=%22%232563eb%22/%3E%3Ctext x=%2232%22 y=%2241%22 text-anchor=%22middle%22 font-family=%22system-ui,sans-serif%22 font-size=%2230%22 font-weight=%22700%22 fill=%22white%22%3EH%3C/text%3E%3C/svg%3E';
+
 export function createLocalSimulationSeed(rootPath: string, now = new Date()): LocalSimulationState {
   const checkedAt = now.toISOString();
   const repository = {
@@ -37,6 +40,7 @@ export function createLocalSimulationSeed(rootPath: string, now = new Date()): L
       comments: {
         [String(issueNumber)]: [{
           author: 'Hecate',
+          authorAvatarUrl: localSimulationAvatarUrl,
           body: 'The local simulation is running without external services.',
           createdAt: checkedAt,
           id: 1,

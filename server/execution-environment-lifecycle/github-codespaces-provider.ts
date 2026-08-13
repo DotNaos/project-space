@@ -29,6 +29,9 @@ export function createGitHubCodespacesLifecycleProvider(
     await runtime.run({
       action,
       branch: target.branch,
+      ...('providerResourceId' in target
+        ? { codespaceName: target.providerResourceId }
+        : {}),
       issue: target.task,
       operationId,
       repositoryFullName: target.repositoryFullName

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Button } from '@heroui/react';
+import { Button, Tooltip } from '@heroui/react';
 import {
   CircleDashed,
   CircleDot,
@@ -7,22 +7,65 @@ import {
   GitBranch,
   GitMerge,
   GitPullRequest,
+  ListFilter,
   Plus,
-  Search
+  Search,
+  type LucideIcon
 } from 'lucide-react';
 import type { ProjectTaskState, ProjectTaskViewModel } from './task-view-model';
 
 type TaskFilter = 'all' | ProjectTaskState;
 
-const filters: Array<{ id: TaskFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'backlog', label: 'Backlog' },
-  { id: 'active', label: 'Active' },
-  { id: 'review', label: 'Review' },
-  { id: 'completed', label: 'Completed' }
+interface TaskFilterDefinition {
+  activeClassName: string;
+  icon: LucideIcon;
+  iconClassName: string;
+  id: TaskFilter;
+  label: string;
+}
+
+const filters: TaskFilterDefinition[] = [
+  {
+    activeClassName: 'bg-neutral-400/15 text-neutral-100',
+    icon: ListFilter,
+    iconClassName: 'text-neutral-400',
+    id: 'all',
+    label: 'All'
+  },
+  {
+    activeClassName: 'bg-neutral-500/15 text-neutral-200',
+    icon: CircleDashed,
+    iconClassName: 'text-neutral-500',
+    id: 'backlog',
+    label: 'Backlog'
+  },
+  {
+    activeClassName: 'bg-blue-500/15 text-blue-200',
+    icon: CircleDot,
+    iconClassName: 'text-blue-400',
+    id: 'active',
+    label: 'Active'
+  },
+  {
+    activeClassName: 'bg-emerald-500/15 text-emerald-200',
+    icon: GitPullRequest,
+    iconClassName: 'text-emerald-400',
+    id: 'review',
+    label: 'Review'
+  },
+  {
+    activeClassName: 'bg-violet-500/15 text-violet-200',
+    icon: GitMerge,
+    iconClassName: 'text-violet-400',
+    id: 'completed',
+    label: 'Completed'
+  }
 ];
 
-const sections = filters.slice(1) as Array<{ id: ProjectTaskState; label: string }>;
+const sections = filters.slice(1).map(({ id, label }) => ({
+  id: id as ProjectTaskState,
+  label
+}));
 
 function StatusIcon({ task }: { task: ProjectTaskViewModel }) {
   if (task.health === 'attention' || task.workflowMessage) {
@@ -47,34 +90,31 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
   return (
     <button
       aria-label={`Open task #${task.issue.number}: ${task.issue.title}`}
-      className="group block w-full border-b border-current/[.07] px-1 py-4 text-left transition-[background-color,scale] hover:bg-current/[.018] active:scale-[.99] @xl:px-3"
+      className="group block min-h-11 w-full border-b border-current/[.07] px-1 py-2 text-left transition-[background-color,scale] hover:bg-current/[.018] active:scale-[.99] @xl:px-3"
       onClick={onOpen}
       type="button"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-xs tabular-nums text-current/30">#{task.issue.number}</span>
+        <span className="shrink-0 text-[11px] tabular-nums text-current/30">#{task.issue.number}</span>
+        <StatusIcon task={task} />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-current/85 group-hover:text-current">{task.issue.title}</span>
         {pullRequest ? (
-          <span className={`ml-auto flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${merged ? 'bg-violet-500/[.12] text-violet-300' : pullRequest.isDraft ? 'bg-current/[.055] text-current/40' : 'bg-emerald-500/[.12] text-emerald-300'}`}>
-            <PullRequestIcon className="size-3" />{pullRequest.isDraft ? 'Draft ' : ''}#{pullRequest.number}
+          <span className={`flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${merged ? 'bg-violet-500/[.12] text-violet-300' : pullRequest.isDraft ? 'bg-current/[.055] text-current/40' : 'bg-emerald-500/[.12] text-emerald-300'}`}>
+            <PullRequestIcon className="size-3" />#{pullRequest.number}
           </span>
         ) : task.state === 'active' && task.branch ? (
-          <span className="ml-auto flex items-center gap-1 rounded-full bg-blue-500/[.12] px-2 py-1 text-[11px] font-medium text-blue-300">
-            <GitBranch className="size-3" /> Branch
-          </span>
+          <Tooltip delay={300}>
+            <Tooltip.Trigger>
+              <span aria-label="Branch active" className="flex shrink-0 items-center text-blue-400">
+                <GitBranch className="size-3.5" />
+              </span>
+            </Tooltip.Trigger>
+            <Tooltip.Content placement="top">Branch active</Tooltip.Content>
+          </Tooltip>
         ) : null}
       </span>
-      <span className="mt-2 flex min-w-0 items-center gap-2 text-sm font-medium text-current/85 group-hover:text-current">
-        <StatusIcon task={task} />
-        <span className="truncate">{task.issue.title}</span>
-      </span>
-      {task.branch?.name ?? pullRequest?.headBranch ? (
-        <span className="mt-2 flex min-w-0 items-center gap-1 text-[11px] text-current/35">
-          <GitBranch className="size-3 shrink-0" />
-          <span className="truncate">{task.branch?.name ?? pullRequest?.headBranch}</span>
-        </span>
-      ) : null}
       {task.workflowMessage ? (
-        <span className="mt-2 block text-[11px] leading-4 text-amber-300/80">
+        <span className="mt-1.5 block ps-6 text-[11px] leading-4 text-amber-300/80">
           {task.workflowMessage}
         </span>
       ) : null}
@@ -131,20 +171,26 @@ export function ProjectTasksPage({
         </Button>
       </header>
 
-      <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-3 @lg:flex-row @lg:items-center @lg:py-4">
-        <div className="hidden min-w-0 flex-1 @lg:block @lg:max-w-sm"><TaskSearch onChange={setQuery} value={query} /></div>
-        <div className="flex w-full min-w-0 items-center gap-px overflow-x-auto pe-1 [scrollbar-width:none] @lg:ml-auto @lg:w-auto @lg:gap-1">
-          {filters.map((item) => (
-            <button
-              aria-pressed={filter === item.id}
-              className={`flex h-7 shrink-0 items-center whitespace-nowrap rounded-full px-1.5 text-[9px] font-medium transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:px-[18px] @lg:text-xs ${filter === item.id ? 'bg-current/[.1] text-current' : 'text-current/40 hover:text-current/70'}`}
-              key={item.id}
-              onClick={() => setFilter(item.id)}
-              type="button"
-            >
-              {item.label}
-            </button>
-          ))}
+      <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-3 @lg:py-4">
+        <div className="hidden min-w-0 w-full @lg:block"><TaskSearch onChange={setQuery} value={query} /></div>
+        <div className="flex w-full min-w-0 items-center gap-px overflow-x-auto pe-1 [scrollbar-width:none] @lg:gap-1">
+          {filters.map((item) => {
+            const Icon = item.icon;
+            const selected = filter === item.id;
+
+            return (
+              <button
+                aria-pressed={selected}
+                className={`flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 text-[8px] font-medium transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:gap-1.5 @lg:px-4 @lg:text-xs ${selected ? item.activeClassName : 'text-current/45 hover:bg-current/[.04] hover:text-current/75'}`}
+                key={item.id}
+                onClick={() => setFilter(item.id)}
+                type="button"
+              >
+                <Icon aria-hidden="true" className={`size-3 shrink-0 @lg:size-3.5 ${item.iconClassName}`} />
+                {item.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -168,7 +214,7 @@ export function ProjectTasksPage({
         {!isLoading && !error && visible.length === 0 ? <div className="grid min-h-40 place-items-center text-sm text-current/35">No matching tasks</div> : null}
       </div>
 
-      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-current/[.08] py-3 @lg:hidden">
+      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-3 @lg:hidden">
         <TaskSearch onChange={setQuery} value={query} />
         <Button aria-label="New task" className="size-11 rounded-full" isIconOnly onPress={onNewTask} variant="primary">
           <Plus className="size-5" />

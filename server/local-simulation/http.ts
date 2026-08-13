@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RuntimeBindingEvidence } from '../runtime-binding';
 import { readJson, writeJson } from '../project-space-http-response';
 import { legacyConnectorRetirement } from '../legacy-connector-retirement';
-import { localSimulationIdentity } from './seed';
+import { localSimulationAvatarUrl, localSimulationIdentity } from './seed';
 import { handleLocalSimulationGitHubMutation } from './github-http';
 import { LocalSimulationStore } from './store';
 import type { LocalSimulationState } from './state';
@@ -55,6 +55,7 @@ export function createLocalSimulationRequestHandler(options: {
         nodeVersion: process.version,
         platform: process.platform,
         runtime: {
+					accessUrl: options.binding.accessUrl,
           apis: options.binding.apis,
           data: options.binding.data,
           network: options.binding.network,
@@ -157,7 +158,15 @@ export function createLocalSimulationRequestHandler(options: {
       const payload = await readJson<{ body: string; number: number }>(request);
       const comment = await store.update((current) => {
         const issueComments = current.github.comments[String(payload.number)] ??= [];
-        const next = { body: payload.body, createdAt: checkedAt(), id: current.revision + 100, updatedAt: checkedAt(), url: '' };
+        const next = {
+          author: 'Hecate',
+          authorAvatarUrl: localSimulationAvatarUrl,
+          body: payload.body,
+          createdAt: checkedAt(),
+          id: current.revision + 100,
+          updatedAt: checkedAt(),
+          url: ''
+        };
         issueComments.push(next);
         return next;
       });
@@ -252,7 +261,14 @@ export function createLocalSimulationRequestHandler(options: {
       return;
     }
     if (method === 'GET' && url.pathname === '/api/codex/tasks/existing') {
-      writeJson(response, 200, state.codexTask
+      const issue = Number(url.searchParams.get('issue'));
+      const repositoryId = url.searchParams.get('repositoryId');
+      const connectorId = url.searchParams.get('connectorId');
+      const matchesRequestedTask = state.codexTask
+        && state.codexTask.issue.number === issue
+        && state.codexTask.repository.id === repositoryId
+        && state.codexTask.connector.id === connectorId;
+      writeJson(response, 200, matchesRequestedTask
         ? { action: 'continue', apiVersion: 1, state: 'confirmed', task: state.codexTask }
         : { apiVersion: 1, state: 'missing' });
       return;

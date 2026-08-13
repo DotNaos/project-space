@@ -38,8 +38,13 @@ func (manager *Manager) startLocalRuntime(
 			failure, failErr := manager.failStart(state, err)
 			return runtimeState{}, failure, failErr
 		}
+		runtimeAccessURL := state.PortlessURL
+		if mode == ServeModeManaged {
+			runtimeAccessURL = publicURL(state.TailscaleIPv4, state.PublicPort)
+		}
 		command := serverCommandFor(
 			script, root, "127.0.0.1", state.LocalPort, allowedHosts, mode, state.PortlessURL,
+			runtimeAccessURL,
 			state.APIs,
 			state.Data,
 		)

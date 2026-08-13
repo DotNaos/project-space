@@ -15,7 +15,6 @@ import type {
 } from '@/shared/project-space-api';
 import { usePullRequestPreviewStatus } from '../hooks/use-pull-request-preview-status';
 import { useBranchHeadComparison } from '../hooks/use-branch-head-comparison';
-import { codexSessionRoute } from '../../codex-sessions/codex-session-route';
 import { BranchHeadGraphPreview } from './branch-head-graph-preview';
 import {
   canRunMachineCommand,
@@ -47,7 +46,11 @@ import {
 } from './issue-codex-work-list';
 import { IssueDevelopmentServers } from './issue-development-servers';
 import { IssueDevelopmentStart } from './issue-development-start';
-import { GitHubCodespaceDestination } from './github-codespace-destination';
+import {
+  GitHubCodespaceDestination,
+  type GitHubCodespaceDestinationRenderState
+} from './github-codespace-destination';
+import { GitHubCodespaceTaskControls } from './github-codespace-task-controls';
 import { useRuntimeBinding } from './runtime-binding-context';
 
 interface IssueDevelopmentSessionProps {
@@ -62,6 +65,7 @@ interface IssueDevelopmentSessionProps {
   repoFullName?: string;
   repoUrl?: string;
   targetPath: string;
+  showDelivery?: boolean;
   onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
 }
 
@@ -75,15 +79,21 @@ export function IssueDevelopmentSession({
   projects,
   pullRequests,
   repoFullName,
+  showDelivery = true,
   onOpenHistory
 }: IssueDevelopmentSessionProps) {
   const runtime = useRuntimeBinding();
   const codespaceScopeKey = `${repoFullName ?? ''}\u0000${issue.number}`;
   const [busyMachineId, setBusyMachineId] = useState('');
+  const [busyDestinationName, setBusyDestinationName] = useState('');
   const [machineMessage, setMachineMessage] = useState('');
   const [machineError, setMachineError] = useState('');
   const [prototypeMachineId, setPrototypeMachineId] = useState('');
   const [codespaceTaskState, setCodespaceTaskState] = useState<{
+    scopeKey: string;
+    task?: IssueCodexExternalTask;
+  }>({ scopeKey: codespaceScopeKey });
+  const [startedTaskState, setStartedTaskState] = useState<{
     scopeKey: string;
     task?: IssueCodexExternalTask;
   }>({ scopeKey: codespaceScopeKey });
@@ -96,6 +106,9 @@ export function IssueDevelopmentSession({
   const codespaceTask = codespaceTaskState.scopeKey === codespaceScopeKey
     ? codespaceTaskState.task
     : undefined;
+  const startedTask = startedTaskState.scopeKey === codespaceScopeKey
+    ? startedTaskState.task
+    : undefined;
   const handleCodespaceTaskChange = useCallback(
     (task?: IssueCodexExternalTask) => setCodespaceTaskState({ scopeKey: codespaceScopeKey, task }),
     [codespaceScopeKey]
@@ -104,6 +117,7 @@ export function IssueDevelopmentSession({
   useEffect(() => {
     setMachineError('');
     setMachineMessage('');
+    setBusyDestinationName('');
     setUncertainStart(undefined);
   }, [issue.number, repoFullName]);
 
@@ -163,7 +177,7 @@ export function IssueDevelopmentSession({
     (row) => row.machineId === prototypeMachineId
   ) ?? prototypeMachineRows[0];
   const preview = usePullRequestPreviewStatus({
-    enabled: Boolean(repoFullName && selectedPullRequest),
+    enabled: Boolean(showDelivery && repoFullName && selectedPullRequest),
     pullRequestNumber: selectedPullRequest?.number,
     repositoryFullName: repoFullName
   });
@@ -205,6 +219,9 @@ export function IssueDevelopmentSession({
       return;
     }
     setBusyMachineId(row.machineId);
+    setBusyDestinationName(
+      row.physicalMachineName ?? row.machine?.name ?? row.machineId
+    );
     setMachineError('');
     setMachineMessage('');
     const attempt = recoveredAttempt ?? readOrCreateCodexTaskStartAttempt({
@@ -221,10 +238,23 @@ export function IssueDevelopmentSession({
       const result = await projectSpaceClient.startCodexMachineTask(attempt);
       if (result.state === 'confirmed') {
         clearCodexTaskStartAttempt(attempt);
-        window.location.assign(codexSessionRoute({
-          machineId: result.task.connector.id,
-          threadId: result.task.threadId
-        }));
+        setStartedTaskState({
+          scopeKey: codespaceScopeKey,
+          task: {
+            environmentLabel: result.task.environment?.name
+              ?? row.environmentId
+              ?? 'Default environment',
+            key: `started:${result.task.connector.id}:${result.task.threadId}`,
+            physicalMachineName: result.task.physicalMachine.name,
+            result: {
+              action: 'open-running',
+              apiVersion: result.apiVersion,
+              state: 'confirmed',
+              task: result.task
+            }
+          }
+        });
+        setMachineMessage(`Development started on ${result.task.physicalMachine.name}.`);
         return;
       }
       if (result.state === 'ready') {
@@ -248,6 +278,7 @@ export function IssueDevelopmentSession({
       );
     } finally {
       setBusyMachineId('');
+      setBusyDestinationName('');
     }
   }
 
@@ -285,12 +316,15 @@ export function IssueDevelopmentSession({
     selectedBranch,
     selectedPullRequest
   );
-  const codespaceDestination = runtime.apis === 'external' && codespaceBranchName && repoFullName ? (
+  const codespaceProbe = runtime.apis === 'external' && codespaceBranchName && repoFullName && (
+    !canStartCodex || Boolean(codespaceTask)
+  ) ? (
     <GitHubCodespaceDestination
       availableConnectorIds={connectorOverview.machines
         .filter((machine) => canRunMachineCommand(machine))
         .map((machine) => machine.id)}
       branch={codespaceBranchName}
+      embedded={canStartCodex}
       issue={issue.number}
       key={`${codespaceScopeKey}\u0000${codespaceBranchName}`}
       onExistingTaskChange={handleCodespaceTaskChange}
@@ -305,10 +339,51 @@ export function IssueDevelopmentSession({
           physicalMachineName: name
         });
       }}
-      probeOnly={!canStartCodex || Boolean(codespaceTask)}
+      probeOnly
       repositoryFullName={repoFullName}
     />
   ) : undefined;
+
+  function renderCodexWorkList(cloud?: GitHubCodespaceDestinationRenderState) {
+    if (!repoFullName) return null;
+    return (
+      <IssueCodexWorkList
+        busyConnectorId={busyMachineId}
+        busyDestinationName={busyDestinationName}
+        canStart={canStartCodex && !startedTask}
+        cloudDestination={cloud?.content}
+        cloudFooterAction={cloud?.footerAction}
+        cloudLaunchStatus={cloud?.launchStatus}
+        expectedBranch={selectedBranch?.name}
+        expectedCommit={selectedBranch?.commitSha}
+        externalTasks={[codespaceTask, startedTask].filter(
+          (task): task is IssueCodexExternalTask => Boolean(task)
+        )}
+        issueNumber={issue.number}
+        lookupTargets={codespaceLookupTargets}
+        machineRows={machineRows}
+        onError={setMachineError}
+        onStart={(row) => void startDevelopment(row)}
+        renderThreadControls={(connectorId) => {
+          const machine = connectorOverview.machines.find(
+            (candidate) => candidate.id === connectorId
+          );
+          if (!machine || !codespaceBranchName) return null;
+          return (
+            <GitHubCodespaceTaskControls
+              branch={codespaceBranchName}
+              codespaceName={machine.name}
+              issue={issue.number}
+              repositoryFullName={repoFullName}
+            />
+          );
+        }}
+        repositoryId={repoFullName}
+        startError={machineError}
+        startMessage={machineMessage}
+      />
+    );
+  }
 
   return (
     <>
@@ -335,7 +410,7 @@ export function IssueDevelopmentSession({
         </p>
       ) : null}
 
-      {selectedPullRequest?.isDraft ? (
+      {showDelivery && selectedPullRequest?.isDraft ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           {runtime.apis === 'external' && selectedPullRequest.url ? (
             <a className="inline-flex h-8 items-center gap-1.5 rounded-full bg-current/[.045] px-3 text-xs font-medium text-current/55 hover:bg-current/[.075] hover:text-current" href={selectedPullRequest.url} rel="noreferrer" target="_blank">
@@ -351,7 +426,7 @@ export function IssueDevelopmentSession({
         </div>
       ) : null}
 
-      {showsPullRequestPreview ? (
+      {showDelivery && showsPullRequestPreview ? (
         <section className="grid gap-3 border-b border-current/[.08] pb-5">
           <PullRequestPreviewStatusView
             inventory={preview.inventory}
@@ -375,25 +450,39 @@ export function IssueDevelopmentSession({
         </section>
       ) : null}
 
-      {repoFullName ? (
-        <IssueCodexWorkList
-          busyConnectorId={busyMachineId}
-          canStart={canStartCodex}
-          cloudDestination={canStartCodex && !codespaceTask ? codespaceDestination : undefined}
-          expectedBranch={selectedBranch?.name}
-          expectedCommit={selectedBranch?.commitSha}
-          externalTasks={codespaceTask ? [codespaceTask] : []}
-          issueNumber={issue.number}
-          lookupTargets={codespaceLookupTargets}
-          machineRows={machineRows}
-          onError={setMachineError}
-          onStart={(row) => void startDevelopment(row)}
-          repositoryId={repoFullName}
-        />
-      ) : null}
-      {!canStartCodex || codespaceTask ? codespaceDestination : null}
+      {runtime.apis === 'external'
+        && canStartCodex
+        && !codespaceTask
+        && codespaceBranchName
+        && repoFullName ? (
+        <GitHubCodespaceDestination
+          availableConnectorIds={connectorOverview.machines
+            .filter((machine) => canRunMachineCommand(machine))
+            .map((machine) => machine.id)}
+          branch={codespaceBranchName}
+          embedded
+          issue={issue.number}
+          key={`${codespaceScopeKey}\u0000${codespaceBranchName}`}
+          onExistingTaskChange={handleCodespaceTaskChange}
+          onStart={({ connectorId, environmentId, name }) => {
+            const machine = connectorOverview.machines.find(
+              (candidate) => candidate.id === connectorId
+            );
+            void startDevelopment({
+              environmentId,
+              machine,
+              machineId: connectorId,
+              physicalMachineName: name
+            });
+          }}
+          repositoryFullName={repoFullName}
+        >
+          {(cloud) => renderCodexWorkList(cloud)}
+        </GitHubCodespaceDestination>
+      ) : renderCodexWorkList()}
+      {codespaceProbe}
 
-      {isMerged ? (
+      {showDelivery && isMerged ? (
         <section className="grid gap-2">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs font-semibold text-current/55">Branch cleanup</h3>
@@ -434,13 +523,11 @@ export function IssueDevelopmentSession({
               <GitBranch className="size-3.5" />
               <span className="truncate font-mono">{selectedBranch.name}</span>
             </div>
-            {selectedPullRequest ? <IssuePullRequestChip className="max-w-full justify-self-start" pullRequest={selectedPullRequest} /> : null}
+            {showDelivery && selectedPullRequest ? <IssuePullRequestChip className="max-w-full justify-self-start" pullRequest={selectedPullRequest} /> : null}
           </div>
         </details>
       ) : null}
 
-      {machineMessage ? <p className="text-xs text-emerald-300">{machineMessage}</p> : null}
-      {machineError ? <p className="text-xs text-red-300">{machineError}</p> : null}
       </div>
       <CodexTaskStartRecoveryDialog
         isBusy={isRecoveringStart}

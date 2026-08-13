@@ -105,6 +105,7 @@ func serverCommandFor(
 	allowedHosts []string,
 	mode ServeMode,
 	portlessURL string,
+	runtimeAccessURL string,
 	apis APIsMode,
 	data DataMode,
 ) Command {
@@ -117,11 +118,12 @@ func serverCommandFor(
 		apis == APIsModeExternal,
 	)
 	command.Env = mergeEnvironment(command.Env, map[string]string{
-		"PROJECT_SPACE_MANAGED_SERVE": "1",
-		"PROJECT_SPACE_SERVE_MODE":    string(mode),
-		"PROJECT_SPACE_APIS":          string(apis),
-		"PROJECT_SPACE_DATA":          string(data),
-		"PORTLESS_URL":                portlessURL,
+		"PROJECT_SPACE_MANAGED_SERVE":      "1",
+		"PROJECT_SPACE_SERVE_MODE":         string(mode),
+		"PROJECT_SPACE_APIS":               string(apis),
+		"PROJECT_SPACE_DATA":               string(data),
+		"PROJECT_SPACE_RUNTIME_ACCESS_URL": runtimeAccessURL,
+		"PORTLESS_URL":                     portlessURL,
 	})
 	return command
 }
