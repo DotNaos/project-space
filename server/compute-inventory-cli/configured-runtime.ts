@@ -11,11 +11,13 @@ import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { createComputeInventoryCliHttpApi } from './http';
 import { buildProjectCliComputeInventory } from './service';
 import type { ProjectHostdService } from '../project-hostd/service';
+import type { WorkspaceRuntimeSessionService } from '../workspace-runtime-session/service';
 
 export function createConfiguredComputeInventoryCliHandler(options: {
   backend: Pick<ProjectSpaceBackend, 'getConnectorOverview'>;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   projectHostd?: Pick<ProjectHostdService, 'list'>;
+  runtimeSessions?: Pick<WorkspaceRuntimeSessionService, 'list'>;
 }) {
   const resolveActor = createCodexMachineTasksAuthResolver({
     authenticateMachine: async ({ machineId, token }) => (
@@ -44,6 +46,9 @@ export function createConfiguredComputeInventoryCliHandler(options: {
             ? await options.projectHostd.list(actor.userId)
             : [],
           privateNetworkInventory,
+          runtimeSessions: options.runtimeSessions
+            ? await options.runtimeSessions.list(actor.userId)
+            : [],
           schemaVersion
         });
       });

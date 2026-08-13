@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type {
   ComputeEnvironmentRecord,
   ComputeInventorySnapshot,
@@ -24,12 +25,14 @@ import type {
 import { targetIdentityRevision } from '../private-network/contracts';
 import { routeEvidenceState } from '../private-network/route-resolver';
 import type { ProjectHostdSnapshot } from '../../src/shared/project-hostd-api';
+import type { WorkspaceRuntimeSessionSnapshot } from '../../src/shared/workspace-runtime-session-api';
 
 interface BuildProjectCliInventoryInput {
   checkedAt: string;
   connectors: readonly MachineRecord[];
   hostdSnapshots?: readonly ProjectHostdSnapshot[];
   privateNetworkInventory?: PrivateNetworkInventory;
+  runtimeSessions?: readonly WorkspaceRuntimeSessionSnapshot[];
   schemaVersion?: ProjectCliInventorySchemaVersion;
   snapshot: ComputeInventorySnapshot;
 }
@@ -109,8 +112,18 @@ export function buildProjectCliComputeInventory(
     const hostd = hasHostdInventory
       ? uniqueHostdSnapshot(input.hostdSnapshots ?? [], environment.id, hostId)
       : undefined;
+    const workspaces = projectWorkspaceSummaries(
+      environment.id,
+      input.runtimeSessions ?? [],
+      hostd
+    );
     return {
       accessRoutes: routes,
+      accessSummary: accessSummary(
+        routes,
+        environment,
+        controlledRoutesByEnvironment.get(environment.id) ?? []
+      ),
       alias,
       environmentDefinitionId: environment.environmentDefinitionId,
       ...(hostId ? { hostId } : {}),
@@ -129,8 +142,8 @@ export function buildProjectCliComputeInventory(
       ...(hostd
         ? { resources: hostdResourceSummary(hostd) }
         : environment.resources ? { resources: resourceSummary(environment.resources) } : {}),
-      workspaceInventory: { state: 'unavailable' as const },
-      workspaces: []
+      workspaceInventory: { state: workspaces.length > 0 ? 'available' as const : 'unavailable' as const },
+      workspaces
     } satisfies ProjectCliEnvironmentInstance;
   }).sort((left, right) => left.reference.localeCompare(right.reference) || left.id.localeCompare(right.id));
 
@@ -158,7 +171,7 @@ export function buildProjectCliComputeInventory(
     ...base,
     privateNetworks: privateNetworkInventory.networks.map((network) => ({
       approvalState: network.approvalState,
-      id: network.id,
+      id: safeProjectionId('network', network.id),
       ...(network.lastVerifiedAt ? { lastVerifiedAt: network.lastVerifiedAt } : {}),
       name: network.name,
       providerKind: network.providerKind,
@@ -300,7 +313,7 @@ function projectControlledRoutes(
 ): ProjectCliAccessRoute[] {
   return routes.map((route) => ({
     capabilities: [...new Set(route.capabilities)].sort(),
-    id: route.id,
+    id: safeProjectionId('route', route.id),
     ...(route.lastVerifiedAt ? { lastVerifiedAt: route.lastVerifiedAt } : {}),
     priority: route.priority,
     ...(route.providerKind ? { providerKind: route.providerKind } : {}),
@@ -324,8 +337,113 @@ function hostCapabilities(routes: readonly ProjectCliAccessRoute[]) {
   return {
     console: consoleRoutes.length > 0 ? ['access-route'] : [],
     power: powerRoutes.length > 0 ? ['access-route'] : [],
-    state: capabilityState([...consoleRoutes, ...powerRoutes])
+    state: capabilityState([...consoleRoutes, ...powerRoutes]),
+    summary: {
+      console: capabilityState(consoleRoutes),
+      power: capabilityState(powerRoutes),
+      provider: 'unknown' as const,
+      reset: 'unavailable' as const,
+      wakeOnLan: 'unavailable' as const
+    }
   };
+}
+
+function accessSummary(
+  routes: readonly ProjectCliAccessRoute[],
+  environment: ComputeEnvironmentRecord,
+  rawRoutes: readonly AccessRouteRecord[]
+) {
+  const controlled = routes.filter((route) => route.type !== 'connector');
+  const ssh = controlled.find((route) => route.type === 'ssh_private_network');
+  const provider = controlled.find((route) => route.type === 'provider_native');
+  const projectCliRoute = ssh ?? provider;
+  const rawSsh = rawRoutes.find((route) => route.routeKind === 'ssh_private_network');
+  return {
+    providerKind: provider
+      ? 'provider_native' as const
+      : ssh?.providerKind ?? (environment.hostAssociation.resolution === 'not_applicable'
+        ? 'provider_native' as const
+        : 'none' as const),
+    route: evidenceState(controlled),
+    ssh: {
+      hostKey: ssh
+        ? rawSsh?.hostKeySha256 ? 'verified' as const : 'unknown' as const
+        : 'unknown' as const,
+      projectCli: projectCliRoute && projectCliRoute.capabilities.includes('project_cli')
+        ? evidenceState([projectCliRoute])
+        : 'unavailable' as const,
+      readiness: ssh ? evidenceState([ssh]) : 'unavailable' as const
+    }
+  };
+}
+
+function evidenceState(routes: readonly ProjectCliAccessRoute[]) {
+  if (routes.some((route) => route.type !== 'connector' && route.state === 'ready')) {
+    return 'available' as const;
+  }
+  if (routes.some((route) => route.type !== 'connector' && route.state === 'stale')) {
+    return 'stale' as const;
+  }
+  if (routes.some((route) => route.type !== 'connector' && route.state === 'unverified')) {
+    return 'unknown' as const;
+  }
+  if (routes.some((route) => route.type !== 'connector' &&
+    (route.state === 'unavailable' || route.state === 'policy_blocked'))) {
+    return 'unavailable' as const;
+  }
+  return 'unknown' as const;
+}
+
+function projectWorkspaceSummaries(
+  environmentId: string,
+  sessions: readonly WorkspaceRuntimeSessionSnapshot[],
+  hostd: ProjectHostdSnapshot | undefined
+) {
+  return sessions
+    .filter((session) => session.environmentId === environmentId)
+    .sort((left, right) => left.workspaceId.localeCompare(right.workspaceId))
+    .map((session, index) => ({
+      id: safeWorkspaceId(environmentId, session.workspaceId),
+      name: `Workspace Runtime ${index + 1}`,
+      runtime: {
+        codex: runtimeCapabilityState(session, session.capabilities.includes('runtime.codex.v1')),
+        connection: session.connectionState,
+        devServers: session.capabilities.includes('runtime.dev-servers')
+          ? session.devServers.map(({ name, state }) => ({ name, state }))
+          : [],
+        evidence: hostd?.runtimes.some((runtime) =>
+          runtime.workspaceId === session.workspaceId && runtime.generation === session.generation
+        ) ? 'project-hostd' as const : 'workspace-runtime' as const,
+        lifecycle: session.lifecycleState
+      },
+      state: session.lifecycleState === 'stopped' || session.lifecycleState === 'failed'
+        ? 'inactive' as const
+        : 'active' as const
+    }));
+}
+
+function runtimeCapabilityState(
+  session: WorkspaceRuntimeSessionSnapshot,
+  declared: boolean
+) {
+  if (!declared) return 'unavailable' as const;
+  if (session.connectionState === 'online' && session.lifecycleState === 'running') {
+    return 'available' as const;
+  }
+  if (session.connectionState === 'stale' || session.connectionState === 'disconnected') {
+    return 'stale' as const;
+  }
+  return 'unavailable' as const;
+}
+
+function safeWorkspaceId(environmentId: string, workspaceId: string) {
+  return safeProjectionId('workspace', `${environmentId}\u0000${workspaceId}`);
+}
+
+function safeProjectionId(namespace: string, value: string) {
+  return `${namespace}-${createHash('sha256')
+    .update(value, 'utf8')
+    .digest('hex').slice(0, 32)}`;
 }
 
 function capabilityState(routes: readonly ProjectCliAccessRoute[]) {

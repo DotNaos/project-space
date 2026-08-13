@@ -8,6 +8,11 @@ import type {
   HostResolution,
   ResourceSource
 } from './compute-environment-api';
+import type {
+  WorkspaceRuntimeConnectionState,
+  WorkspaceRuntimeDevServer,
+  WorkspaceRuntimeLifecycleState
+} from './workspace-runtime-session-api';
 
 export const projectCliInventoryLegacySchemaVersion = 1;
 export const projectCliInventorySchemaVersion = 2;
@@ -59,6 +64,17 @@ export interface ProjectCliHostCapabilities {
   console: string[];
   power: string[];
   state: 'available' | 'unavailable' | 'unknown';
+  summary?: ProjectCliHostCapabilitySummary;
+}
+
+export type ProjectCliEvidenceState = 'available' | 'stale' | 'unavailable' | 'unknown';
+
+export interface ProjectCliHostCapabilitySummary {
+  console: ProjectCliEvidenceState;
+  power: ProjectCliEvidenceState;
+  provider: 'jetkvm' | 'none' | 'unknown';
+  reset: ProjectCliEvidenceState;
+  wakeOnLan: ProjectCliEvidenceState;
 }
 
 export interface ProjectCliHost {
@@ -93,6 +109,16 @@ export type ProjectCliAccessRoute =
   | ProjectCliConnectorAccessRoute
   | ProjectCliControlledAccessRoute;
 
+export interface ProjectCliEnvironmentAccessSummary {
+  providerKind: 'none' | 'other' | 'provider_native' | 'tailscale' | 'wireguard';
+  route: ProjectCliEvidenceState;
+  ssh: {
+    hostKey: 'unknown' | 'unverified' | 'verified';
+    projectCli: ProjectCliEvidenceState;
+    readiness: ProjectCliEvidenceState;
+  };
+}
+
 export interface ProjectCliPrivateNetwork {
   approvalState: 'approved' | 'pending' | 'revoked';
   id: string;
@@ -106,10 +132,20 @@ export interface ProjectCliWorkspaceSummary {
   id: string;
   name: string;
   repository?: string;
-  state: 'active';
+  runtime?: ProjectCliWorkspaceRuntimeSummary;
+  state: 'active' | 'inactive';
+}
+
+export interface ProjectCliWorkspaceRuntimeSummary {
+  codex: ProjectCliEvidenceState;
+  connection: WorkspaceRuntimeConnectionState;
+  devServers: Array<Pick<WorkspaceRuntimeDevServer, 'name' | 'state'>>;
+  evidence: 'project-hostd' | 'unavailable' | 'workspace-runtime';
+  lifecycle: WorkspaceRuntimeLifecycleState;
 }
 
 export interface ProjectCliEnvironmentInstance {
+  accessSummary?: ProjectCliEnvironmentAccessSummary;
   accessRoutes: ProjectCliAccessRoute[];
   alias: string;
   environmentDefinitionId: string;

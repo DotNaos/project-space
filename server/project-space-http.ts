@@ -273,7 +273,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   const computeInventoryCli = createConfiguredComputeInventoryCliHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime,
-    projectHostd: options.projectHostdInventory
+    projectHostd: options.projectHostdInventory,
+    runtimeSessions: options.workspaceRuntimeSessions
   });
   const sshControlGateway = createConfiguredSshControlGatewayHandler({
     machineConnection: options.machineConnectionRuntime,

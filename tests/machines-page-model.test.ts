@@ -36,18 +36,22 @@ function environment({
   platformId = 'local',
   resourceMode = 'dedicated',
   routeState,
-  workspaces = []
+  workspaces = [],
+  accessSummary,
+  hostd = { state: 'unknown' as const },
+  resources
 }: Partial<ProjectCliEnvironmentInstance> & {
   alias: string;
   routeState?: 'ready' | 'unavailable';
 }): ProjectCliEnvironmentInstance {
   return {
     accessRoutes: routeState ? [{ capabilities: [], id: `route-${id}`, lastVerifiedAt: new Date().toISOString(), priority: 1, state: routeState, type: 'ssh_private_network' }] : [],
+    accessSummary,
     alias,
     environmentDefinitionId: `definition-${kind}`,
     hostId,
     hostResolution: hostId ? 'manual' : 'not_applicable',
-    hostd: { state: 'unknown' },
+    hostd,
     id,
     kind,
     name: alias,
@@ -56,6 +60,7 @@ function environment({
     providerLifecycleState: 'unknown',
     reference: `reference-${id}`,
     resourceMode,
+    resources,
     workspaceInventory: { state: workspaces.length > 0 ? 'available' : 'unavailable' },
     workspaces
   };
@@ -113,6 +118,39 @@ describe('canonical compute inventory presentation', () => {
     ]);
     expect(section!.rows[0]!.hostStatus).toBe('Host reachable');
     expect(section!.rows[1]!.environmentStatus).toBe('Status unavailable');
+  });
+
+  test('keeps Host capabilities and Environment access provenance on their owning rows', () => {
+    const instance = environment({
+      alias: 'ubuntu-01', hostId: 'host-a', routeState: 'ready',
+      accessSummary: {
+        providerKind: 'tailscale', route: 'available',
+        ssh: { hostKey: 'verified', projectCli: 'available', readiness: 'available' }
+      },
+      hostd: { state: 'stale' },
+      resources: {
+        architecture: 'amd64', cpuCores: 4, memoryTotalBytes: 8_000,
+        operatingSystem: 'linux', reportedAt: new Date().toISOString(),
+        source: 'hostd', storageTotalBytes: 50_000
+      }
+    });
+    const [section] = computePlatformSections(inventory({
+      environmentInstances: [instance],
+      hosts: [{
+        ...host('host-a', 'local'),
+        capabilities: {
+          console: [], power: [], state: 'available',
+          summary: {
+            console: 'available', power: 'available', provider: 'jetkvm',
+            reset: 'unavailable', wakeOnLan: 'unavailable'
+          }
+        }
+      }]
+    }));
+
+    expect(section!.rows[0]!.hostCapabilities?.provider).toBe('jetkvm');
+    expect(section!.rows[1]!.accessSummary?.ssh.hostKey).toBe('verified');
+    expect(section!.rows[1]!.resourceSource).toBe('Stale');
   });
 
   test('nests child environments and retains Workspace Runtime summaries', () => {
