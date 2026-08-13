@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { launcherAppLabels } from '@/shared/project-space-api';
 import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
@@ -59,6 +59,7 @@ import type {
   ProjectsState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
+import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
 import type { GitHistoryFocus } from '../components/git-focused-history';
 
 const emptyDiscovery: ProjectDiscoveryResult = {
@@ -143,6 +144,11 @@ export function useProjectDesktop() {
   const [launcherError, setLauncherError] = useState('');
   const [connectorOverview, setConnectorOverview] =
     useState<ConnectorOverviewResult>(connectorFallback);
+  const [computeInventory, setComputeInventory] = useState<ProjectCliComputeInventory>();
+  const [computeInventoryStatus, setComputeInventoryStatus] =
+    useState<'error' | 'loading' | 'ready' | 'refreshing'>('loading');
+  const [computeInventoryError, setComputeInventoryError] = useState('');
+  const computeInventoryRef = useRef<ProjectCliComputeInventory | undefined>(undefined);
   const [githubCatalog, setGitHubCatalog] = useState<GitHubCatalogResult>(githubFallback);
   const [appMeta, setAppMeta] = useState<AppMeta>(appMetaFallback);
   const [isConnectorRefreshing, setIsConnectorRefreshing] = useState(false);
@@ -308,6 +314,42 @@ export function useProjectDesktop() {
       }
     }
   }, []);
+
+  const refreshComputeInventory = useCallback(async ({ silent = false } = {}) => {
+    setComputeInventoryStatus(computeInventoryRef.current ? 'refreshing' : 'loading');
+    if (silent && !computeInventoryRef.current) {
+      setComputeInventoryStatus('loading');
+    }
+
+    try {
+      const nextInventory = await projectSpaceClient.getComputeInventory();
+      if (!nextInventory) {
+        throw new Error('The compute inventory response was empty.');
+      }
+      computeInventoryRef.current = nextInventory;
+      setComputeInventory(nextInventory);
+      setComputeInventoryError('');
+      setComputeInventoryStatus('ready');
+      return nextInventory;
+    } catch {
+      setComputeInventoryError('We could not refresh the compute inventory.');
+      setComputeInventoryStatus('error');
+      return undefined;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshComputeInventory();
+    let isRefreshing = false;
+    const interval = window.setInterval(() => {
+      if (isRefreshing) return;
+      isRefreshing = true;
+      void refreshComputeInventory({ silent: true }).finally(() => {
+        isRefreshing = false;
+      });
+    }, connectorOverviewRefreshIntervalMs);
+    return () => window.clearInterval(interval);
+  }, [refreshComputeInventory]);
 
   const refreshGitHubCatalog = useCallback(async (forceRefresh = false) => {
     setIsGitHubRefreshing(true);
@@ -489,6 +531,9 @@ export function useProjectDesktop() {
     ...codexDesktop,
     appMeta,
     connectorOverview,
+    computeInventory,
+    computeInventoryError,
+    computeInventoryStatus,
     createProject,
     discoveryRoot: discovery.rootPath,
     githubCatalog,
@@ -512,6 +557,7 @@ export function useProjectDesktop() {
     refreshProjectDiscovery,
     refreshProjectWorktrees,
     refreshConnectorOverview,
+    refreshComputeInventory,
     refreshGitHubCatalog,
     selectedExplorerTarget,
     selectedIssueNumber,

@@ -80,6 +80,7 @@ import type {
   ToolLaunchRequest,
   ToolLaunchResult
 } from '@/shared/project-space-api';
+import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
 import {
   refreshProjectSpaceAuthToken,
   setProjectSpaceAuthToken
@@ -119,7 +120,7 @@ export {
   resolveProjectSpaceApiBaseUrl
 } from './project-space-client-http';
 
-class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Omit<ProjectSpaceBackend, 'getConnectorProjectRegistry'> {
+export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Omit<ProjectSpaceBackend, 'getConnectorProjectRegistry'> {
 
   getAppMeta(): Promise<AppMeta> {
     return this.request('/api/app/meta');
@@ -161,6 +162,14 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Omit<Pr
 
   getConnectorOverview(): Promise<ConnectorOverviewResult> {
     return this.request('/api/connectors/overview');
+  }
+
+  getComputeInventory(): Promise<ProjectCliComputeInventory> {
+    return this.request('/api/compute/inventory', {
+      headers: {
+        Accept: 'application/vnd.project-space.compute-inventory+json; version=3'
+      }
+    });
   }
 
   getMachinePowerStatus(selector: MachinePowerSelector): Promise<MachinePowerStatusResult> {

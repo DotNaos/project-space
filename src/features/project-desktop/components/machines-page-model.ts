@@ -1,24 +1,19 @@
 import { matchesFuzzyQuery } from '../../../lib/fuzzy-search';
 import type {
   ComputeEnvironmentKind,
-  ComputeEnvironmentNode,
-  ComputeHostNode,
-  ComputeInventory,
   ComputePlatformKind
 } from '../../../shared/compute-environment-api';
-import { hostAssociationLabel } from '../../../shared/compute-environment-api';
 import type {
-  SettingsConnectorInstance
-} from './settings-machine-group-model';
+  ProjectCliAccessRoute,
+  ProjectCliComputeInventory,
+  ProjectCliEnvironmentInstance,
+  ProjectCliHost,
+  ProjectCliInventoryResourceSummary,
+  ProjectCliWorkspaceSummary
+} from '../../../shared/compute-inventory-cli-api';
 
-export const machineFilters = ['all', 'online', 'offline'] as const;
+export const machineFilters = ['all', 'available', 'attention'] as const;
 export type MachineFilter = (typeof machineFilters)[number];
-
-// --- Compute environment hierarchy ---------------------------------------
-//
-// Machines are modelled as Platforms containing optional physical Hosts and
-// isolated Environments (which can themselves nest), each naming the machine
-// credential that runs inside them.
 
 export const computeEnvironmentKindLabels: Record<ComputeEnvironmentKind, string> = {
   cloud_sandbox: 'Cloud sandbox',
@@ -44,34 +39,41 @@ export const computePlatformKindLabels: Record<ComputePlatformKind, string> = {
 };
 
 export type ComputeRowKind = 'environment' | 'host';
+export type ComputeRowRelationship = 'dual-boot' | 'nested';
+export type ComputeRowStatus = 'available' | 'attention' | 'unknown';
 
 export interface ComputeRow {
-  connectorCount: number;
-  /** Indentation level within its platform section; hosts and top-level
-   * environments are 0, each nested environment is one deeper than its parent. */
   depth: number;
+  environment?: ProjectCliEnvironmentInstance;
   environmentKind?: ComputeEnvironmentKind;
-  hasIdentityConflict: boolean;
-  hostAssociationLabel?: string;
+  environmentStatus?: string;
+  hostResolutionLabel?: string;
+  host?: ProjectCliHost;
+  hostStatus?: string;
   id: string;
-  instances: SettingsConnectorInstance[];
-  isOnline: boolean;
+  isAvailable: boolean;
   kind: ComputeRowKind;
   name: string;
-  onlineConnectorCount: number;
+  relationship?: ComputeRowRelationship;
+  resourceSource?: string;
   resourcesSummary?: string;
   searchTerms: string[];
+  status: ComputeRowStatus;
+  workspaces: ProjectCliWorkspaceSummary[];
 }
 
 export interface ComputePlatformSection {
-  connectorCount: number;
+  availableCount: number;
+  environmentCount: number;
+  hostCount: number;
   id: string;
-  isOnline: boolean;
   name: string;
-  onlineConnectorCount: number;
   platformKindLabel: string;
   rows: ComputeRow[];
+  workspaceCount: number;
 }
+
+const staleInventoryThresholdMs = 15 * 60 * 1_000;
 
 function formatBytes(value: number | undefined) {
   if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
@@ -85,178 +87,249 @@ function formatBytes(value: number | undefined) {
   return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unit]}`;
 }
 
-function resourcesSummaryText(resources: ComputeEnvironmentNode['environment']['resources']) {
+function resourcesSummaryText(resources: ProjectCliInventoryResourceSummary | undefined) {
   if (!resources) return undefined;
-  const parts = [
-    `${resources.cpu.cores} CPU`,
-    formatBytes(resources.memory.limitBytes ?? resources.memory.totalBytes),
-    formatBytes(resources.storage.totalBytes),
+  return [
+    `${resources.cpuCores} CPU`,
+    formatBytes(resources.memoryLimitBytes ?? resources.memoryTotalBytes),
+    formatBytes(resources.storageTotalBytes),
     resources.gpu?.length ? `${resources.gpu.length} GPU` : undefined
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join(' · ') : undefined;
+  ].filter((part): part is string => Boolean(part)).join(' · ');
+}
+
+function resourceSourceLabel(resources: ProjectCliInventoryResourceSummary | undefined) {
+  switch (resources?.source) {
+    case 'configured': return 'Configured';
+    case 'hostd': return 'hostd';
+    case 'provider': return 'Provider';
+    case 'connector': return 'Imported snapshot';
+    default: return 'Unavailable';
+  }
+}
+
+function controlledRoutes(routes: readonly ProjectCliAccessRoute[]) {
+  return routes.filter((route) => route.type !== 'connector');
+}
+
+function environmentStatus(instance: ProjectCliEnvironmentInstance) {
+  const states = controlledRoutes(instance.accessRoutes).map((route) => route.state);
+  if (states.includes('ready')) return { label: 'Access ready', status: 'available' as const };
+  if (states.includes('stale')) return { label: 'Access stale', status: 'attention' as const };
+  if (states.some((state) => state === 'unavailable' || state === 'policy_blocked')) {
+    return { label: 'Access unavailable', status: 'attention' as const };
+  }
+  if (states.includes('unverified')) return { label: 'Access not verified', status: 'attention' as const };
+  return { label: 'Status unavailable', status: 'unknown' as const };
+}
+
+function hostStatus(host: ProjectCliHost) {
+  switch (host.capabilities.state) {
+    case 'available': return { label: 'Host reachable', status: 'available' as const };
+    case 'unavailable': return { label: 'Host unavailable', status: 'attention' as const };
+    default: return { label: 'Host status unavailable', status: 'unknown' as const };
+  }
+}
+
+function hostAssociationLabel(instance: ProjectCliEnvironmentInstance) {
+  switch (instance.hostResolution) {
+    case 'verified': return 'Verified host';
+    case 'manual': return 'Assigned host';
+    case 'conflict': return 'Host needs review';
+    case 'unresolved': return 'Host not assigned';
+    case 'not_applicable': return 'Provider managed';
+  }
+}
+
+function environmentName(instance: ProjectCliEnvironmentInstance) {
+  return instance.alias.trim() || instance.name;
 }
 
 function environmentRow(
-  node: ComputeEnvironmentNode,
+  instance: ProjectCliEnvironmentInstance,
   depth: number,
-  instancesById: ReadonlyMap<string, SettingsConnectorInstance>
+  relationship: ComputeRowRelationship | undefined,
+  instancesById: ReadonlyMap<string, ProjectCliEnvironmentInstance>
 ): ComputeRow {
-  const instances = node.connectors.flatMap(({ connectorId }) => {
-    const instance = instancesById.get(connectorId);
-    return instance ? [instance] : [];
-  });
-  const onlineConnectorCount = instances.filter((instance) => instance.isOnline).length;
+  const state = environmentStatus(instance);
+  const workspaces = instance.workspaces;
+  const name = environmentName(instance);
   return {
-    connectorCount: instances.length,
     depth,
-    environmentKind: node.environment.kind,
-    hasIdentityConflict: node.environment.identityResolution === 'conflict',
-    hostAssociationLabel: hostAssociationLabel(node.environment.hostAssociation),
-    id: node.environment.id,
-    instances,
-    isOnline: onlineConnectorCount > 0,
+    environment: instance,
+    environmentKind: instance.kind,
+    environmentStatus: state.label,
+    hostResolutionLabel: hostAssociationLabel(instance),
+    id: instance.id,
+    isAvailable: state.status === 'available',
     kind: 'environment',
-    name: node.environment.name,
-    onlineConnectorCount,
-    resourcesSummary: resourcesSummaryText(node.environment.resources),
+    name,
+    relationship,
+    resourceSource: resourceSourceLabel(instance.resources),
+    resourcesSummary: resourcesSummaryText(instance.resources),
     searchTerms: [
-      node.environment.name,
-      computeEnvironmentKindLabels[node.environment.kind],
-      ...instances.flatMap((instance) => [
-        instance.id,
-        instance.machine.name,
-        instance.platformLabel,
-        instance.runtimeLabel
-      ])
-    ].flatMap((term) => (term ? [term] : []))
+      name,
+      instance.name,
+      computeEnvironmentKindLabels[instance.kind],
+      hostAssociationLabel(instance),
+      ...workspaces.flatMap((workspace) => [workspace.name, workspace.repository ?? '']),
+      ...(instance.parentEnvironmentInstanceId
+        ? [instancesById.get(instance.parentEnvironmentInstanceId)?.alias ?? '']
+        : [])
+    ].filter(Boolean),
+    status: state.status,
+    workspaces
   };
 }
 
 function pushEnvironmentRows(
-  nodes: readonly ComputeEnvironmentNode[],
+  instances: readonly ProjectCliEnvironmentInstance[],
+  childrenByParent: ReadonlyMap<string, ProjectCliEnvironmentInstance[]>,
   depth: number,
-  instancesById: ReadonlyMap<string, SettingsConnectorInstance>,
+  relationship: ComputeRowRelationship | undefined,
+  instancesById: ReadonlyMap<string, ProjectCliEnvironmentInstance>,
   rows: ComputeRow[]
 ) {
-  for (const node of nodes) {
-    rows.push(environmentRow(node, depth, instancesById));
-    pushEnvironmentRows(node.children, depth + 1, instancesById, rows);
-  }
-}
-
-/** Sums the connectors of an environment subtree, used for a host's roll-up. */
-function environmentSubtreeConnectors(
-  nodes: readonly ComputeEnvironmentNode[],
-  instancesById: ReadonlyMap<string, SettingsConnectorInstance>
-): { online: number; total: number } {
-  let total = 0;
-  let online = 0;
-  for (const node of nodes) {
-    for (const { connectorId } of node.connectors) {
-      const instance = instancesById.get(connectorId);
-      if (!instance) continue;
-      total += 1;
-      if (instance.isOnline) online += 1;
-    }
-    const child = environmentSubtreeConnectors(node.children, instancesById);
-    total += child.total;
-    online += child.online;
-  }
-  return { online, total };
-}
-
-function pushHostRow(
-  node: ComputeHostNode,
-  instancesById: ReadonlyMap<string, SettingsConnectorInstance>,
-  rows: ComputeRow[]
-) {
-  const summary = environmentSubtreeConnectors(node.environments, instancesById);
-  rows.push({
-    connectorCount: summary.total,
-    depth: 0,
-    hasIdentityConflict: false,
-    id: node.host.id,
-    instances: [],
-    isOnline: summary.online > 0,
-    kind: 'host',
-    name: node.host.name,
-    onlineConnectorCount: summary.online,
-    resourcesSummary: resourcesSummaryText(node.host.resources),
-    searchTerms: [node.host.name]
-  });
-  pushEnvironmentRows(node.environments, 1, instancesById, rows);
-}
-
-/**
- * Projects the compute inventory into one section per platform. Each section's
- * rows interleave host headers with the environment rows nested beneath them,
- * followed by any environments that have no host, in the tree's own order.
- */
-export function computePlatformSections(
-  inventory: ComputeInventory,
-  instancesById: ReadonlyMap<string, SettingsConnectorInstance>
-): ComputePlatformSection[] {
-  return inventory.platforms.map((platformNode) => {
-    const rows: ComputeRow[] = [];
-    for (const host of platformNode.hosts) pushHostRow(host, instancesById, rows);
-    pushEnvironmentRows(platformNode.environments, 0, instancesById, rows);
-    const environmentRows = rows.filter((row) => row.kind === 'environment');
-    const connectorCount = environmentRows.reduce((sum, row) => sum + row.connectorCount, 0);
-    const onlineConnectorCount = environmentRows.reduce((sum, row) => sum + row.onlineConnectorCount, 0);
-    return {
-      connectorCount,
-      id: platformNode.platform.id,
-      isOnline: onlineConnectorCount > 0,
-      name: platformNode.platform.name,
-      onlineConnectorCount,
-      platformKindLabel: computePlatformKindLabels[platformNode.platform.kind],
+  for (const instance of instances) {
+    rows.push(environmentRow(instance, depth, relationship, instancesById));
+    const children = childrenByParent.get(instance.id) ?? [];
+    pushEnvironmentRows(
+      children,
+      childrenByParent,
+      depth + 1,
+      'nested',
+      instancesById,
       rows
-    };
-  });
+    );
+  }
 }
 
-/**
- * Filters rows within each section and drops a host row only when none of its
- * own environment rows (the ones directly after it, before the next
- * depth-zero row) survive; a section disappears entirely once it has none left.
- */
+function pushHostRows(
+  host: ProjectCliHost,
+  instances: readonly ProjectCliEnvironmentInstance[],
+  childrenByParent: ReadonlyMap<string, ProjectCliEnvironmentInstance[]>,
+  instancesById: ReadonlyMap<string, ProjectCliEnvironmentInstance>,
+  rows: ComputeRow[]
+) {
+  const status = hostStatus(host);
+  rows.push({
+    depth: 0,
+    host,
+    hostStatus: status.label,
+    id: host.id,
+    isAvailable: status.status === 'available',
+    kind: 'host',
+    name: host.name,
+    resourceSource: resourceSourceLabel(host.resources),
+    resourcesSummary: resourcesSummaryText(host.resources),
+    searchTerms: [host.name, host.alias],
+    status: status.status,
+    workspaces: []
+  });
+
+  const roots = instances.filter((instance) => !instance.parentEnvironmentInstanceId);
+  const exclusiveRoots = roots.filter((instance) => instance.resourceMode === 'exclusive');
+  const relationship = exclusiveRoots.length > 1 ? 'dual-boot' as const : undefined;
+  pushEnvironmentRows(roots, childrenByParent, 1, relationship, instancesById, rows);
+}
+
+export function computePlatformSections(inventory: ProjectCliComputeInventory) {
+  const instancesById = new Map(inventory.environmentInstances.map((instance) => [instance.id, instance] as const));
+  const childrenByParent = new Map<string, ProjectCliEnvironmentInstance[]>();
+  for (const instance of inventory.environmentInstances) {
+    if (!instance.parentEnvironmentInstanceId) continue;
+    const children = childrenByParent.get(instance.parentEnvironmentInstanceId) ?? [];
+    children.push(instance);
+    childrenByParent.set(instance.parentEnvironmentInstanceId, children);
+  }
+  for (const children of childrenByParent.values()) {
+    children.sort((left, right) => environmentName(left).localeCompare(environmentName(right)));
+  }
+
+  return inventory.platforms.map((platform) => {
+    const platformInstances = inventory.environmentInstances.filter(
+      (instance) => instance.platformId === platform.id
+    );
+    const rows: ComputeRow[] = [];
+    for (const host of inventory.hosts.filter((entry) => entry.platformId === platform.id)) {
+      pushHostRows(
+        host,
+        platformInstances.filter((instance) => instance.hostId === host.id),
+        childrenByParent,
+        instancesById,
+        rows
+      );
+    }
+    pushEnvironmentRows(
+      platformInstances.filter((instance) => !instance.hostId && !instance.parentEnvironmentInstanceId),
+      childrenByParent,
+      0,
+      undefined,
+      instancesById,
+      rows
+    );
+    return {
+      availableCount: rows.filter((row) => row.isAvailable).length,
+      environmentCount: platformInstances.length,
+      hostCount: inventory.hosts.filter((host) => host.platformId === platform.id).length,
+      id: platform.id,
+      name: platform.name,
+      platformKindLabel: computePlatformKindLabels[platform.kind],
+      rows,
+      workspaceCount: platformInstances.reduce((sum, instance) => sum + instance.workspaces.length, 0)
+    } satisfies ComputePlatformSection;
+  }).filter((section) => section.rows.length > 0);
+}
+
 export function filterComputePlatformSections(
   sections: readonly ComputePlatformSection[],
   query: string,
   filter: MachineFilter
-): ComputePlatformSection[] {
-  function environmentSurvives(row: ComputeRow) {
-    if (filter === 'online' && !row.isOnline) return false;
-    if (filter === 'offline' && row.isOnline) return false;
+) {
+  function rowSurvives(row: ComputeRow) {
+    if (filter === 'available' && !row.isAvailable) return false;
+    if (filter === 'attention' && row.status === 'available') return false;
     return matchesFuzzyQuery(row.searchTerms, query);
   }
 
   return sections.flatMap((section) => {
     const survivingEnvironmentIds = new Set(
       section.rows
-        .filter((row) => row.kind === 'environment' && environmentSurvives(row))
+        .filter((row) => row.kind === 'environment' && rowSurvives(row))
         .map((row) => row.id)
     );
     const rows = section.rows.filter((row, index) => {
       if (row.kind === 'environment') return survivingEnvironmentIds.has(row.id);
-      // A host's own subtree is every following row until the next depth-zero
-      // row (the next host, or a top-level hostless environment).
-      let hasSurvivingDescendant = false;
       for (let cursor = index + 1; cursor < section.rows.length; cursor += 1) {
         const next = section.rows[cursor]!;
         if (next.depth === 0) break;
-        if (next.kind === 'environment' && survivingEnvironmentIds.has(next.id)) {
-          hasSurvivingDescendant = true;
-          break;
-        }
+        if (next.kind === 'environment' && survivingEnvironmentIds.has(next.id)) return true;
       }
-      return hasSurvivingDescendant ||
-        (filter === 'all' && matchesFuzzyQuery(row.searchTerms, query));
+      return filter === 'all' && rowSurvives(row);
     });
     return rows.length > 0 ? [{ ...section, rows }] : [];
   });
 }
 
+export function computeInventoryCounts(sections: readonly ComputePlatformSection[]) {
+  return sections.reduce(
+    (summary, section) => ({
+      environments: summary.environments + section.environmentCount,
+      hosts: summary.hosts + section.hostCount,
+      workspaces: summary.workspaces + section.workspaceCount
+    }),
+    { environments: 0, hosts: 0, workspaces: 0 }
+  );
+}
+
 export function countComputePlatformRows(sections: readonly ComputePlatformSection[]) {
   return sections.reduce((sum, section) => sum + section.rows.length, 0);
+}
+
+export function isComputeInventoryStale(
+  checkedAt: string,
+  now = Date.now(),
+  thresholdMs = staleInventoryThresholdMs
+) {
+  const timestamp = Date.parse(checkedAt);
+  return !Number.isFinite(timestamp) || now - timestamp > thresholdMs;
 }

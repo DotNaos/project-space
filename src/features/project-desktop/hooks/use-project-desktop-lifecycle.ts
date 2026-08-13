@@ -262,10 +262,16 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
     }, []);
 
     useEffect(() => {
+      if (mainView === 'machines' || mainView === 'settings') {
+        return;
+      }
       void refreshConnectorOverview();
-    }, [refreshConnectorOverview]);
+    }, [mainView, refreshConnectorOverview]);
   
     useEffect(() => {
+      if (mainView === 'machines' || mainView === 'settings') {
+        return;
+      }
       let isRefreshing = false;
       const interval = window.setInterval(() => {
         if (isRefreshing) {
@@ -281,7 +287,7 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
       return () => {
         window.clearInterval(interval);
       };
-    }, [refreshConnectorOverview]);
+    }, [mainView, refreshConnectorOverview]);
   
     useEffect(() => {
       function handlePopState() {
