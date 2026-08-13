@@ -9,6 +9,7 @@ const runnerPath = join(repositoryRoot, 'deploy/preview-runner.sh');
 const runtimeVerificationPath = join(repositoryRoot, 'deploy/preview-runtime-verification.sh');
 const storagePolicyPath = join(repositoryRoot, 'deploy/preview-storage-policy.sh');
 const composePath = join(repositoryRoot, 'deploy/preview.compose.yml');
+const gatewayDockerfilePath = join(repositoryRoot, 'deploy/preview.gateway.Dockerfile');
 const sshEntrypointPath = join(repositoryRoot, 'deploy/preview-ssh-entrypoint.sh');
 const statusEntrypointPath = join(repositoryRoot, 'deploy/preview-status-entrypoint.sh');
 const temporaryRoots: string[] = [];
@@ -395,11 +396,12 @@ printf '200\\n'
   });
 
   test('runner and Compose isolate Preview resources from Production credentials and mounts', async () => {
-    const [runner, runtimeVerification, storagePolicy, compose, sshEntrypoint, statusEntrypoint] = await Promise.all([
+    const [runner, runtimeVerification, storagePolicy, compose, gatewayDockerfile, sshEntrypoint, statusEntrypoint] = await Promise.all([
       readFile(runnerPath, 'utf8'),
       readFile(runtimeVerificationPath, 'utf8'),
       readFile(storagePolicyPath, 'utf8'),
       readFile(composePath, 'utf8'),
+      readFile(gatewayDockerfilePath, 'utf8'),
       readFile(sshEntrypointPath, 'utf8'),
       readFile(statusEntrypointPath, 'utf8')
     ]);
@@ -453,6 +455,10 @@ printf '200\\n'
     expect(storagePolicy).not.toContain('cleanup_reproducible_storage\n  used=');
     expect(runner).toContain('verify_runtime_with_retry "$head_sha"');
     expect(runner).toContain('verify_runtime_with_retry "$old_sha"');
+    expect(runner).toContain('capture_preview_failure_diagnostics');
+    expect(runner).toContain('compose logs --no-color --tail=80 gateway');
+    expect(runner).toContain('docker inspect --format');
+    expect((runner.match(/capture_preview_failure_diagnostics/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect(runner).toContain('compose pull --quiet >&2');
     expect(runner).toContain('compose up -d --wait --wait-timeout 240 >&2');
     expect(runner).toContain('ensure_postgres_volume');
@@ -512,6 +518,9 @@ printf '200\\n'
     expect(statusEntrypoint).not.toContain('apply|destroy');
     expect(statusEntrypoint).toContain('/opt/platform/share/project-space-preview-current');
     expect(statusEntrypoint).toContain('PROJECT_SPACE_PREVIEW_ASSET_ROOT="$asset_root"');
+    expect(gatewayDockerfile).toContain('COPY src ./src');
+    expect(gatewayDockerfile).toContain('COPY server ./server');
+    expect(gatewayDockerfile).toContain('CMD ["bun", "server/preview-gateway.ts"]');
   });
 
   test('Compose expands every PR-specific Traefik label key', { timeout: 15_000 }, () => {
