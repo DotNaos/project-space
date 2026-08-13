@@ -6,7 +6,9 @@ import type {
 import type {
   ProjectCliAccessRoute,
   ProjectCliComputeInventory,
+  ProjectCliEnvironmentAccessSummary,
   ProjectCliEnvironmentInstance,
+  ProjectCliHostCapabilitySummary,
   ProjectCliHost,
   ProjectCliInventoryResourceSummary,
   ProjectCliWorkspaceSummary
@@ -49,6 +51,7 @@ export interface ComputeRow {
   environmentStatus?: string;
   hostResolutionLabel?: string;
   host?: ProjectCliHost;
+  hostCapabilities?: ProjectCliHostCapabilitySummary;
   hostStatus?: string;
   id: string;
   isAvailable: boolean;
@@ -60,6 +63,7 @@ export interface ComputeRow {
   searchTerms: string[];
   status: ComputeRowStatus;
   workspaces: ProjectCliWorkspaceSummary[];
+  accessSummary?: ProjectCliEnvironmentAccessSummary;
 }
 
 export interface ComputePlatformSection {
@@ -97,12 +101,16 @@ function resourcesSummaryText(resources: ProjectCliInventoryResourceSummary | un
   ].filter((part): part is string => Boolean(part)).join(' · ');
 }
 
-function resourceSourceLabel(resources: ProjectCliInventoryResourceSummary | undefined) {
+function resourceSourceLabel(
+  resources: ProjectCliInventoryResourceSummary | undefined,
+  hostdState?: ProjectCliEnvironmentInstance['hostd']['state']
+) {
+  if (hostdState === 'stale') return 'Stale';
   switch (resources?.source) {
-    case 'configured': return 'Configured';
-    case 'hostd': return 'hostd';
+    case 'configured':
+    case 'connector': return 'SSH snapshot';
+    case 'hostd': return 'project-hostd';
     case 'provider': return 'Provider';
-    case 'connector': return 'Imported snapshot';
     default: return 'Unavailable';
   }
 }
@@ -112,6 +120,17 @@ function controlledRoutes(routes: readonly ProjectCliAccessRoute[]) {
 }
 
 function environmentStatus(instance: ProjectCliEnvironmentInstance) {
+  if (instance.accessSummary) {
+    if (instance.accessSummary.route === 'available') {
+      return { label: 'Access ready', status: 'available' as const };
+    }
+    if (instance.accessSummary.route === 'stale') {
+      return { label: 'Access stale', status: 'attention' as const };
+    }
+    if (instance.accessSummary.route === 'unavailable') {
+      return { label: 'Access unavailable', status: 'attention' as const };
+    }
+  }
   const states = controlledRoutes(instance.accessRoutes).map((route) => route.state);
   if (states.includes('ready')) return { label: 'Access ready', status: 'available' as const };
   if (states.includes('stale')) return { label: 'Access stale', status: 'attention' as const };
@@ -158,13 +177,14 @@ function environmentRow(
     environment: instance,
     environmentKind: instance.kind,
     environmentStatus: state.label,
+    accessSummary: instance.accessSummary,
     hostResolutionLabel: hostAssociationLabel(instance),
     id: instance.id,
     isAvailable: state.status === 'available',
     kind: 'environment',
     name,
     relationship,
-    resourceSource: resourceSourceLabel(instance.resources),
+    resourceSource: resourceSourceLabel(instance.resources, instance.hostd.state),
     resourcesSummary: resourcesSummaryText(instance.resources),
     searchTerms: [
       name,
@@ -214,6 +234,7 @@ function pushHostRows(
   rows.push({
     depth: 0,
     host,
+    hostCapabilities: host.capabilities.summary,
     hostStatus: status.label,
     id: host.id,
     isAvailable: status.status === 'available',

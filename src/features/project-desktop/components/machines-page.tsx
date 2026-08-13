@@ -68,7 +68,29 @@ function StatusChip({ label, status }: { label: string; status: ComputeRow['stat
   );
 }
 
+function evidenceLabel(value: string | undefined) {
+  switch (value) {
+    case 'available': return 'Available';
+    case 'stale': return 'Stale';
+    case 'unavailable': return 'Unavailable';
+    case 'verified': return 'Verified';
+    case 'unverified': return 'Not verified';
+    default: return 'Unknown';
+  }
+}
+
+function providerLabel(value: string | undefined) {
+  switch (value) {
+    case 'provider_native': return 'Provider';
+    case 'tailscale': return 'Tailscale';
+    case 'wireguard': return 'WireGuard';
+    case 'other': return 'Private network';
+    default: return 'Unavailable';
+  }
+}
+
 function HostRow({ row }: { row: ComputeRow }) {
+  const capabilities = row.hostCapabilities;
   return (
     <div className="flex min-w-0 items-center gap-3 px-1 py-3">
       <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
@@ -77,7 +99,11 @@ function HostRow({ row }: { row: ComputeRow }) {
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-neutral-200">{row.name}</span>
         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-600">
-          <span className="truncate">Host capabilities</span>
+          {capabilities ? (
+            <span className="truncate">
+              Power {evidenceLabel(capabilities.power)} · Reset {evidenceLabel(capabilities.reset)} · Wake-on-LAN {evidenceLabel(capabilities.wakeOnLan)} · Console {evidenceLabel(capabilities.console)} · {capabilities.provider === 'jetkvm' ? 'JetKVM' : 'Console provider unavailable'}
+            </span>
+          ) : <span className="truncate">Host capabilities unavailable</span>}
           {row.resourcesSummary ? <span className="truncate">· {row.resourcesSummary}</span> : null}
           {row.resourceSource ? <span className="truncate">· {row.resourceSource}</span> : null}
         </span>
@@ -116,6 +142,7 @@ function EnvironmentRow({ row, onSelect }: { row: ComputeRow; onSelect(): void }
           <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-600">
             <span>{row.environmentStatus}</span>
             <span>· {row.hostResolutionLabel ?? 'Environment Instance'}</span>
+            {row.accessSummary ? <span>· {providerLabel(row.accessSummary.providerKind)}</span> : null}
             {row.resourcesSummary ? <span>· {row.resourcesSummary}</span> : null}
             {row.resourceSource ? <span>· {row.resourceSource}</span> : null}
             {row.workspaces.length > 0 ? (
@@ -204,6 +231,16 @@ function EnvironmentDetails({
   const resources = instance.resources
     ? `${instance.resources.cpuCores} CPU · ${formatDetailBytes(instance.resources.memoryLimitBytes ?? instance.resources.memoryTotalBytes)} · ${formatDetailBytes(instance.resources.storageTotalBytes)}`
     : 'Not reported';
+  const definition = inventory.environmentCatalog.find((entry) => entry.id === instance.environmentDefinitionId);
+  const access = instance.accessSummary ?? {
+    providerKind: instance.hostResolution === 'not_applicable' ? 'provider_native' as const : 'none' as const,
+    route: instance.accessRoutes.some((route) => route.type !== 'connector') ? 'unknown' as const : 'unavailable' as const,
+    ssh: {
+      hostKey: 'unknown' as const,
+      projectCli: 'unknown' as const,
+      readiness: 'unknown' as const
+    }
+  };
   const command = `project ssh ${instance.alias}`;
 
   async function copyCommand() {
@@ -228,15 +265,25 @@ function EnvironmentDetails({
       </div>
       <div className="mt-4 grid gap-x-6 gap-y-3 text-xs sm:grid-cols-2">
         <DetailSectionLabel label="Identity" />
-        <DetailValue label="Environment" value={computeEnvironmentKindLabels[instance.kind]} />
+        <DetailValue label="Definition" value={definition?.name ?? computeEnvironmentKindLabels[instance.kind]} />
+        <DetailValue label="Definition type" value={definition?.slug ?? computeEnvironmentKindLabels[instance.kind]} />
+        <DetailValue label="Bootstrap" value={definition?.bootstrapStrategy.replace('_', ' ')} />
+        <DetailValue label="Ownership" value={definition?.ownership.replace('_', ' ')} />
+        <DetailValue label="Operating system" value={definition?.operatingSystemFamily} />
+        <DetailValue label="Supported architectures" value={definition?.supportedArchitectures.join(' · ')} />
         <DetailValue label="Platform" value={inventory.platforms.find((platform) => platform.id === instance.platformId)?.name} />
         <DetailValue label="Host" value={hostLabel} />
         <DetailValue label="Host status" value={host ? hostStatus : instance.hostResolution === 'not_applicable' ? 'Provider managed' : 'Not reported'} />
         <DetailValue label="Parent environment" value={parent?.alias ?? 'None'} />
         <DetailSectionLabel label="Access" />
-        <DetailValue label="Status" value={instance.accessRoutes.some((route) => route.type !== 'connector') ? 'Configured routes present' : 'No route reported'} />
+        <DetailValue label="Provider" value={providerLabel(access.providerKind)} />
+        <DetailValue label="Route readiness" value={evidenceLabel(access.route)} />
+        <DetailValue label="SSH readiness" value={evidenceLabel(access.ssh.readiness)} />
+        <DetailValue label="SSH host key" value={evidenceLabel(access.ssh.hostKey)} />
+        <DetailValue label="Project CLI" value={evidenceLabel(access.ssh.projectCli)} />
         <DetailSectionLabel label="Resources" />
         <DetailValue label="Capacity" value={resources} />
+        <DetailValue label="Resource source" value={resourceSourceLabel(instance.resources, instance.hostd.state)} />
       </div>
       <div className="mt-4 border-t border-neutral-800/70 pt-3">
         <Text className="block text-[11px] font-medium uppercase tracking-[.08em] text-neutral-500">Workspace Runtimes</Text>
@@ -246,9 +293,23 @@ function EnvironmentDetails({
         {instance.workspaces.length > 0 ? (
           <div className="mt-2 space-y-2">
             {instance.workspaces.map((workspace) => (
-              <div key={workspace.id} className="rounded-lg bg-neutral-900/50 px-3 py-2 text-xs">
+              <div key={workspace.id} className="border-l border-neutral-800 pl-3 text-xs">
                 <Text className="truncate text-neutral-200">{workspace.name}</Text>
                 <Text className="mt-0.5 truncate text-neutral-500">{workspace.repository ?? 'Repository unavailable'}</Text>
+                {workspace.runtime ? (
+                  <>
+                    <Text className="mt-1 block text-neutral-400">
+                      Lifecycle {workspace.runtime.lifecycle} · Codex {evidenceLabel(workspace.runtime.codex)} · Connection {workspace.runtime.connection}
+                    </Text>
+                    {workspace.runtime.devServers.length > 0 ? (
+                      <Text className="mt-0.5 block truncate text-neutral-500">
+                        Development servers · {workspace.runtime.devServers.map((server) => `${server.name} (${server.state})`).join(' · ')}
+                      </Text>
+                    ) : (
+                      <Text className="mt-0.5 block text-neutral-500">No declared development servers</Text>
+                    )}
+                  </>
+                ) : null}
               </div>
             ))}
           </div>
@@ -265,6 +326,20 @@ function EnvironmentDetails({
       </div>
     </aside>
   );
+}
+
+function resourceSourceLabel(
+  resources: NonNullable<NonNullable<ComputeRow['environment']>['resources']> | undefined,
+  hostdState: NonNullable<ComputeRow['environment']>['hostd']['state']
+) {
+  if (hostdState === 'stale') return 'Stale';
+  switch (resources?.source) {
+    case 'connector': return 'SSH snapshot';
+    case 'configured': return 'SSH snapshot';
+    case 'hostd': return 'project-hostd';
+    case 'provider': return 'Provider';
+    default: return 'Unavailable';
+  }
 }
 
 function DetailValue({ label, value }: { label: string; value?: string }) {
@@ -330,7 +405,7 @@ export function MachinesPage({
   const isStale = Boolean(computeInventory && isComputeInventoryStale(computeInventory.checkedAt));
   const showBlockingLoading = inventoryStatus === 'loading' && !computeInventory;
   const showBlockingError = inventoryStatus === 'error' && !computeInventory;
-  const showEmpty = isReady && counts.environments === 0;
+  const showEmpty = isReady && counts.environments === 0 && counts.hosts === 0;
 
   return (
     <section className="flex h-full min-h-0 flex-col">

@@ -222,6 +222,9 @@ func validateInventory(inventory *Inventory) error {
 		if host.Resources != nil && !validResource(*host.Resources, inventory.SchemaVersion) {
 			return ErrInvalidResponse
 		}
+		if host.Capabilities.Summary != nil && !validHostCapabilitySummary(*host.Capabilities.Summary) {
+			return ErrInvalidResponse
+		}
 		if (inventory.SchemaVersion == 1 && host.AccessRoutes != nil) ||
 			!validAccessRoutes(host.AccessRoutes, inventory.SchemaVersion) {
 			return ErrInvalidResponse
@@ -265,6 +268,14 @@ func validateInventory(inventory *Inventory) error {
 		if !validAccessRoutes(instance.AccessRoutes, inventory.SchemaVersion) {
 			return ErrInvalidResponse
 		}
+		if instance.AccessSummary != nil && !validAccessSummary(*instance.AccessSummary) {
+			return ErrInvalidResponse
+		}
+		for _, workspace := range instance.Workspaces {
+			if !validWorkspaceSummary(workspace) {
+				return ErrInvalidResponse
+			}
+		}
 	}
 	for _, instance := range inventory.EnvironmentInstances {
 		if instance.ParentEnvironmentInstanceID != "" {
@@ -283,6 +294,50 @@ func validateInventory(inventory *Inventory) error {
 		}
 	}
 	return nil
+}
+
+func validHostCapabilitySummary(summary HostCapabilitySummary) bool {
+	return validEvidenceState(summary.Console) && validEvidenceState(summary.Power) &&
+		validEvidenceState(summary.Reset) && validEvidenceState(summary.WakeOnLan) &&
+		oneOf(summary.Provider, "jetkvm", "none", "unknown")
+}
+
+func validAccessSummary(summary EnvironmentAccessSummary) bool {
+	return oneOf(summary.ProviderKind, "none", "other", "provider_native", "tailscale", "wireguard") &&
+		validEvidenceState(summary.Route) &&
+		oneOf(summary.SSH.HostKey, "unknown", "unverified", "verified") &&
+		validEvidenceState(summary.SSH.ProjectCLI) &&
+		validEvidenceState(summary.SSH.Readiness)
+}
+
+func validWorkspaceSummary(workspace WorkspaceSummary) bool {
+	if !validIdentity(workspace.ID) || !validText(workspace.Name) ||
+		!oneOf(workspace.State, "active", "inactive") {
+		return false
+	}
+	if workspace.Repository != "" && !validText(workspace.Repository) {
+		return false
+	}
+	if workspace.Runtime == nil {
+		return true
+	}
+	if !validEvidenceState(workspace.Runtime.Codex) ||
+		!oneOf(workspace.Runtime.Connection, "connecting", "online", "disconnected", "stale", "stopped") ||
+		!oneOf(workspace.Runtime.Evidence, "project-hostd", "unavailable", "workspace-runtime") ||
+		!oneOf(workspace.Runtime.Lifecycle, "starting", "running", "suspended", "stopping", "stopped", "failed") ||
+		workspace.Runtime.DevServers == nil {
+		return false
+	}
+	for _, server := range workspace.Runtime.DevServers {
+		if !validText(server.Name) || !oneOf(server.State, "starting", "ready", "stopped", "failed") {
+			return false
+		}
+	}
+	return true
+}
+
+func validEvidenceState(value string) bool {
+	return oneOf(value, "available", "stale", "unavailable", "unknown")
 }
 
 func validAccessRoutes(routes []AccessRoute, schemaVersion int) bool {

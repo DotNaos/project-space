@@ -99,6 +99,39 @@ describe('machines page canonical inventory UI', () => {
     expect(html).not.toContain('Host capability record');
   });
 
+  test('renders typed Host capability availability without connector labels', () => {
+    const html = renderToStaticMarkup(createElement(MachinesPage, {
+      ...baseProps,
+      computeInventory: inventory({
+        hosts: [{
+          alias: 'dev-host',
+          capabilities: {
+            console: [],
+            power: [],
+            state: 'available' as const,
+            summary: {
+              console: 'available' as const,
+              power: 'available' as const,
+              provider: 'jetkvm' as const,
+              reset: 'unavailable' as const,
+              wakeOnLan: 'unknown' as const
+            }
+          },
+          id: 'host-dev',
+          name: 'dev-host',
+          platformId: 'local'
+        }],
+        platforms: [{ alias: 'local', id: 'local', kind: 'local', name: 'Local & self-hosted' }]
+      })
+    }));
+
+    expect(html).toContain('Power Available');
+    expect(html).toContain('Reset Unavailable');
+    expect(html).toContain('Wake-on-LAN Unknown');
+    expect(html).toContain('JetKVM');
+    expect(html).not.toContain('Connector');
+  });
+
   test('renders Workspace Runtime names and keeps unavailable access separate', () => {
     const html = renderToStaticMarkup(createElement(MachinesPage, {
       ...baseProps,

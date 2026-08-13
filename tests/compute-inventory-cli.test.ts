@@ -214,25 +214,86 @@ describe('agent-safe compute inventory', () => {
     });
     expect(inventory.schemaVersion).toBe(2);
     if (inventory.schemaVersion !== 2) throw new Error('Expected v2 inventory.');
-    expect(inventory.privateNetworks).toEqual([{
-      approvalState: 'approved', id: networkId,
+    expect(inventory.privateNetworks).toHaveLength(1);
+    expect(inventory.privateNetworks[0]).toEqual({
+      approvalState: 'approved', id: expect.stringMatching(/^network-[a-f0-9]{32}$/),
       lastVerifiedAt: '2026-08-11T10:00:30.000Z', name: 'Private tailnet',
       providerKind: 'tailscale', state: 'available'
-    }]);
+    });
     expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.accessRoutes)
       .toContainEqual({
-        capabilities: ['project_cli'], id: '20000000-0000-4000-8000-000000000001',
+        capabilities: ['project_cli'], id: expect.stringMatching(/^route-[a-f0-9]{32}$/),
         lastVerifiedAt: '2026-08-11T10:00:30.000Z', priority: 100,
         providerKind: 'tailscale', state: 'ready', type: 'ssh_private_network'
       });
     const serialized = JSON.stringify(inventory);
     for (const forbidden of [
       '100.64.0.10', 'private-user', 'SHA256:', 'op://', 'private-gateway-id',
-      'raw-provider-node-id', environment.identity.key
+      'raw-provider-node-id', networkId, '20000000-0000-4000-8000-000000000001', environment.identity.key
     ]) expect(serialized).not.toContain(forbidden);
   });
 
-  test('derives v2 Host and hostd summaries only from typed verified routes', () => {
+  test('binds SSH host-key and Project CLI evidence to the same exact route', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const environment = snapshot.environments.find(({ kind }) => kind === 'native_windows')!;
+    const networkId = 'network-for-exact-route-binding';
+    const common = {
+      allowedGatewayIds: ['gateway-one'], availability: 'available' as const,
+      credentialReference: 'op://Personal/SSH/private key',
+      enabled: true, freshnessSeconds: 60, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
+      ownerUserId: 'owner-one', policyState: 'approved' as const,
+      privateAddress: '100.64.0.10', requiresInteractiveApproval: false,
+      privateNetworkId: networkId,
+      providerKind: 'tailscale' as const,
+      routeKind: 'ssh_private_network' as const, sshPort: 22, sshUser: 'private-user',
+      target: { id: environment.id, kind: 'environment' as const },
+      targetIdentityRevision: `${environment.identity.version}:${environment.identity.key}`,
+      verifiedUntil: '2026-08-11T10:05:00.000Z'
+    };
+    const inventory = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors,
+      privateNetworkInventory: { networks: [{
+        approvalState: 'approved', availability: 'available', enabled: true,
+        credentialReference: 'op://Personal/Tailscale/token',
+        id: networkId, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
+        name: 'Private network', ownerUserId: 'owner-one', providerKind: 'tailscale',
+        providerReference: 'private-provider-reference',
+        verifiedUntil: '2026-08-11T10:05:00.000Z'
+      }], routes: [{
+        ...common, capabilities: [], id: 'route-without-cli-or-host-key', priority: 1
+      }, {
+        ...common, capabilities: ['project_cli'], hostKeySha256: `SHA256:${'A'.repeat(43)}`,
+        id: 'route-with-cli-and-host-key', priority: 200
+      }] },
+      schemaVersion: 2,
+      snapshot
+    });
+
+    expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.accessSummary)
+      .toMatchObject({ ssh: {
+        hostKey: 'verified', projectCli: 'available', readiness: 'available'
+      } });
+  });
+
+  test('keeps an authoritative empty Workspace inventory available', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const available = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors, runtimeSessions: [],
+      schemaVersion: 3, snapshot
+    });
+    const unavailable = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors, schemaVersion: 3, snapshot
+    });
+
+    expect(available.environmentInstances.every(({ workspaceInventory }) =>
+      workspaceInventory.state === 'available')).toBe(true);
+    expect(unavailable.environmentInstances.every(({ workspaceInventory }) =>
+      workspaceInventory.state === 'unavailable')).toBe(true);
+  });
+
+  test('does not infer a provider from generic Host routes', () => {
     const connectors = representativeConnectors();
     const snapshot = computeInventoryFromConnectors({ connectors });
     const host = snapshot.hosts[0]!;
@@ -261,7 +322,11 @@ describe('agent-safe compute inventory', () => {
       schemaVersion: 2, snapshot
     });
     expect(inventory.hosts.find(({ id }) => id === host.id)?.capabilities).toEqual({
-      console: ['access-route'], power: ['access-route'], state: 'available'
+      console: ['access-route'], power: ['access-route'], state: 'available',
+      summary: {
+        console: 'available', power: 'available', provider: 'unknown',
+        reset: 'unavailable', wakeOnLan: 'unavailable'
+      }
     });
     expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.hostd)
       .toEqual({ state: 'available' });
@@ -338,6 +403,66 @@ describe('agent-safe compute inventory', () => {
     const projected = inventory.environmentInstances.find(({ id }) => id === environment.id)!;
     expect(projected.hostd).toEqual({ state: 'unknown' });
     expect(projected.resources?.source).not.toBe('hostd');
+  });
+
+  test('projects generation-bound Workspace Runtime summaries without leaking runtime authority', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const environment = snapshot.environments[0]!;
+    const hostId = environment.hostAssociation.resolution === 'verified' ||
+      environment.hostAssociation.resolution === 'manual'
+      ? environment.hostAssociation.hostId
+      : undefined;
+    const runtime = {
+      branch: 'issue-710', commit: 'private-commit-sha',
+      capabilities: ['runtime.lifecycle', 'runtime.heartbeat', 'runtime.dev-servers', 'runtime.codex.v1'] as const,
+      connectionState: 'online' as const, devServers: [{
+        name: 'web', port: 3000, state: 'ready' as const, url: 'http://127.0.0.1:3000/private'
+      }],
+      environmentId: environment.id, expiresAt: '2026-08-11T10:05:00.000Z',
+      generation: 'private-generation-id', lastEventAt: '2026-08-11T10:00:59.000Z',
+      lastHeartbeatAt: '2026-08-11T10:00:59.000Z', lastSequence: 4,
+      lifecycleState: 'running' as const, manifestDigest: 'private-manifest',
+      runtimeVersion: '0.4.66', schemaVersion: 1 as const, sessionId: 'private-session-id',
+      workspaceId: 'private-workspace-id'
+    };
+    const inventory = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors, runtimeSessions: [runtime],
+      hostdSnapshots: [{
+        connectionState: 'online', credentialId: 'private-credential-id', deviceId: 'private-device-id',
+        environmentId: environment.id, ...(hostId ? { hostId } : {}), health: 'healthy',
+        hostdVersion: '0.1.0', lastSeenAt: '2026-08-11T10:00:59.000Z', observedAt: '2026-08-11T10:00:58.000Z',
+        partialMetrics: [], protocolVersion: 1,
+        resources: {
+          architecture: 'amd64', cpu: { cores: 4, usedPercent: 2 },
+          memory: { availableBytes: 4_000, totalBytes: 8_000 }, operatingSystem: 'linux',
+          storage: { availableBytes: 40_000, totalBytes: 50_000 }
+        },
+        runtimes: [{ boundaryKind: 'process_group', cpuPercent: 2, generation: 'private-generation-id', memoryBytes: 128, workspaceId: 'private-workspace-id' }],
+        schemaVersion: 1, sequence: 4, uptimeSeconds: 100
+      }], snapshot, schemaVersion: 3
+    });
+    const workspace = inventory.environmentInstances.find(({ id }) => id === environment.id)?.workspaces[0];
+    expect(workspace).toMatchObject({
+      name: 'Workspace Runtime 1', state: 'active', runtime: {
+        codex: 'available', connection: 'online', evidence: 'project-hostd',
+        lifecycle: 'running', devServers: [{ name: 'web', state: 'ready' }]
+      }
+    });
+    expect(workspace?.id).toMatch(/^workspace-[a-f0-9]{32}$/);
+    const serialized = JSON.stringify(inventory);
+    for (const forbidden of [
+      'private-commit-sha', 'private-generation-id', 'private-manifest',
+      'private-session-id', 'private-workspace-id', 'private-device-id', 'private-credential-id',
+      '127.0.0.1', '3000'
+    ]) expect(serialized).not.toContain(forbidden);
+
+    const withoutHostd = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors, runtimeSessions: [runtime],
+      snapshot, schemaVersion: 3
+    });
+    expect(withoutHostd.environmentInstances.find(({ id }) => id === environment.id)?.workspaces[0]?.runtime?.evidence)
+      .toBe('workspace-runtime');
   });
 
   test('promotes a child-created parent with the actual parent Host and stays order-independent', () => {

@@ -66,9 +66,18 @@ type Platform struct {
 }
 
 type HostCapabilities struct {
-	Console []string `json:"console"`
-	Power   []string `json:"power"`
-	State   string   `json:"state"`
+	Console []string               `json:"console"`
+	Power   []string               `json:"power"`
+	State   string                 `json:"state"`
+	Summary *HostCapabilitySummary `json:"summary,omitempty"`
+}
+
+type HostCapabilitySummary struct {
+	Console   string `json:"console"`
+	Power     string `json:"power"`
+	Provider  string `json:"provider"`
+	Reset     string `json:"reset"`
+	WakeOnLan string `json:"wakeOnLan"`
 }
 
 type Host struct {
@@ -133,30 +142,57 @@ type PrivateNetwork struct {
 }
 
 type WorkspaceSummary struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Repository string `json:"repository,omitempty"`
-	State      string `json:"state"`
+	ID         string                   `json:"id"`
+	Name       string                   `json:"name"`
+	Repository string                   `json:"repository,omitempty"`
+	Runtime    *WorkspaceRuntimeSummary `json:"runtime,omitempty"`
+	State      string                   `json:"state"`
+}
+
+type WorkspaceRuntimeSummary struct {
+	Codex      string             `json:"codex"`
+	Connection string             `json:"connection"`
+	DevServers []DevServerSummary `json:"devServers"`
+	Evidence   string             `json:"evidence"`
+	Lifecycle  string             `json:"lifecycle"`
+}
+
+type DevServerSummary struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+type EnvironmentAccessSummary struct {
+	ProviderKind string           `json:"providerKind"`
+	Route        string           `json:"route"`
+	SSH          SSHAccessSummary `json:"ssh"`
+}
+
+type SSHAccessSummary struct {
+	HostKey    string `json:"hostKey"`
+	ProjectCLI string `json:"projectCli"`
+	Readiness  string `json:"readiness"`
 }
 
 type EnvironmentInstance struct {
-	AccessRoutes                []AccessRoute         `json:"accessRoutes"`
-	Alias                       string                `json:"alias"`
-	EnvironmentDefinitionID     string                `json:"environmentDefinitionId"`
-	HostID                      string                `json:"hostId,omitempty"`
-	HostResolution              string                `json:"hostResolution"`
-	Hostd                       HostdAvailability     `json:"hostd"`
-	ID                          string                `json:"id"`
-	Kind                        string                `json:"kind"`
-	Name                        string                `json:"name"`
-	ParentEnvironmentInstanceID string                `json:"parentEnvironmentInstanceId,omitempty"`
-	PlatformID                  string                `json:"platformId"`
-	ProviderLifecycleState      string                `json:"providerLifecycleState"`
-	Reference                   string                `json:"reference"`
-	ResourceMode                string                `json:"resourceMode"`
-	Resources                   *ResourceSummary      `json:"resources,omitempty"`
-	WorkspaceInventory          InventoryAvailability `json:"workspaceInventory"`
-	Workspaces                  []WorkspaceSummary    `json:"workspaces"`
+	AccessRoutes                []AccessRoute             `json:"accessRoutes"`
+	AccessSummary               *EnvironmentAccessSummary `json:"accessSummary,omitempty"`
+	Alias                       string                    `json:"alias"`
+	EnvironmentDefinitionID     string                    `json:"environmentDefinitionId"`
+	HostID                      string                    `json:"hostId,omitempty"`
+	HostResolution              string                    `json:"hostResolution"`
+	Hostd                       HostdAvailability         `json:"hostd"`
+	ID                          string                    `json:"id"`
+	Kind                        string                    `json:"kind"`
+	Name                        string                    `json:"name"`
+	ParentEnvironmentInstanceID string                    `json:"parentEnvironmentInstanceId,omitempty"`
+	PlatformID                  string                    `json:"platformId"`
+	ProviderLifecycleState      string                    `json:"providerLifecycleState"`
+	Reference                   string                    `json:"reference"`
+	ResourceMode                string                    `json:"resourceMode"`
+	Resources                   *ResourceSummary          `json:"resources,omitempty"`
+	WorkspaceInventory          InventoryAvailability     `json:"workspaceInventory"`
+	Workspaces                  []WorkspaceSummary        `json:"workspaces"`
 }
 
 type HostdAvailability struct {
