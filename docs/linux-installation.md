@@ -1,8 +1,8 @@
 # Linux x64 installation
 
 Project Space publishes a pinned Linux x64 machine-tools bundle for Ubuntu and
-WSL. The bundle contains the matching Project CLI and connector executables
-plus a checksum-pinned Codex runtime for managed machine tasks. It does not
+WSL. The bundle contains the Project CLI, Codex host, and checksum-pinned
+runtime assets for managed Workspace Runtimes. It does not
 contain a login, token, machine credential, or Tailscale key.
 
 ## Verify and install an approved release
@@ -23,15 +23,12 @@ cd project-space-machine-tools-linux-x64-v<VERSION>
 ```
 
 The installer independently verifies every file in the extracted bundle. It
-stores each matching CLI and connector pair in a versioned directory and then
-atomically switches one `current` pointer used by both commands in
-`~/.local/bin`. It stops the existing connector before that switch, starts the
-new connector afterward when this user is already connected, and restores the
-previous pair if the new connector cannot start. It is a per-user install and
+stores the Project CLI and Codex host in a versioned directory and atomically
+switches one `current` pointer in `~/.local/bin`. It is a per-user install and
 refuses to run as root. No credential is accepted through installer arguments,
 environment variables, or logs.
 
-The managed connector uses only the Codex executable inside that same signed,
+The Workspace Runtime uses only the Codex executable inside that same signed,
 versioned release directory. The installer does not expose Codex through a
 convenience symlink, edit `PATH` for Codex, run an upstream installer, or use
 administrator privileges. The release build downloads one fixed official
@@ -41,8 +38,9 @@ release manifest and archive checksums.
 
 If `~/.local/bin` is not already on `PATH`, add it through the normal shell
 profile for that user. Re-running the installer for an approved newer release
-replaces the Project CLI and connector at the same stable paths and switches the
-private managed Codex runtime with the same release pointer.
+replaces the Project CLI and Codex host at the same stable paths and switches
+the private managed Codex runtime with the same release pointer. It does not
+start or reconnect a permanent service.
 
 After the first managed installation, check or install the next signed stable
 release with:
@@ -56,34 +54,50 @@ The interactive command defaults to no. Use `project self-update --yes` for an
 explicit non-interactive install. `--format json` never prompts and remains
 read-only unless combined with `--yes`. The updater never uses a mutable latest
 download URL: it verifies the exact signed manifest, pinned archive size, and
-SHA-256 checksum before the existing installer can switch the CLI and connector
-together. There is no background updater.
+SHA-256 checksum before the existing installer can switch the CLI and Codex
+host together. There is no background updater.
 
-## Connect the machine
+## Bootstrap an Environment Runtime
 
-After installation, sign in through the normal browser approval flow:
+Register the machine once. This stores an owner-bound Machine Credential but
+does not install or start a background Connector:
 
 ```sh
 project connect
 ```
 
-The command stores the approved per-user machine credential using the protected
-Linux/WSL credential store and reports the machine as registered. It does not
-install or start systemd, a Windows Scheduled Task, a WSL supervisor, or any
-other permanent Connector process.
-
-To revoke and remove that identity, run:
+List the exact Environment Instances available to the current account:
 
 ```sh
-project disconnect
+project environment list --format json
 ```
+
+Launch a pinned Workspace Runtime for one exact Environment Instance. Supply
+the required Workspace, commit, generation, manifest digest, and runtime
+version values from the selected managed Workspace:
+
+```sh
+project environment bootstrap <environment-instance> \
+  --workspace <workspace-id> \
+  --branch <branch> \
+  --commit <commit> \
+  --generation <generation> \
+  --manifest-digest <sha256> \
+  --runtime-version <version>
+```
+
+The bootstrap is scoped to that Environment and generation. It starts no
+permanent Connector and does not accept a Connector ID as a substitute for an
+Environment Instance. Use [Workspace runtimes](./workspace-runtimes.md) for
+inspect, suspend, resume, stop, reconcile, and cleanup.
 
 ## Tailscale in WSL
 
 For a WSL-owned development endpoint, install and enroll Tailscale inside that
 same Ubuntu distribution using the approved tailnet process. Do not enable
-Funnel or publish the connector. Project-managed development servers remain
-private to the tailnet and use the existing narrowly owned route lifecycle.
+Funnel or publish a retired Connector endpoint. Project-managed development
+servers remain private to the tailnet and use the existing narrowly owned
+route lifecycle.
 
 Tailscale is intentionally not included in the machine-tools archive. Its
 installation and device approval follow the tailnet administrator's policy and

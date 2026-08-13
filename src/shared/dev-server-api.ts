@@ -185,20 +185,3 @@ export interface DevServerOverviewResult {
   servers: WorktreeDevServerRecord[];
   settings?: ProjectRunSettingsRecord;
 }
-
-export interface ConnectorInstallerResult {
-  command: string;
-  scriptUrl: string;
-}
-
-export type ConnectorCredentialStatus = 'active' | 'expired' | 'pending' | 'revoked';
-
-export interface ConnectorCredentialRecord {
-  createdAt: string;
-  expiresAt: string;
-  id: string;
-  lastSeenAt?: string;
-  machineId?: string;
-  revokedAt?: string;
-  status: ConnectorCredentialStatus;
-}

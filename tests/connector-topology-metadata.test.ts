@@ -1,30 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
-  isConnectorProjectRegistryPayload
-} from '../server/connector-command-protocol';
-import {
   isConnectorEnvironmentRecord,
   loadConnectorTopologyMetadata
 } from '../server/connector-topology-metadata';
 import { getConnectorOverview } from '../server/local-machine-registry';
-import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
-
 const originalScopeOverride = process.env.PROJECT_CONNECTOR_EXECUTION_SCOPE_ID;
-
-function registry(machineId: string): ConnectorProjectRegistryResult {
-  return {
-    checkedAt: '2026-07-17T00:00:00.000Z',
-    connector: { machineId, machineName: machineId },
-    discovery: {
-      groups: [],
-      projects: [],
-      rootItems: [],
-      rootPath: '/projects',
-      structureViolations: []
-    }
-  };
-}
 
 afterEach(() => {
   if (originalScopeOverride === undefined) {
@@ -113,42 +94,6 @@ describe('connector topology metadata', () => {
     expect(isConnectorEnvironmentRecord({ kind: 'wsl', label: 'Ubuntu' })).toBe(true);
     expect(isConnectorEnvironmentRecord({ kind: 'wsl', label: 'x'.repeat(129) })).toBe(false);
     expect(isConnectorEnvironmentRecord({ kind: 'wsl', label: 'Ubuntu\nspoofed' })).toBe(false);
-  });
-
-  test('validates the optional registry fields at the connector protocol boundary', () => {
-    const valid = registry('topology-protocol');
-    valid.connector.environment = { kind: 'windows', label: 'Windows 11' };
-    valid.connector.executionScopeId = 'office-pc';
-    valid.connector.daemon = {
-      authenticated: true,
-      checkedAt: '2026-07-17T00:00:00.000Z',
-      compatible: true,
-      environmentId: 'env_os_pc',
-      installed: true,
-      paired: true,
-      reachable: true,
-      remoteControlEnabled: true,
-      remoteControlState: 'connected',
-      running: true,
-      state: 'ready'
-    };
-    expect(isConnectorProjectRegistryPayload(valid)).toBe(true);
-
-    expect(isConnectorProjectRegistryPayload({
-      ...valid,
-      connector: { ...valid.connector, environment: { kind: 'wsl', label: '' } }
-    })).toBe(false);
-    expect(isConnectorProjectRegistryPayload({
-      ...valid,
-      connector: { ...valid.connector, executionScopeId: '../office-pc' }
-    })).toBe(false);
-    expect(isConnectorProjectRegistryPayload({
-      ...valid,
-      connector: {
-        ...valid.connector,
-        daemon: { ...valid.connector.daemon, authenticated: false }
-      }
-    })).toBe(false);
   });
 
   test('adds explicit topology to the local connector overview', async () => {

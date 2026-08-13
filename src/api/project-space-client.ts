@@ -47,7 +47,6 @@ import type {
   PlatformOverviewResult,
   ProjectSpaceAuthSessionResult,
   ProjectBackupRequest,
-  ConnectorProjectRegistryResult,
   ProjectCliCommandRequest,
   ProjectCliCommandResult,
   ProjectDeployRequest,
@@ -114,7 +113,7 @@ export {
   resolveProjectSpaceApiBaseUrl
 } from './project-space-client-http';
 
-class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements ProjectSpaceBackend {
+class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Omit<ProjectSpaceBackend, 'getConnectorProjectRegistry'> {
 
   getAppMeta(): Promise<AppMeta> {
     return this.request('/api/app/meta');
@@ -177,10 +176,6 @@ class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements Project
       body: JSON.stringify({}),
       method: 'POST'
     });
-  }
-
-  getConnectorProjectRegistry(): Promise<ConnectorProjectRegistryResult> {
-    return this.request('/api/connectors/project-registry');
   }
 
   getDeployedEnvironmentStatus(repositoryFullName: string) {

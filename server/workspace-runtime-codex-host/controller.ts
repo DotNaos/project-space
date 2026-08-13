@@ -12,7 +12,7 @@ import {
 } from '../../src/shared/workspace-runtime-codex-api';
 import {
   CodexSessionManager,
-  CodexSessionsConnectorExecutor,
+  CodexSessionsExecutor,
   type CodexSessionsBoundOperation
 } from '../codex-sessions';
 import { createCodexOperationSnapshotPersistence } from '../codex-sessions/operation-snapshot-store';
@@ -46,7 +46,7 @@ export interface WorkspaceRuntimeCodexHostReady {
 }
 
 export class WorkspaceRuntimeCodexHostController {
-  private readonly executor: CodexSessionsConnectorExecutor;
+  private readonly executor: CodexSessionsExecutor;
   private readonly journal: CodexHostJournal;
   private readonly manager: CodexSessionManager;
   private readonly machineId: string;
@@ -73,7 +73,7 @@ export class WorkspaceRuntimeCodexHostController {
       persistOperationSnapshot: operations.persist
     };
     this.manager = options.createManager?.(managerOptions) ?? new CodexSessionManager(managerOptions);
-    this.executor = new CodexSessionsConnectorExecutor({
+    this.executor = new CodexSessionsExecutor({
       expectedGeneration: generationNumber(options.generation),
       expectedMachineId: this.machineId,
       machineName: `Workspace ${options.workspaceId}`,
@@ -205,8 +205,7 @@ export class WorkspaceRuntimeCodexHostController {
     const wireResult = await this.executor.executeBound(
       operation,
       command.request,
-      generationNumber(this.options.generation),
-      command.actorUserId
+      generationNumber(this.options.generation)
     );
     return wireResult.result as WorkspaceRuntimeCodexResult;
   }

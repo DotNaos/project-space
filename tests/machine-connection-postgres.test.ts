@@ -177,7 +177,6 @@ describe('machine connection PostgreSQL integration', () => {
 
         const runtime = createMachineConnectionRuntime({
           databaseClient: client,
-          isMachineOnline: async () => false,
           publicOrigin: 'http://127.0.0.1',
           rateLimitSecret: Buffer.alloc(32, 5),
           readAuthenticatedUserId: async (request) =>

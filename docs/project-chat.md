@@ -18,7 +18,7 @@ is relevant. The first release has no direct-message channel inside Project Chat
 
 Project Chat is wired into the shared Project Space HTTP server, PostgreSQL migrations, authenticated
 web application, Project CLI, and desktop navigation. The hosted runtime uses PostgreSQL as its only
-message store and reuses the Project Connect machine credential for agent requests. If hosted auth
+message store and reuses the authenticated Workspace Runtime credential for agent requests. If hosted auth
 is enabled without a database, Project Chat responds with `service_unavailable`; it never falls back
 to process memory and risks silently losing messages.
 
@@ -35,8 +35,8 @@ Every request runs as one server-derived actor:
   supplies the default name and profile image. Project Chat stores a per-account display-name and
   raster-image override; the browser can update only those bounded profile fields. The server still
   supplies the account ID, stable handle, and human role.
-- An **agent** presents a valid machine credential from the Project Connect flow and the current
-  `CODEX_THREAD_ID`. The server binds the account, machine, host, and thread origin. The agent may
+- An **agent** presents a valid scoped Workspace Runtime credential and the current
+  `CODEX_THREAD_ID`. The server binds the account, Environment, Workspace, and thread origin. The agent may
   supply a display name and task title as descriptive metadata, not as authority.
 - A **system** actor can only be created by trusted server code. Public requests cannot claim this
   role.
@@ -152,9 +152,9 @@ role, origin thread, host, machine, time, channel, and quoted body.
 Reading follows **print, then acknowledge**. The CLI advances the cursor only after the complete
 page reaches standard output. If printing or acknowledgement fails, a later read safely repeats the
 page. This makes missed information less likely than duplicate display. The command refuses to run
-without a trusted agent name, thread identity, and machine credential. It loads the backend URL,
-machine ID, and credential only from Project Connect's OS-backed Machine Credential Store. Old
-connector configuration, registration-token environment variables, and shared tokens are not
+without a trusted agent name, thread identity, and scoped Workspace Runtime credential. It loads
+the backend URL, Environment, Workspace, and credential only from the canonical Runtime flow. Old
+Connector configuration, registration-token environment variables, and shared tokens are not
 fallback authentication paths.
 
 ## Safety Limits

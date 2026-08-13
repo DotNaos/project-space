@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { MachineRecord, PhysicalMachineRecord } from '../src/shared/project-space-api';
+import type { MachineRecord } from '../src/shared/project-space-api';
 import type {
   ComputeEnvironmentRecord,
   ComputeHostRecord,
@@ -13,13 +13,10 @@ import {
   builtInEnvironmentDefinition,
   groupComputeInventory
 } from '../src/shared/compute-environment-api';
-import { groupSettingsMachines } from '../src/features/project-desktop/components/settings-machine-group-model';
+import { settingsConnectorInstances } from '../src/features/project-desktop/components/settings-machine-group-model';
 import {
   computePlatformSections,
   filterComputePlatformSections,
-  filterMachineRows,
-  machineListRows,
-  machineRowSubtitle
 } from '../src/features/project-desktop/components/machines-page-model';
 
 function machine({
@@ -60,20 +57,8 @@ function machine({
   };
 }
 
-function physicalMachine(id: string, connectorIds: string[]): PhysicalMachineRecord {
-  return { connectorIds, id, name: id };
-}
-
-function rowsFor(
-  connectors: MachineRecord[],
-  physicalMachines: PhysicalMachineRecord[] = []
-) {
-  return machineListRows(groupSettingsMachines({ connectors, physicalMachines }));
-}
-
 function instancesById(connectors: MachineRecord[]) {
-  const grouping = groupSettingsMachines({ connectors, physicalMachines: [] });
-  return new Map(grouping.unscopedInstances.map((instance) => [instance.id, instance] as const));
+  return new Map(settingsConnectorInstances(connectors).map((instance) => [instance.id, instance] as const));
 }
 
 function identity(key: string): DerivedIdentityKey {
@@ -145,87 +130,6 @@ const resources: ResourceProfile = {
   source: 'connector',
   storage: { totalBytes: 512 * 1_024 ** 3 }
 };
-
-describe('machineListRows', () => {
-  test('renders one row per physical machine and per ungrouped connector', () => {
-    const rows = rowsFor(
-      [
-        machine({ id: 'connector-a', platform: 'darwin' }),
-        machine({ id: 'connector-b', platform: 'linux', status: 'offline' }),
-        machine({ id: 'lonely-connector', name: 'os-yoga', status: 'offline' })
-      ],
-      [physicalMachine('os-macbook', ['connector-a', 'connector-b'])]
-    );
-
-    expect(rows.map((row) => [row.id, row.isGrouped])).toEqual([
-      ['os-macbook', true],
-      ['lonely-connector', false]
-    ]);
-    expect(rows[0].connectorCount).toBe(2);
-    expect(rows[0].onlineConnectorCount).toBe(1);
-  });
-
-  test('treats a machine as online while any of its connectors is online', () => {
-    const rows = rowsFor(
-      [
-        machine({ id: 'connector-a', status: 'offline' }),
-        machine({ id: 'connector-b', status: 'local' })
-      ],
-      [physicalMachine('os-pc', ['connector-a', 'connector-b'])]
-    );
-
-    expect(rows[0].isOnline).toBe(true);
-  });
-
-  test('sorts online machines first and then by name', () => {
-    const rows = rowsFor([
-      machine({ id: 'zeta', status: 'online' }),
-      machine({ id: 'alpha', status: 'offline' }),
-      machine({ id: 'beta', status: 'online' })
-    ]);
-
-    expect(rows.map((row) => row.name)).toEqual(['beta', 'zeta', 'alpha']);
-  });
-
-  test('keeps a machine whose only connectors are archived out of the list', () => {
-    const rows = rowsFor([], [physicalMachine('os-retired', ['gone'])]);
-
-    expect(rows).toEqual([]);
-  });
-});
-
-describe('filterMachineRows', () => {
-  const rows = rowsFor([
-    machine({ id: 'connector-mac', name: 'os-macbook', platform: 'darwin' }),
-    machine({ id: 'connector-pc', name: 'os-yoga-unix', platform: 'linux', status: 'offline' })
-  ]);
-
-  test('returns every row without a query or filter', () => {
-    expect(filterMachineRows({ filter: 'all', query: '', rows })).toHaveLength(2);
-  });
-
-  test('splits rows by connection state', () => {
-    expect(
-      filterMachineRows({ filter: 'online', query: '', rows }).map((row) => row.name)
-    ).toEqual(['os-macbook']);
-    expect(
-      filterMachineRows({ filter: 'offline', query: '', rows }).map((row) => row.name)
-    ).toEqual(['os-yoga-unix']);
-  });
-
-  test('searches machine names and connector identifiers', () => {
-    expect(filterMachineRows({ filter: 'all', query: 'yoga', rows }).map((row) => row.name)).toEqual([
-      'os-yoga-unix'
-    ]);
-    expect(
-      filterMachineRows({ filter: 'all', query: 'connector-mac', rows }).map((row) => row.name)
-    ).toEqual(['os-macbook']);
-  });
-
-  test('combines the filter with the query', () => {
-    expect(filterMachineRows({ filter: 'online', query: 'yoga', rows })).toEqual([]);
-  });
-});
 
 describe('computePlatformSections', () => {
   test('places a hosted environment under its host and a hostless one after', () => {
@@ -364,25 +268,5 @@ describe('filterComputePlatformSections', () => {
 
   test('drops the platform entirely once nothing survives', () => {
     expect(filterComputePlatformSections(sections(), 'does-not-exist', 'all')).toEqual([]);
-  });
-});
-
-describe('machineRowSubtitle', () => {
-  test('names the single connector without an online ratio', () => {
-    const [row] = rowsFor([machine({ id: 'connector-mac', name: 'os-macbook', platform: 'darwin' })]);
-
-    expect(machineRowSubtitle(row)).toBe('macOS · 1 connector');
-  });
-
-  test('reports how many connectors of a machine are online', () => {
-    const [row] = rowsFor(
-      [
-        machine({ id: 'connector-a', platform: 'darwin' }),
-        machine({ id: 'connector-b', platform: 'linux', status: 'offline' })
-      ],
-      [physicalMachine('os-macbook', ['connector-a', 'connector-b'])]
-    );
-
-    expect(machineRowSubtitle(row)).toContain('1 of 2 connectors online');
   });
 });

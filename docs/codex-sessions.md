@@ -5,17 +5,18 @@ description: Machine-owned Codex App Server sessions in Project Space.
 
 # Codex sessions
 
-Project Space exposes stored Codex tasks through the authenticated connector on the machine that
-owns them. The browser never connects to Codex App Server directly. A connector-owned, long-lived
-managed App Server daemon is the only runtime whose loaded and live states Project Space reports.
+Project Space exposes stored Codex tasks through the authenticated Workspace
+Runtime that owns them. The browser never connects to Codex App Server
+directly. A generation-scoped Runtime session is the only live transport whose
+loaded and live states Project Space reports.
 Project Space, Codex Desktop, and other paired Codex clients therefore observe the same canonical
 thread IDs and live state.
 
 ## Product decisions
 
-- The project Codex tab currently groups project-scoped tasks by the legacy physical-machine
-  compatibility record. The canonical compute model targets an Environment and then resolves an
-  eligible Connector installation; see
+- The project Codex tab groups project-scoped tasks by the canonical Environment
+  and Workspace Runtime. Legacy physical-machine records remain read-only
+  compatibility data; see
   [Compute Platforms, Hosts, and Environments](./compute-environments.md). Project Chat shows only a
   compact active-task count; opening it reveals the same grouped tasks in a temporary drawer.
 - Both project entry points open one canonical task workspace at
@@ -23,8 +24,8 @@ thread IDs and live state.
 - Task rows use the task name as their only primary text. Issue and pull-request references are
   separate metadata, and active work uses a spinner instead of a static “Running” status.
 - Opening history is read-only. It uses `thread/read` and never resumes or subscribes to the task.
-- Loaded state comes from the owning machine's shared daemon and is never inferred from another
-  connector or a stale registry snapshot.
+- Loaded state comes from the owning Runtime session and is never inferred from
+  another Environment or a stale registry snapshot.
 - Message delivery is explicit. `new-turn` rejects while a turn is active, `steer` requires the
   exact active turn ID, `queue` persists one unresolved follow-up and dispatches it when the thread
   becomes idle, and `auto` selects an exact steer only when live evidence identifies the active
@@ -36,10 +37,10 @@ thread IDs and live state.
 
 ## Threat invariants
 
-1. A signed-in user must own the selected machine before any connector request is dispatched.
-2. Every mutating connector request carries a short-lived signed operation grant bound to user,
-   machine, operation, thread, request ID, and runtime generation.
-3. The connector exposes a fixed typed method set. It does not accept arbitrary App Server methods,
+1. A signed-in user must own the selected Environment and Workspace before any Runtime request is dispatched.
+2. Every mutating Runtime request carries a short-lived signed operation grant bound to user,
+   Environment, Workspace, operation, thread, request ID, and generation.
+3. The Runtime exposes a fixed typed method set. It does not accept arbitrary App Server methods,
    commands, paths, URLs, environment variables, or process inputs from the browser.
 4. App Server stays on its machine-local Unix socket. Project Space never opens an unauthenticated
    TCP listener on the public internet, LAN, or Tailnet.
@@ -55,17 +56,17 @@ thread IDs and live state.
    operations; otherwise the stale entry is blocked without dispatch.
 7. Approval and input requests retain their App Server request, task, turn, and item IDs until the
    server resolves them. No default human choice is invented.
-8. Connector disconnects, App Server restarts, missing tasks, and offline machines fail closed and
-   never become empty success states.
+8. Runtime disconnects, App Server restarts, missing tasks, and unavailable Environments fail closed
+   and never become empty success states.
 9. Browser snapshots are read-only, identity-bound to the authenticated machine and task, and
-   sanitized before leaving the connector. Browser runtime, tab, and session identifiers are never
+   sanitized before leaving the Workspace Runtime. Browser runtime, tab, and session identifiers are never
    exposed publicly or added to the canonical URL.
 10. An ended browser may retain its final read-only frame, but it is never labelled live or reused
     by a later turn. Loading, reconnecting, offline, unauthorized, and unavailable states are
     represented honestly.
-11. Browser polling uses its own separately negotiated, signed connector operation and never loads or serializes task
-    history. Decoded frames are capped at 1,500,000 bytes so the base64 image and signed JSON result
-    remain below the connector's 2 MiB WebSocket message limit.
+11. Browser polling uses its own separately negotiated, signed Runtime operation and never loads or
+    serializes task history. Decoded frames are capped at 1,500,000 bytes so the base64 image and
+    signed JSON result remain below the Runtime's 2 MiB WebSocket message limit.
 
 ## Delivery slices
 
@@ -77,8 +78,8 @@ thread IDs and live state.
    direct canonical task URLs and legacy URL canonicalization.
 5. Mirror the authenticated active browser safely, including reconnect and lifecycle states.
 6. Reconcile App Server restarts, offline/missing tasks, and multiple machines.
-7. Report and repair shared-daemon, authentication, Remote Control, compatibility, and pairing
-   readiness through Project Doctor's signed constrained connector operation.
+7. Report Workspace Runtime, App Server, and account readiness through the
+   canonical Runtime inspection path.
 
 ## Finishing criteria
 
@@ -94,7 +95,7 @@ thread IDs and live state.
 
 ## Managed daemon lifecycle
 
-Project Doctor provisions only the Codex binary pinned inside a signed managed connector release.
+Project Doctor provisions only the Codex binary pinned inside a signed managed Runtime release.
 It uses Codex's idempotent daemon lifecycle commands without enabling the standalone updater or
 downloading another binary. Existing `CODEX_HOME`, authentication, configuration, approvals,
 pairing state, and thread storage remain in place.

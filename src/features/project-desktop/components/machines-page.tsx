@@ -1,20 +1,15 @@
 import { useMemo, useState } from 'react';
-import { Disclosure } from '@heroui/react';
 import {
-  Archive,
   Boxes,
-  ChevronRight,
   Circle,
   CircleOff,
   Cloud,
   Cpu,
-  ExternalLink,
   Link2,
   ListFilter,
   LoaderCircle,
   MonitorCog,
   Network,
-  Pencil,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -31,24 +26,12 @@ import {
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
-  ConnectorCredentialRecord,
   ConnectorInstallationRecord,
   ConnectorOverviewResult,
-  PhysicalMachineRecord,
-  PhysicalMachineSaveRequest
 } from '@/shared/project-space-api';
 import type { ComputeInventorySnapshot } from '@/shared/compute-environment-api';
 import { groupComputeInventory } from '@/shared/compute-environment-api';
-import { ConnectorChannelChip } from './connector-channel-chip';
-import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
-import { MachineDeviceIcon, MachineOsMark } from './machine-visuals';
-import {
-  groupSettingsMachines,
-  safeConnectorOrigin,
-  type SettingsConnectorInstance
-} from './settings-machine-group-model';
-import { SettingsMachineRuntimeStop } from './settings-machine-runtime-stop';
-import { SettingsConnectorMachineEditor } from './settings-connector-machine-editor';
+import { settingsConnectorInstances } from './settings-machine-group-model';
 import {
   settingsMachineGroupsPresentation,
   type SettingsMachineGroupsStatus
@@ -58,13 +41,9 @@ import {
   computePlatformSections,
   countComputePlatformRows,
   filterComputePlatformSections,
-  filterMachineRows,
-  machineListRows,
-  machineRowSubtitle,
   type ComputePlatformSection,
   type ComputeRow,
   type MachineFilter,
-  type MachineListRow
 } from './machines-page-model';
 
 const filters: Array<{ icon: typeof ListFilter; id: MachineFilter; label: string }> = [
@@ -85,69 +64,6 @@ function StatusChip({ isOnline }: { isOnline: boolean }) {
       />
       {isOnline ? 'Online' : 'Offline'}
     </Chip>
-  );
-}
-
-function ConnectorRow({
-  instance,
-  onEdit,
-  onRefresh
-}: {
-  instance: SettingsConnectorInstance;
-  onEdit(): void;
-  onRefresh(): Promise<unknown>;
-}) {
-  const origin = instance.machine.connector.origin;
-  const safeOrigin = safeConnectorOrigin(origin);
-
-  return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-t border-neutral-800/50 py-3 first:border-t-0 sm:items-center">
-      <div className="flex min-w-0 items-start gap-2.5">
-        <MachineOsMark className="mt-0.5 size-3.5" machine={instance.machine} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <Text className="truncate text-sm text-neutral-300">
-              {instance.platformLabel ?? 'Operating system not reported'}
-            </Text>
-            <ConnectorChannelChip machine={instance.machine} />
-            <StatusChip isOnline={instance.isOnline} />
-          </div>
-          <Text className="mt-1 block truncate font-mono text-[11px] text-neutral-600">
-            {instance.machine.name} · {instance.runtimeLabel}
-          </Text>
-          {safeOrigin ? (
-            <a
-              className="mt-1 inline-flex max-w-full items-center gap-1 text-[11px] text-sky-400/90 transition hover:text-sky-300"
-              href={safeOrigin}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <span className="truncate">{safeOrigin}</span>
-              <ExternalLink className="size-3 shrink-0" />
-            </a>
-          ) : origin ? (
-            <Text className="mt-1 block truncate text-[11px] text-neutral-700">{origin}</Text>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex items-center justify-end gap-1">
-        <Button
-          aria-label={`Edit connector ${instance.machine.name}`}
-          isIconOnly
-          size="sm"
-          variant="ghost"
-          className="size-8 min-w-0 px-0"
-          onPress={onEdit}
-        >
-          <Pencil className="size-3.5" />
-        </Button>
-        <SettingsMachineRuntimeStop machine={instance.machine} onStopped={onRefresh} />
-        <MachineConnectorActionsMenu
-          machine={instance.machine}
-          onOperationSettled={() => void onRefresh()}
-        />
-      </div>
-    </div>
   );
 }
 
@@ -253,72 +169,12 @@ function ComputePlatformSectionView({
   );
 }
 
-function MachineRow({
-  defaultExpanded,
-  onEditConnector,
-  onRefresh,
-  row,
-  showGrouping
-}: {
-  defaultExpanded: boolean;
-  onEditConnector(instance: SettingsConnectorInstance): void;
-  onRefresh(): Promise<unknown>;
-  row: MachineListRow;
-  showGrouping: boolean;
-}) {
-  return (
-    <Disclosure defaultExpanded={defaultExpanded}>
-      <Disclosure.Heading>
-        <Disclosure.Trigger className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 text-left outline-none transition hover:bg-neutral-900/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400/50">
-          <span className="flex min-w-0 items-center gap-3">
-            <Disclosure.Indicator className="ms-0 size-3.5 shrink-0 text-neutral-600 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none">
-              <ChevronRight />
-            </Disclosure.Indicator>
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
-              <MachineDeviceIcon machine={row.device} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-neutral-200">{row.name}</span>
-              <span className="mt-1 block truncate text-[11px] text-neutral-600">
-                {machineRowSubtitle(row)}
-              </span>
-            </span>
-          </span>
-          <span className="flex shrink-0 items-center gap-2">
-            {showGrouping && !row.isGrouped ? (
-              <Chip size="sm" className="hidden shrink-0 text-neutral-600 sm:inline-flex">
-                Ungrouped
-              </Chip>
-            ) : null}
-            <StatusChip isOnline={row.isOnline} />
-          </span>
-        </Disclosure.Trigger>
-      </Disclosure.Heading>
-      <Disclosure.Content>
-        <Disclosure.Body className="pb-1 pl-8 pr-1">
-          {row.instances.map((instance) => (
-            <ConnectorRow
-              key={instance.id}
-              instance={instance}
-              onEdit={() => onEditConnector(instance)}
-              onRefresh={onRefresh}
-            />
-          ))}
-        </Disclosure.Body>
-      </Disclosure.Content>
-    </Disclosure>
-  );
-}
-
 export interface MachinesPageProps {
   computeInventory?: ComputeInventorySnapshot;
   connectors: readonly ConnectorInstallationRecord[];
-  credentials: readonly ConnectorCredentialRecord[];
   localSimulation: boolean;
   loadError: string;
   onRefresh(): Promise<unknown>;
-  onSaveMachine(request: PhysicalMachineSaveRequest): Promise<void>;
-  physicalMachines: readonly PhysicalMachineRecord[];
   status: SettingsMachineGroupsStatus;
   tailscale: ConnectorOverviewResult['tailscale'];
 }
@@ -326,49 +182,30 @@ export interface MachinesPageProps {
 export function MachinesPage({
   computeInventory,
   connectors,
-  credentials,
   localSimulation,
   loadError,
   onRefresh,
-  onSaveMachine,
-  physicalMachines,
   status,
   tailscale
 }: MachinesPageProps) {
-  const [editingConnector, setEditingConnector] = useState<SettingsConnectorInstance>();
   const [filter, setFilter] = useState<MachineFilter>('all');
   const [query, setQuery] = useState('');
 
   const presentation = settingsMachineGroupsPresentation(status);
-  const grouping = useMemo(
-    () => groupSettingsMachines({ connectors, credentials, physicalMachines }),
-    [connectors, credentials, physicalMachines]
-  );
-  // A valid compute inventory is strictly more informative than the flat
-  // physical-machine grouping, so it takes over the page whenever the
-  // connector overview reports one without validation violations.
+  const instancesById = useMemo(() => new Map(
+    settingsConnectorInstances(connectors).map((instance) => [instance.id, instance] as const)
+  ), [connectors]);
   const computeHierarchy = useMemo(
     () => (computeInventory && computeInventory.violations.length === 0
       ? groupComputeInventory(computeInventory)
       : undefined),
     [computeInventory]
   );
-  const instancesById = useMemo(() => new Map(
-    grouping.groups
-      .flatMap((group) => [...group.instances, ...group.archivedInstances])
-      .concat(grouping.unscopedInstances, grouping.archivedUnscopedInstances)
-      .map((instance) => [instance.id, instance] as const)
-  ), [grouping]);
   const platformSections = useMemo(
     () => (computeHierarchy ? computePlatformSections(computeHierarchy, instancesById) : []),
     [computeHierarchy, instancesById]
   );
   const isComputeMode = Boolean(computeHierarchy);
-  const rows = useMemo(() => machineListRows(grouping), [grouping]);
-  const visibleRows = useMemo(
-    () => filterMachineRows({ filter, query, rows }),
-    [filter, query, rows]
-  );
   const visibleSections = useMemo(
     () => filterComputePlatformSections(platformSections, query, filter),
     [filter, platformSections, query]
@@ -380,20 +217,6 @@ export function MachinesPage({
     ),
     [platformSections]
   );
-  const archivedInstances = useMemo(
-    () => grouping.groups
-      .flatMap((group) => group.archivedInstances)
-      .concat(grouping.archivedUnscopedInstances),
-    [grouping]
-  );
-  const archivedCredentials = useMemo(
-    () => grouping.unmatchedCredentials.filter(
-      (credential) => credential.status === 'revoked' || credential.status === 'expired'
-    ),
-    [grouping.unmatchedCredentials]
-  );
-  const archivedCount = archivedInstances.length + archivedCredentials.length;
-  const hasGroupedMachine = rows.some((row) => row.isGrouped);
   const tailscaleLabel = tailscale.connected
     ? 'Tailscale connected'
     : tailscale.installed
@@ -491,7 +314,7 @@ export function MachinesPage({
           <div className="grid min-h-48 place-items-center gap-3 px-6 text-center">
             <MonitorCog className="size-6 text-neutral-700" />
             <Text className="text-sm text-neutral-500">
-              Canonical compute inventory is unavailable. Legacy compatibility remains below.
+              Canonical compute inventory is unavailable.
             </Text>
           </div>
         ) : platformSections.length === 0 ? (
@@ -516,57 +339,6 @@ export function MachinesPage({
           ))
         )}
 
-        {presentation.showContent ? (
-          <Disclosure className="mt-2 border-t border-neutral-800/70">
-            <Disclosure.Heading>
-              <Disclosure.Trigger className="group flex items-center gap-2 px-1 py-3 text-xs text-neutral-600 transition hover:text-neutral-400">
-                <Disclosure.Indicator className="ms-0 size-3.5 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none">
-                  <ChevronRight />
-                </Disclosure.Indicator>
-                <Archive className="size-3.5" />
-                Legacy Connector compatibility ({connectors.length} installation{connectors.length === 1 ? '' : 's'})
-              </Disclosure.Trigger>
-            </Disclosure.Heading>
-            <Disclosure.Content>
-              <Disclosure.Body className="space-y-1 pb-3 pl-8">
-                <Text className="block pb-2 text-xs text-amber-300/80">
-                  Deprecated compatibility surface. These installation identities are not Hosts or Environment Instances.
-                </Text>
-                {!isComputeMode ? visibleRows.map((row) => (
-                  <MachineRow
-                    key={row.id}
-                    defaultExpanded={false}
-                    onEditConnector={setEditingConnector}
-                    onRefresh={onRefresh}
-                    row={row}
-                    showGrouping={hasGroupedMachine}
-                  />
-                )) : null}
-                {archivedInstances.map((instance) => (
-                  <div
-                    key={instance.id}
-                    className="flex min-w-0 items-center gap-2 text-[11px] text-neutral-600"
-                  >
-                    <MachineOsMark className="size-3.5" machine={instance.machine} />
-                    <span className="truncate">
-                      {instance.machine.name} ·{' '}
-                      {instance.platformLabel ?? 'Operating system not reported'}
-                    </span>
-                    <ConnectorChannelChip machine={instance.machine} />
-                  </div>
-                ))}
-                {archivedCredentials.map((credential) => (
-                  <Text
-                    key={credential.id}
-                    className="block truncate text-[11px] text-neutral-600"
-                  >
-                    {credential.machineId ?? 'Unfinished enrollment'} · {credential.status}
-                  </Text>
-                ))}
-              </Disclosure.Body>
-            </Disclosure.Content>
-          </Disclosure>
-        ) : null}
       </div>
 
       <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-neutral-800/70 py-3 text-xs text-neutral-600">
@@ -586,15 +358,6 @@ export function MachinesPage({
         </span> : null}
       </footer>
 
-      {editingConnector ? (
-        <SettingsConnectorMachineEditor
-          key={editingConnector.id}
-          connector={editingConnector.machine}
-          onClose={() => setEditingConnector(undefined)}
-          onSave={onSaveMachine}
-          physicalMachines={physicalMachines}
-        />
-      ) : null}
     </section>
   );
 }

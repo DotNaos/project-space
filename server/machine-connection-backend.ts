@@ -10,10 +10,6 @@ import { MachineConnectionService } from './machine-connection-service';
 
 export interface MachineConnectionBackendOptions {
   databaseClient: TransactionalDatabaseQueryClient;
-  isMachineOnline(
-    machineId: string,
-    credential: string
-  ): boolean | Promise<boolean>;
   onMachineRevoked?(machineId: string): void | Promise<void>;
   publicOrigin: string;
   rateLimitSecret: Uint8Array;
@@ -29,7 +25,6 @@ export function createMachineConnectionBackend(
     hmacSecret: options.rateLimitSecret
   });
   const service = new MachineConnectionService({
-    isMachineOnline: options.isMachineOnline,
     onMachineRevoked: options.onMachineRevoked,
     publicOrigin: options.publicOrigin,
     store
@@ -50,9 +45,6 @@ export function createMachineConnectionBackend(
   }
 
   return {
-    async authenticateConnectorCredential(token: string, machineId: string) {
-      return (await resolveMachineCredentialIdentity(token, machineId)) !== null;
-    },
     cleanupExpiredRequests: () => store.cleanupOldRequests(),
     cleanupRateLimitEvents: () => rateLimiter.cleanupOldEvents(),
     handleRequest: createMachineConnectionApiHandler({

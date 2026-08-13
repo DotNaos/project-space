@@ -89,6 +89,14 @@ describe('local simulation HTTP runtime', () => {
     );
   });
 
+  test('does not simulate retired Connector credential or project-registry endpoints', async () => {
+    for (const path of ['/api/connectors/credentials', '/api/connectors/project-registry']) {
+      const response = await fetch(`${baseUrl}${path}`);
+      expect(response.status).toBe(410);
+      expect(await response.json()).toMatchObject({ code: 'canonical_runtime_required' });
+    }
+  });
+
   test('materializes a simulated branch into coherent local worktree state', async () => {
     const created = await json('/api/worktrees/materialize', {
       body: JSON.stringify({

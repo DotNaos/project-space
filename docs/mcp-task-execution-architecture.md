@@ -10,7 +10,7 @@ description: Canonical architecture and delivery plan for completing Project Spa
 This document defines the target architecture and implementation plan for
 completing an entire Project Space task through the remote MCP server. It is the
 coordination contract for the Web UI, MCP clients, compute providers,
-connectors, agent runtimes, task providers, workspaces, pull-request delivery,
+Environment Runtimes, task providers, workspaces, pull-request delivery,
 and production evidence.
 
 The intended orchestrators include ChatGPT, ChatGPT Work, Codex, Claude, and
@@ -20,13 +20,14 @@ delivery models.
 
 The architecture must support both:
 
-- persistent, connector-backed Environments such as native macOS, Linux,
+- persistent Environments such as native macOS, Linux,
   Windows, and WSL; and
 - provider-managed Environments such as GitHub Codespaces and future cloud
   sandboxes that must be provisioned, started, stopped, and eventually deleted.
 
-This is an additive plan. Existing GitHub and Codex tools remain available as
-compatibility aliases until every caller has migrated.
+GitHub and Codex tool names may remain as compatibility aliases only when they
+invoke the canonical services. Permanent Connector aliases are already retired
+and fail predictably rather than dispatching through an adapter.
 
 ## Decisions at a glance
 
@@ -34,8 +35,9 @@ compatibility aliases until every caller has migrated.
    provider implementation; Azure DevOps can be added later.
 2. **Environment** is the execution and scheduling target. A physical Host is
    optional topology metadata and is never a universal prerequisite.
-3. **Connector installation** is an authenticated transport inside exactly one
-   Environment. It is not a Host, Environment, runner, or agent identity.
+3. **Workspace Runtime** is the authenticated, generation-scoped execution
+   boundary inside exactly one Environment. It is not a Host or Environment
+   identity.
 4. **Agent Runtime** identifies Codex today and a future Claude runtime later.
 5. **Task Execution** is one durable implementation attempt. Its identity is
    independent of a Codex thread ID.
@@ -45,7 +47,7 @@ compatibility aliases until every caller has migrated.
    Unknown outcomes are represented as `uncertain`, never guessed as success or
    retried with a new identity.
 8. **Web UI and MCP share services.** Neither surface reimplements GitHub,
-   Codespaces, connector, Codex authorization, worktree, or delivery logic.
+   Codespaces, Runtime authorization, worktree, or delivery logic.
 9. **Shell commands are asynchronous and scoped.** Normal workspace commands
    and provider recovery commands use separate authorization paths.
 10. **Completion requires evidence.** A Codex final message, green workflow,
@@ -57,7 +59,7 @@ compatibility aliases until every caller has migrated.
 This document builds on, rather than replaces:
 
 - [Compute Platforms, Hosts, and Environments](compute-environments.md)
-- [Project Space Connector](connector.md)
+- [Connector retirement](connector-retirement.md)
 - [Codex Worktree Ownership](codex-worktrees.md)
 - [Codex session transport and security](codex-sessions.md)
 - [Remote Project Space MCP](project-mcp.md)
@@ -109,7 +111,7 @@ The remote MCP exposes fifteen tools after WP1.
 - `update_task`
 - `add_task_comment`
 
-### Connector and Codex discovery
+### Environment and Codex discovery
 
 - `list_execution_environments`
 - `get_execution_environment`
@@ -123,7 +125,7 @@ The remote MCP exposes fifteen tools after WP1.
 - `send_codex_message`
 
 These tools prove the remote OAuth, task-provider, canonical Environment,
-connector, Codex session, and worktree path. They do not yet provide the
+Workspace Runtime, Codex session, and worktree path. They do not yet provide the
 complete task lifecycle because:
 
 - `list_machines` remains a deprecated historical connector/machine
@@ -148,9 +150,9 @@ The existing compute hierarchy is authoritative:
 Platform
 ├── Host?                              optional
 │   └── Environment                    execution target
-│       └── Connector installation(s)  authenticated channels
+│       └── Workspace Runtime           generation-scoped execution
 └── Environment                       provider-managed Host is hidden
-    └── Connector installation(s)
+    └── Workspace Runtime
 ```
 
 The meanings are:
@@ -160,8 +162,7 @@ The meanings are:
 | Platform | Groups capacity by provider or allocation source | No | Yes |
 | Host | Optional physical or virtual device and host-wide capacity | No | Yes |
 | Environment | Concrete schedulable runtime boundary | Yes | Yes |
-| Connector | Authenticated transport installed in one Environment | No | Credential yes; session no |
-| Connector generation | One live connector connection epoch | No | No |
+| Workspace Runtime | Authenticated generation-scoped execution in one Environment | Yes | Generation policy |
 | Agent Runtime | Codex or another executable agent inside an Environment | Selected capability | Installation may persist |
 | Runner Workspace | Isolated checkout and task-local state | Used by one execution | Policy-dependent |
 
@@ -172,11 +173,11 @@ Platform: Local devices
 └── Host: Workstation
     ├── Environment: Windows
     └── Environment: WSL Ubuntu
-        └── Connector: stable
+        └── Workspace Runtime: task 456
 
 Platform: GitHub Codespaces
 └── Environment: project-space / task 456
-    └── Connector: managed runner, only while the Codespace is running
+    └── Workspace Runtime: task 456, only while the Codespace is running
 ```
 
 A Codespace is a provider-managed `github_codespace` Environment with
@@ -1128,13 +1129,13 @@ open until the real production UI-to-Codespace-to-ChatGPT-to-PR proof completes.
 ### WP1 — expose canonical compute inventory through MCP
 
 - [x] Add `list_execution_environments` and `get_execution_environment`.
-- [x] Return Platform, optional Host, Environment, connector association,
+- [x] Return Platform, optional Host, Environment, Runtime association,
       resources, lifecycle evidence, runtime, authorization, and capacity.
-- [x] Sanitize provider and connector identity data for remote clients.
+- [x] Sanitize provider and Runtime identity data for remote clients.
 - [x] Add `environmentId` to current Codex compatibility tools.
 - [x] Deprecate `list_machines` without removing it.
-- [x] Test hostless Codespaces, nested WSL/devbox, multiple connectors, stale
-      connector generation, conflict, unresolved, and not-applicable Host state.
+- [x] Test hostless Codespaces, nested WSL/devbox, multiple Runtime generations,
+      stale generation, conflict, unresolved, and not-applicable Host state.
 
 ### WP2 — add Environment lifecycle MCP tools
 
@@ -1217,7 +1218,7 @@ are reconciled without blind redispatch.
 
 ### WP9 — production E2E and provider extension
 
-- [ ] Run a persistent connector-backed task from MCP through PR.
+- [ ] Run a persistent Environment Workspace Runtime task from MCP through PR.
 - [ ] Run a fresh Codespaces task from MCP through device login and PR.
 - [ ] Stop and resume the Codespace without duplicating identities.
 - [ ] Exercise workspace repair and approved provider recovery.
@@ -1267,21 +1268,22 @@ evidence.
 | Web/MCP parity | Same operation and execution IDs, states, evidence, attention requests, and links in both clients |
 | Production E2E | Fresh Codespace login and task through PR; persistent Environment task through PR; no duplicate identities |
 
-Tests should include connector disconnects and restarts at every mutation
-boundary. A mocked green path alone is insufficient for production delivery.
+Tests should include Workspace Runtime disconnects and restarts at every
+mutation boundary. A mocked green path alone is insufficient for production
+delivery.
 
 ## Rollout and compatibility
 
-1. Add new types, storage, services, and tools without removing current tools.
+1. Add canonical types, storage, services, and tools.
 2. Teach the Web UI and MCP to read the same Environment and Task Execution
    records.
-3. Add compatibility adapters from physical-machine selectors to
-   `environmentId` only where the mapping is exact.
-4. Emit deprecation metadata and documentation for old machine/Codex names.
+3. Reject physical-machine and Connector selectors instead of translating
+   them into `environmentId`.
+4. Keep predictable retirement metadata for old machine/Codex names.
 5. Move internal UI callers to generic services.
 6. Dogfood both persistent and Codespaces execution from production.
-7. Remove legacy aliases only after remote MCP clients, CLI, Web UI, and stored
-   records have migrated and an announced compatibility window has elapsed.
+7. Retired Connector aliases remain blocked. Historical projections are
+   read-only evidence and are never execution routes.
 
 No migration may reinterpret an existing connector ID as an Environment ID or
 physical Host ID. Compatibility results can project old shapes, but identity

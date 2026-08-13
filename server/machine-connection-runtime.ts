@@ -5,11 +5,6 @@ import {
   type MachineConnectionBackendOptions
 } from './machine-connection-backend';
 import {
-  disconnectConnectorSession,
-  isConnectorCommandChannelAuthenticated
-} from './connector-command-session-registry';
-import { failCodexSessionCommandsForMachine } from './codex-sessions/connector-hub';
-import {
   readMachineConnectionPublicOrigin,
   readMachineConnectionRateLimitSecret
 } from './machine-connection-environment';
@@ -36,7 +31,6 @@ export interface MachineConnectionRuntimeOptions extends MachineConnectionBacken
 }
 
 export interface MachineConnectionRuntime {
-  authenticateConnectorCredential(token: string, machineId: string): Promise<boolean>;
   handleRequest(
     request: IncomingMessage,
     response: ServerResponse,
@@ -67,13 +61,7 @@ export function createMachineConnectionRuntime(
 ): MachineConnectionRuntime {
   const backend = createMachineConnectionBackend({
     ...options,
-    onMachineRevoked:
-      options.onMachineRevoked ??
-      ((machineId) => {
-        if (disconnectConnectorSession(machineId)) {
-          failCodexSessionCommandsForMachine(machineId);
-        }
-      })
+    onMachineRevoked: options.onMachineRevoked
   });
   const scheduler = options.scheduler ?? nodeScheduler;
   const cleanupIntervalMs = options.cleanupIntervalMs ?? defaultCleanupIntervalMs;
@@ -122,7 +110,6 @@ export function createMachineConnectionRuntime(
   }
 
   return {
-    authenticateConnectorCredential: backend.authenticateConnectorCredential,
     handleRequest: backend.handleRequest,
     resolveMachineCredentialIdentity: backend.resolveMachineCredentialIdentity,
     runMaintenance,
@@ -162,7 +149,6 @@ export async function createConfiguredMachineConnectionRuntime(
 
   return createMachineConnectionRuntime({
     databaseClient,
-    isMachineOnline: isConnectorCommandChannelAuthenticated,
     publicOrigin,
     rateLimitSecret,
     async readAuthenticatedUserId(request) {

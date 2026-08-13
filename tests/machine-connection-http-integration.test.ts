@@ -20,16 +20,10 @@ function restoreEnvironment() {
 afterEach(restoreEnvironment);
 
 class TestMachineConnectionRuntime implements MachineConnectionRuntime {
-  authenticationCalls: Array<{ machineId: string; token: string }> = [];
   identityCalls: Array<{ machineId: string; token: string }> = [];
   requestCalls: string[] = [];
   starts = 0;
   stops = 0;
-
-  async authenticateConnectorCredential(token: string, machineId: string) {
-    this.authenticationCalls.push({ machineId, token });
-    return token === 'machine-secret' && machineId === 'machine-runtime';
-  }
 
   async resolveMachineCredentialIdentity(token: string, machineId: string) {
     this.identityCalls.push({ machineId, token });
@@ -139,7 +133,6 @@ describe('machine connection HTTP integration', () => {
       expect(response.status).toBe(410);
       expect(await response.json()).toMatchObject({ code: 'canonical_runtime_required' });
       expect(machineRuntime.identityCalls).toEqual([]);
-      expect(machineRuntime.authenticationCalls).toEqual([]);
     } finally {
       await server.close();
     }

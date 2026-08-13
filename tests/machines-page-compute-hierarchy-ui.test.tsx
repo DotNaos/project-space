@@ -47,45 +47,13 @@ mock.module('@/app/dotnaos-ui', () => ({
     [key: string]: unknown;
   }) => createElement(as, props, children)
 }));
-mock.module('../src/features/project-desktop/components/connector-channel-chip', () => ({
-  ConnectorChannelChip: () => createElement('span', null, 'Stable')
-}));
-mock.module('../src/features/project-desktop/components/machine-connector-actions-menu', () => ({
-  MachineConnectorActionsMenu: () => null
-}));
-mock.module('../src/features/project-desktop/components/machine-visuals', () => ({
-  MachineConnectionIcon: () => null,
-  MachineDeviceIcon: () => null,
-  MachineOsMark: () => null
-}));
-mock.module('../src/features/project-desktop/components/settings-machine-runtime-stop', () => ({
-  SettingsMachineRuntimeStop: () => null
-}));
-mock.module('../src/features/project-desktop/components/settings-connector-machine-editor', () => ({
-  SettingsConnectorMachineEditor: () => null
-}));
-
 const { MachinesPage } = await import(
   '../src/features/project-desktop/components/machines-page'
 );
 
 const baseProps = {
-  credentialListError: '',
-  credentials: [],
-  hasCopiedInstallCommand: false,
-  installCommand: '',
-  installScriptHref: '',
-  installerError: '',
-  isGeneratingInstaller: false,
   loadError: '',
-  onCopyInstallCommand: () => undefined,
-  onGenerateInstallCommand: () => undefined,
   onRefresh: async () => undefined,
-  onRefreshCredentials: () => undefined,
-  onRevokeCredential: () => undefined,
-  onSaveMachine: async () => undefined,
-  physicalMachines: [],
-  revokingCredentialId: '',
   status: 'ready' as const,
   tailscale: {
     connected: false,
@@ -175,9 +143,9 @@ describe('machines page compute hierarchy', () => {
     }));
 
     expect(html).toContain('Canonical compute inventory is unavailable');
-    expect(html).toContain('Legacy Connector compatibility');
-    expect(html).toContain('Deprecated compatibility surface');
-    expect(html).toContain('os-macbook');
+    expect(html).not.toContain('Legacy Connector compatibility');
+    expect(html).not.toContain('Deprecated compatibility surface');
+    expect(html).not.toContain('os-macbook');
     expect(html).not.toContain('Provider managed');
   });
 });

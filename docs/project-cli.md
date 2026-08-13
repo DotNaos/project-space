@@ -190,41 +190,22 @@ Fixed policy:
 
 The token value is stored directly in 1Password and is never printed.
 
-## Diagnose And Repair Machine Readiness
+## Diagnose The Current Machine
 
 ```sh
-project doctor --machine <physical-machine-name>
-project doctor --machine <physical-machine-name> --format json
-project doctor --machine <physical-machine-name> --fix
-project doctor --machine <physical-machine-name> --fix --yes
+project doctor
+project doctor --format json
 ```
 
-Remote diagnosis is read-only and uses one readiness model shared with machine
-commands such as `project codex start`. When a machine command is blocked, it
-reports the blocker and points back to Doctor instead of repairing inline.
-
-`--fix` presents one exact plan and requires confirmation. `--yes` confirms
-that same plan non-interactively. Only signed, managed, narrowly scoped
-connector maintenance is eligible. Doctor re-checks the machine after the
-operation and reports repair, verification-pending, blocked, failure,
-rollback, or recovery outcomes honestly.
-
-There is no arbitrary remote shell, `PATH` edit, download, privilege
-escalation, or unsupported manual setup fallback. The signed Linux x64/WSL
-machine-tools release includes its managed Codex runtime; other missing Codex
-runtimes without a signed managed installation channel remain explicitly
-blocked. After installation, Doctor reports authorization-required separately
-when the WSL user's Codex account is not usable; it never treats a successful
-runtime installation as account authorization.
-
-Without `--machine` or `--machine-id`, Doctor checks the current CLI connection
-and local project directories. Local directory creation also requires
-`--fix` confirmation.
+Doctor checks the current Machine Credential and local project directories.
+Remote Connector diagnosis and repair are retired and fail closed rather than
+restarting, updating, or dispatching through a legacy service. Runtime health
+is inspected through the exact Environment and Workspace Runtime lifecycle.
 
 See the [Project Doctor guide](/docs/cli/doctor) for the
 state model and safety boundaries.
 
-## Update The Project CLI And Connector
+## Update The Project CLI And Codex Host
 
 ```sh
 project self-update --check
@@ -235,7 +216,7 @@ project self-update --format json --yes
 ```
 
 `self-update` checks the signed stable release manifest and keeps the Project
-CLI and connector on one matching machine-tools release. The default command
+CLI and Codex host on one matching machine-tools release. The default command
 shows the verified plan and asks for `y/N` confirmation. `--check` is always
 read-only, while `--yes` installs without prompting. JSON output never prompts;
 it is read-only unless `--yes` is also present.
@@ -251,10 +232,9 @@ release in the background.
 
 Only a managed macOS arm64 or Linux x64/WSL installation is changed in place.
 The updater downloads the exact archive named by the signed manifest, verifies
-its size and SHA-256 checksum, and delegates the switch to the existing paired
-installer. That installer stops and restarts the connector and restores the
-previous matching pair if the new connector cannot start. Machine identity and
-credentials remain outside the release directory.
+its size and SHA-256 checksum, and delegates the switch to the existing
+installer. The installer does not start a permanent Connector. Machine identity
+and credentials remain outside the release directory.
 
 Homebrew, native Windows, source-checkout, and unrecognized installations are
 reported without being overwritten. The result includes the appropriate
@@ -476,7 +456,8 @@ If `healthCheck` is configured, the direct listener, Portless URL, and Tailscale
 2xx or 3xx response before the session becomes `running`. Without it, the CLI
 checks each TCP listener. In both cases, it also verifies that the selected port
 belongs to the managed process group. The globally installed `portless`, plus
-`tmux` and `lsof`, must be available on the connector machine. `tailscale` is
+`tmux` and `lsof`, must be available in the selected Workspace Runtime.
+`tailscale` is
 required only for Tailnet transport.
 
 The managed process receives a small allowlist of runtime and toolchain
@@ -645,15 +626,14 @@ PR URL, head branch, running SHA, live URL, timestamps, and message are omitted
 when the trusted registry has no evidence for them. `requestedSha` can also be
 absent for an idempotent `removed` or `absent` result that never deployed.
 
-Production also requires a dedicated Ed25519 connector command-signing key.
-`deploy/deploy.yaml` reads its dotenv-safe PKCS8 base64 value from
-`op://projects/project-connector-command-signing-key/private_key_b64`. Do not
-reuse the connector registration token for command signing. The web installer
-derives and installs only the matching public key on connector machines.
+Canonical Runtime commands are authenticated and fenced by the owner-bound
+Machine Credential, exact Environment and Workspace identity, runtime
+generation, and durable operation ledger. They do not reuse a retired
+Connector registration token or Connector command-signing key.
 
 ## Project Chat
 
-Codex tasks use the installed Project Connect identity to leave low-priority
+Codex tasks use the authenticated Workspace Runtime identity to leave low-priority
 coordination notes in `#general`:
 
 ```sh
@@ -671,26 +651,20 @@ threads choose an artist, science, or detective name and identify their parent
 main-agent thread. The server atomically enforces availability and role within
 the authenticated account and project; a local environment name cannot claim or
 replace a registry name. The current task title remains descriptive metadata.
-The machine ID, account,
-backend URL, and authorization come only from the authenticated Project Connect
-Machine Credential Store (Keychain/Credential Manager on native systems and the
-protected credential file on Linux/WSL).
+The Environment Instance, Workspace, backend URL, and authorization come only
+from the authenticated canonical Environment and Workspace Runtime flow.
 
 `send` appends one idempotent message to `#general`. `read` prints unread pages
 with `Message from`, role, origin task ID, host, machine, timestamp, and a quoted
 plain-text body. It advances the read cursor only after the full page has been
 written successfully, so a failed output is repeated rather than lost.
 
-The stored Project Connect backend may use HTTPS or an explicit loopback URL.
-The command rejects remote plain HTTP, redirects, a missing Project Connect
-identity, missing agent identity, and malformed Codex task IDs. It never reads
-the old connector configuration or registration-token environment variables as
-a fallback. Messages and profile metadata that look like credentials are
+The runtime backend may use HTTPS or an explicit loopback URL. The command
+rejects remote plain HTTP, redirects, a missing Environment Runtime identity,
+missing agent identity, and malformed Codex task IDs. It never reads old
+Connector configuration or registration-token environment variables as a
+fallback. Messages and profile metadata that look like credentials are
 rejected before storage.
-
-Run `project connect` to establish or refresh this authenticated machine
-identity. The command registers the machine without installing or starting a
-permanent background service. Use `project disconnect` to revoke the identity.
 
 ## Sync Template Snapshot
 

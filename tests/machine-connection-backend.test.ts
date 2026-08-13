@@ -169,7 +169,6 @@ function backendOptions(
 ): MachineConnectionBackendOptions {
   return {
     databaseClient,
-    isMachineOnline: () => false,
     publicOrigin: "https://projects.os-home.net",
     rateLimitSecret: Buffer.alloc(32, 7),
     readAuthenticatedUserId: async () => "user-oli",
@@ -216,13 +215,6 @@ describe("machine connection backend composition", () => {
       machineId: "machine-1",
       userId: "user-oli",
     });
-    await expect(
-      validBackend.authenticateConnectorCredential(
-        "machine-credential",
-        "machine-1",
-      ),
-    ).resolves.toBe(true);
-
     const rejectedCases = [
       {
         configure() {},
@@ -282,26 +274,14 @@ describe("machine connection backend composition", () => {
         ),
         rejected.name,
       ).resolves.toBeNull();
-      await expect(
-        backend.authenticateConnectorCredential(
-          rejected.token,
-          rejected.machineId,
-        ),
-        rejected.name,
-      ).resolves.toBe(false);
     }
   });
 
-  test("passes authenticated browser approval and live presence into the service", async () => {
+  test("passes authenticated browser approval and canonical credential status into the service", async () => {
     const database = new CompositionDatabase();
     const authenticatedHeaders: Array<string | undefined> = [];
-    const onlineChecks: Array<{ credential: string; machineId: string }> = [];
     const backend = createMachineConnectionBackend(
       backendOptions(database, {
-        isMachineOnline(machineId, credential) {
-          onlineChecks.push({ credential, machineId });
-          return true;
-        },
         async readAuthenticatedUserId(request) {
           authenticatedHeaders.push(request.headers.authorization);
           return request.headers.authorization === "Bearer browser-session"
@@ -333,11 +313,8 @@ describe("machine connection backend composition", () => {
     expect(status.status).toBe(200);
     expect(await status.json()).toMatchObject({
       machineId: "machine-1",
-      status: "online",
+      status: "offline",
     });
-    expect(onlineChecks).toEqual([
-      { credential: "machine-credential", machineId: "machine-1" },
-    ]);
   });
 
   test("gates request creation through the limiter and delegates bounded cleanup", async () => {

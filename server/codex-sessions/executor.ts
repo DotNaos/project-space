@@ -12,15 +12,6 @@ import type {
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
-import type { CodexMachineTaskConnectorStartRequest } from '../../src/shared/codex-machine-tasks-api';
-import {
-  CodexSessionsGrantReplayProtection,
-  isCodexSessionsWireRequest,
-  verifyCodexSessionsWireRequest,
-  type CodexSessionsConnectorOperation,
-  type CodexSessionsWireRequest,
-  type CodexSessionsWireResult
-} from '../codex-sessions-connector-contract';
 import type {
   CodexSteerTurnInput,
   CodexRpcId,
@@ -62,18 +53,24 @@ import {
   derivedOperationId,
   operationResult,
   stringValue
-} from './connector-executor-helpers';
+} from './executor-helpers';
 import {
   approvalMatchesPending,
   type CodexPendingRequest,
   pendingAttentionSnapshot
-} from './connector-attention';
-import type { CodexSessionsConnectorExecutorOptions } from './connector-executor-options';
-export type { CodexSessionsConnectorExecutorOptions } from './connector-executor-options';
-type ExecutableOperation = Exclude<
-  CodexSessionsConnectorOperation,
-  'attach' | 'authorization' | 'daemon' | 'stream'
->;
+} from './attention';
+import type { CodexSessionsExecutorOptions } from './executor-options';
+export type { CodexSessionsExecutorOptions } from './executor-options';
+type ExecutableOperation =
+  | 'approval'
+  | 'browser'
+  | 'continue'
+  | 'input'
+  | 'inspect'
+  | 'interrupt'
+  | 'list'
+  | 'read'
+  | 'settings';
 export type CodexSessionsBoundOperation = Exclude<
   ExecutableOperation,
   'browser' | 'start'
@@ -87,55 +84,36 @@ export class CodexSessionsExecutorError extends Error {
   }
 }
 
-export class CodexSessionsConnectorExecutor {
+export class CodexSessionsExecutor {
   private readonly pending = new Map<string, CodexPendingRequest>();
   private readonly presenter = new CodexPublicEventPresenter();
-  private readonly replay: CodexSessionsGrantReplayProtection;
   private readonly subscribers = new Map<string, Set<(event: CodexSessionStreamEvent) => void>>();
   private readonly unsubscribeManager: () => boolean;
 
-  constructor(private readonly options: CodexSessionsConnectorExecutorOptions) {
-    this.replay = options.replayProtection ?? new CodexSessionsGrantReplayProtection();
+  constructor(private readonly options: CodexSessionsExecutorOptions) {
     this.unsubscribeManager = options.manager.subscribe((event) => this.handleEvent(event));
   }
 
-  async execute(
+  async executeBound(
     operation: ExecutableOperation,
-    value: unknown,
+    payload: unknown,
+    generation: number,
     signal?: AbortSignal
-  ): Promise<CodexSessionsWireResult> {
-    const request = this.verify(value, operation);
-    return this.executeVerified(
+  ) {
+    return this.executeOperation(
       operation,
-      request.payload,
-      request.grant.generation,
-      request.grant.userId,
+      payload,
+      generation,
       signal
     );
   }
 
-  /**
-   * Executes a request whose authority was already verified by another local,
-   * typed transport. This is deliberately narrower than the connector wire
-   * protocol: it cannot open the browser or start an arbitrary machine task.
-   */
-  executeBound(
-    operation: CodexSessionsBoundOperation,
-    payload: unknown,
-    generation: number,
-    actorUserId: string,
-    signal?: AbortSignal
-  ) {
-    return this.executeVerified(operation, payload, generation, actorUserId, signal);
-  }
-
-  private async executeVerified(
+  private async executeOperation(
     operation: ExecutableOperation,
     payload: unknown,
     generation: number,
-    actorUserId: string,
     signal?: AbortSignal
-  ): Promise<CodexSessionsWireResult> {
+  ) {
     switch (operation) {
       case 'browser':
         return wireResult(operation, await waitForCodexExecution(
@@ -157,12 +135,6 @@ export class CodexSessionsConnectorExecutor {
         return wireResult(operation, await this.continue(payload as CodexSessionContinueRequest));
       case 'settings':
         return wireResult(operation, await this.settings(payload as CodexSessionSettingsRequest));
-      case 'start':
-        if (!this.options.startTask) throw new CodexSessionsExecutorError();
-        return wireResult(operation, await this.options.startTask(
-          payload as CodexMachineTaskConnectorStartRequest,
-          { generation, userId: actorUserId }
-        ));
       case 'interrupt':
         return wireResult(operation, await this.interrupt(payload as CodexSessionInterruptRequest));
       case 'approval':
@@ -170,11 +142,6 @@ export class CodexSessionsConnectorExecutor {
       case 'input':
         return wireResult(operation, await this.respondToInput(payload as CodexSessionUserInputResponse));
     }
-  }
-
-  stream(value: unknown, emit: (event: CodexSessionStreamEvent) => void) {
-    const request = this.verify(value, 'stream');
-    return this.streamBound(request.payload as CodexSessionReadRequest, emit);
   }
 
   streamBound(
@@ -240,21 +207,6 @@ export class CodexSessionsConnectorExecutor {
       threadId,
       transcript: transcript ?? this.options.transcript
     });
-  }
-
-  private verify(value: unknown, operation: CodexSessionsConnectorOperation) {
-    if (!this.options.verificationKey || !isCodexSessionsWireRequest(value)) {
-      throw new CodexSessionsExecutorError();
-    }
-    verifyCodexSessionsWireRequest(value, operation, this.options.verificationKey, {
-      expectedGeneration: typeof this.options.expectedGeneration === 'function'
-        ? this.options.expectedGeneration()
-        : this.options.expectedGeneration,
-      expectedMachineId: this.options.expectedMachineId,
-      now: this.options.now?.(),
-      replayProtection: this.replay
-    });
-    return value;
   }
 
   private async list(request: CodexSessionListRequest, signal?: AbortSignal) {
@@ -643,7 +595,7 @@ export class CodexSessionsConnectorExecutor {
 }
 
 function wireResult(operation: ExecutableOperation, result: unknown) {
-  return { operation, result } as CodexSessionsWireResult;
+  return { operation, result };
 }
 
 async function mapWithConcurrency<Input, Result>(

@@ -1,4 +1,3 @@
-import type { ConnectorInstallationRecord } from '@/shared/project-space-api';
 import { matchesFuzzyQuery } from '../../../lib/fuzzy-search';
 import type {
   ComputeEnvironmentKind,
@@ -9,124 +8,17 @@ import type {
 } from '../../../shared/compute-environment-api';
 import { hostAssociationLabel } from '../../../shared/compute-environment-api';
 import type {
-  SettingsConnectorInstance,
-  SettingsMachineGroupingResult
+  SettingsConnectorInstance
 } from './settings-machine-group-model';
 
 export const machineFilters = ['all', 'online', 'offline'] as const;
 export type MachineFilter = (typeof machineFilters)[number];
 
-export interface MachineListRow {
-  connectorCount: number;
-  /** Connector installation used to render the device and platform marks. */
-  device: ConnectorInstallationRecord;
-  id: string;
-  instances: SettingsConnectorInstance[];
-  isGrouped: boolean;
-  isOnline: boolean;
-  name: string;
-  onlineConnectorCount: number;
-  platformLabel: string;
-  searchTerms: string[];
-}
-
-function platformLabel(instances: readonly SettingsConnectorInstance[]) {
-  const labels = [...new Set(instances.flatMap((instance) => (
-    instance.platformLabel ? [instance.platformLabel] : []
-  )))];
-  return labels.join(', ');
-}
-
-function searchTerms(name: string, instances: readonly SettingsConnectorInstance[]) {
-  return [
-    name,
-    ...instances.flatMap((instance) => [
-      instance.id,
-      instance.machine.name,
-      instance.platformLabel,
-      instance.runtimeLabel,
-      instance.channel,
-      instance.machine.connector.status
-    ])
-  ].flatMap((term) => (term ? [term] : []));
-}
-
-/**
- * Flattens the settings grouping into one row per machine. Connector
- * installations that are not assigned to a physical machine each become their
- * own row so the list never hides a reachable machine behind a group.
- */
-export function machineListRows(grouping: SettingsMachineGroupingResult): MachineListRow[] {
-  const groupRows = grouping.groups.flatMap<MachineListRow>((group) => {
-    const device = group.instances[0]?.machine ?? group.archivedInstances[0]?.machine;
-    if (!device) return [];
-
-    return [{
-      connectorCount: group.connectorCount,
-      device,
-      id: group.id,
-      instances: group.instances,
-      isGrouped: true,
-      isOnline: group.onlineConnectorCount > 0,
-      name: group.name,
-      onlineConnectorCount: group.onlineConnectorCount,
-      platformLabel: group.platformLabels.join(', '),
-      searchTerms: searchTerms(group.name, group.instances)
-    }];
-  });
-
-  const unscopedRows = grouping.unscopedInstances.map<MachineListRow>((instance) => ({
-    connectorCount: 1,
-    device: instance.machine,
-    id: instance.id,
-    instances: [instance],
-    isGrouped: false,
-    isOnline: instance.isOnline,
-    name: instance.machine.name,
-    onlineConnectorCount: instance.isOnline ? 1 : 0,
-    platformLabel: platformLabel([instance]),
-    searchTerms: searchTerms(instance.machine.name, [instance])
-  }));
-
-  return [...groupRows, ...unscopedRows].sort((left, right) => {
-    const onlineOrder = Number(right.isOnline) - Number(left.isOnline);
-    return onlineOrder !== 0 ? onlineOrder : left.name.localeCompare(right.name);
-  });
-}
-
-export function filterMachineRows({
-  filter,
-  query,
-  rows
-}: {
-  filter: MachineFilter;
-  query: string;
-  rows: readonly MachineListRow[];
-}): MachineListRow[] {
-  return rows.filter((row) => {
-    if (filter === 'online' && !row.isOnline) return false;
-    if (filter === 'offline' && row.isOnline) return false;
-    return matchesFuzzyQuery(row.searchTerms, query);
-  });
-}
-
-export function machineRowSubtitle(row: MachineListRow) {
-  const connectors = `${row.connectorCount} ${row.connectorCount === 1 ? 'connector' : 'connectors'}`;
-  const online = row.connectorCount > 1
-    ? `${row.onlineConnectorCount} of ${connectors} online`
-    : connectors;
-  return [row.platformLabel, online].filter(Boolean).join(' · ');
-}
-
 // --- Compute environment hierarchy ---------------------------------------
 //
-// When the connector overview reports a valid compute inventory, machines are
-// modelled as Platforms containing optional physical Hosts and isolated
-// Environments (which can themselves nest), each naming the connectors that
-// run inside them. This is strictly more information than the flat
-// physical-machine grouping above, so it takes over the page whenever it is
-// available; the flat grouping remains the fallback for accounts that have
-// not adopted it yet.
+// Machines are modelled as Platforms containing optional physical Hosts and
+// isolated Environments (which can themselves nest), each naming the machine
+// credential that runs inside them.
 
 export const computeEnvironmentKindLabels: Record<ComputeEnvironmentKind, string> = {
   cloud_sandbox: 'Cloud sandbox',

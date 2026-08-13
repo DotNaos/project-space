@@ -135,7 +135,6 @@ function encryptionKey() {
   const source =
     process.env.PROJECT_SPACE_TOKEN_ENCRYPTION_KEY ??
     process.env.CLERK_SECRET_KEY ??
-    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN ??
     databaseUrl();
 
   return createHash('sha256').update(source).digest();

@@ -19,7 +19,7 @@ In the compute hierarchy, this checkout is a **Runner Workspace**. It belongs
 to one agent run and executes inside one **Environment** such as native macOS,
 WSL, a devcontainer, a GitHub Codespace, or a cloud sandbox. A worktree path is
 not a Host or Environment identity, and recreating a workspace must not create
-a duplicate Connector installation. See
+a duplicate Workspace Runtime. See
 [Compute Platforms, Hosts, and Environments](./compute-environments.md).
 
 Codex Desktop creates and owns its own machine-local worktrees separately. The
