@@ -108,6 +108,10 @@ func (store *stateStore) localNodeWatcherLogPath(serverID, generation string, in
 	return filepath.Join(store.root, "logs", fmt.Sprintf("%s-%s-with-%d.log", serverID, generation, index))
 }
 
+func (store *stateStore) localNodeWatcherExitPath(serverID, generation string, index int) string {
+	return filepath.Join(store.root, "requests", fmt.Sprintf("%s-%s-with-%d.exit", serverID, generation, index))
+}
+
 func sessionKey(directory, script string) string {
 	sum := sha256.Sum256([]byte(directory + "\x00" + script))
 	return hex.EncodeToString(sum[:16])
@@ -291,6 +295,11 @@ func normalizeRuntimeStateBindings(state *runtimeState) {
 		state.APIs = APIsModeExternal
 		state.Data = DataModeRemote
 	}
+	for index := range state.Companions {
+		if state.Companions[index].Created {
+			state.Companions[index].Owned = true
+		}
+	}
 }
 
 func validateRuntimeState(state runtimeState) error {
@@ -383,7 +392,8 @@ func validateRuntimeState(state runtimeState) error {
 	}
 	for _, watcher := range state.Watchers {
 		if !nodePackageNamePattern.MatchString(watcher.Package) || watcher.Directory == "" ||
-			len(watcher.Command) == 0 || watcher.PID <= 0 || watcher.ProcessIdentity == "" || watcher.LogPath == "" {
+			len(watcher.Command) == 0 || watcher.PID <= 0 || watcher.ProcessIdentity == "" ||
+			watcher.LogPath == "" {
 			return fmt.Errorf("local Node watcher identity is invalid")
 		}
 	}
@@ -441,6 +451,10 @@ func (store *stateStore) statePath(serverID string) string {
 
 func (store *stateStore) sessionLockPath(serverID string) string {
 	return filepath.Join(store.root, "locks", "session-"+serverID+".lock")
+}
+
+func (store *stateStore) companionLockPath(serverID string) string {
+	return filepath.Join(store.root, "locks", serverID+".companion.lock")
 }
 
 func (store *stateStore) portLockPath() string {

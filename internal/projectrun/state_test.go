@@ -91,6 +91,14 @@ func TestLegacyRuntimeBindingsNormalizeInLoadAndList(t *testing.T) {
 		Directory: identity.WorktreePath, Script: identity.ServerKey, Mode: ServeModeManaged,
 		State: StateStale, Generation: "generation-one", TmuxSession: identity.TmuxSession,
 		TmuxOwnershipToken: "ownership-one", AllowedHosts: []string{}, CheckedAt: "2026-08-11T12:00:00Z",
+		Companions: []CompanionServer{{
+			Library: "/tmp/library", Script: "prototype", Directory: "/tmp/library",
+			ServerID: "project-serve-library-prototype-123456789abc", Created: true,
+		}},
+		Watchers: []LocalNodeWatcher{{
+			Package: "@example/legacy", Directory: "/tmp/library", Command: []string{"bun", "run", "watch"},
+			PID: 1235, ProcessIdentity: "watcher-one", LogPath: "/tmp/legacy-watcher.log",
+		}},
 	}
 	body, err := json.Marshal(legacy)
 	if err != nil {
@@ -107,11 +115,17 @@ func TestLegacyRuntimeBindingsNormalizeInLoadAndList(t *testing.T) {
 	if loaded.APIs != APIsModeExternal || loaded.Data != DataModeRemote {
 		t.Fatalf("loaded bindings = %s/%s", loaded.APIs, loaded.Data)
 	}
+	if !loaded.Companions[0].Owned || loaded.Watchers[0].ExitPath != "" {
+		t.Fatalf("loaded legacy ownership = companions=%#v watchers=%#v", loaded.Companions, loaded.Watchers)
+	}
 	listing, err := store.list()
 	if err != nil || len(listing.States) != 1 || len(listing.Failures) != 0 {
 		t.Fatalf("list legacy state: %#v err=%v", listing, err)
 	}
 	if listing.States[0].APIs != APIsModeExternal || listing.States[0].Data != DataModeRemote {
 		t.Fatalf("listed bindings = %s/%s", listing.States[0].APIs, listing.States[0].Data)
+	}
+	if !listing.States[0].Companions[0].Owned {
+		t.Fatalf("listed legacy companion was not migrated: %#v", listing.States[0].Companions)
 	}
 }

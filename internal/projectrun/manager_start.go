@@ -60,6 +60,10 @@ func (manager *Manager) startLocalRuntime(
 				"PROJECT_SERVE_WITH": manifestPath,
 			})
 		}
+		if err := manager.startLocalNodeWatchers(ctx, &state); err != nil {
+			failure, failErr := manager.failStart(state, err)
+			return runtimeState{}, failure, failErr
+		}
 		command.Env = mergeEnvironment(command.Env, environmentMap(environment))
 		if state.APIs == APIsModeSimulated && state.Data == DataModeLocal {
 			command.Env = mergeEnvironment(command.Env, map[string]string{
@@ -101,6 +105,9 @@ func (manager *Manager) startLocalRuntime(
 			if ownerErr == nil && inspectErr == nil && !owned && portOpen &&
 				attempt < maximumPortRaceAttempts &&
 				failure.PID == nil && failure.LocalPort == nil {
+				if artifactErr := manager.cleanupStartAttemptArtifacts(state); artifactErr != nil {
+					return runtimeState{}, failure, errors.Join(failErr, artifactErr)
+				}
 				continue
 			}
 			return runtimeState{}, failure, failErr
@@ -128,6 +135,9 @@ func (manager *Manager) startLocalRuntime(
 			)
 			failure, failErr := manager.failStart(state, cause)
 			if attempt < maximumPortRaceAttempts && failure.PID == nil && failure.LocalPort == nil {
+				if artifactErr := manager.cleanupStartAttemptArtifacts(state); artifactErr != nil {
+					return runtimeState{}, failure, errors.Join(failErr, artifactErr)
+				}
 				continue
 			}
 			return runtimeState{}, failure, failErr
@@ -144,4 +154,11 @@ func (manager *Manager) startLocalRuntime(
 		return state, ServeResult{}, nil
 	}
 	panic("unreachable bounded port-race loop")
+}
+
+func (manager *Manager) cleanupStartAttemptArtifacts(state runtimeState) error {
+	return errors.Join(
+		manager.store.deleteLocalLibraries(state),
+		deleteLocalNodeWatcherLogs(state.Watchers),
+	)
 }

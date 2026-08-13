@@ -22,6 +22,9 @@ type fakeProcesses struct {
 	foreignPorts      map[int]bool
 	owner             bool
 	startErr          error
+	startErrAt        int
+	startCalls        int
+	stopErr           error
 	foreground        int
 	runErr            error
 	foregroundWait    bool
@@ -151,7 +154,11 @@ func (processes *fakeProcesses) StartDetached(
 ) (ProcessRef, error) {
 	processes.mutex.Lock()
 	defer processes.mutex.Unlock()
-	if processes.startErr != nil {
+	processes.startCalls++
+	if processes.startErr != nil || processes.startCalls == processes.startErrAt {
+		if processes.startErr == nil {
+			return ProcessRef{}, fmt.Errorf("injected process start failure")
+		}
 		return ProcessRef{}, processes.startErr
 	}
 	processes.nextPID++
@@ -203,6 +210,9 @@ func (processes *fakeProcesses) StopGroup(process ProcessRef, _ time.Duration) e
 	}
 	if identity != process.Identity || process.Identity == "" {
 		return fmt.Errorf("refusing to stop changed process")
+	}
+	if processes.stopErr != nil {
+		return processes.stopErr
 	}
 	processes.stopped = append(processes.stopped, process)
 	delete(processes.alive, process.PID)

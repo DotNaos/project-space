@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -33,12 +34,13 @@ type LocalNodeLibrary struct {
 }
 
 type LocalNodePackage struct {
-	Name              string            `json:"name"`
-	Directory         string            `json:"directory"`
-	Mode              string            `json:"mode"`
-	WatchCommand      []string          `json:"watchCommand,omitempty"`
-	Imports           []LocalNodeImport `json:"imports"`
-	SourceDirectories []string          `json:"sourceDirectories"`
+	Name               string            `json:"name"`
+	Directory          string            `json:"directory"`
+	Mode               string            `json:"mode"`
+	WatchCommand       []string          `json:"watchCommand,omitempty"`
+	Imports            []LocalNodeImport `json:"imports"`
+	UnsupportedImports []string          `json:"unsupportedImports,omitempty"`
+	SourceDirectories  []string          `json:"sourceDirectories"`
 }
 
 type LocalNodeImport struct {
@@ -58,11 +60,24 @@ func sameLocalNodeLibraryBindings(first, second []LocalNodeLibrary) bool {
 func localNodeLibraryBindings(libraries []LocalNodeLibrary) []LocalNodeLibrary {
 	bindings := make([]LocalNodeLibrary, len(libraries))
 	for index, library := range libraries {
+		packages := append([]LocalNodePackage{}, library.Packages...)
+		for packageIndex := range packages {
+			if len(packages[packageIndex].WatchCommand) == 0 {
+				packages[packageIndex].WatchCommand = nil
+			}
+			if len(packages[packageIndex].UnsupportedImports) == 0 {
+				packages[packageIndex].UnsupportedImports = nil
+			}
+		}
+		companions := append([]string{}, library.CompanionServers...)
+		if len(companions) == 0 {
+			companions = nil
+		}
 		bindings[index] = LocalNodeLibrary{
 			Directory:        library.Directory,
 			Repository:       library.Repository,
-			Packages:         library.Packages,
-			CompanionServers: library.CompanionServers,
+			Packages:         packages,
+			CompanionServers: companions,
 		}
 	}
 	return bindings
@@ -281,10 +296,14 @@ func localNodePackageFromManifest(
 	}
 	entries := exportEntries(manifest.Exports)
 	imports := make([]LocalNodeImport, 0, len(entries))
+	unsupportedImports := []string{}
 	sourceCount := 0
 	for subpath, definition := range entries {
 		if strings.Contains(subpath, "*") {
-			continue
+			return LocalNodePackage{}, false, fmt.Errorf(
+				"package %q uses wildcard export %q, which local development overlays do not support",
+				manifest.Name, subpath,
+			)
 		}
 		target := preferredExportTarget(definition)
 		if target == "" {
@@ -301,6 +320,8 @@ func localNodePackageFromManifest(
 		imports = append(imports, LocalNodeImport{Specifier: specifier, Path: resolved})
 		if source {
 			sourceCount++
+		} else {
+			unsupportedImports = append(unsupportedImports, specifier)
 		}
 	}
 	if len(imports) == 0 {
@@ -316,6 +337,13 @@ func localNodePackageFromManifest(
 	watchCommand := []string(nil)
 	if sourceCount > 0 {
 		mode = "source"
+		sourceImports := imports[:0]
+		for _, entry := range imports {
+			if !slices.Contains(unsupportedImports, entry.Specifier) {
+				sourceImports = append(sourceImports, entry)
+			}
+		}
+		imports = sourceImports
 	} else {
 		watchScript := localNodeWatchScript(manifest.Scripts)
 		if watchScript == "" {
@@ -328,7 +356,8 @@ func localNodePackageFromManifest(
 	}
 	return LocalNodePackage{
 		Name: manifest.Name, Directory: directory, Mode: mode,
-		WatchCommand: watchCommand, Imports: imports, SourceDirectories: sourceDirectories,
+		WatchCommand: watchCommand, Imports: imports, UnsupportedImports: unsupportedImports,
+		SourceDirectories: sourceDirectories,
 	}, true, nil
 }
 
@@ -416,6 +445,9 @@ func resolveLocalExport(directory, subpath, target, sourceField string) (string,
 			relative, _ := filepath.Rel(directory, path)
 			return path, relative == "src" || strings.HasPrefix(relative, "src"+string(filepath.Separator))
 		}
+	}
+	if strings.HasPrefix(targetValue, "dist/") {
+		return filepath.Join(directory, filepath.FromSlash(targetValue)), false
 	}
 	return "", false
 }

@@ -110,6 +110,7 @@ type CompanionServer struct {
 	State     State   `json:"state"`
 	LocalURL  *string `json:"localUrl"`
 	Created   bool    `json:"created"`
+	Owned     bool    `json:"owned"`
 }
 
 type LocalNodeWatcher struct {
@@ -119,6 +120,7 @@ type LocalNodeWatcher struct {
 	PID             int      `json:"pid"`
 	ProcessIdentity string   `json:"processIdentity"`
 	LogPath         string   `json:"logPath"`
+	ExitPath        string   `json:"exitPath"`
 }
 
 type RunOptions struct {
@@ -146,6 +148,7 @@ type Command struct {
 	Dir        string
 	Env        []string
 	InheritEnv bool
+	ExitPath   string
 }
 
 type ProcessRef struct {

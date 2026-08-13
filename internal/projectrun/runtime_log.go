@@ -136,7 +136,11 @@ func superviseRuntime(ctx context.Context, reader io.Reader, acknowledgements io
 		return err
 	}
 	_ = outputWriter.Close()
-	go func() { _ = cmd.Wait() }()
+	waited := make(chan error, 1)
+	go func() {
+		childErr := cmd.Wait()
+		waited <- errors.Join(childErr, writeRuntimeExitMarker(command.ExitPath, childErr))
+	}()
 	// A failed acknowledgement means the parent disappeared or will terminate
 	// this persisted process group. The supervisor must remain the group leader.
 	_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Started: true})
@@ -151,13 +155,39 @@ func superviseRuntime(ctx context.Context, reader io.Reader, acknowledgements io
 	}()
 	err = copyBoundedLog(file, outputReader)
 	close(closed)
-	if ctx.Err() != nil {
+	select {
+	case <-waited:
+	case <-ctx.Done():
 		return terminateSupervisedRuntime(ctx)
 	}
 	// Even after the managed command exits (or log draining fails), remain alive
 	// as the persisted process-group leader until explicit cleanup.
 	<-ctx.Done()
 	return errors.Join(terminateSupervisedRuntime(ctx), err)
+}
+
+func writeRuntimeExitMarker(path string, childErr error) error {
+	if path == "" {
+		return nil
+	}
+	body, err := json.Marshal(struct {
+		ExitCode int    `json:"exitCode"`
+		Error    string `json:"error,omitempty"`
+	}{ExitCode: commandExitCode(childErr), Error: runtimeErrorString(childErr)})
+	if err == nil {
+		err = os.WriteFile(path, body, 0o600)
+	}
+	if err != nil {
+		return fmt.Errorf("write managed runtime exit marker: %w", err)
+	}
+	return nil
+}
+
+func runtimeErrorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func terminateSupervisedRuntime(ctx context.Context) error {

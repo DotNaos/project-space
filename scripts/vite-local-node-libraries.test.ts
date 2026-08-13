@@ -81,12 +81,38 @@ test('injects local sources into Tailwind and rejects build use', async () => {
   process.env.PROJECT_SERVE_WITH = manifestPath;
   process.env.PROJECT_SPACE_MANAGED_SERVE = '1';
   const local = viteLocalNodeLibraries('serve');
-  const hook = local.plugins[0]?.transform;
+	const hook = local.plugins.find((plugin) => plugin.name === 'project-local-node-library-tailwind-sources')?.transform;
   if (!hook) throw new Error('Tailwind source plugin is missing.');
   const transform = typeof hook === 'function' ? hook : hook.handler;
   const transformed = await transform.call({} as never, '@import "tailwindcss";\n', '/tmp/app.css', {} as never);
   expect(String(transformed)).toContain(`@source "${join(library, 'src')}";`);
   expect(() => viteLocalNodeLibraries('build')).toThrow('allowed only for managed development servers');
+});
+
+test('blocks a built export in a mixed source package instead of using node_modules', async () => {
+  const root = temporaryDirectory();
+  const library = writeSourceLibrary(root, 'ui', '@example/ui', 'ui-v1');
+  const manifestPath = join(root, 'libraries.json');
+  writeFileSync(manifestPath, JSON.stringify({
+    version: 1,
+    libraries: [{
+      ...libraryManifest(library, '@example/ui'),
+      packages: [{
+        ...libraryManifest(library, '@example/ui').packages[0],
+        unsupportedImports: ['@example/ui/styles.css']
+      }]
+    }]
+  }));
+  process.env.PROJECT_SERVE_WITH = manifestPath;
+  process.env.PROJECT_SPACE_MANAGED_SERVE = '1';
+  const local = viteLocalNodeLibraries('serve');
+  const plugin = local.plugins.find((candidate) => candidate.name === 'project-local-node-library-unsupported-imports');
+  const resolveId = plugin?.resolveId;
+  if (!resolveId) throw new Error('Unsupported import plugin is missing.');
+  const handler = typeof resolveId === 'function' ? resolveId : resolveId.handler;
+  expect(() => handler.call({} as never, '@example/ui/styles.css', undefined, {} as never)).toThrow(
+	'has no source mapping'
+  );
 });
 
 function writeSourceLibrary(root: string, directory: string, name: string, value: string) {

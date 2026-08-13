@@ -12,6 +12,7 @@ interface LocalNodePackage {
   name: string;
   directory: string;
   imports: LocalNodeImport[];
+  unsupportedImports?: string[];
   sourceDirectories: string[];
 }
 
@@ -54,12 +55,14 @@ export function viteLocalNodeLibraries(command: 'build' | 'serve'): ViteLocalNod
   const packageNames = new Set<string>();
   const roots = new Set<string>();
   const sourceDirectories = new Set<string>();
+  const unsupportedImports = new Set<string>();
   for (const library of manifest.libraries) {
     assertDirectory(library.directory, 'library directory');
     roots.add(library.directory);
     for (const pkg of library.packages) {
       assertDirectory(pkg.directory, `package ${pkg.name}`);
       packageNames.add(pkg.name);
+	  for (const specifier of pkg.unsupportedImports ?? []) unsupportedImports.add(specifier);
       for (const sourceDirectory of pkg.sourceDirectories) {
         assertDirectory(sourceDirectory, `source directory for ${pkg.name}`);
         sourceDirectories.add(sourceDirectory);
@@ -79,10 +82,26 @@ export function viteLocalNodeLibraries(command: 'build' | 'serve'): ViteLocalNod
   return {
     aliases,
     packageNames: [...packageNames].sort(),
-    plugins: sourceDirectories.size > 0
-      ? [tailwindLocalSources([...sourceDirectories].sort())]
-      : [],
+    plugins: [
+	  ...(unsupportedImports.size > 0 ? [rejectUnsupportedLocalImports([...unsupportedImports].sort())] : []),
+	  ...(sourceDirectories.size > 0 ? [tailwindLocalSources([...sourceDirectories].sort())] : [])
+	],
     roots: [...roots].sort()
+  };
+}
+
+function rejectUnsupportedLocalImports(specifiers: string[]): Plugin {
+  const unsupported = new Set(specifiers);
+  return {
+    name: 'project-local-node-library-unsupported-imports',
+    enforce: 'pre',
+    resolveId(source) {
+      if (unsupported.has(source)) {
+        throw new Error(
+          `Local package export ${source} has no source mapping. Add a source export or a package watch script.`
+        );
+      }
+    }
   };
 }
 
