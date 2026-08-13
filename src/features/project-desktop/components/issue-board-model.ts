@@ -309,14 +309,21 @@ function stringHue(seed: string) {
   return hash % 360;
 }
 
-export function labelChipStyle(label: string) {
-  const hue = stringHue(label.toLowerCase());
+const labelChipPalette = [
+  { backgroundColor: 'hsl(210 75% 56% / 0.20)', color: 'hsl(210 75% 88%)' },
+  { backgroundColor: 'hsl(190 70% 48% / 0.20)', color: 'hsl(190 70% 86%)' },
+  { backgroundColor: 'hsl(155 62% 44% / 0.20)', color: 'hsl(155 65% 86%)' },
+  { backgroundColor: 'hsl(90 58% 45% / 0.20)', color: 'hsl(90 65% 86%)' },
+  { backgroundColor: 'hsl(42 75% 52% / 0.20)', color: 'hsl(42 78% 88%)' },
+  { backgroundColor: 'hsl(24 75% 54% / 0.20)', color: 'hsl(24 78% 88%)' },
+  { backgroundColor: 'hsl(347 70% 58% / 0.20)', color: 'hsl(347 72% 90%)' },
+  { backgroundColor: 'hsl(320 62% 58% / 0.20)', color: 'hsl(320 68% 90%)' },
+  { backgroundColor: 'hsl(270 66% 62% / 0.20)', color: 'hsl(270 72% 90%)' },
+  { backgroundColor: 'hsl(235 70% 64% / 0.20)', color: 'hsl(235 75% 91%)' }
+] as const;
 
-  return {
-    backgroundColor: `hsl(${hue} 70% 60% / 0.12)`,
-    borderColor: `hsl(${hue} 70% 62% / 0.32)`,
-    color: `hsl(${hue} 82% 76%)`
-  };
+export function labelChipStyle(label: string) {
+  return labelChipPalette[stringHue(label.trim().toLowerCase()) % labelChipPalette.length];
 }
 
 export function authorAvatarStyle(author: string) {

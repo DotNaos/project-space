@@ -21,16 +21,18 @@ export function ProjectTasksExperience({
   onShowTasks,
   project,
   projects,
+  repositories,
   repository,
   selectedIssueNumber,
   targetPath
 }: {
   connectorOverview: ConnectorOverviewResult;
   onOpenHistory(input: { defaultBranch: string; headBranch: string }): void;
-  onOpenTask(issueNumber: number): void;
+  onOpenTask(issueNumber: number, projectIdOverride?: string): void;
   onShowTasks(): void;
   project: ProjectSpaceRecord;
   projects: ProjectSpaceRecord[];
+  repositories: GitHubCatalogRepository[];
   repository?: GitHubCatalogRepository;
   selectedIssueNumber?: number;
   targetPath: string;
@@ -41,7 +43,10 @@ export function ProjectTasksExperience({
   const [creationCloseRequest, setCreationCloseRequest] = useState(0);
   const [commentsLoadingFor, setCommentsLoadingFor] = useState<number>();
   const creationHistoryRef = useRef<IssueCreationHistoryController | null>(null);
-  const pendingCreatedIssueRef = useRef<number | undefined>(undefined);
+  const pendingCreatedIssueRef = useRef<{
+    issueNumber: number;
+    projectId?: string;
+  } | null>(null);
   const onOpenTaskRef = useRef(onOpenTask);
   onOpenTaskRef.current = onOpenTask;
   const {
@@ -69,9 +74,11 @@ export function ProjectTasksExperience({
         onCloseRequest: () => setCreationCloseRequest((request) => request + 1),
         onClosed: () => {
           setCreationOpen(false);
-          const issueNumber = pendingCreatedIssueRef.current;
-          pendingCreatedIssueRef.current = undefined;
-          if (issueNumber) onOpenTaskRef.current(issueNumber);
+          const pendingIssue = pendingCreatedIssueRef.current;
+          pendingCreatedIssueRef.current = null;
+          if (pendingIssue) {
+            onOpenTaskRef.current(pendingIssue.issueNumber, pendingIssue.projectId);
+          }
         },
         onOpen: () => setCreationOpen(true)
       }
@@ -140,15 +147,28 @@ export function ProjectTasksExperience({
       <IssueCreationOverlay
         closeRequest={creationCloseRequest}
         onClose={closeCreation}
-        onIssueCreated={(issue) => {
-          upsertIssue(issue);
-          if (creationHistoryRef.current?.isOpen()) {
-            pendingCreatedIssueRef.current = issue.number;
-          } else {
-            onOpenTask(issue.number);
+        onIssueCreated={(issue, repositoryKey) => {
+          const isCurrentRepository = repositoryKey === repository?.fullName;
+          if (isCurrentRepository) upsertIssue(issue);
+          const targetProject = isCurrentRepository
+            ? project
+            : projects.find((candidate) =>
+                candidate.kind === 'github'
+                && candidate.github?.fullName.toLowerCase() === repositoryKey.toLowerCase()
+              ) ?? projects.find((candidate) =>
+                candidate.github?.fullName.toLowerCase() === repositoryKey.toLowerCase()
+              );
+          if (creationHistoryRef.current?.isOpen() && targetProject) {
+            pendingCreatedIssueRef.current = {
+              issueNumber: issue.number,
+              projectId: targetProject.id
+            };
+          } else if (targetProject) {
+            onOpenTask(issue.number, targetProject.id);
           }
         }}
         open={creationOpen}
+        repositories={repositories}
         repository={repository}
       />
     </div>

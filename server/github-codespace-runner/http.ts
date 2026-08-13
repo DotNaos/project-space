@@ -11,6 +11,7 @@ const route = '/api/github/codespace-runner';
 const maximumBodyBytes = 16 * 1024;
 const operationPattern = /^codespace:[0-9a-f-]{36}$/i;
 const branchPattern = /^[^\s~^:?*\\[\]]{1,255}$/;
+const codespaceNamePattern = /^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 export function createGitHubCodespaceRunnerHttpHandler(options: {
@@ -40,13 +41,26 @@ export function createGitHubCodespaceRunnerHttpHandler(options: {
 }
 
 function parseRequest(value: Record<string, unknown>): GitHubCodespaceRunnerRequest {
-  const allowed = new Set(['action', 'branch', 'issue', 'operationId', 'repositoryFullName']);
+  const allowed = new Set([
+    'action',
+    'branch',
+    'codespaceName',
+    'issue',
+    'listOnly',
+    'operationId',
+    'repositoryFullName'
+  ]);
   const actions = ['delete', 'provision', 'start', 'status', 'stop'];
   if (
     Object.keys(value).some((key) => !allowed.has(key)) ||
     typeof value.action !== 'string' || !actions.includes(value.action) ||
     typeof value.branch !== 'string' || !branchPattern.test(value.branch) ||
+    (value.codespaceName !== undefined && (
+      typeof value.codespaceName !== 'string' || !codespaceNamePattern.test(value.codespaceName)
+    )) ||
     !Number.isSafeInteger(value.issue) || Number(value.issue) < 1 ||
+    (value.listOnly !== undefined && typeof value.listOnly !== 'boolean') ||
+    (value.listOnly === true && (value.action !== 'status' || value.codespaceName !== undefined)) ||
     typeof value.operationId !== 'string' || !operationPattern.test(value.operationId) ||
     typeof value.repositoryFullName !== 'string' || !repositoryPattern.test(value.repositoryFullName)
   ) {

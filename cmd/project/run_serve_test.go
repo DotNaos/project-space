@@ -29,11 +29,11 @@ func TestServeCommandsExposeStableJSONContract(t *testing.T) {
 		t.Fatalf("start call = directory %q script %q hosts %#v", manager.startDirectory, manager.startScript, manager.allowedHosts)
 	}
 	localOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
-		"dev", "/tmp/worktree", "--local-only", "--json",
+		"dev", "/tmp/worktree", "--no-tailnet", "--json",
 	})
 	assertServeJSONKeys(t, localOutput)
 	if !manager.localOnly {
-		t.Fatal("--local-only was not passed to the managed start transaction")
+		t.Fatal("--no-tailnet was not passed to the managed start transaction")
 	}
 	if manager.apis != projectrun.APIsModeSimulated || manager.data != projectrun.DataModeLocal {
 		t.Fatalf("bindings = APIs=%q data=%q", manager.apis, manager.data)
@@ -84,8 +84,8 @@ func TestServeBindingsFailClosedBeforeStartup(t *testing.T) {
 		{[]string{"--apis=external", "--data=remote"}, "secure 1Password service-account delivery"},
 		{[]string{"--apis=unknown"}, "unknown APIs binding"},
 		{[]string{"--data=unknown"}, "unknown data binding"},
+		{[]string{"--no-tailnet", "--tailnet"}, "cannot be combined"},
 		{[]string{"--local-only", "--tailnet"}, "cannot be combined"},
-		{[]string{"--tailnet"}, "loopback-only"},
 		{[]string{"--token", "visible-secret"}, "unknown flag"},
 	}
 	for _, test := range tests {
@@ -110,12 +110,14 @@ func TestServeBindingsFailClosedBeforeStartup(t *testing.T) {
 	}
 }
 
-func TestServeTransportDefaultsLocalAndRequiresExplicitTailnet(t *testing.T) {
+func TestServeTransportDefaultsToTailnetAndSupportsExplicitOptOut(t *testing.T) {
 	for _, test := range []struct {
 		args      []string
 		localOnly bool
 	}{
-		{args: nil, localOnly: true},
+		{args: nil, localOnly: false},
+		{args: []string{"--tailnet"}, localOnly: false},
+		{args: []string{"--no-tailnet"}, localOnly: true},
 		{args: []string{"--local-only"}, localOnly: true},
 	} {
 		t.Run(strings.Join(test.args, " "), func(t *testing.T) {

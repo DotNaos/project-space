@@ -6,7 +6,7 @@ import type {
   CodexMachineTaskStartResult
 } from '../src/shared/codex-machine-tasks-api';
 import type { CodexSessionRecord } from '../src/shared/codex-sessions-api';
-import type { ProjectSpaceRecord } from '../src/shared/project-space-api';
+import type { ConnectorOverviewResult, ProjectSpaceRecord } from '../src/shared/project-space-api';
 import type { CodexMachine, CodexSession } from '../src/features/codex-sessions/codex-sessions-types';
 import type {
   IssueMachineConnectorOption,
@@ -20,6 +20,7 @@ import {
   presentIssueCodexInventoryThread,
   presentIssueCodexThread
 } from '../src/features/project-desktop/components/issue-codex-work-list-model';
+import { onlineRowForHost } from '../src/features/project-desktop/components/use-issue-codex-host-wake';
 
 mock.module('@/api/project-space-client', () => ({
   projectSpaceClient: {
@@ -29,14 +30,15 @@ mock.module('@/api/project-space-client', () => ({
 }));
 
 mock.module('@/app/dotnaos-ui', () => ({
-  Button: ({ children, onPress, ...props }: {
+  Button: ({ children, isDisabled, onPress, ...props }: {
     children?: ReactNode;
+    isDisabled?: boolean;
     onPress?(): void;
     [key: string]: unknown;
-  }) => createElement('button', { ...props, onClick: onPress }, children)
+  }) => createElement('button', { ...props, disabled: isDisabled, onClick: onPress }, children)
 }));
 
-const { IssueCodexWorkList } = await import(
+const { groupIssueCodexTargetsByHost, IssueCodexWorkList } = await import(
   '../src/features/project-desktop/components/issue-codex-work-list'
 );
 const {
@@ -131,6 +133,65 @@ function confirmed(
 }
 
 describe('issue Codex work list', () => {
+  test('groups connectors from duplicate topology records into one named host', () => {
+    const groups = groupIssueCodexTargetsByHost([
+      {
+        connectorId: 'connector-pc-windows',
+        environmentLabel: 'Windows',
+        isOnline: false,
+        key: 'physical-pc-windows:connector-pc-windows:windows',
+        physicalMachineId: 'physical-pc-windows',
+        physicalMachineName: 'os-pc',
+        row: { machineId: 'connector-pc-windows' }
+      },
+      {
+        connectorId: 'connector-pc-wsl',
+        environmentLabel: 'WSL',
+        isOnline: false,
+        key: 'physical-pc-wsl:connector-pc-wsl:wsl',
+        physicalMachineId: 'physical-pc-wsl',
+        physicalMachineName: 'os-pc',
+        row: { machineId: 'connector-pc-wsl' }
+      }
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.name).toBe('os-pc');
+    expect(groups[0]?.targets.map((target) => target.connectorId)).toEqual([
+      'connector-pc-windows',
+      'connector-pc-wsl'
+    ]);
+  });
+
+  test('continues with the connector that actually comes online after a host wake', () => {
+    const windows = option('connector-pc-windows', 'environment-windows', 'Windows', false);
+    const wsl = option('connector-pc-wsl', 'environment-wsl', 'WSL', false);
+    const row = onlineRowForHost({
+      key: 'os-pc',
+      name: 'os-pc',
+      targets: issueCodexConnectorTargets([{
+        connectorOptions: [windows, wsl],
+        machineId: 'connector-pc-windows',
+        physicalMachineId: 'physical-pc',
+        physicalMachineName: 'os-pc'
+      }])
+    }, {
+      machines: [{
+        connector: { installCommand: '', status: 'online' },
+        id: 'connector-pc-wsl',
+        kind: 'connector',
+        name: 'WSL connector',
+        network: {},
+        roles: ['connector'],
+        sourcePath: 'connector-hub'
+      }]
+    } as ConnectorOverviewResult);
+
+    expect(row?.machineId).toBe('connector-pc-wsl');
+    expect(row?.machine?.connector.status).toBe('online');
+    expect(row?.connectorOptions?.[0]?.isOnline).toBe(true);
+  });
+
   test('keeps Windows and WSL as exact environments on one physical machine', () => {
     const targets = issueCodexConnectorTargets([pcRow()]);
 
@@ -564,22 +625,24 @@ describe('issue Codex work list', () => {
         machineRows={[]}
         onError={() => undefined}
         onStart={() => undefined}
+        renderThreadControls={() => <span>Codespace lifecycle controls</span>}
         repositoryId="DotNaos/project-space"
       />
     );
 
-    expect(html).toContain('Threads for this task');
-    expect(html).toContain('1 total · 0 running');
+    expect(html).toContain('Threads');
+    expect(html).toContain('>1</span>');
     expect(html).toContain('Review extraction plan');
-    expect(html).toContain('GitHub Codespace · Codespace · bug-free-space-invention');
+    expect(html).toContain('GitHub Codespace · bug-free-space-invention');
+    expect(html).toContain('Codespace lifecycle controls');
     expect(html).not.toContain('Start new thread');
   });
 
-  test('does not mount supplemental Codespace start before canonical and inventory discovery', () => {
+  test('keeps the Codespaces provider visible while canonical and inventory discovery runs', () => {
     const html = renderToStaticMarkup(
       <IssueCodexWorkList
         canStart
-        cloudDestination={<span>Unsafe Codespace start</span>}
+        cloudDestination={<span>Codespace chooser</span>}
         issueNumber={596}
         lookupTargets={[{
           connectorId: 'codespace-connector',
@@ -596,10 +659,44 @@ describe('issue Codex work list', () => {
     );
 
     expect(html).toContain('Checking existing threads…');
-    expect(html).not.toContain('Unsafe Codespace start');
+    expect(html).toContain('GitHub Codespace available');
   });
 
-  test('shows physical-machine availability while keeping exact environments separate', () => {
+  test('keeps the Codespaces provider available when only a stale offline connector exists', () => {
+    const html = renderToStaticMarkup(
+      <IssueCodexWorkList
+        canStart
+        cloudDestination={<span>Codespace chooser</span>}
+        issueNumber={596}
+        lookupTargets={[{
+          connectorId: 'codespace-offline',
+          connectorInstanceId: 'codespace-instance',
+          environmentLabel: 'Codespace · old-runner',
+          isOnline: false,
+          key: 'codespace-offline',
+          physicalMachineName: 'GitHub Codespace'
+        }]}
+        machineRows={[{
+          connectorOptions: [option(
+            'codespace-offline',
+            'environment-codespace',
+            'Codespace · old-runner',
+            false
+          )],
+          machineId: 'codespace-offline',
+          physicalMachineName: 'GitHub Codespace'
+        }]}
+        onError={() => undefined}
+        onStart={() => undefined}
+        repositoryId="DotNaos/project-space"
+      />
+    );
+
+    expect(html).toContain('GitHub Codespace available');
+    expect(html).not.toContain('GitHub Codespace · Codespace · old-runner');
+  });
+
+  test('summarizes runner availability without rendering the chooser inline', () => {
     const html = renderToStaticMarkup(
       <IssueCodexWorkList
         canStart
@@ -613,11 +710,34 @@ describe('issue Codex work list', () => {
       />
     );
 
-    expect(html).toContain('1 online · 1 configured');
-    expect(html).toContain('os-pc');
-    expect(html).toContain('2 environments');
-    expect(html).toContain('Windows 11');
-    expect(html).toContain('WSL · Ubuntu 24.04');
+    expect(html).toContain('Runner');
+    expect(html).toContain('1 environment available');
+    expect(html).toContain('Start development');
+    expect(html).not.toContain('os-pc');
+    expect(html).not.toContain('Windows 11');
+    expect(html).not.toContain('WSL · Ubuntu 24.04');
+  });
+
+  test('moves Codespace launch progress onto the task page', () => {
+    const html = renderToStaticMarkup(
+      <IssueCodexWorkList
+        canStart
+        cloudDestination={<span>Codespace chooser</span>}
+        cloudLaunchStatus={{
+          kind: 'pending',
+          message: 'The Codespace is installing and connecting its managed runner.'
+        }}
+        issueNumber={596}
+        machineRows={[]}
+        onError={() => undefined}
+        onStart={() => undefined}
+        repositoryId="DotNaos/project-space"
+      />
+    );
+
+    expect(html).toContain('The Codespace is installing and connecting its managed runner.');
+    expect(html).toContain('Starting development…');
+    expect(html).toContain('disabled');
   });
 
   test('shows a truthful initial loading state before the first task check finishes', () => {

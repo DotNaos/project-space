@@ -32,10 +32,10 @@ The repository currently targets a web-first fullstack MVP:
   Reserved for real integrations with isolated local data. Startup currently fails closed until secure detached service-account delivery is available.
 - `project serve --apis external --data remote`
   Reserved for real integrations with the configured shared database. Startup currently fails closed, and this profile must never migrate, seed, or reset remote data automatically.
-- `project serve dev --local-only`
-  Compatibility spelling for the default local-only transport.
+- `project serve --no-tailnet`
+  Keep the development server on this machine. Tailscale publication is the default and does not change the selected API or data binding.
 - `project serve --tailnet`
-  Reserved explicit Tailscale publication control. Simulated APIs remain loopback-only until local owner authentication is available, and external APIs remain blocked until secure credential delivery is implemented.
+  Compatibility spelling for the default Tailscale publication.
 - `project run build`
   Build the deployable web frontend.
 - `project run check`
@@ -43,9 +43,9 @@ The repository currently targets a web-first fullstack MVP:
 - `project run test`
   Run the test suite.
 
-The installed `project`, `portless`, `tmux`, and `lsof` commands are required
-for the normal local development-server path. The `tailscale` command is only
-needed when the separate `--tailnet` transport is enabled.
+The installed `project`, `portless`, `tmux`, `lsof`, and `tailscale` commands
+are required for the normal development-server path. Use `--no-tailnet` when a
+machine should deliberately avoid Tailscale publication.
 
 ## Structure
 

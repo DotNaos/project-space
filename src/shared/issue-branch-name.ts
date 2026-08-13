@@ -7,5 +7,5 @@ export function issueBranchName(issueNumber: number, title: string) {
     .slice(0, 48)
     .replace(/-+$/g, '');
 
-  return `issue-${issueNumber}${slug ? `-${slug}` : ''}`;
+  return `${issueNumber}${slug ? `-${slug}` : ''}`;
 }

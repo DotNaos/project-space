@@ -98,11 +98,117 @@ describe('GitHub Codespace runner service', () => {
     expect(lists).toBe(2);
   });
 
-  test('fails closed instead of choosing between duplicate task Codespaces', async () => {
+  test('lists every Codespace on the exact repository branch', async () => {
     const service = createGitHubCodespaceRunnerService(dependencies({
-      list: async () => [codespace, { ...codespace, name: 'duplicate-space-456' }]
+      list: async () => [
+        codespace,
+        { ...codespace, name: 'second-space-456', state: 'Shutdown' },
+        { ...codespace, name: 'other-branch', ref: 'issue-455-other' },
+        { ...codespace, name: 'other-repository', repositoryFullName: 'DotNaos/ui' }
+      ]
     }));
-    await expect(service.run(request)).rejects.toThrow('Multiple GitHub Codespaces');
+    await expect(service.run({ ...request, listOnly: true })).resolves.toEqual(
+      expect.objectContaining({
+        codespaces: [
+          expect.objectContaining({ name: 'reliable-space-456', state: 'Available' }),
+          expect.objectContaining({ name: 'second-space-456', state: 'Shutdown' })
+        ],
+        state: 'not-created'
+      })
+    );
+  });
+
+  test('targets one selected Codespace when the branch contains several', async () => {
+    const selected = { ...codespace, name: 'second-space-456', state: 'Shutdown' };
+    const service = createGitHubCodespaceRunnerService(dependencies({
+      list: async () => [codespace, selected]
+    }));
+
+    await expect(service.run({
+      ...request,
+      codespaceName: selected.name
+    })).resolves.toEqual(expect.objectContaining({
+      codespace: expect.objectContaining({ name: selected.name }),
+      state: 'offline'
+    }));
+  });
+
+  test('starts the selected stopped Codespace before checking runner readiness', async () => {
+    const selected = { ...codespace, name: 'stopped-space-456', state: 'Shutdown' };
+    let startedName = '';
+    const service = createGitHubCodespaceRunnerService(dependencies({
+      list: async () => [selected],
+      start: async (name) => {
+        startedName = name;
+        return { ...selected, state: 'Starting' };
+      }
+    }));
+
+    await expect(service.run({
+      ...request,
+      action: 'start',
+      codespaceName: selected.name
+    })).resolves.toEqual(expect.objectContaining({
+      codespace: expect.objectContaining({ name: selected.name, state: 'Starting' }),
+      state: 'provisioning'
+    }));
+    expect(startedName).toBe(selected.name);
+  });
+
+  test('keeps checking after GitHub accepts a start but returns the stale stopped state', async () => {
+    const selected = { ...codespace, name: 'stale-start-space-456', state: 'Shutdown' };
+    const service = createGitHubCodespaceRunnerService(dependencies({
+      list: async () => [selected],
+      start: async () => selected
+    }));
+
+    await expect(service.run({
+      ...request,
+      action: 'start',
+      codespaceName: selected.name
+    })).resolves.toEqual(expect.objectContaining({
+      codespace: expect.objectContaining({ name: selected.name, state: 'Starting' }),
+      state: 'provisioning'
+    }));
+  });
+
+  test('keeps checking after GitHub accepts a stop but returns the stale online state', async () => {
+    const service = createGitHubCodespaceRunnerService(dependencies({
+      list: async () => [codespace],
+      stop: async () => codespace
+    }));
+
+    await expect(service.run({
+      ...request,
+      action: 'stop',
+      codespaceName: codespace.name
+    })).resolves.toEqual(expect.objectContaining({
+      codespace: expect.objectContaining({ name: codespace.name, state: 'Stopping' }),
+      state: 'offline'
+    }));
+  });
+
+  test('creates a new Codespace even when the branch already has one', async () => {
+    let created = false;
+    const newCodespace = { ...codespace, name: 'new-space-456', state: 'Starting' };
+    const service = createGitHubCodespaceRunnerService(dependencies({
+      create: async () => {
+        created = true;
+        return newCodespace;
+      },
+      list: async () => [codespace]
+    }));
+
+    await expect(service.run({ ...request, action: 'provision' })).resolves.toEqual(
+      expect.objectContaining({
+        codespace: expect.objectContaining({ name: newCodespace.name }),
+        codespaces: [
+          expect.objectContaining({ name: newCodespace.name }),
+          expect.objectContaining({ name: codespace.name })
+        ]
+      })
+    );
+    expect(created).toBe(true);
   });
 
   test('surfaces the exact Project Space approval before connector enrollment', async () => {

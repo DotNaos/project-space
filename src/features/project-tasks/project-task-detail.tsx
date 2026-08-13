@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@heroui/react';
+import { Avatar, Button, Chip } from '@heroui/react';
 import {
   ArrowLeft,
   ChevronDown,
@@ -10,7 +10,7 @@ import {
   ExternalLink,
   GitMerge,
   GitPullRequest,
-  MessageCircle,
+  GitPullRequestDraft,
   Send
 } from 'lucide-react';
 import type {
@@ -22,17 +22,43 @@ import type {
   ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { IssueDevelopmentSession } from '@/features/project-desktop/components/issue-development-session';
+import { IssueDevelopmentPipeline } from '@/features/project-desktop/components/issue-development-pipeline';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
+import { IssueLabelChip } from '@/features/project-desktop/components/issue-visuals';
 import { useRuntimeBinding } from '@/features/project-desktop/components/runtime-binding-context';
+import { ProjectTaskDetailTabs } from './project-task-detail-tabs';
+import { pullRequestChipPresentation } from './project-task-presentation';
 import type { ProjectTaskViewModel } from './task-view-model';
 
-function TaskStateIcon({ task }: { task: ProjectTaskViewModel }) {
-  const className = 'mt-1 size-5 shrink-0';
-  if (task.health === 'attention' || task.workflowMessage) return <CircleX aria-label="Needs attention" className={`${className} text-red-400`} />;
-  if (task.state === 'completed') return <GitMerge aria-label="Completed" className={`${className} text-violet-400`} />;
-  if (task.state === 'review') return <CircleDot aria-label="Review" className={`${className} text-emerald-400`} />;
-  if (task.state === 'active') return <CircleDot aria-label="Active" className={`${className} text-blue-400`} />;
-  return <CircleDashed aria-label="Backlog" className={`${className} text-neutral-600`} />;
+function taskStateLabel(task: ProjectTaskViewModel) {
+  if (task.health === 'attention' || task.workflowMessage) return 'Needs attention';
+  if (task.state === 'completed') return 'Completed';
+  if (task.state === 'review') return 'Review';
+  if (task.state === 'active') return 'Active';
+  return 'Backlog';
+}
+
+function TaskStateChipIcon({ task }: { task: ProjectTaskViewModel }) {
+  const className = 'size-3.5 shrink-0 text-white';
+  if (task.health === 'attention' || task.workflowMessage) {
+    return <CircleX aria-hidden className={className} />;
+  }
+  if (task.state === 'completed') return <GitMerge aria-hidden className={className} />;
+  if (task.state === 'review' || task.state === 'active') {
+    return <CircleDot aria-hidden className={className} />;
+  }
+  return <CircleDashed aria-hidden className={className} />;
+}
+
+function taskStateChip(task: ProjectTaskViewModel): {
+  className?: string;
+  color: 'accent' | 'danger' | 'default' | 'success';
+} {
+  if (task.health === 'attention' || task.workflowMessage) return { color: 'danger' };
+  if (task.state === 'completed') return { className: '!bg-violet-500', color: 'default' };
+  if (task.state === 'review') return { color: 'success' };
+  if (task.state === 'active') return { color: 'accent' };
+  return { className: '!bg-neutral-600', color: 'default' };
 }
 
 function CommentTimeline({ comments, repositoryFullName }: {
@@ -46,9 +72,27 @@ function CommentTimeline({ comments, repositoryFullName }: {
     <div className="divide-y divide-current/[.07]">
       {comments.map((comment) => (
         <article className="py-4" key={comment.id}>
-          <div className="flex items-center justify-between gap-3 text-xs text-current/40">
-            <span className="font-medium text-current/65">{comment.author ?? 'GitHub user'}</span>
-            <time>{comment.createdAt ? new Date(comment.createdAt).toLocaleDateString() : ''}</time>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <Avatar className="shrink-0" size="sm">
+                {comment.authorAvatarUrl ? (
+                  <Avatar.Image
+                    alt={`${comment.author ?? 'GitHub user'} profile picture`}
+                    loading="lazy"
+                    src={comment.authorAvatarUrl}
+                  />
+                ) : null}
+                <Avatar.Fallback className="text-[10px] font-semibold uppercase">
+                  {(comment.author ?? 'G').slice(0, 1)}
+                </Avatar.Fallback>
+              </Avatar>
+              <span className="truncate text-xs font-medium text-current/65">
+                {comment.author ?? 'GitHub user'}
+              </span>
+            </div>
+            <time className="shrink-0 text-xs text-current/40">
+              {comment.createdAt ? new Date(comment.createdAt).toLocaleDateString() : ''}
+            </time>
           </div>
           <IssueMarkdown className="mt-2 text-sm leading-6 text-current/75" markdown={comment.body} repositoryFullName={repositoryFullName} />
         </article>
@@ -102,6 +146,8 @@ export function ProjectTaskDetail({
   const pullRequest = task.pullRequest;
   const pipeline = task.pipeline;
   const hasLongDescription = (task.issue.body?.length ?? 0) > 420;
+  const stateChip = taskStateChip(task);
+  const pullRequestChip = pullRequest ? pullRequestChipPresentation(pullRequest) : undefined;
 
   async function submitComment() {
     if (!commentBody.trim() || isPosting) return;
@@ -130,11 +176,42 @@ export function ProjectTaskDetail({
             </a>
           ) : <span aria-hidden="true" className="size-8" />}
         </div>
-        <div className="mt-4 flex min-w-0 items-start gap-3">
-          <TaskStateIcon task={task} />
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold leading-tight tracking-[-.035em] @lg:text-3xl">{task.issue.title}</h1>
-            <p className="mt-2 text-sm tabular-nums text-current/30">#{task.issue.number}</p>
+        <div className="mt-4 min-w-0">
+          <h1 className="text-2xl font-semibold leading-tight tracking-[-.035em] @lg:text-3xl">{task.issue.title}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm tabular-nums">
+            <span className="text-current/30">#{task.issue.number}</span>
+            <span aria-hidden className="text-current/20">·</span>
+            <Chip
+              className={stateChip.className}
+              color={stateChip.color}
+              size="md"
+              variant="primary"
+            >
+              <TaskStateChipIcon task={task} />
+              <Chip.Label className="!text-white">{taskStateLabel(task)}</Chip.Label>
+            </Chip>
+            {pullRequest && pullRequestChip ? (
+              runtime.apis === 'external' && pullRequest.url ? (
+                <a aria-label={`Open ${pullRequestChip.label}`} href={pullRequest.url} rel="noreferrer" target="_blank">
+                  <Chip className={pullRequestChip.className} color={pullRequestChip.color} size="md" variant="primary">
+                    {pullRequestChip.icon === 'merged' ? <GitMerge aria-hidden className="size-3.5 text-white" /> : pullRequestChip.icon === 'draft' ? <GitPullRequestDraft aria-hidden className="size-3.5 text-white" /> : <GitPullRequest aria-hidden className="size-3.5 text-white" />}
+                    <Chip.Label className="!text-white">{pullRequestChip.label}</Chip.Label>
+                  </Chip>
+                </a>
+              ) : (
+                <Chip className={pullRequestChip.className} color={pullRequestChip.color} size="md" variant="primary">
+                  {pullRequestChip.icon === 'merged' ? <GitMerge aria-hidden className="size-3.5 text-white" /> : pullRequestChip.icon === 'draft' ? <GitPullRequestDraft aria-hidden className="size-3.5 text-white" /> : <GitPullRequest aria-hidden className="size-3.5 text-white" />}
+                  <Chip.Label className="!text-white">{pullRequestChip.label}</Chip.Label>
+                </Chip>
+              )
+            ) : null}
+            {task.issue.labels.length ? (
+              <span className="flex shrink-0 items-center gap-1.5">
+                {task.issue.labels.map((label) => (
+                  <IssueLabelChip className="h-7 px-2.5 text-xs" key={label} label={label} />
+                ))}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="relative mt-5 max-w-3xl">
@@ -148,90 +225,59 @@ export function ProjectTaskDetail({
             </button>
           ) : null}
         </div>
-        {task.issue.labels.length ? (
-          <div className="mt-4 flex flex-wrap gap-1.5">
-            {task.issue.labels.map((label) => <span className="rounded-full bg-current/[.045] px-2.5 py-1 text-[11px] text-current/35" key={label}>{label}</span>)}
-          </div>
-        ) : null}
         {task.workflowMessage ? (
           <p className="mt-4 text-sm leading-6 text-amber-300">{task.workflowMessage}</p>
         ) : null}
       </header>
 
-      <div>
-        <section className="grid gap-px border-b border-current/[.08] py-4 @lg:grid-cols-2">
-          {pullRequest && runtime.apis === 'external' && pullRequest.url ? (
-            <a className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm hover:bg-current/[.045]" href={pullRequest.url} rel="noreferrer" target="_blank">
-              {pullRequest.state === 'merged' ? <GitMerge className="size-4 text-violet-400" /> : <GitPullRequest className="size-4 text-current/35" />}
-              <span className="text-current/45">Pull request</span>
-              <span className={`ml-auto font-medium ${pullRequest.state === 'merged' ? 'text-violet-300' : 'text-current/80'}`}>
-                {`${pullRequest.isDraft ? 'Draft ' : pullRequest.state === 'merged' ? 'Merged ' : ''}#${pullRequest.number}`}
-              </span>
-              <ExternalLink className="size-3 text-current/25" />
-            </a>
-          ) : pullRequest ? (
-            <div className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm">
-              {pullRequest.state === 'merged' ? <GitMerge className="size-4 text-violet-400" /> : <GitPullRequest className="size-4 text-current/35" />}
-              <span className="text-current/45">Pull request</span>
-              <span className={`ml-auto font-medium ${pullRequest.state === 'merged' ? 'text-violet-300' : 'text-current/80'}`}>
-                {`${pullRequest.isDraft ? 'Draft ' : pullRequest.state === 'merged' ? 'Merged ' : ''}#${pullRequest.number}`}
-              </span>
-            </div>
-          ) : (
-            <div className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm">
-              <GitPullRequest className="size-4 text-current/25" />
-              <span className="text-current/45">Pull request</span>
-              <span className="ml-auto font-medium text-current/35">{task.branch ? 'Not opened' : 'Not started'}</span>
-            </div>
-          )}
-          {runtime.apis === 'external' && pipeline?.url ? <a className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm hover:bg-current/[.045]" href={pipeline.url} rel="noreferrer" target="_blank">
-            <CircleDot className={`size-4 ${task.health === 'attention' ? 'text-red-400' : task.health === 'healthy' ? 'text-emerald-400' : 'text-current/25'}`} />
-            <span className="text-current/45">Pipeline</span>
-            <span className={`ml-auto font-medium ${task.health === 'attention' ? 'text-red-300' : task.health === 'healthy' ? 'text-emerald-300' : 'text-current/35'}`}>
-              {task.health === 'attention'
-                ? 'Checks failed'
-                : task.health === 'healthy'
-                  ? 'Checks passed'
-                  : pipeline?.status ?? (pullRequest ? 'No status' : 'Not started')}
-            </span>
-          </a> : <div className="flex min-h-12 items-center gap-3 rounded-xl px-2 text-sm">
-            <CircleDot className={`size-4 ${task.health === 'attention' ? 'text-red-400' : task.health === 'healthy' ? 'text-emerald-400' : 'text-current/25'}`} />
-            <span className="text-current/45">Pipeline</span>
-            <span className={`ml-auto font-medium ${task.health === 'attention' ? 'text-red-300' : task.health === 'healthy' ? 'text-emerald-300' : 'text-current/35'}`}>
-              {task.health === 'attention' ? 'Checks failed' : task.health === 'healthy' ? 'Checks passed' : pipeline?.status ?? (pullRequest ? 'No status' : 'Not started')}
-            </span>
-          </div>}
-        </section>
-
-        <section className="border-b border-current/[.08] py-5">
-          <IssueDevelopmentSession
-            branches={branches}
-            connectorOverview={connectorOverview}
-            issue={task.issue}
-            onBranchCreated={onBranchCreated}
-            onOpenHistory={onOpenHistory}
-            onPullRequestCreated={onPullRequestCreated}
-            project={project}
-            projects={projects}
-            pullRequests={pullRequests}
-            repoFullName={repositoryFullName}
-            repoUrl={repositoryUrl}
-            targetPath={targetPath}
-          />
-        </section>
-
-        <section className="py-5">
-          <h2 className="flex items-center gap-2 text-sm font-semibold"><MessageCircle className="size-4 text-current/45" /> Discussion <span className="font-normal text-current/30">{comments.length}</span></h2>
-          {isLoadingComments ? <p className="py-4 text-sm text-current/35">Loading conversation…</p> : <CommentTimeline comments={comments} repositoryFullName={repositoryFullName} />}
-          <div className="mt-3 overflow-hidden rounded-2xl bg-current/[.045] p-2">
-            <textarea aria-label="Add a GitHub comment" className="min-h-28 w-full resize-y bg-transparent px-2 py-2 text-sm leading-6 outline-none placeholder:text-current/25" onChange={(event) => setCommentBody(event.target.value)} placeholder="Add a comment with Markdown" value={commentBody} />
-            <div className="flex items-center justify-between gap-3 px-1 pb-1">
-              <p className="text-xs text-red-300">{commentError}</p>
-              <Button isDisabled={!commentBody.trim() || isPosting} size="sm" variant="primary" onPress={submitComment}><Send className="size-3.5" /> {isPosting ? 'Posting…' : 'Comment'}</Button>
+      <ProjectTaskDetailTabs
+        discussion={(
+          <div className="pb-24 pt-2 md:pb-5">
+            {isLoadingComments ? <p className="py-4 text-sm text-current/35">Loading conversation…</p> : <CommentTimeline comments={comments} repositoryFullName={repositoryFullName} />}
+            {commentError ? <p className="mt-2 px-1 text-xs text-red-300">{commentError}</p> : null}
+            <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-neutral-950/90 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl md:static md:border-0 md:bg-transparent md:p-0 md:pt-3 md:backdrop-blur-none">
+              <div className="flex items-center gap-2 rounded-full bg-current/[.06] p-1.5 pl-4">
+                <textarea aria-label="Add a GitHub comment" className="min-h-6 min-w-0 flex-1 resize-none overflow-hidden bg-transparent py-1 text-sm leading-5 outline-none" onChange={(event) => setCommentBody(event.target.value)} rows={1} value={commentBody} />
+                <Button aria-label={isPosting ? 'Posting comment' : 'Send comment'} className="!size-10 shrink-0 !rounded-full" isDisabled={!commentBody.trim() || isPosting} isIconOnly size="sm" variant="primary" onPress={submitComment}>
+                  <Send className="size-4" />
+                </Button>
+              </div>
             </div>
           </div>
-        </section>
-      </div>
+        )}
+        pipeline={(
+          <IssueDevelopmentPipeline
+            connectorOverview={connectorOverview}
+            health={task.health}
+            issueNumber={task.issue.number}
+            pipeline={pipeline}
+            project={project}
+            projects={projects}
+            pullRequest={pullRequest}
+            repositoryFullName={repositoryFullName}
+          />
+        )}
+        resetKey={task.issue.number}
+        runner={(
+          <section className="py-5">
+            <IssueDevelopmentSession
+              branches={branches}
+              connectorOverview={connectorOverview}
+              issue={task.issue}
+              onBranchCreated={onBranchCreated}
+              onOpenHistory={onOpenHistory}
+              onPullRequestCreated={onPullRequestCreated}
+              project={project}
+              projects={projects}
+              pullRequests={pullRequests}
+              repoFullName={repositoryFullName}
+              repoUrl={repositoryUrl}
+              showDelivery={false}
+              targetPath={targetPath}
+            />
+          </section>
+        )}
+      />
     </section>
   );
 }

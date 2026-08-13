@@ -159,7 +159,8 @@ func TestManagedServeMarkerCannotEscapeIntoFiniteCommands(t *testing.T) {
 	}
 	server := serverCommandFor(
 		script, "/tmp/project", "127.0.0.1", 43117, nil, ServeModeManaged,
-		"http://project.localhost:1355", APIsModeExternal, DataModeRemote,
+		"http://project.localhost:1355", "http://100.64.0.8:44419",
+		APIsModeExternal, DataModeRemote,
 	)
 	if !containsEnvironment(server.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
 		!containsEnvironment(server.Env, "PROJECT_SPACE_SERVE_MODE=managed") {
@@ -167,6 +168,9 @@ func TestManagedServeMarkerCannotEscapeIntoFiniteCommands(t *testing.T) {
 	}
 	if !containsEnvironment(server.Env, "PORTLESS_URL=http://project.localhost:1355") {
 		t.Fatalf("server command is missing Portless URL: %#v", server.Env)
+	}
+	if !containsEnvironment(server.Env, "PROJECT_SPACE_RUNTIME_ACCESS_URL=http://100.64.0.8:44419") {
+		t.Fatalf("server command is missing runtime access URL: %#v", server.Env)
 	}
 }
 
@@ -179,7 +183,8 @@ func TestSimulatedServeDoesNotLoadDeclaredSecrets(t *testing.T) {
 	}
 	command := serverCommandFor(
 		script, "/tmp/project", "127.0.0.1", 43117, nil, ServeModeManaged,
-		"http://project.localhost:1355", APIsModeSimulated, DataModeLocal,
+		"http://project.localhost:1355", "http://100.64.0.8:44419",
+		APIsModeSimulated, DataModeLocal,
 	)
 	if got := strings.Join(command.Argv, " "); got != "bun x vite" {
 		t.Fatalf("command = %q", got)

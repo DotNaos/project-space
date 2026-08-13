@@ -30,6 +30,7 @@ import type {
 import { AccountMenu, type RailAccount } from './account-menu';
 import { InformationMenu } from './information-menu';
 import { LocalSimulationIndicator } from './local-simulation-indicator';
+import { RuntimeAccessLink } from './runtime-access-link';
 
 interface WorkspaceNavItem {
   icon: typeof CircleDot;
@@ -415,6 +416,7 @@ export function ProjectWorkspaceSidebar({
       ) : null}
 
       <div className={`${collapsed ? 'mx-2' : 'mx-4'} mb-3 shrink-0 border-t border-white/[.06] pt-3`}>
+        <RuntimeAccessLink collapsed={collapsed} runtime={runtime} />
         <div className={`flex items-center ${collapsed ? 'flex-col gap-1' : 'gap-1 px-1'}`}>
           {account ? <AccountMenu account={account} placement="top start" /> : null}
           {collapsed ? null : (

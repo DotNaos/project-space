@@ -49,6 +49,8 @@ const setupServer = {
 };
 const refreshErrorProjectId = 'project-refresh-error';
 const refreshErrorMessage = 'The connector stopped responding during development-server refresh.';
+const disconnectedProjectId = 'project-disconnected';
+const disconnectedConnectorError = 'cc01e88f-b873-4148-a356-86fec62b224a is registered, but its live command channel is not connected yet. Restart or update the Project Space connector on that machine.';
 const refreshErrorServers = [
   {
     ...setupServer,
@@ -92,6 +94,8 @@ mock.module('../src/features/project-desktop/hooks/use-worktree-dev-servers', ()
   useWorktreeDevServers: ({ projectId }: { projectId: string }) => ({
     error: projectId === 'project-wsl'
       ? exactWorktreeError
+      : projectId === disconnectedProjectId
+        ? disconnectedConnectorError
       : projectId === refreshErrorProjectId
         ? refreshErrorMessage
         : '',
@@ -216,7 +220,7 @@ function renderSetupServer(canManage = true) {
 }
 
 describe('issue development servers', () => {
-  test('renders every physical machine and every exact connector environment with truthful states', () => {
+  test('renders only online machines and their exact connector environments', () => {
     const windows = machine({
       environmentKind: 'windows',
       environmentLabel: 'Windows',
@@ -305,10 +309,10 @@ describe('issue development servers', () => {
     expect(html).toContain('Project is not registered in this environment.');
     expect(html).toContain(exactWorktreeError);
     expect(html).toContain('Prepare workspace');
-    expect(html).toContain('os-macbook');
-    expect(html).toContain('Connector is offline.');
-    expect(html).toContain('build-linux');
-    expect(html).toContain('No connector is configured for this machine.');
+    expect(html).not.toContain('os-macbook');
+    expect(html).not.toContain('Connector is offline.');
+    expect(html).not.toContain('build-linux');
+    expect(html).not.toContain('No connector is configured for this machine.');
   });
 
   test('does not offer Start for an unavailable declared server', () => {
@@ -394,6 +398,48 @@ describe('issue development servers', () => {
     expect(html).toContain('Status unavailable');
     expect(html).not.toContain('>Open<');
     expect(html).not.toContain('>Start<');
+  });
+
+  test('shows a disconnected connector without leaking its internal id', () => {
+    const disconnectedMachine = machine({
+      environmentKind: 'macos',
+      environmentLabel: 'macOS',
+      id: 'connector-disconnected',
+      name: 'os-macbook',
+      status: 'online'
+    });
+    const disconnectedProject: ProjectSpaceRecord = {
+      ...wslProject,
+      id: disconnectedProjectId,
+      machineId: disconnectedMachine.id
+    };
+    const html = renderToStaticMarkup(
+      <IssueDevelopmentServers
+        branchName="issue-604"
+        localMachineId="connector-local"
+        machineRows={[{
+          connectorOptions: [{
+            canRunCommand: true,
+            connectorId: disconnectedMachine.id,
+            connectorName: disconnectedMachine.name,
+            environmentLabel: 'macOS',
+            hasProjectCheckout: true,
+            isOnline: true,
+            machine: disconnectedMachine,
+            project: disconnectedProject
+          }],
+          machineId: disconnectedMachine.id,
+          physicalMachineId: 'physical-mac',
+          physicalMachineName: 'os-macbook'
+        }]}
+        projects={[disconnectedProject]}
+      />
+    );
+
+    expect(html).toContain('Disconnected');
+    expect(html).not.toContain('cc01e88f-b873-4148-a356-86fec62b224a');
+    expect(html).not.toContain('live command channel');
+    expect(html).not.toContain('>Online<');
   });
 
   test('runs or retries exact trusted setup before offering server start', () => {

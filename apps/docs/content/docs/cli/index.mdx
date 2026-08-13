@@ -1224,8 +1224,9 @@ project serve [script] [directory]
 | `--format` | `string` | local | output format: pretty or json |
 | `-h`, `--help` | `bool` | local | help for serve |
 | `--json` | `bool` | local | print machine-readable JSON output |
-| `--local-only` | `bool` | local | start without a Tailscale route (the default; retained for compatibility) |
-| `--tailnet` | `bool` | local | publish the verified listener through Tailscale |
+| `--local-only` | `bool` | local | deprecated alias for --no-tailnet |
+| `--no-tailnet` | `bool` | local | keep the server on this machine instead of publishing it through Tailscale |
+| `--tailnet` | `bool` | local | publish through Tailscale (the default; retained for compatibility) |
 
 <h3 id="project-serve-attach" className="scroll-m-28"><code>project serve attach</code></h3>
 

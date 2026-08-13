@@ -202,14 +202,16 @@ export function physicalMachineSummary(
   const onlineByPhysicalMachine = new Map<string, boolean>();
 
   for (const row of rows) {
-    if (!row.physicalMachineId) continue;
+    const physicalMachineKey = row.physicalMachineId
+      ?? row.physicalMachineName
+      ?? row.machineId;
     const options = row.connectorOptions ?? [];
     const isOnline = options.length > 0
       ? options.some((option) => option.isOnline)
       : canRunMachineCommand(row.machine);
     onlineByPhysicalMachine.set(
-      row.physicalMachineId,
-      Boolean(onlineByPhysicalMachine.get(row.physicalMachineId)) || isOnline
+      physicalMachineKey,
+      Boolean(onlineByPhysicalMachine.get(physicalMachineKey)) || isOnline
     );
   }
 
@@ -217,6 +219,34 @@ export function physicalMachineSummary(
     configured: onlineByPhysicalMachine.size,
     online: [...onlineByPhysicalMachine.values()].filter(Boolean).length
   };
+}
+
+export function onlineIssueMachineRows(
+  rows: readonly IssueMachineProjectRow[]
+): IssueMachineProjectRow[] {
+  return rows.flatMap((row) => {
+    if (row.connectorOptions === undefined) {
+      return canRunMachineCommand(row.machine) ? [row] : [];
+    }
+
+    const connectorOptions = row.connectorOptions.filter((option) => option.isOnline);
+    if (connectorOptions.length === 0) return [];
+
+    const suggestedConnector = connectorOptions.find(
+      (option) => option.connectorId === row.suggestedConnectorId
+    ) ?? [...connectorOptions].sort(compareConnectorSuggestions)[0];
+
+    return [{
+      ...row,
+      connectorIds: connectorOptions.map((option) => option.connectorId),
+      connectorOptions,
+      environmentId: suggestedConnector?.environmentId,
+      machine: suggestedConnector?.machine,
+      machineId: suggestedConnector?.connectorId ?? row.machineId,
+      project: suggestedConnector?.project,
+      suggestedConnectorId: suggestedConnector?.connectorId
+    }];
+  });
 }
 
 export function machineStatusClass(status?: string) {
@@ -288,8 +318,30 @@ export function getIssueMachineRows({
     (connectorOverview.computeInventory?.environments ?? [])
       .map((environment) => [environment.id, environment])
   );
+  const groupedConnectorIds = new Set(
+    (connectorOverview.physicalMachines ?? []).flatMap((machine) => machine.connectorIds)
+  );
+  const standaloneConnectors = machinesByStableId.filter((machine) => {
+    const kind = machine.compute?.environmentKind ?? machine.environment?.kind;
+    const looksLikeCodespace = kind === 'github_codespace'
+      || machine.kind.toLowerCase().includes('codespace')
+      || machine.name.toLowerCase().includes('codespace');
+    return !groupedConnectorIds.has(machine.id) && !looksLikeCodespace;
+  });
+  const machineGroups = [
+    ...(connectorOverview.physicalMachines ?? []).map((machine) => ({
+      connectorIds: machine.connectorIds,
+      physicalMachineId: machine.id,
+      physicalMachineName: machine.name
+    })),
+    ...standaloneConnectors.map((machine) => ({
+      connectorIds: [machine.id],
+      physicalMachineId: undefined,
+      physicalMachineName: machine.name
+    }))
+  ];
 
-  return [...(connectorOverview.physicalMachines ?? [])]
+  return machineGroups
     .map((physicalMachine) => {
       const connectorOptions = [...new Set(physicalMachine.connectorIds)]
         .map((connectorId): IssueMachineConnectorOption => {
@@ -322,9 +374,11 @@ export function getIssueMachineRows({
         connectorOptions,
         environmentId: suggestedConnector?.environmentId,
         machine: suggestedConnector?.machine,
-        machineId: suggestedConnector?.connectorId ?? physicalMachine.id,
-        physicalMachineId: physicalMachine.id,
-        physicalMachineName: physicalMachine.name,
+        machineId: suggestedConnector?.connectorId
+          ?? physicalMachine.physicalMachineId
+          ?? physicalMachine.physicalMachineName,
+        physicalMachineId: physicalMachine.physicalMachineId,
+        physicalMachineName: physicalMachine.physicalMachineName,
         project: suggestedConnector?.project,
         suggestedConnectorId: suggestedConnector?.connectorId
       };

@@ -425,4 +425,65 @@ describe('issue development machine actions', () => {
     }]);
     expect(physicalMachineSummary(rows)).toEqual({ configured: 1, online: 0 });
   });
+
+  test('falls back to every known non-Codespace connector when physical grouping is absent', () => {
+    const local = machine('connector-local', 'local', 'os-macbook');
+    const remote = machine('connector-remote', 'not-installed', 'os-yoga-unix');
+    const codespace = machine('connector-codespace', 'online', 'Project Codespace');
+    codespace.compute = { environmentKind: 'github_codespace', environmentName: 'Codespace' };
+    const connectorOverview = overview({
+      machines: [remote, codespace, local],
+      physicalMachines: []
+    });
+
+    const rows = getIssueMachineRows({
+      connectorOverview,
+      project: project(),
+      projects: [],
+      repoFullName: 'DotNaos/project-space'
+    });
+
+    expect(rows.map((row) => ({
+      machineId: row.machineId,
+      physicalMachineId: row.physicalMachineId,
+      physicalMachineName: row.physicalMachineName
+    }))).toEqual([
+      {
+        machineId: 'connector-local',
+        physicalMachineId: undefined,
+        physicalMachineName: 'os-macbook'
+      },
+      {
+        machineId: 'connector-remote',
+        physicalMachineId: undefined,
+        physicalMachineName: 'os-yoga-unix'
+      }
+    ]);
+    expect(physicalMachineSummary(rows)).toEqual({ configured: 2, online: 1 });
+  });
+
+  test('adds ungrouped connectors beside configured physical machines', () => {
+    const grouped = machine('connector-grouped', 'online', 'Grouped connector');
+    const standalone = machine('connector-standalone', 'offline', 'Standalone connector');
+    const connectorOverview = overview({
+      machines: [standalone, grouped],
+      physicalMachines: [{
+        connectorIds: [grouped.id],
+        id: 'physical-grouped',
+        name: 'os-pc'
+      }]
+    });
+
+    const rows = getIssueMachineRows({
+      connectorOverview,
+      project: project(),
+      projects: [],
+      repoFullName: 'DotNaos/project-space'
+    });
+
+    expect(rows.map((row) => row.physicalMachineName)).toEqual([
+      'os-pc',
+      'Standalone connector'
+    ]);
+  });
 });
