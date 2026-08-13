@@ -291,6 +291,7 @@ func validateScriptEnvironment(name string, environment map[string]string) error
 		"PROJECT_SPACE_SERVE_MODE": true, "PROJECT_SPACE_APIS": true,
 		"PROJECT_SPACE_DATA": true, "PROJECT_SPACE_SIMULATION_STATE": true,
 		"PROJECT_SPACE_RUNTIME_ACCESS_URL":       true,
+		"PROJECT_SERVE_WITH":                     true,
 		"PROJECT_ALLOWED_HOSTS":                  true,
 		"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": true, "PWD": true,
 	}

@@ -24,6 +24,7 @@
     "apps/docs/lib/releases/mdx.ts",
     "apps/docs/lib/releases/semver.ts",
     "apps/docs/lib/releases/types.ts",
+    "scripts/vite-local-node-libraries.ts",
     "server",
     "src/shared"
   ]

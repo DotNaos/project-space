@@ -16,32 +16,35 @@ import (
 )
 
 type runtimeState struct {
-	Version            int       `json:"schemaVersion"`
-	ServerID           string    `json:"serverId"`
-	RepositoryPath     string    `json:"repositoryPath"`
-	Directory          string    `json:"directory"`
-	RequestedDirectory string    `json:"requestedDirectory,omitempty"`
-	Script             string    `json:"script"`
-	Mode               ServeMode `json:"mode"`
-	APIs               APIsMode  `json:"apis"`
-	Data               DataMode  `json:"data"`
-	State              State     `json:"state"`
-	Generation         string    `json:"generation"`
-	TmuxSession        string    `json:"tmuxSession"`
-	TmuxOwnershipToken string    `json:"tmuxOwnershipToken"`
-	WorkspaceID        string    `json:"workspaceId,omitempty"`
-	RuntimeGeneration  string    `json:"runtimeGeneration,omitempty"`
-	PID                int       `json:"pid,omitempty"`
-	ProcessID          string    `json:"processIdentity,omitempty"`
-	LocalPort          int       `json:"localPort,omitempty"`
-	PortlessName       string    `json:"portlessName,omitempty"`
-	PortlessURL        string    `json:"portlessUrl,omitempty"`
-	PublicPort         int       `json:"publicPort,omitempty"`
-	TailscaleIPv4      string    `json:"tailscaleIPv4,omitempty"`
-	AllowedHosts       []string  `json:"allowedHosts"`
-	StartedAt          string    `json:"startedAt,omitempty"`
-	CheckedAt          string    `json:"checkedAt"`
-	LastError          string    `json:"lastError,omitempty"`
+	Version            int                `json:"schemaVersion"`
+	ServerID           string             `json:"serverId"`
+	RepositoryPath     string             `json:"repositoryPath"`
+	Directory          string             `json:"directory"`
+	RequestedDirectory string             `json:"requestedDirectory,omitempty"`
+	Script             string             `json:"script"`
+	Mode               ServeMode          `json:"mode"`
+	APIs               APIsMode           `json:"apis"`
+	Data               DataMode           `json:"data"`
+	State              State              `json:"state"`
+	Generation         string             `json:"generation"`
+	TmuxSession        string             `json:"tmuxSession"`
+	TmuxOwnershipToken string             `json:"tmuxOwnershipToken"`
+	WorkspaceID        string             `json:"workspaceId,omitempty"`
+	RuntimeGeneration  string             `json:"runtimeGeneration,omitempty"`
+	PID                int                `json:"pid,omitempty"`
+	ProcessID          string             `json:"processIdentity,omitempty"`
+	LocalPort          int                `json:"localPort,omitempty"`
+	PortlessName       string             `json:"portlessName,omitempty"`
+	PortlessURL        string             `json:"portlessUrl,omitempty"`
+	PublicPort         int                `json:"publicPort,omitempty"`
+	TailscaleIPv4      string             `json:"tailscaleIPv4,omitempty"`
+	AllowedHosts       []string           `json:"allowedHosts"`
+	Libraries          []LocalNodeLibrary `json:"libraries,omitempty"`
+	Watchers           []LocalNodeWatcher `json:"watchers,omitempty"`
+	Companions         []CompanionServer  `json:"companions,omitempty"`
+	StartedAt          string             `json:"startedAt,omitempty"`
+	CheckedAt          string             `json:"checkedAt"`
+	LastError          string             `json:"lastError,omitempty"`
 }
 
 type stateStore struct {
@@ -82,6 +85,7 @@ func newStateStore(root string) (*stateStore, error) {
 		filepath.Join(resolved, "logs"),
 		filepath.Join(resolved, "requests"),
 		filepath.Join(resolved, "simulations"),
+		filepath.Join(resolved, "libraries"),
 		filepath.Join(resolved, "setup-states"),
 		filepath.Join(resolved, "setup-logs"),
 	} {
@@ -94,6 +98,14 @@ func newStateStore(root string) (*stateStore, error) {
 
 func (store *stateStore) simulationStatePath(serverID string) string {
 	return filepath.Join(store.root, "simulations", serverID+".json")
+}
+
+func (store *stateStore) localLibrariesPath(serverID, generation string) string {
+	return filepath.Join(store.root, "libraries", serverID+"-"+generation+".json")
+}
+
+func (store *stateStore) localNodeWatcherLogPath(serverID, generation string, index int) string {
+	return filepath.Join(store.root, "logs", fmt.Sprintf("%s-%s-with-%d.log", serverID, generation, index))
 }
 
 func sessionKey(directory, script string) string {
@@ -158,6 +170,58 @@ func (store *stateStore) save(state runtimeState) error {
 	}
 	if err := os.Rename(name, path); err != nil {
 		return fmt.Errorf("publish serve state: %w", err)
+	}
+	return nil
+}
+
+func (store *stateStore) saveLocalLibraries(state runtimeState) (string, error) {
+	if len(state.Libraries) == 0 {
+		return "", nil
+	}
+	body, err := json.MarshalIndent(localNodeLibrariesManifest{
+		Version: localNodeLibrariesManifestVersion, Libraries: state.Libraries,
+	}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("encode local Node libraries: %w", err)
+	}
+	path := store.localLibrariesPath(state.ServerID, state.Generation)
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".libraries-*.json")
+	if err != nil {
+		return "", fmt.Errorf("create local Node library manifest: %w", err)
+	}
+	name := temporary.Name()
+	defer os.Remove(name)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if _, err := temporary.Write(body); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(name, path); err != nil {
+		return "", fmt.Errorf("publish local Node library manifest: %w", err)
+	}
+	return path, nil
+}
+
+func (store *stateStore) deleteLocalLibraries(state runtimeState) error {
+	if state.ServerID == "" || state.Generation == "" {
+		return nil
+	}
+	err := os.Remove(store.localLibrariesPath(state.ServerID, state.Generation))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("remove local Node library manifest: %w", err)
 	}
 	return nil
 }
@@ -308,6 +372,49 @@ func validateRuntimeState(state runtimeState) error {
 	if normalized, err := NormalizeAllowedHosts(state.AllowedHosts); err != nil ||
 		!reflect.DeepEqual(normalized, state.AllowedHosts) {
 		return fmt.Errorf("allowed hosts are not normalized")
+	}
+	if err := validateLocalNodeLibraries(state.Libraries); err != nil {
+		return err
+	}
+	for _, companion := range state.Companions {
+		if companion.Library == "" || companion.Script == "" || companion.Directory == "" || companion.ServerID == "" {
+			return fmt.Errorf("companion server identity is invalid")
+		}
+	}
+	for _, watcher := range state.Watchers {
+		if !nodePackageNamePattern.MatchString(watcher.Package) || watcher.Directory == "" ||
+			len(watcher.Command) == 0 || watcher.PID <= 0 || watcher.ProcessIdentity == "" || watcher.LogPath == "" {
+			return fmt.Errorf("local Node watcher identity is invalid")
+		}
+	}
+	return nil
+}
+
+func validateLocalNodeLibraries(libraries []LocalNodeLibrary) error {
+	if len(libraries) > maximumLocalNodeLibraries {
+		return fmt.Errorf("too many local Node libraries")
+	}
+	owners := map[string]string{}
+	for _, library := range libraries {
+		if library.Directory == "" || !filepath.IsAbs(library.Directory) || library.Repository == "" ||
+			library.Revision == "" || len(library.Packages) == 0 {
+			return fmt.Errorf("local Node library identity is invalid")
+		}
+		for _, pkg := range library.Packages {
+			if !nodePackageNamePattern.MatchString(pkg.Name) || pkg.Directory == "" || len(pkg.Imports) == 0 {
+				return fmt.Errorf("local Node package in %s is invalid", library.Directory)
+			}
+			if pkg.Mode != "source" && pkg.Mode != "watch" {
+				return fmt.Errorf("local Node package %q has invalid mode %q", pkg.Name, pkg.Mode)
+			}
+			if pkg.Mode == "watch" && len(pkg.WatchCommand) == 0 {
+				return fmt.Errorf("local Node package %q has no watch command", pkg.Name)
+			}
+			if owner, exists := owners[pkg.Name]; exists && owner != library.Directory {
+				return fmt.Errorf("local Node package %q has multiple owners", pkg.Name)
+			}
+			owners[pkg.Name] = library.Directory
+		}
 	}
 	return nil
 }

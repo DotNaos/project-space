@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, searchForWorkspaceRoot } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
 
 import {
@@ -27,6 +27,7 @@ import {
   resolveManagedRuntimeBinding,
   type RuntimeBindingEvidence
 } from './server/runtime-binding';
+import { viteLocalNodeLibraries } from './scripts/vite-local-node-libraries';
 
 const configuredAllowedHosts = (process.env.PROJECT_ALLOWED_HOSTS ?? '')
   .split(',')
@@ -203,31 +204,41 @@ export default defineConfig(({ command }) => {
   }
 
   const binding = command === 'serve' ? resolveManagedRuntimeBinding() : undefined;
+  const localNodeLibraries = viteLocalNodeLibraries(command);
 
-  return ({
-  define: {
-    __PROJECT_RELEASE_CHANGELOG_SOURCE__: JSON.stringify(
-      releaseChangelogSourceForBuild()
-    )
-  },
-  plugins: [
-    react(),
-    tailwindcss(),
-    ...(binding ? [projectSpaceApiPlugin(binding)] : [])
-  ],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src')
+  return {
+    define: {
+      __PROJECT_RELEASE_CHANGELOG_SOURCE__: JSON.stringify(
+        releaseChangelogSourceForBuild()
+      )
+    },
+    plugins: [
+      ...localNodeLibraries.plugins,
+      react(),
+      tailwindcss(),
+      ...(binding ? [projectSpaceApiPlugin(binding)] : [])
+    ],
+    resolve: {
+      alias: [
+        ...localNodeLibraries.aliases,
+        { find: '@', replacement: resolve(__dirname, 'src') }
+      ],
+      dedupe: ['react', 'react-dom']
+    },
+    optimizeDeps: localNodeLibraries.packageNames.length > 0
+      ? { exclude: localNodeLibraries.packageNames }
+      : undefined,
+    server: {
+      ...(configuredAllowedHosts.length > 0 ? { allowedHosts: configuredAllowedHosts } : {}),
+      port: process.env.PORT ? Number(process.env.PORT) : 5173,
+      strictPort: true,
+      fs: localNodeLibraries.roots.length > 0
+        ? { allow: [searchForWorkspaceRoot(__dirname), ...localNodeLibraries.roots] }
+        : undefined
+    },
+    build: {
+      outDir: 'dist/renderer',
+      emptyOutDir: true
     }
-  },
-  server: {
-    ...(configuredAllowedHosts.length > 0 ? { allowedHosts: configuredAllowedHosts } : {}),
-    port: process.env.PORT ? Number(process.env.PORT) : 5173,
-    strictPort: true
-  },
-  build: {
-    outDir: 'dist/renderer',
-    emptyOutDir: true
-  }
-  });
+  };
 });

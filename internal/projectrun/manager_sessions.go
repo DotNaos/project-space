@@ -373,6 +373,12 @@ func (manager *Manager) persistCleanupFailure(
 }
 
 func (manager *Manager) deleteSessionArtifacts(state runtimeState) error {
+	if err := deleteLocalNodeWatcherLogs(state.Watchers); err != nil {
+		return err
+	}
+	if err := manager.store.deleteLocalLibraries(state); err != nil {
+		return err
+	}
 	if err := manager.store.deleteLog(state.ServerID); err != nil {
 		return err
 	}

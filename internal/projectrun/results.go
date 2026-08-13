@@ -27,6 +27,9 @@ func (manager *Manager) resultFromState(
 		Capability:        capability,
 		State:             state.State,
 		AllowedHosts:      append([]string{}, state.AllowedHosts...),
+		Libraries:         append([]LocalNodeLibrary{}, state.Libraries...),
+		Watchers:          append([]LocalNodeWatcher{}, state.Watchers...),
+		Companions:        append([]CompanionServer{}, state.Companions...),
 		CheckedAt:         state.CheckedAt,
 	}
 	if result.APIs == "" {
@@ -45,6 +48,15 @@ func (manager *Manager) resultFromState(
 	}
 	if result.AllowedHosts == nil {
 		result.AllowedHosts = []string{}
+	}
+	if result.Libraries == nil {
+		result.Libraries = []LocalNodeLibrary{}
+	}
+	if result.Watchers == nil {
+		result.Watchers = []LocalNodeWatcher{}
+	}
+	if result.Companions == nil {
+		result.Companions = []CompanionServer{}
 	}
 	if result.CheckedAt == "" {
 		result.CheckedAt = manager.timestamp()
