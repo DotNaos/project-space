@@ -319,6 +319,9 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
         <ProjectMainPanel
           account={account}
           appMeta={desktop.appMeta}
+          computeInventory={desktop.computeInventory}
+          computeInventoryError={desktop.computeInventoryError}
+          computeInventoryStatus={desktop.computeInventoryStatus}
           connectorOverview={desktop.connectorOverview}
           codexController={desktop.codexController}
           codexMachineIds={desktop.codexMachineIds}
@@ -342,6 +345,7 @@ function AuthenticatedProjectDesktopShell({ account }: { account?: RailAccount }
           onRefreshProjectDiscovery={desktop.refreshProjectDiscovery}
           onRefreshProjectWorktrees={desktop.refreshProjectWorktrees}
           onRefreshConnectorOverview={desktop.refreshConnectorOverview}
+          onRefreshComputeInventory={desktop.refreshComputeInventory}
           onRefreshGitHubCatalog={desktop.refreshGitHubCatalog}
           onSelectLauncherApp={desktop.selectLauncherApp}
           onSelectMachineContext={desktop.selectMachineContext}

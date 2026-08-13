@@ -6,10 +6,10 @@ import { GitHubMark } from './github-mark';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
   AppMeta,
-  ConnectorOverviewResult,
   GitHubCatalogResult,
   GitHubOAuthDeviceStartResult
 } from '@/shared/project-space-api';
+import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
 import { GitHubConnectPanel } from './github-connect-panel';
 import type { SettingsSection } from '../hooks/project-desktop-routing';
 import type { RailAccount } from './account-menu';
@@ -56,10 +56,12 @@ function SettingsRow({ label, value }: { label: string; value?: string }) {
 export interface SettingsViewProps {
   account?: RailAccount;
   appMeta: AppMeta;
-  connectorOverview: ConnectorOverviewResult;
+  computeInventory?: ProjectCliComputeInventory;
+  computeInventoryError: string;
+  computeInventoryStatus: 'error' | 'loading' | 'ready' | 'refreshing';
   githubCatalog: GitHubCatalogResult;
   isGitHubRefreshing: boolean;
-  onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
+  onRefreshComputeInventory(): Promise<unknown>;
   onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
   section?: SettingsSection;
 }
@@ -67,10 +69,12 @@ export interface SettingsViewProps {
 export function SettingsView({
   account,
   appMeta,
-  connectorOverview,
+  computeInventory,
+  computeInventoryError,
+  computeInventoryStatus,
   githubCatalog,
   isGitHubRefreshing,
-  onRefreshConnectorOverview,
+  onRefreshComputeInventory,
   onRefreshGitHubCatalog,
   section = 'machines'
 }: SettingsViewProps) {
@@ -115,13 +119,11 @@ export function SettingsView({
   if (section === 'machines') {
     return (
       <MachinesPage
-        computeInventory={connectorOverview.computeInventory}
-        connectors={connectorOverview.machines}
+        computeInventory={computeInventory}
+        inventoryStatus={computeInventoryStatus}
         localSimulation={runtime.apis === 'simulated'}
-        loadError=""
-        onRefresh={onRefreshConnectorOverview}
-        status="ready"
-        tailscale={connectorOverview.tailscale}
+        loadError={computeInventoryError}
+        onRefresh={onRefreshComputeInventory}
       />
     );
   }

@@ -10,6 +10,7 @@ import type {
   ProjectWorktreeDiscoveryState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
+import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
 import { useCallback, useEffect, useMemo } from 'react';
 import { createProjectChatClient } from '@/api/project-chat-client';
 import {
@@ -182,6 +183,9 @@ function tabNeedsRepository(tab: ProjectDetailTab) {
 export interface ProjectMainPanelProps {
   account?: RailAccount;
   appMeta: AppMeta;
+  computeInventory?: ProjectCliComputeInventory;
+  computeInventoryError: string;
+  computeInventoryStatus: 'error' | 'loading' | 'ready' | 'refreshing';
   connectorOverview: ConnectorOverviewResult;
   codexController: CodexSessionsController;
   codexMachineIds: string[];
@@ -209,6 +213,7 @@ export interface ProjectMainPanelProps {
   onOpenSelectedTarget(): void;
   onRefreshProjectDiscovery(): Promise<unknown>;
   onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
+  onRefreshComputeInventory(): Promise<unknown>;
   onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
   onRefreshProjectWorktrees(): Promise<ProjectWorktreeRecord[]>;
   onSelectLauncherApp(appId: string): void;
@@ -241,6 +246,9 @@ export interface ProjectMainPanelProps {
 export function ProjectMainPanel({
   account,
   appMeta,
+  computeInventory,
+  computeInventoryError,
+  computeInventoryStatus,
   connectorOverview,
   codexController,
   codexMachineIds,
@@ -268,6 +276,7 @@ export function ProjectMainPanel({
   onOpenSelectedTarget,
   onRefreshProjectDiscovery,
   onRefreshConnectorOverview,
+  onRefreshComputeInventory,
   onRefreshGitHubCatalog,
   onRefreshProjectWorktrees,
   onSelectLauncherApp,
@@ -541,10 +550,12 @@ export function ProjectMainPanel({
           <SettingsView
             account={account}
             appMeta={appMeta}
-            connectorOverview={connectorOverview}
+            computeInventory={computeInventory}
+            computeInventoryError={computeInventoryError}
+            computeInventoryStatus={computeInventoryStatus}
             githubCatalog={githubCatalog}
             isGitHubRefreshing={isGitHubRefreshing}
-            onRefreshConnectorOverview={onRefreshConnectorOverview}
+            onRefreshComputeInventory={onRefreshComputeInventory}
             onRefreshGitHubCatalog={onRefreshGitHubCatalog}
             section={settingsSection}
           />

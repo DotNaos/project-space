@@ -1,272 +1,162 @@
 import { describe, expect, test } from 'bun:test';
-import type { MachineRecord } from '../src/shared/project-space-api';
 import type {
-  ComputeEnvironmentRecord,
-  ComputeHostRecord,
-  ComputePlatformRecord,
-  ConnectorEnvironmentAssociation,
-  DerivedIdentityKey,
-  EnvironmentHostAssociation,
-  ResourceProfile
-} from '../src/shared/compute-environment-api';
+  ProjectCliComputeInventory,
+  ProjectCliEnvironmentInstance,
+  ProjectCliHost,
+  ProjectCliPlatform
+} from '../src/shared/compute-inventory-cli-api';
 import {
-  builtInEnvironmentDefinition,
-  groupComputeInventory
-} from '../src/shared/compute-environment-api';
-import { settingsConnectorInstances } from '../src/features/project-desktop/components/settings-machine-group-model';
-import {
+  computeInventoryCounts,
   computePlatformSections,
   filterComputePlatformSections,
+  isComputeInventoryStale
 } from '../src/features/project-desktop/components/machines-page-model';
 
-function machine({
+const platform = (id: string, kind: ProjectCliPlatform['kind'], name: string): ProjectCliPlatform => ({
+  alias: id,
   id,
-  name = id,
-  platform = 'linux',
-  status = 'online'
-}: {
-  id: string;
-  name?: string;
-  platform?: 'darwin' | 'linux' | 'windows';
-  status?: MachineRecord['connector']['status'];
-}): MachineRecord {
-  return {
-    connector: {
-      installCommand: 'project connector install',
-      runtime: {
-        architecture: 'arm64',
-        buildId: '0'.repeat(40),
-        bundleVersions: { connector: '1.0.0', machineTools: '1.0.0', projectCli: '1.0.0' },
-        channel: 'stable',
-        instanceId: `instance-${id}`,
-        lastCheckedAt: '2026-08-07T00:00:00.000Z',
-        platform,
-        protocolVersion: '2',
-        releaseId: 'v1.0.0',
-        source: 'managed',
-        version: '1.0.0'
-      },
-      status
-    },
-    id,
-    kind: 'connector',
-    name,
-    network: {},
-    roles: ['connector'],
-    sourcePath: 'connector-hub'
-  };
-}
-
-function instancesById(connectors: MachineRecord[]) {
-  return new Map(settingsConnectorInstances(connectors).map((instance) => [instance.id, instance] as const));
-}
-
-function identity(key: string): DerivedIdentityKey {
-  return { key, version: 1 };
-}
-
-function platform(id: string): ComputePlatformRecord {
-  return { id, kind: 'local', name: id };
-}
-
-function host(id: string, platformId: string, resources?: ResourceProfile): ComputeHostRecord {
-  return {
-    id,
-    identity: identity(`host-${id}`),
-    name: id,
-    platformId,
-    ...(resources ? { resources } : {})
-  };
-}
-
-function environment({
-  hostId,
-  id,
-  parentEnvironmentId,
-  platformId,
-  resources
-}: {
-  hostId?: string;
-  id: string;
-  parentEnvironmentId?: string;
-  platformId: string;
-  resources?: ResourceProfile;
-}): ComputeEnvironmentRecord {
-  const hostAssociation: EnvironmentHostAssociation = hostId
-    ? { evidence: 'provider', hostId, resolution: 'verified' }
-    : { evidence: 'none', resolution: 'not_applicable' };
-  return {
-    environmentDefinitionId: 'definition-macos',
-    hostAssociation,
-    id,
-    identity: identity(`env-${id}`),
-    kind: 'native_macos',
-    name: id,
-    platformId,
-    resourceMode: 'dedicated',
-    ...(parentEnvironmentId ? { parentEnvironmentId } : {}),
-    ...(resources ? { resources } : {})
-  };
-}
-
-const environmentDefinitions = [{
-  ...builtInEnvironmentDefinition('native_macos'),
-  id: 'definition-macos'
-}];
-
-function connectorAssociation(
-  connectorId: string,
-  environmentId: string
-): ConnectorEnvironmentAssociation {
-  return { associatedAt: '2026-08-07T00:00:00.000Z', connectorId, environmentId };
-}
-
-const resources: ResourceProfile = {
-  architecture: 'arm64',
-  cpu: { cores: 8 },
-  memory: { totalBytes: 16 * 1_024 ** 3 },
-  operatingSystem: 'macOS',
-  reportedAt: '2026-08-07T00:00:00.000Z',
-  source: 'connector',
-  storage: { totalBytes: 512 * 1_024 ** 3 }
-};
-
-describe('computePlatformSections', () => {
-  test('places a hosted environment under its host and a hostless one after', () => {
-    const inventory = groupComputeInventory({
-      connectors: [
-        connectorAssociation('connector-a', 'env-hosted'),
-        connectorAssociation('connector-b', 'env-hostless')
-      ],
-      environmentDefinitions,
-      environments: [
-        environment({ hostId: 'host-1', id: 'env-hosted', platformId: 'local', resources }),
-        environment({ id: 'env-hostless', platformId: 'local' })
-      ],
-      hosts: [host('host-1', 'local', resources)],
-      platforms: [platform('local')]
-    });
-    const [section] = computePlatformSections(
-      inventory,
-      instancesById([machine({ id: 'connector-a' }), machine({ id: 'connector-b' })])
-    );
-
-    expect(section!.rows.map((row) => [row.kind, row.id, row.depth])).toEqual([
-      ['host', 'host-1', 0],
-      ['environment', 'env-hosted', 1],
-      ['environment', 'env-hostless', 0]
-    ]);
-    expect(section!.rows[0]!.resourcesSummary).toBe('8 CPU · 16 GB · 512 GB');
-    expect(section!.rows[1]!.instances.map((instance) => instance.id)).toEqual(['connector-a']);
-  });
-
-  test('nests a child environment one level deeper than its parent', () => {
-    const inventory = groupComputeInventory({
-      connectors: [connectorAssociation('connector-a', 'env-child')],
-      environmentDefinitions,
-      environments: [
-        environment({ id: 'env-parent', platformId: 'local' }),
-        environment({ id: 'env-child', parentEnvironmentId: 'env-parent', platformId: 'local' })
-      ],
-      hosts: [],
-      platforms: [platform('local')]
-    });
-    const [section] = computePlatformSections(inventory, instancesById([machine({ id: 'connector-a' })]));
-
-    expect(section!.rows.map((row) => [row.id, row.depth])).toEqual([
-      ['env-parent', 0],
-      ['env-child', 1]
-    ]);
-  });
-
-  test('rolls up a host row to the total connectors across its environments', () => {
-    const inventory = groupComputeInventory({
-      connectors: [
-        connectorAssociation('connector-a', 'env-a'),
-        connectorAssociation('connector-b', 'env-b')
-      ],
-      environmentDefinitions,
-      environments: [
-        environment({ hostId: 'host-1', id: 'env-a', platformId: 'local' }),
-        environment({ hostId: 'host-1', id: 'env-b', platformId: 'local' })
-      ],
-      hosts: [host('host-1', 'local')],
-      platforms: [platform('local')]
-    });
-    const [section] = computePlatformSections(
-      inventory,
-      instancesById([
-        machine({ id: 'connector-a', status: 'online' }),
-        machine({ id: 'connector-b', status: 'offline' })
-      ])
-    );
-    const [hostRow] = section!.rows;
-
-    expect(hostRow!.connectorCount).toBe(2);
-    expect(hostRow!.onlineConnectorCount).toBe(1);
-    expect(hostRow!.isOnline).toBe(true);
-  });
-
-  test('sums section totals from environment rows only, not the host roll-up', () => {
-    const inventory = groupComputeInventory({
-      connectors: [connectorAssociation('connector-a', 'env-a')],
-      environmentDefinitions,
-      environments: [environment({ hostId: 'host-1', id: 'env-a', platformId: 'local' })],
-      hosts: [host('host-1', 'local')],
-      platforms: [platform('local')]
-    });
-    const [section] = computePlatformSections(inventory, instancesById([machine({ id: 'connector-a' })]));
-
-    expect(section!.connectorCount).toBe(1);
-  });
+  kind,
+  name
 });
 
-describe('filterComputePlatformSections', () => {
-  function twoHostInventory() {
-    return groupComputeInventory({
-      connectors: [
-        connectorAssociation('connector-mac', 'env-macbook'),
-        connectorAssociation('connector-pc', 'env-yoga')
-      ],
-      environmentDefinitions,
-      environments: [
-        environment({ hostId: 'host-macbook', id: 'env-macbook', platformId: 'local' }),
-        environment({ hostId: 'host-yoga', id: 'env-yoga', platformId: 'local' })
-      ],
-      hosts: [host('host-macbook', 'local'), host('host-yoga', 'local')],
-      platforms: [platform('local')]
+const host = (id: string, platformId: string, state: ProjectCliHost['capabilities']['state'] = 'available'): ProjectCliHost => ({
+  alias: id,
+  capabilities: { console: [], power: [], state },
+  id,
+  name: id,
+  platformId
+});
+
+function environment({
+  alias,
+  hostId,
+  id = alias,
+  kind = 'native_linux',
+  parentEnvironmentInstanceId,
+  platformId = 'local',
+  resourceMode = 'dedicated',
+  routeState,
+  workspaces = []
+}: Partial<ProjectCliEnvironmentInstance> & {
+  alias: string;
+  routeState?: 'ready' | 'unavailable';
+}): ProjectCliEnvironmentInstance {
+  return {
+    accessRoutes: routeState ? [{ capabilities: [], id: `route-${id}`, lastVerifiedAt: new Date().toISOString(), priority: 1, state: routeState, type: 'ssh_private_network' }] : [],
+    alias,
+    environmentDefinitionId: `definition-${kind}`,
+    hostId,
+    hostResolution: hostId ? 'manual' : 'not_applicable',
+    hostd: { state: 'unknown' },
+    id,
+    kind,
+    name: alias,
+    parentEnvironmentInstanceId,
+    platformId,
+    providerLifecycleState: 'unknown',
+    reference: `reference-${id}`,
+    resourceMode,
+    workspaceInventory: { state: workspaces.length > 0 ? 'available' : 'unavailable' },
+    workspaces
+  };
+}
+
+function inventory(overrides: Partial<ProjectCliComputeInventory> = {}): ProjectCliComputeInventory {
+  const local = platform('local', 'local', 'Local & self-hosted');
+  return {
+    checkedAt: new Date().toISOString(),
+    environmentCatalog: [],
+    environmentInstances: [],
+    hosts: [],
+    inventoryState: 'ready',
+    platforms: [local],
+    privateNetworks: [],
+    schemaVersion: 3,
+    violations: [],
+    ...overrides
+  };
+}
+
+describe('canonical compute inventory presentation', () => {
+  test('keeps provider-managed environments directly under their platform', () => {
+    const codespace = environment({
+      alias: 'project-space-537-qxpr6qvjp9vf5v',
+      kind: 'github_codespace',
+      platformId: 'codespaces'
     });
-  }
+    const sections = computePlatformSections(inventory({
+      environmentInstances: [codespace],
+      platforms: [platform('codespaces', 'github_codespaces', 'GitHub Codespaces')]
+    }));
 
-  function sections() {
-    return computePlatformSections(
-      twoHostInventory(),
-      instancesById([
-        machine({ id: 'connector-mac', name: 'os-macbook' }),
-        machine({ id: 'connector-pc', name: 'os-yoga-unix', status: 'offline' })
-      ])
-    );
-  }
-
-  test('returns every section without a query or filter', () => {
-    expect(filterComputePlatformSections(sections(), '', 'all')).toHaveLength(1);
+    expect(sections[0]!.rows.map((row) => [row.kind, row.name, row.depth])).toEqual([
+      ['environment', 'project-space-537-qxpr6qvjp9vf5v', 0]
+    ]);
+    expect(sections[0]!.rows[0]!.hostResolutionLabel).toBe('Provider managed');
+    expect(sections[0]!.hostCount).toBe(0);
   });
 
-  test('keeps a host row once a descendant environment matches, even if the host name does not', () => {
-    const filtered = filterComputePlatformSections(sections(), 'os-macbook', 'all');
+  test('renders local Hosts separately from environment status', () => {
+    const instances = [
+      environment({ alias: 'windows-01', hostId: 'host-a', kind: 'native_windows', resourceMode: 'exclusive' }),
+      environment({ alias: 'ubuntu-01', hostId: 'host-a', resourceMode: 'exclusive' })
+    ];
+    const [section] = computePlatformSections(inventory({
+      environmentInstances: instances,
+      hosts: [host('host-a', 'local', 'available')]
+    }));
 
-    expect(filtered[0]!.rows.map((row) => row.id)).toEqual(['host-macbook', 'env-macbook']);
+    expect(section!.rows.map((row) => [row.kind, row.name, row.depth, row.relationship])).toEqual([
+      ['host', 'host-a', 0, undefined],
+      ['environment', 'windows-01', 1, 'dual-boot'],
+      ['environment', 'ubuntu-01', 1, 'dual-boot']
+    ]);
+    expect(section!.rows[0]!.hostStatus).toBe('Host reachable');
+    expect(section!.rows[1]!.environmentStatus).toBe('Status unavailable');
   });
 
-  test('filters by connection state across the tree', () => {
-    const online = filterComputePlatformSections(sections(), '', 'online');
-    const offline = filterComputePlatformSections(sections(), '', 'offline');
+  test('nests child environments and retains Workspace Runtime summaries', () => {
+    const child = environment({
+      alias: 'wsl-ubuntu-01',
+      kind: 'wsl',
+      parentEnvironmentInstanceId: 'windows-01',
+      hostId: 'host-a',
+      workspaces: [{ id: 'workspace-1', name: 'Project Space', repository: 'DotNaos/project-space', state: 'active' }]
+    });
+    const [section] = computePlatformSections(inventory({
+      environmentInstances: [environment({ alias: 'windows-01', hostId: 'host-a', kind: 'native_windows' }), child],
+      hosts: [host('host-a', 'local')]
+    }));
 
-    expect(online[0]!.rows.map((row) => row.id)).toEqual(['host-macbook', 'env-macbook']);
-    expect(offline[0]!.rows.map((row) => row.id)).toEqual(['host-yoga', 'env-yoga']);
+    expect(section!.rows.map((row) => [row.name, row.depth, row.relationship])).toEqual([
+      ['host-a', 0, undefined],
+      ['windows-01', 1, undefined],
+      ['wsl-ubuntu-01', 2, 'nested']
+    ]);
+    expect(section!.rows[2]!.workspaces[0]!.repository).toBe('DotNaos/project-space');
   });
 
-  test('drops the platform entirely once nothing survives', () => {
-    expect(filterComputePlatformSections(sections(), 'does-not-exist', 'all')).toEqual([]);
+  test('filters available and attention states without collapsing the hierarchy', () => {
+    const sections = computePlatformSections(inventory({
+      environmentInstances: [
+        environment({ alias: 'ready', hostId: 'host-a', routeState: 'ready' }),
+        environment({ alias: 'offline', hostId: 'host-a', routeState: 'unavailable' })
+      ],
+      hosts: [host('host-a', 'local')]
+    }));
+
+    expect(filterComputePlatformSections(sections, 'ready', 'all')[0]!.rows.map((row) => row.name)).toEqual(['host-a', 'ready']);
+    expect(filterComputePlatformSections(sections, '', 'available')[0]!.rows.map((row) => row.name)).toEqual(['host-a', 'ready']);
+    expect(filterComputePlatformSections(sections, '', 'attention')[0]!.rows.map((row) => row.name)).toEqual(['host-a', 'offline']);
+  });
+
+  test('counts mixed inventories and distinguishes stale data', () => {
+    const sections = computePlatformSections(inventory({
+      environmentInstances: [environment({ alias: 'one', hostId: 'host-a', workspaces: [{ id: 'w', name: 'Workspace', state: 'active' }] })],
+      hosts: [host('host-a', 'local')]
+    }));
+    expect(computeInventoryCounts(sections)).toEqual({ environments: 1, hosts: 1, workspaces: 1 });
+    expect(isComputeInventoryStale('2026-08-13T11:00:00.000Z', Date.parse('2026-08-13T11:20:00.000Z'))).toBe(true);
+    expect(isComputeInventoryStale('2026-08-13T11:19:00.000Z', Date.parse('2026-08-13T11:20:00.000Z'))).toBe(false);
   });
 });
