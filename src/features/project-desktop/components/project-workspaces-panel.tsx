@@ -3,10 +3,8 @@ import { GitBranchPlus, LoaderCircle, Play } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Surface, Text } from '@/app/dotnaos-ui';
 import type {
-  ConnectorOverviewResult,
   ExplorerTarget,
   GitHubCatalogRepository,
-  MachineRecord,
   ProjectSpaceRecord,
   ProjectWorktreeDiscoveryState,
   ProjectWorktreeRecord
@@ -22,18 +20,14 @@ import {
   unmaterializedBranchesFor
 } from './worktree-runtime-model';
 import { projectWorktreeDiscoverySummary } from './project-worktree-discovery-model';
-import { ProjectWorkspaceMachineSelect } from './project-workspace-machine-select';
 import {
   selectedProjectWorktree,
   selectedWorktreeExplorerPath
 } from './project-worktree-selection';
 import { useWorktreeSetup } from '../hooks/use-worktree-setup';
 import {
-  WorktreeGitClientPanel,
-  type WorktreeGitStatusSnapshot
+  WorktreeGitClientPanel
 } from './worktree-git-client-panel';
-import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
-import { connectorLocationPresentation } from './machine-connector-topology-model';
 import { useRuntimeBinding } from './runtime-binding-context';
 
 function normalizeKey(value: string) {
@@ -45,10 +39,6 @@ function normalizeKey(value: string) {
 
 function isDefaultBranch(branchName: string, defaultBranch: string) {
   return normalizeKey(branchName) === normalizeKey(defaultBranch);
-}
-
-function canRunMachineCommand(machine?: MachineRecord) {
-  return machine?.connector.status === 'local' || machine?.connector.status === 'online';
 }
 
 function branchSort(defaultBranch: string) {
@@ -66,54 +56,32 @@ function branchSort(defaultBranch: string) {
 }
 
 export function ProjectWorkspacesPanel({
-  connectorOverview,
   onRefreshWorktrees,
-  onSelectMachine,
   onSelectWorkspace,
   onSelectWorktree,
   project,
   repository,
   selectedExplorerTarget,
-  selectedMachineId,
   worktreeDiscovery,
   worktrees
 }: {
-  connectorOverview: ConnectorOverviewResult;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
-  onSelectMachine?(machineId: string): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   project: ProjectSpaceRecord;
   repository?: GitHubCatalogRepository;
   selectedExplorerTarget: ExplorerTarget;
-  selectedMachineId: string;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }) {
   const runtime = useRuntimeBinding();
   const [actionMessage, setActionMessage] = useState('');
   const [busyBranchName, setBusyBranchName] = useState('');
-  const [fileGitStatus, setFileGitStatus] = useState<WorktreeGitStatusSnapshot>();
   const [repositoryBranches, setRepositoryBranches] = useState<string[]>([]);
   const [repositoryMessage, setRepositoryMessage] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedCreateBranch, setSelectedCreateBranch] = useState('');
-  const selectedMachine =
-    connectorOverview.machines.find((machine) => machine.id === selectedMachineId) ??
-    connectorOverview.machines.find((machine) => machine.id === project.machineId) ??
-    connectorOverview.machines.find((machine) => machine.connector.status === 'local') ??
-    connectorOverview.machines[0];
-  const selectedConnectorLocation = selectedMachine
-    ? connectorLocationPresentation({
-        connector: selectedMachine,
-        physicalMachines: connectorOverview.physicalMachines ?? []
-      })
-    : undefined;
-  const selectedConnectorLabel = selectedConnectorLocation
-    ? `${selectedConnectorLocation.machineName} · ${selectedConnectorLocation.connectorLabel}`
-    : undefined;
   const devServers = useWorktreeDevServers({
-    machineId: selectedMachine?.id,
     projectId: project.id
   });
   const worktreeIds = useMemo(
@@ -124,7 +92,6 @@ export function ProjectWorkspacesPanel({
     [devServers.access, worktrees]
   );
   const setup = useWorktreeSetup({
-    machineId: selectedMachine?.id,
     projectId: project.id,
     worktreeIds
   });
@@ -167,24 +134,14 @@ export function ProjectWorkspacesPanel({
   );
   const selectedWorktree = selectedProjectWorktree(worktrees, selectedExplorerTarget);
   const selectedExplorerPath = selectedWorktreeExplorerPath(selectedWorktree);
-  const canCreate =
-    Boolean(repository?.fullName ?? project.github?.fullName) &&
-    Boolean(selectedMachine) &&
-    canRunMachineCommand(selectedMachine) &&
-    worktreeDiscovery.state !== 'checking' &&
-    worktreeDiscovery.state !== 'blocked';
-  const createLabel = selectedMachine
-    ? canRunMachineCommand(selectedMachine)
-      ? 'Create'
-      : 'Offline'
-    : 'No machine';
+  const canCreate = false;
+  const createLabel = 'Create';
   const connectorUpdateRequired =
     worktreeDiscovery.state === 'blocked' &&
     worktreeDiscovery.reason === 'connector-update-required';
-
-  useEffect(() => {
-    setFileGitStatus(undefined);
-  }, [selectedWorktree?.id]);
+  const canonicalRuntimeRequired =
+    worktreeDiscovery.state === 'blocked' &&
+    worktreeDiscovery.reason === 'canonical-runtime-required';
 
   useEffect(() => {
     if (!unmaterializedBranches.includes(selectedCreateBranch)) {
@@ -232,54 +189,8 @@ export function ProjectWorkspacesPanel({
     };
   }, [repository?.fullName]);
 
-  async function createWorktree(branchName: string) {
-    if (!selectedMachine || !canCreate) {
-      return;
-    }
-
-    setActionMessage('');
-    setBusyBranchName(branchName);
-    try {
-      const result = await projectSpaceClient.materializeWorktree({
-        branchName,
-        machineId: selectedMachine.id,
-        projectId: project.id
-      });
-
-      if (result.state === 'error') {
-        setActionMessage(result.lastError || `Could not create ${branchName}.`);
-        return;
-      }
-
-      let nextWorktrees: ProjectWorktreeRecord[];
-      try {
-        nextWorktrees = await onRefreshWorktrees();
-      } catch {
-        setActionMessage(
-          `${branchName} was created on ${selectedMachine.name}, but the worktree list could not be refreshed.`
-        );
-        return;
-      }
-
-      const nextWorktree = result.worktreeId
-        ? nextWorktrees.find((worktree) => worktree.id === result.worktreeId)
-        : undefined;
-
-      if (!nextWorktree) {
-        setActionMessage(
-          `${branchName} was created on ${selectedMachine.name}, but it is not visible in the worktree list yet.`
-        );
-        return;
-      }
-
-      onSelectWorktree(nextWorktree.id);
-      setActionMessage(`${branchName} is ready on ${selectedMachine.name}.`);
-      setShowCreate(false);
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : `Could not create ${branchName}.`);
-    } finally {
-      setBusyBranchName('');
-    }
+  function createWorktree() {
+    setActionMessage('Connect an exact Environment Instance and Workspace Runtime in Compute first.');
   }
 
   return (
@@ -292,17 +203,13 @@ export function ProjectWorkspacesPanel({
           <div className="min-w-0">
             <Text className="text-sm font-semibold text-neutral-100">Worktrees</Text>
             <Text className="mt-0.5 block text-xs text-neutral-500">
-              {connectorUpdateRequired
-                ? 'Connector action needed'
-                : projectWorktreeDiscoverySummary(worktreeDiscovery, serverCount)}
+              {projectWorktreeDiscoverySummary(worktreeDiscovery, serverCount)}
             </Text>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
-            <ProjectWorkspaceMachineSelect
-              connectorOverview={connectorOverview}
-              onSelectMachine={onSelectMachine}
-              selectedMachineId={selectedMachine?.id}
-            />
+            <Button size="sm" variant="outline" onPress={() => window.location.assign('/settings')}>
+              Open Compute
+            </Button>
             <Button
               size="sm"
               variant="secondary"
@@ -347,7 +254,7 @@ export function ProjectWorkspacesPanel({
             <label className="grid min-w-0 flex-1 gap-1.5">
               <Text className="text-xs font-medium text-neutral-300">GitHub branch</Text>
               <select
-                aria-label="GitHub branch to create through this connector"
+                aria-label="GitHub branch to create"
                 value={selectedCreateBranch}
                 onChange={(event) => setSelectedCreateBranch(event.currentTarget.value)}
                 className="min-h-9 min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 outline-none focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-400/25"
@@ -363,7 +270,7 @@ export function ProjectWorkspacesPanel({
               size="sm"
               variant="secondary"
               isDisabled={!canCreate || !selectedCreateBranch || Boolean(busyBranchName)}
-              onPress={() => void createWorktree(selectedCreateBranch)}
+              onPress={() => void createWorktree()}
             >
               {busyBranchName ? (
                 <LoaderCircle className="size-3.5 animate-spin" />
@@ -375,7 +282,7 @@ export function ProjectWorkspacesPanel({
           </div>
         ) : null}
 
-        <DevServerAccessNotice access={devServers.access} machineName={selectedConnectorLabel} />
+        <DevServerAccessNotice access={devServers.access} />
         {runtime.apis === 'external' ? <DevServerSettings
           access={devServers.access}
           hasActiveServers={devServers.hasActiveServers}
@@ -389,26 +296,30 @@ export function ProjectWorkspacesPanel({
             <LoaderCircle className="size-4 animate-spin text-neutral-400" />
             <Text className="text-sm text-neutral-300">Checking registered Git worktrees…</Text>
           </div>
+        ) : canonicalRuntimeRequired ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <Text className="block text-sm font-medium text-amber-200">
+                Workspace Runtime is unavailable.
+              </Text>
+              <Text className="mt-1 block text-xs leading-5 text-amber-200/70">
+                Connect an exact Environment Instance and Workspace Runtime from canonical Compute before using worktree actions.
+              </Text>
+            </div>
+            <Button size="sm" variant="outline" onPress={() => window.location.assign('/settings')}>
+              Open Compute
+            </Button>
+          </div>
         ) : connectorUpdateRequired ? (
           <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <Text className="block text-sm font-medium text-amber-200">
-                Connector update required{selectedConnectorLabel ? ` for ${selectedConnectorLabel}` : ''}
+                Workspace Runtime needs attention.
               </Text>
               <Text className="mt-1 block text-xs leading-5 text-amber-200/70">
-                Worktrees will become available after this connector reconnects with the current discovery support.
+                Worktree discovery is waiting for the canonical runtime capability to become available.
               </Text>
             </div>
-            {selectedMachine ? (
-              <MachineConnectorActionsMenu
-                className="w-full justify-center sm:w-auto"
-                machine={selectedMachine}
-                onOperationSettled={() => {
-                  void onRefreshWorktrees().catch(() => undefined);
-                }}
-                trigger="button"
-              />
-            ) : null}
           </div>
         ) : worktreeDiscovery.state === 'blocked' ? (
           <div className="rounded-lg border border-red-500/30 bg-red-500/8 px-3 py-3">
@@ -423,7 +334,7 @@ export function ProjectWorkspacesPanel({
           <WorktreeRuntimeTable
             access={devServers.access}
             actionsDisabled={devServers.isStartingAll}
-            machineName={selectedMachine?.name}
+            machineName="Workspace Runtime"
             onPrepare={(worktreeId, setupStepId) => void setup.prepare(worktreeId, setupStepId)}
             onSelect={(worktreeId) => {
               const worktree = worktrees.find((candidate) => candidate.id === worktreeId);
@@ -474,10 +385,6 @@ export function ProjectWorkspacesPanel({
 
       <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(22rem,28rem)_minmax(0,1fr)]">
         <WorktreeGitClientPanel
-          machine={selectedMachine}
-          onStatusChange={(nextStatus) =>
-            setFileGitStatus(nextStatus?.isRepository ? nextStatus : undefined)
-          }
           worktree={selectedWorktree}
         />
 
@@ -487,9 +394,7 @@ export function ProjectWorkspacesPanel({
         >
           {selectedExplorerPath ? (
             <FileExplorer
-              gitStatus={fileGitStatus}
-              machineId={selectedMachine?.id}
-              rootPath={selectedExplorerPath}
+                rootPath={selectedExplorerPath}
             />
           ) : (
             <div className="flex min-h-[24rem] items-center justify-center px-6 text-center">

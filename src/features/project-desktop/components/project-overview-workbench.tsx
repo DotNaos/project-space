@@ -11,7 +11,6 @@ import {
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Chip, Surface, Text } from '@/app/dotnaos-ui';
 import type {
-  ConnectorOverviewResult,
   GitHubCatalogRepository,
   GitHubIssueRecord,
   GitHubRepositoryDetailsResult,
@@ -162,7 +161,6 @@ function BranchesCard({
 }
 
 export function ProjectOverviewWorkbench({
-  connectorOverview,
   launcherError,
   onOpenDeployments,
   onOpenIssue,
@@ -170,7 +168,6 @@ export function ProjectOverviewWorkbench({
   repository,
   selectedTargetPath
 }: {
-  connectorOverview: ConnectorOverviewResult;
   launcherError: string;
   onOpenDeployments(): void;
   onOpenIssue(issueNumber: number): void;
@@ -179,9 +176,6 @@ export function ProjectOverviewWorkbench({
   selectedTargetPath: string;
 }) {
   const { details, error, isLoading } = useRepositoryDetails(repository);
-  const localMachine = connectorOverview.machines.find(
-    (machine) => machine.connector.status === 'local'
-  );
   const priorityIssues = useMemo(() => details.issues.slice(0, 6), [details.issues]);
   const message =
     launcherError ||
@@ -259,7 +253,7 @@ export function ProjectOverviewWorkbench({
             <StatLine label="Open issues" value={String(details.issues.length)} />
             <StatLine label="Branches" value={String(details.branches.length)} />
             <StatLine label="Template" value={project.fullstackTemplate?.status ?? 'unknown'} />
-            <StatLine label="Machine" value={localMachine?.name ?? 'Local connector'} />
+            <StatLine label="Runtime" value="Workspace Runtime" />
           </div>
         </Surface>
 

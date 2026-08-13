@@ -1,64 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { projectSpaceClient } from '@/api/project-space-client';
+import { useCallback, useEffect, useState } from 'react';
 import type {
   ExplorerTarget,
   ProjectSpaceRecord,
   ProjectWorktreeDiscoveryState
 } from '@/shared/project-space-api';
 
-function blockedRequest(error: unknown): ProjectWorktreeDiscoveryState {
-  return {
-    checkedAt: new Date().toISOString(),
-    message: error instanceof Error ? error.message : 'Worktree discovery request failed.',
-    reason: 'request-failed',
-    state: 'blocked'
-  };
-}
-
 export function useProjectWorktreeDiscovery({
-  machineId,
   project,
   selectedTarget,
   setSelectedTarget
 }: {
-  machineId: string;
   project?: ProjectSpaceRecord;
   selectedTarget: ExplorerTarget;
   setSelectedTarget(target: ExplorerTarget): void;
 }) {
-  const discoveryMachineId = machineId || project?.machineId || '';
-  const scope = project
-    ? `${project.id}:${discoveryMachineId}`
-    : '';
+  const scope = project?.id ?? '';
   const [discoveries, setDiscoveries] = useState<
     Record<string, ProjectWorktreeDiscoveryState>
   >({});
-  const requestGenerations = useRef<Record<string, number>>({});
   const discovery: ProjectWorktreeDiscoveryState = discoveries[scope] ?? { state: 'checking' };
 
   const load = useCallback(async () => {
     if (!project) return undefined;
-    const requestScope = `${project.id}:${discoveryMachineId}`;
-    const generation = (requestGenerations.current[requestScope] ?? 0) + 1;
-    requestGenerations.current[requestScope] = generation;
-
-    try {
-      const next = await projectSpaceClient.discoverProjectWorktrees(
-        project.id,
-        discoveryMachineId || undefined
-      );
-      if (requestGenerations.current[requestScope] === generation) {
-        setDiscoveries((current) => ({ ...current, [requestScope]: next }));
-      }
-      return next;
-    } catch (error) {
-      const blocked = blockedRequest(error);
-      if (requestGenerations.current[requestScope] === generation) {
-        setDiscoveries((current) => ({ ...current, [requestScope]: blocked }));
-      }
-      return blocked;
-    }
-  }, [discoveryMachineId, project]);
+    const requestScope = project.id;
+    const blocked: ProjectWorktreeDiscoveryState = {
+      checkedAt: new Date().toISOString(),
+      message: 'Workspace Runtime is unavailable. Open Compute to connect a canonical runtime.',
+      reason: 'canonical-runtime-required',
+      state: 'blocked'
+    };
+    setDiscoveries((current) => ({ ...current, [requestScope]: blocked }));
+    return blocked;
+  }, [project]);
 
   useEffect(() => {
     if (project) void load();

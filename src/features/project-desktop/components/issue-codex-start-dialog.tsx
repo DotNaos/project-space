@@ -132,9 +132,11 @@ function DestinationRadioControl() {
 }
 
 function DestinationWarning({
+  computeHref,
   destination,
   message
 }: {
+  computeHref?: string;
   destination: string;
   message: string;
 }) {
@@ -153,7 +155,17 @@ function DestinationWarning({
         showArrow
       >
         <Tooltip.Arrow />
-        {message}
+        <span className="grid gap-2">
+          <span>{message}</span>
+          {computeHref ? (
+            <Link
+              className="w-fit text-xs text-blue-300 no-underline hover:text-blue-200"
+              href={computeHref}
+            >
+              Open Compute
+            </Link>
+          ) : null}
+        </span>
       </Tooltip.Content>
     </Tooltip>
   );
@@ -304,6 +316,7 @@ export function IssueCodexStartDialog({
                         {(kind === 'online' && !presentation.canStart) ||
                          (kind === 'offline' && !isWakeable && wakeState?.phase !== 'checking') ? (
                           <DestinationWarning
+                            computeHref={kind === 'offline' ? '/settings' : undefined}
                             destination={groupName}
                             message={message}
                           />

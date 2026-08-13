@@ -75,7 +75,7 @@ const templatePlaceholderPattern = /\{\{.*?\}\}/;
 const topologyPath = '/topology';
 const projectsPath = '/projects';
 const machinesPath = '/machines';
-export const connectorOverviewRefreshIntervalMs = 60_000;
+export const computeInventoryRefreshIntervalMs = 60_000;
 export const githubCatalogTimeoutMs = 12_000;
 
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

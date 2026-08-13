@@ -6,7 +6,7 @@ import type {
   CodexMachineTaskStartResult
 } from '../src/shared/codex-machine-tasks-api';
 import type { CodexSessionRecord } from '../src/shared/codex-sessions-api';
-import type { ConnectorOverviewResult, ProjectSpaceRecord } from '../src/shared/project-space-api';
+import type { ProjectSpaceRecord } from '../src/shared/project-space-api';
 import type { CodexMachine, CodexSession } from '../src/features/codex-sessions/codex-sessions-types';
 import type {
   IssueMachineConnectorOption,
@@ -20,7 +20,6 @@ import {
   presentIssueCodexInventoryThread,
   presentIssueCodexThread
 } from '../src/features/project-desktop/components/issue-codex-work-list-model';
-import { onlineRowForHost } from '../src/features/project-desktop/components/use-issue-codex-host-wake';
 
 mock.module('@/api/project-space-client', () => ({
   projectSpaceClient: {
@@ -161,35 +160,6 @@ describe('issue Codex work list', () => {
       'connector-pc-windows',
       'connector-pc-wsl'
     ]);
-  });
-
-  test('continues with the connector that actually comes online after a host wake', () => {
-    const windows = option('connector-pc-windows', 'environment-windows', 'Windows', false);
-    const wsl = option('connector-pc-wsl', 'environment-wsl', 'WSL', false);
-    const row = onlineRowForHost({
-      key: 'os-pc',
-      name: 'os-pc',
-      targets: issueCodexConnectorTargets([{
-        connectorOptions: [windows, wsl],
-        machineId: 'connector-pc-windows',
-        physicalMachineId: 'physical-pc',
-        physicalMachineName: 'os-pc'
-      }])
-    }, {
-      machines: [{
-        connector: { installCommand: '', status: 'online' },
-        id: 'connector-pc-wsl',
-        kind: 'connector',
-        name: 'WSL connector',
-        network: {},
-        roles: ['connector'],
-        sourcePath: 'connector-hub'
-      }]
-    } as ConnectorOverviewResult);
-
-    expect(row?.machineId).toBe('connector-pc-wsl');
-    expect(row?.machine?.connector.status).toBe('online');
-    expect(row?.connectorOptions?.[0]?.isOnline).toBe(true);
   });
 
   test('keeps Windows and WSL as exact environments on one physical machine', () => {

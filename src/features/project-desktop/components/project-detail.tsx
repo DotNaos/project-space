@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   ExternalLink,
   FileCheck2,
@@ -14,7 +14,6 @@ import {
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
-  ConnectorOverviewResult,
   ExplorerTarget,
   FullstackTemplateCheck,
   GitHubCatalogRepository,
@@ -22,15 +21,13 @@ import type {
   ProjectWorktreeDiscoveryState,
   ProjectWorktreeRecord
 } from '@/shared/project-space-api';
-import type { MachineDetailTab, ProjectDetailTab } from '../hooks/use-project-desktop';
+import type { ProjectDetailTab } from '../hooks/use-project-desktop';
 import { GitWorkbenchPanel } from './git-workbench-panel';
 import { ProjectTasksExperience } from '@/features/project-tasks/project-tasks-experience';
-import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
 import { ProjectOverviewWorkbench } from './project-overview-workbench';
 import { ProjectRepositoryPanel } from './project-repository-panel';
 import { ProjectTemplateAdherencePanel } from './project-template-adherence-panel';
-import { ProjectTemplateSetupPanel } from './project-template-setup-panel';
 import { ProjectTemplatePage } from '@/features/project-template/project-template-page';
 import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
@@ -54,24 +51,6 @@ function templateChipClass(status: FullstackTemplateCheck['status'] | undefined)
   }
 
   return 'bg-neutral-800/80 text-neutral-400';
-}
-
-function normalizeTemplateRelativePath(value: string) {
-  return value
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment && segment !== '.' && segment !== '..')
-    .join('/');
-}
-
-function joinTargetPath(rootPath: string, relativePath: string) {
-  const normalizedRelativePath = normalizeTemplateRelativePath(relativePath);
-
-  if (!rootPath || !normalizedRelativePath) {
-    return rootPath;
-  }
-
-  return `${rootPath.replace(/\/+$/, '')}/${normalizedRelativePath}`;
 }
 
 function TemplateStatusCard({ check }: { check?: FullstackTemplateCheck }) {
@@ -136,7 +115,6 @@ function TemplateStatusCard({ check }: { check?: FullstackTemplateCheck }) {
 }
 
 function OverviewTab({
-  connectorOverview,
   launcherError,
   onOpenIssue,
   onOpenDeployments,
@@ -144,7 +122,6 @@ function OverviewTab({
   selectedRepository,
   selectedTargetPath
 }: {
-  connectorOverview: ConnectorOverviewResult;
   launcherError: string;
   onOpenIssue(issueNumber: number): void;
   onOpenDeployments(): void;
@@ -154,7 +131,6 @@ function OverviewTab({
 }) {
   return (
     <ProjectOverviewWorkbench
-      connectorOverview={connectorOverview}
       launcherError={launcherError}
       onOpenIssue={onOpenIssue}
       onOpenDeployments={onOpenDeployments}
@@ -260,17 +236,13 @@ function GitHubProjectOverview({
 export interface ProjectDetailProps {
   chat: React.ReactNode;
   codex: React.ReactNode;
-  connectorOverview: ConnectorOverviewResult;
   historyFocus?: GitHistoryFocus;
   launcherError: string;
-  onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
-  onOpenWorktreeBranch(machineId: string, branchName: string, path?: string): void;
   onOpenIssue(issueNumber: number, projectIdOverride?: string): void;
   onOpenHistory(focus: Omit<GitHistoryFocus, 'requestId'>): void;
   onOpenWorkflowRun(runId: number): void;
   onCloseWorkflowRun(): void;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
-  onSelectMachine(machineId: string): void;
   onSelectTab(tab: ProjectDetailTab): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
@@ -282,7 +254,6 @@ export interface ProjectDetailProps {
   selectedWorkflowRunId?: number;
   selectedRepository?: ProjectSpaceRecord['github'];
   selectedTargetPath: string;
-  selectedMachineId: string;
   showNavigationTabs?: boolean;
   tab: ProjectDetailTab;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
@@ -292,17 +263,13 @@ export interface ProjectDetailProps {
 export function ProjectDetail({
   chat,
   codex,
-  connectorOverview,
   historyFocus,
   launcherError,
-  onOpenMachine,
-  onOpenWorktreeBranch,
   onOpenIssue,
   onOpenHistory,
   onOpenWorkflowRun,
   onCloseWorkflowRun,
   onRefreshWorktrees,
-  onSelectMachine,
   onSelectTab,
   onSelectWorkspace,
   onSelectWorktree,
@@ -314,14 +281,12 @@ export function ProjectDetail({
   selectedWorkflowRunId,
   selectedRepository,
   selectedTargetPath,
-  selectedMachineId,
   showNavigationTabs = true,
   tab,
   worktreeDiscovery,
   worktrees
 }: ProjectDetailProps) {
   const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
-  const [templateRelativePath, setTemplateRelativePath] = useState('');
   const containsOwnScroll =
     tab === 'history' ||
     tab === 'issues' ||
@@ -329,7 +294,7 @@ export function ProjectDetail({
     tab === 'codex' ||
     tab === 'template' ||
     tab === 'workspaces';
-  const templateTargetPath = joinTargetPath(selectedTargetPath, templateRelativePath);
+  const templateTargetPath = selectedTargetPath;
 
   return (
     <div
@@ -379,7 +344,6 @@ export function ProjectDetail({
             />
           ) : (
             <OverviewTab
-              connectorOverview={connectorOverview}
               launcherError={launcherError}
               onOpenIssue={onOpenIssue}
               onOpenDeployments={() => onSelectTab('deployments')}
@@ -391,28 +355,29 @@ export function ProjectDetail({
         ) : null}
 
         {tab === 'machines' ? (
-          <ProjectMachinesPanel
-            connectorOverview={connectorOverview}
-            onOpenMachine={onOpenMachine}
-            onOpenWorktreeBranch={onOpenWorktreeBranch}
-            project={project}
-            projects={projects}
-            repository={selectedRepository}
-          />
+          <Surface
+            variant="tertiary"
+            className="flex min-h-64 flex-col items-start justify-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950/45 p-6"
+          >
+            <Text className="text-lg font-semibold text-neutral-100">Compute</Text>
+            <Text className="max-w-xl text-sm leading-6 text-neutral-500">
+              Environment instances and Workspace Runtime details now live in the canonical Compute view.
+            </Text>
+            <a href="/settings">
+              <Button size="sm" variant="secondary">Open Compute</Button>
+            </a>
+          </Surface>
         ) : null}
 
         {tab === 'workspaces' ? (
           <ProjectRepositoryPanel
-            connectorOverview={connectorOverview}
             onOpenHistory={onOpenHistory}
             onRefreshWorktrees={onRefreshWorktrees}
-            onSelectMachine={onSelectMachine}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
             repository={selectedRepository}
             selectedExplorerTarget={selectedExplorerTarget}
-            selectedMachineId={selectedMachineId}
             worktreeDiscovery={worktreeDiscovery}
             worktrees={worktrees}
           />
@@ -424,8 +389,6 @@ export function ProjectDetail({
 
         {tab === 'history' ? (
           <GitWorkbenchPanel
-            connectorOverview={connectorOverview}
-            onOpenMachine={onOpenMachine}
             project={project}
             projects={projects}
             repository={selectedRepository}
@@ -437,8 +400,6 @@ export function ProjectDetail({
 
         {tab === 'issues' || tab === 'roadmap' ? (
           <ProjectTasksExperience
-            connectorOverview={connectorOverview}
-            onOpenHistory={onOpenHistory}
             onOpenTask={onOpenIssue}
             onShowTasks={() => onSelectTab('issues')}
             project={project}
@@ -446,7 +407,6 @@ export function ProjectDetail({
             repositories={repositories}
             repository={selectedRepository}
             selectedIssueNumber={selectedIssueNumber}
-            targetPath={selectedTargetPath}
           />
         ) : null}
 
@@ -454,21 +414,13 @@ export function ProjectDetail({
           <ProjectTemplatePage
             projectCheck={(
               <div className="flex flex-col gap-4">
-                <ProjectTemplateSetupPanel
-                  connectorOverview={connectorOverview}
-                  onSelectWorkspace={onSelectWorkspace}
-                  onSelectWorktree={onSelectWorktree}
-                  onTemplateRelativePathChange={setTemplateRelativePath}
-                  onTemplateChanged={() => setTemplateRefreshKey((current) => current + 1)}
-                  preferredMachineId={selectedMachineId}
-                  project={project}
-                  relativePath={templateRelativePath}
-                  resolvedTargetPath={templateTargetPath}
-                  selectedExplorerTarget={selectedExplorerTarget}
-                  showMachineSelector={false}
-                  targetRootPath={selectedTargetPath}
-                  worktrees={worktrees}
-                />
+                <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4">
+                  <Text className="block text-sm font-semibold text-neutral-100">Template setup</Text>
+                  <Text className="mt-1 block text-sm leading-6 text-neutral-500">
+                    Template writes are available through the canonical Workspace Runtime. Open Compute to inspect the runtime first.
+                  </Text>
+                  <a className="mt-3 inline-flex" href="/settings"><Button size="sm" variant="secondary">Open Compute</Button></a>
+                </Surface>
                 <ProjectTemplateAdherencePanel
                   refreshKey={templateRefreshKey}
                   targetPath={templateTargetPath}

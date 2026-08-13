@@ -25,7 +25,6 @@ import {
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
 import type {
-  ConnectorOverviewResult,
   ExplorerTarget,
   GitHubCatalogRepository,
   GitHubRepositoryDetailsResult,
@@ -92,29 +91,23 @@ function CheckoutChip({ entry }: { entry: RepositoryBranchViewModel }) {
 }
 
 export function ProjectRepositoryPanel({
-  connectorOverview,
   onOpenHistory,
   onRefreshWorktrees,
-  onSelectMachine,
   onSelectWorkspace,
   onSelectWorktree,
   project,
   repository,
   selectedExplorerTarget,
-  selectedMachineId,
   worktreeDiscovery,
   worktrees
 }: {
-  connectorOverview: ConnectorOverviewResult;
   onOpenHistory(focus: Omit<GitHistoryFocus, 'requestId'>): void;
   onRefreshWorktrees(): Promise<ProjectWorktreeRecord[]>;
-  onSelectMachine(machineId: string): void;
   onSelectWorkspace(): void;
   onSelectWorktree(worktreeId: string): void;
   project: ProjectSpaceRecord;
   repository?: GitHubCatalogRepository;
   selectedExplorerTarget: ExplorerTarget;
-  selectedMachineId: string;
   worktreeDiscovery: ProjectWorktreeDiscoveryState;
   worktrees: ProjectWorktreeRecord[];
 }) {
@@ -232,15 +225,12 @@ export function ProjectRepositoryPanel({
         </header>
 
         <ProjectWorkspacesPanel
-          connectorOverview={connectorOverview}
           onRefreshWorktrees={onRefreshWorktrees}
-          onSelectMachine={onSelectMachine}
           onSelectWorkspace={onSelectWorkspace}
           onSelectWorktree={onSelectWorktree}
           project={project}
           repository={repository}
           selectedExplorerTarget={selectedExplorerTarget}
-          selectedMachineId={selectedMachineId}
           worktreeDiscovery={worktreeDiscovery}
           worktrees={worktrees}
         />

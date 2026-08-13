@@ -276,6 +276,7 @@ export type ProjectWorktreeDiscoveryResult =
       checkedAt: string;
       message: string;
       reason:
+        | 'canonical-runtime-required'
         | 'connector-update-required'
         | 'project-mismatch'
         | 'request-failed'

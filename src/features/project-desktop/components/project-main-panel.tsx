@@ -1,10 +1,8 @@
 import type {
   AppMeta,
-  ConnectorOverviewResult,
   ExplorerTarget,
   GitHubCatalogResult,
   LauncherAppRecord,
-  MachineRecord,
   ProjectSpaceRecord,
   ProjectStructureViolationRecord,
   ProjectWorktreeDiscoveryState,
@@ -26,12 +24,7 @@ import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks
 import { CodexThreadDirectory } from '@/features/codex-sessions/codex-thread-directory';
 import { useProjectCodexTaskTitles } from '@/features/codex-sessions/use-project-codex-task-titles';
 import { projectChatProjectId } from '@/shared/project-chat-project';
-import type {
-  MachineDetailTab,
-  ProjectDetailTab,
-  ProjectMainView,
-  SettingsSection
-} from '../hooks/use-project-desktop';
+import type { ProjectDetailTab, ProjectMainView, SettingsSection } from '../hooks/project-desktop-routing';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
 import type { RailAccount } from './account-menu';
@@ -41,7 +34,6 @@ import { ProjectHomeOverview } from './project-home-overview';
 import { SettingsView } from './settings-view';
 import { projectRecordsForCodex, resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
-import { connectorLocationPresentation } from './machine-connector-topology-model';
 import type { GitHistoryFocus } from './git-focused-history';
 
 const projectChatClient = createProjectChatClient({
@@ -161,14 +153,6 @@ function EmptyProjectView({ onCreateProject }: { onCreateProject(): void }) {
   );
 }
 
-function normalizeBranchKey(value: string | undefined) {
-  return value?.trim().replace(/^refs\/heads\//, '').toLowerCase() ?? '';
-}
-
-function normalizeComparablePath(value: string | undefined) {
-  return value?.replace(/^~(?=\/)/, '').replace(/\/+$/, '').toLowerCase() ?? '';
-}
-
 function tabNeedsRepository(tab: ProjectDetailTab) {
   return (
     tab === 'issues' ||
@@ -186,23 +170,18 @@ export interface ProjectMainPanelProps {
   computeInventory?: ProjectCliComputeInventory;
   computeInventoryError: string;
   computeInventoryStatus: 'error' | 'loading' | 'ready' | 'refreshing';
-  connectorOverview: ConnectorOverviewResult;
   codexController: CodexSessionsController;
   codexMachineIds: string[];
   githubCatalog: GitHubCatalogResult;
   hasBottomTabBar?: boolean;
   historyFocus?: GitHistoryFocus;
-  isConnectorRefreshing: boolean;
   isGitHubRefreshing: boolean;
   launcherApps: LauncherAppRecord[];
   launcherError: string;
-  machineTab: MachineDetailTab;
   mainView: ProjectMainView;
   onCreateProject(): void;
   onOpenChat(): void;
   onOpenCodex(target?: CodexSessionTarget): void;
-  onOpenMachine(machineId: string, tab?: MachineDetailTab): void;
-  onOpenMachines(): void;
   onOpenProjects(): void;
   onOpenProjectChat(projectId: string): void;
   onOpenProjectIssue(issueNumber: number, projectIdOverride?: string): void;
@@ -212,13 +191,10 @@ export interface ProjectMainPanelProps {
   onOpenRoot(): void;
   onOpenSelectedTarget(): void;
   onRefreshProjectDiscovery(): Promise<unknown>;
-  onRefreshConnectorOverview(): Promise<ConnectorOverviewResult>;
   onRefreshComputeInventory(): Promise<unknown>;
   onRefreshGitHubCatalog(forceRefresh?: boolean): Promise<GitHubCatalogResult>;
   onRefreshProjectWorktrees(): Promise<ProjectWorktreeRecord[]>;
   onSelectLauncherApp(appId: string): void;
-  onSelectMachineContext(machineId: string): void;
-  onSelectMachineTab(tab: MachineDetailTab): void;
   onSelectProject(projectId: string): void;
   onSelectProjectTab(tab: ProjectDetailTab): void;
   onSelectWorkspace(): void;
@@ -233,8 +209,6 @@ export interface ProjectMainPanelProps {
   selectedExplorerTarget: ExplorerTarget;
   selectedIssueNumber?: number;
   selectedWorkflowRunId?: number;
-  selectedMachine?: MachineRecord;
-  selectedMachineId: string;
   selectedTargetPath: string;
   settingsSection: SettingsSection;
   structureViolations: ProjectStructureViolationRecord[];
@@ -249,23 +223,18 @@ export function ProjectMainPanel({
   computeInventory,
   computeInventoryError,
   computeInventoryStatus,
-  connectorOverview,
   codexController,
   codexMachineIds,
   githubCatalog,
   hasBottomTabBar = false,
   historyFocus,
-  isConnectorRefreshing,
   isGitHubRefreshing,
   launcherApps,
   launcherError,
-  machineTab,
   mainView,
   onCreateProject,
   onOpenChat,
   onOpenCodex,
-  onOpenMachine,
-  onOpenMachines,
   onOpenProjects,
   onOpenProjectChat,
   onOpenProjectHistory,
@@ -275,13 +244,10 @@ export function ProjectMainPanel({
   onOpenRoot,
   onOpenSelectedTarget,
   onRefreshProjectDiscovery,
-  onRefreshConnectorOverview,
   onRefreshComputeInventory,
   onRefreshGitHubCatalog,
   onRefreshProjectWorktrees,
   onSelectLauncherApp,
-  onSelectMachineContext,
-  onSelectMachineTab,
   onSelectProject,
   onSelectProjectTab,
   onSelectWorkspace,
@@ -296,8 +262,6 @@ export function ProjectMainPanel({
   selectedExplorerTarget,
   selectedIssueNumber,
   selectedWorkflowRunId,
-  selectedMachine,
-  selectedMachineId,
   selectedTargetPath,
   settingsSection,
   structureViolations,
@@ -353,34 +317,6 @@ export function ProjectMainPanel({
     selectedRepository
   ]);
 
-  function openProjectWorktreeBranch(machineId: string, branchName: string, path?: string) {
-    onSelectMachineContext(machineId);
-
-    const branchKey = normalizeBranchKey(branchName);
-    const pathKey = normalizeComparablePath(path);
-    const projectBranchKey = normalizeBranchKey(project?.gitStatus?.branchName);
-    const projectPathKey = normalizeComparablePath(project?.rootPath);
-    const matchingWorktree = worktrees.find((worktree) => {
-      if (pathKey && normalizeComparablePath(worktree.path) === pathKey) {
-        return true;
-      }
-
-      return normalizeBranchKey(worktree.branchName || worktree.name) === branchKey;
-    });
-
-    if (
-      matchingWorktree &&
-      !matchingWorktree.isBase &&
-      normalizeComparablePath(matchingWorktree.path) !== projectPathKey
-    ) {
-      onSelectWorktree(matchingWorktree.id);
-    } else if (!branchKey || branchKey === 'main' || branchKey === projectBranchKey || pathKey === projectPathKey) {
-      onSelectWorkspace();
-    }
-
-    onSelectProjectTab('workspaces');
-  }
-
   const projectSwitcherEntries = useMemo<SwitcherEntry[]>(() => {
     return projects
       .filter(isVisibleProject)
@@ -392,20 +328,6 @@ export function ProjectMainPanel({
       .sort((left, right) => left.label.localeCompare(right.label));
   }, [projects]);
 
-  const machineSwitcherEntries = useMemo<SwitcherEntry[]>(() => {
-    return connectorOverview.machines.map((connector) => {
-      const location = connectorLocationPresentation({
-        connector,
-        physicalMachines: connectorOverview.physicalMachines ?? []
-      });
-      return {
-        id: connector.id,
-        label: location.machineName,
-        sublabel: location.statusLabel
-      };
-    });
-  }, [connectorOverview.machines, connectorOverview.physicalMachines]);
-
   const handleBack = useCallback(() => {
     if (mainView === 'project') {
       onOpenProjects();
@@ -416,7 +338,6 @@ export function ProjectMainPanel({
   }, [mainView, onOpenProjects, onOpenRoot]);
 
   const homeSegment: BreadcrumbSegment = { label: 'Home', onPress: onOpenRoot };
-  const selectedMachineEntry = machineSwitcherEntries.find((entry) => entry.id === selectedMachineId);
 
   let segments: BreadcrumbSegment[] = [{ label: 'Home' }];
   let switcher: React.ReactNode;
@@ -438,13 +359,6 @@ export function ProjectMainPanel({
           entries={projectSwitcherEntries}
           selectedId={project?.id ?? ''}
           onSelect={onSelectProject}
-        />
-        <EntitySwitcher
-          ariaLabel="Switch machine context"
-          currentLabel={selectedMachineEntry?.label ?? selectedMachine?.name ?? (selectedMachineId || 'Machine')}
-          entries={machineSwitcherEntries}
-          selectedId={selectedMachineId}
-          onSelect={onSelectMachineContext}
         />
       </div>
     );
@@ -492,13 +406,10 @@ export function ProjectMainPanel({
         )}
       >
         <CodexSessionsControllerPage
-          connectorOverview={connectorOverview}
           controller={codexController}
-          isConnectorRefreshing={isConnectorRefreshing}
           machineIds={codexMachineIds}
           onBackFromThread={() => onOpenCodex()}
           onOpenThread={onOpenCodex}
-          onManageConnector={(machineId) => onOpenMachine(machineId)}
           selectedOrigin={selectedCodexOrigin}
         />
       </Surface>
@@ -534,14 +445,9 @@ export function ProjectMainPanel({
       >
         {mainView === 'projects' ? (
           <ProjectHomeOverview
-            connector={connectorOverview}
             githubCatalog={githubCatalog}
-            isConnectorRefreshing={isConnectorRefreshing}
             isGitHubRefreshing={isGitHubRefreshing}
-            mode="projects"
-            onRefreshConnector={onRefreshConnectorOverview}
             onRefreshGitHubCatalog={onRefreshGitHubCatalog}
-            onSelectMachine={onOpenMachine}
             projects={projects}
             onSelectProject={onSelectProject}
             recentProjectIds={recentProjectIds}
@@ -575,7 +481,6 @@ export function ProjectMainPanel({
                 syncRoute={false}
                 threadDirectory={(
                   <CodexThreadDirectory
-                    connectorOverview={connectorOverview}
                     controller={codexController}
                     machineIds={codexMachineIds}
                     onOpenProject={onSelectProject}
@@ -586,12 +491,9 @@ export function ProjectMainPanel({
                 taskTitles={projectCodexTaskTitles}
                 taskPreview={(
                   <ProjectCodexTasks
-                    connectorOverview={connectorOverview}
                     controller={codexController}
-                    isConnectorRefreshing={isConnectorRefreshing}
                     machineIds={codexMachineIds}
                     mode="preview"
-                    onManageConnector={(machineId) => onOpenMachine(machineId)}
                     onOpenTask={onOpenCodex}
                     projectRecords={projectCodexRecords}
                   />
@@ -600,28 +502,21 @@ export function ProjectMainPanel({
             )}
             codex={(
               <ProjectCodexTasks
-                connectorOverview={connectorOverview}
                 controller={codexController}
-                isConnectorRefreshing={isConnectorRefreshing}
                 machineIds={codexMachineIds}
                 mode="panel"
-                onManageConnector={(machineId) => onOpenMachine(machineId)}
                 onOpenTask={onOpenCodex}
                 projectRecords={projectCodexRecords}
               />
             )}
-            connectorOverview={connectorOverview}
             historyFocus={historyFocus}
             launcherError={launcherError}
-            onOpenMachine={onOpenMachine}
-            onOpenWorktreeBranch={openProjectWorktreeBranch}
             onOpenIssue={onOpenProjectIssue}
             onOpenHistory={onOpenProjectHistory}
             onOpenWorkflowRun={onOpenProjectWorkflowRun}
             onCloseWorkflowRun={onCloseProjectWorkflowRun}
             onRefreshWorktrees={onRefreshProjectWorktrees}
             onSelectTab={onSelectProjectTab}
-            onSelectMachine={onSelectMachineContext}
             onSelectWorkspace={onSelectWorkspace}
             onSelectWorktree={onSelectWorktree}
             project={project}
@@ -632,7 +527,6 @@ export function ProjectMainPanel({
             selectedWorkflowRunId={selectedWorkflowRunId}
             selectedRepository={selectedRepository}
             selectedTargetPath={selectedTargetPath}
-            selectedMachineId={selectedMachineId}
             showNavigationTabs={!useWorkspaceChrome}
             tab={projectTab}
             worktreeDiscovery={worktreeDiscovery}
