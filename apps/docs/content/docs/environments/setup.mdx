@@ -1,0 +1,76 @@
+---
+title: Bootstrap an environment
+description: Start a project runtime in the environment and workspace Project Space detects for you.
+---
+
+## Start here
+
+Run this from the project workspace you want to use:
+
+```sh
+project environment bootstrap
+```
+
+Project reads the current workspace and its available environment bindings, then selects the
+matching Environment Instance and runtime values for you. The command returns the pinned Workspace
+Runtime that it started. Workspace identity, branch, commit, runtime version, launch mode, and the
+resolved manifest are taken from the managed worktree. Project creates the generation identity.
+
+If Project finds more than one valid environment, it stops and asks you to choose one explicitly:
+
+```sh
+project environment bootstrap <environment>
+```
+
+Use the Environment Instance reference shown by `project environment instance list` for `<environment>`.
+
+To bootstrap a managed worktree other than the current directory, pass it explicitly:
+
+```sh
+project environment bootstrap --directory ../another-managed-worktree
+```
+
+## What happens during bootstrap
+
+The bootstrap flow keeps the launch bound to the project you are working in:
+
+1. Project resolves the current Workspace and available Environment Instance.
+2. It pins the Workspace commit and the approved Project Runtime manifest.
+3. It starts the requested Workspace Runtime with a new generation identity.
+4. It checks the returned Workspace, Environment, generation, and manifest bindings before reporting success.
+
+The runtime is scoped to this launch. Setup does not install or start a background machine service.
+
+## See the available environments
+
+Use this when the automatic choice is ambiguous or when you want to inspect the available
+Environment Instances before bootstrapping:
+
+```sh
+project environment instance list
+```
+
+The list shows the references that can be passed to the explicit form of the bootstrap command.
+
+## Advanced overrides
+
+Automatic values are the recommended path. Use explicit overrides only when reproducing a known
+runtime, integrating another tool, or diagnosing a failed launch.
+
+```sh
+project environment bootstrap <environment> \
+  --workspace <workspace-id> \
+  --branch <branch> \
+  --commit <commit-sha> \
+  --generation <generation-id> \
+  --manifest-digest <sha256> \
+  --runtime-version <version> \
+  --format json
+```
+
+The workspace, branch, commit, generation, manifest digest, and runtime version must describe one
+consistent launch. When auto-detection fills any missing value, explicit values must match what it
+detects. The target checks the complete binding again before it starts anything. `--format json` is
+useful when another tool needs to consume the result.
+
+For a full command reference, see the [environment commands in the CLI reference](/docs/cli#environment).

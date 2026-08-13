@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { BookOpenText, LogOut, RefreshCw } from 'lucide-react';
 import { Link } from '@heroui/react';
 import { Button, Text } from '@/app/dotnaos-ui';
@@ -8,9 +8,7 @@ import type {
   AppMeta,
   ConnectorOverviewResult,
   GitHubCatalogResult,
-  GitHubOAuthDeviceStartResult,
-  PhysicalMachineRecord,
-  PhysicalMachineSaveRequest
+  GitHubOAuthDeviceStartResult
 } from '@/shared/project-space-api';
 import { GitHubConnectPanel } from './github-connect-panel';
 import type { SettingsSection } from '../hooks/project-desktop-routing';
@@ -79,43 +77,6 @@ export function SettingsView({
   const runtime = useRuntimeBinding();
   const [githubFlow, setGitHubFlow] = useState<GitHubOAuthDeviceStartResult>();
   const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
-  const [physicalMachines, setPhysicalMachines] = useState<PhysicalMachineRecord[]>([]);
-  const [physicalMachinesStatus, setPhysicalMachinesStatus] = useState<
-    'error' | 'loading' | 'ready' | 'refreshing'
-  >('loading');
-  const [physicalMachinesError, setPhysicalMachinesError] = useState('');
-  const hasPhysicalMachinesSnapshot = useRef(false);
-
-  async function refreshPhysicalMachines() {
-    setPhysicalMachinesStatus(hasPhysicalMachinesSnapshot.current ? 'refreshing' : 'loading');
-    setPhysicalMachinesError('');
-    try {
-      const result = await projectSpaceClient.listPhysicalMachines();
-      setPhysicalMachines(result.machines);
-      hasPhysicalMachinesSnapshot.current = true;
-      setPhysicalMachinesStatus('ready');
-      return result.machines;
-    } catch (error) {
-      setPhysicalMachinesStatus(hasPhysicalMachinesSnapshot.current ? 'ready' : 'error');
-      setPhysicalMachinesError(
-        error instanceof Error ? error.message : 'Could not load machine groups.'
-      );
-      throw error;
-    }
-  }
-
-  async function refreshMachineAdministration() {
-    await Promise.all([refreshPhysicalMachines(), onRefreshConnectorOverview()]);
-  }
-
-  useEffect(() => {
-    void refreshPhysicalMachines().catch(() => undefined);
-  }, []);
-
-  async function savePhysicalMachine(request: PhysicalMachineSaveRequest) {
-    await projectSpaceClient.savePhysicalMachine(request);
-    await refreshPhysicalMachines();
-  }
 
   async function connectGitHub() {
     setIsConnectingGitHub(true);
@@ -156,13 +117,10 @@ export function SettingsView({
       <MachinesPage
         computeInventory={connectorOverview.computeInventory}
         connectors={connectorOverview.machines}
-        credentials={[]}
         localSimulation={runtime.apis === 'simulated'}
-        loadError={physicalMachinesError}
-        onRefresh={refreshMachineAdministration}
-        onSaveMachine={savePhysicalMachine}
-        physicalMachines={physicalMachines}
-        status={physicalMachinesStatus}
+        loadError=""
+        onRefresh={onRefreshConnectorOverview}
+        status="ready"
         tailscale={connectorOverview.tailscale}
       />
     );

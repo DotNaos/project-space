@@ -53,7 +53,6 @@ const publicOrigin = `http://127.0.0.1:${port}`;
 const databaseClient = await getMachineConnectionDatabaseClient();
 const machineConnectionRuntime = createMachineConnectionRuntime({
   databaseClient,
-  isMachineOnline: () => false,
   publicOrigin,
   rateLimitSecret: randomBytes(32),
   async readAuthenticatedUserId() {

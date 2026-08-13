@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import type { PrototypeReviewLocalContext } from '../src/shared/prototype-review-local-api';
 import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 import { CodexDesktopIpcClient } from './codex-sessions/desktop-ipc-client';
-import { CodexSessionsConnectorExecutor } from './codex-sessions/connector-executor';
+import { CodexSessionsExecutor } from './codex-sessions/executor';
 import { LocalReviewCodexSessionManager } from './codex-sessions/local-review-manager';
 import { CodexSessionManager } from './codex-sessions/manager';
 import { MemoryCodexSessionsStore } from './codex-sessions/memory-store';
@@ -130,7 +130,7 @@ export async function createPrototypeReviewLocalRuntime(options: {
   const desktopIpc = new CodexDesktopIpcClient({
     codexHome: environment.CODEX_HOME
   });
-  const executor = new CodexSessionsConnectorExecutor({
+  const executor = new CodexSessionsExecutor({
     expectedGeneration: 1,
     expectedMachineId: machineId,
     machineName,
@@ -178,7 +178,6 @@ export async function createPrototypeReviewLocalRuntime(options: {
       }
       return { turnId: input.expectedTurnId };
     },
-    verificationKey: randomBytes(32)
   });
   const directTransport = executor.createLocalTransport(
     threadId ?? '__missing_local_thread__',

@@ -173,7 +173,7 @@ jobs:
           [[ $RELEASE_SOURCE_SHA =~ ^[0-9a-f]{40}$ ]]
           [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           expected_runtime_name="project-space-macos-runtime-v${RELEASE_VERSION}-${RELEASE_SOURCE_SHA}"
-          expected_trust_name="connector-runtime-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RELEASE_SOURCE_SHA}"
+          expected_trust_name="project-space-release-trust-roots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RELEASE_SOURCE_SHA}"
           [[ $RUNTIME_ARTIFACT_NAME == "$expected_runtime_name" ]]
           [[ $TRUST_ARTIFACT_NAME == "$expected_trust_name" ]]
 

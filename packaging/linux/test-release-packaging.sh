@@ -86,10 +86,10 @@ write_project_fixture "$temporary_root/source/project" 'project fixture v1'
 cat > "$temporary_root/source/project-codex-host" <<EOF
 #!/bin/sh
 if [ "\${1:-}" = --version ]; then
-  printf 'project-codex-host %s\n' "\${PROJECT_FIXTURE_CONNECTOR_VERSION:-$version}"
+  printf 'project-codex-host %s\n' "\${PROJECT_FIXTURE_CODEX_HOST_VERSION:-$version}"
   exit 0
 fi
-printf 'connector fixture\n'
+printf 'codex host fixture\n'
 EOF
 chmod 0755 "$temporary_root/source/project" "$temporary_root/source/project-codex-host"
 write_codex_fixture "$temporary_root/source"
@@ -129,7 +129,7 @@ ln -s '.project-space-machine-tools/current/project-space-connector' \
 PROJECT_FIXTURE_SERVICE_LOG="$service_log" \
   "$bundle_root/install.sh" --install-dir "$install_root" >/dev/null
 [[ $($install_root/project) == 'project fixture v1' ]]
-[[ $($install_root/project-codex-host) == 'connector fixture' ]]
+[[ $($install_root/project-codex-host) == 'codex host fixture' ]]
 [[ $(stat -c '%a' "$install_root") == 700 ]]
 [[ $(stat -Lc '%a' "$install_root/project") == 755 ]]
 [[ $(stat -Lc '%a' "$install_root/project-codex-host") == 755 ]]
@@ -170,7 +170,7 @@ missing_link_root="$temporary_root/missing-link-installed"
 missing_link_current=$(readlink "$missing_link_root/.project-space-machine-tools/current")
 rm -f -- "$missing_link_root/project"
 set +e
-PROJECT_FIXTURE_CONNECTOR_VERSION=0.4.7 \
+PROJECT_FIXTURE_CODEX_HOST_VERSION=0.4.7 \
   "$upgrade_bundle/install.sh" --install-dir "$missing_link_root" >/dev/null 2>&1
 missing_link_failure_status=$?
 set -e
@@ -193,7 +193,7 @@ second_current=$(readlink "$install_root/.project-space-machine-tools/current")
 # restores the previous current pointer without restarting the retired service.
 version_failure_log="$temporary_root/version-failure.log"
 set +e
-PROJECT_FIXTURE_CONNECTOR_VERSION=0.4.7 \
+PROJECT_FIXTURE_CODEX_HOST_VERSION=0.4.7 \
   "$upgrade_bundle/install.sh" --install-dir "$install_root" \
   >/dev/null 2>"$version_failure_log"
 version_failure_status=$?

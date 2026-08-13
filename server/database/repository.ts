@@ -1,14 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import type { DatabaseQueryClient } from './client';
-import {
-  ConnectorCredentialRepository,
-  type ConnectorCredentialRepositoryOptions
-} from './connector-credentials';
 import type {
-  AuthenticateConnectorCredentialInput,
   CreateDevServerSessionInput,
-  CreateConnectorCredentialInput,
   DevServerSession,
   DevServerSessionKey,
   DevServerSessionListFilter,
@@ -20,7 +14,6 @@ import type {
   PhysicalMachineKey,
   ProjectRunSettings,
   ProjectRunSettingsKey,
-  RevokeConnectorCredentialInput,
   SavePhysicalMachineInput,
   SaveMachineExecutionScopeInput,
   TransitionDevServerSessionInput,
@@ -247,34 +240,10 @@ function mapSession(row: DevServerSessionRow): DevServerSession {
 }
 
 export class ProjectSpaceDatabaseRepository {
-  private readonly connectorCredentials: ConnectorCredentialRepository;
-
   constructor(
     private readonly client: DatabaseQueryClient,
-    private readonly createId: () => string = randomUUID,
-    connectorCredentialOptions: Omit<ConnectorCredentialRepositoryOptions, 'createId'> = {}
-  ) {
-    this.connectorCredentials = new ConnectorCredentialRepository(client, {
-      ...connectorCredentialOptions,
-      createId
-    });
-  }
-
-  async createConnectorCredential(input: CreateConnectorCredentialInput) {
-    return this.connectorCredentials.create(input);
-  }
-
-  async authenticateConnectorCredential(input: AuthenticateConnectorCredentialInput) {
-    return this.connectorCredentials.authenticate(input);
-  }
-
-  async listConnectorCredentials(userId: string) {
-    return this.connectorCredentials.list(userId);
-  }
-
-  async revokeConnectorCredential(input: RevokeConnectorCredentialInput) {
-    return this.connectorCredentials.revoke(input);
-  }
+    private readonly createId: () => string = randomUUID
+  ) {}
 
   async listComputeInventory(userId: string): Promise<ComputeInventorySnapshot> {
     const ownerUserId = requireValue(userId, 'userId');

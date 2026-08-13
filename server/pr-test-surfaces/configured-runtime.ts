@@ -9,15 +9,10 @@ import type {
   PullRequestTestSurfacesResult
 } from '../../src/shared/pr-preview-test-surfaces-api';
 import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
-import {
-  getRegisteredConnectorMachines,
-  getRegisteredConnectorRegistries
-} from '../connector-hub';
 import { createConfiguredCodexSessionsRuntime } from '../codex-sessions/configured-runtime';
 import {
   getMachineConnectionDatabaseClient,
-  isDatabaseConfigured,
-  listPhysicalMachines
+  isDatabaseConfigured
 } from '../local-database-store';
 import { getPullRequestPreviewStatus } from '../pull-request-preview-status';
 import {
@@ -55,40 +50,9 @@ async function registeredScope(
     'connectorId' | 'machineId' | 'runtime'
   >
 ): Promise<PullRequestDevServerScopeEvidence | null> {
-  if (!isDatabaseConfigured()) return null;
-  const machines = await listPhysicalMachines(actor.userId);
-  const physicalMachine = machines.find((machine) =>
-    machine.id === actor.machineId && machine.connectorIds.includes(actor.connectorId)
-  );
-  if (!physicalMachine) return null;
-  const connector = (await getRegisteredConnectorRegistries()).find(
-    (entry) => entry.registry.connector.machineId === actor.connectorId
-  );
-  if (!connector) return null;
-  const project = connector.registry.discovery.projects.find(
-    (candidate) => candidate.id === registration.projectId
-  );
-  if (
-    !project ||
-    project.github?.fullName?.toLowerCase() !== registration.repositoryFullName.toLowerCase() ||
-    prototypeSurfaceForServer(registration.serverId) !== registration.servedSurface
-  ) {
-    return null;
-  }
-  return {
-    branchName: registration.branchName,
-    checkedAt: new Date().toISOString(),
-    commitSha: registration.commitSha,
-    connectorId: actor.connectorId,
-    machineId: actor.machineId,
-    projectId: registration.projectId,
-    pullRequestNumber: registration.pullRequestNumber,
-    repositoryFullName: registration.repositoryFullName,
-    servedSurface: registration.servedSurface,
-    serverId: registration.serverId,
-    state: 'verified',
-    worktreeId: registration.worktreeId
-  };
+  void actor;
+  void registration;
+  return null;
 }
 
 async function leaseService() {
@@ -303,24 +267,11 @@ function deployedEvidence(
 }
 
 async function currentMachineEvidence(
-  userId: string,
-  machineId: string,
-  connectorId: string
+  _userId: string,
+  _machineId: string,
+  _connectorId: string
 ): Promise<PullRequestMachineEvidence | undefined> {
-  const [machines, physicalMachines] = await Promise.all([
-    getRegisteredConnectorMachines(),
-    isDatabaseConfigured() ? listPhysicalMachines(userId) : Promise.resolve([])
-  ]);
-  if (!physicalMachines.some((machine) =>
-    machine.id === machineId && machine.connectorIds.includes(connectorId)
-  )) return undefined;
-  const connector = machines.find((machine) => machine.id === connectorId);
-  return connector ? {
-    checkedAt: connector.connector.lastSeen ?? new Date().toISOString(),
-    connectorId,
-    machineId,
-    state: connector.connector.status === 'online' ? 'online' : 'offline'
-  } : undefined;
+  return undefined;
 }
 
 async function currentTaskEvidence(

@@ -13,7 +13,7 @@ description: Install Project and get a local project ready.
 | Native Windows | Run the approved per-user installer; `self-update` verifies and points to the next installer |
 | Source checkout | Pull and rebuild from source; the updater never overwrites development binaries |
 
-Managed releases install the Project CLI and connector as one matching pair. They preserve machine identity and credentials when upgraded.
+Managed releases install the Project CLI and its runtime dependencies as one matching bundle. They preserve local project identity and credentials when upgraded.
 
 ## Homebrew
 
@@ -46,7 +46,7 @@ project self-update
 
 Run the approved `project-space-machine-tools-windows-x64-setup.exe` installer as your normal user. Native Windows checks the signed release with `project self-update --check`, then reports the exact verified installer URL instead of replacing the running `project.exe`.
 
-See the repository guides for the full [Linux/WSL installation](https://github.com/DotNaos/project-space/blob/main/docs/linux-installation.md), [Windows installation](https://github.com/DotNaos/project-space/blob/main/docs/windows-installation.md), and [connector lifecycle](https://github.com/DotNaos/project-space/blob/main/docs/connector.md).
+See the repository guides for the full [Linux/WSL installation](https://github.com/DotNaos/project-space/blob/main/docs/linux-installation.md), [Windows installation](https://github.com/DotNaos/project-space/blob/main/docs/windows-installation.md), and [compute environment model](https://github.com/DotNaos/project-space/blob/main/docs/compute-environments.md).
 
 ## First Project
 
@@ -61,4 +61,4 @@ For an existing directory:
 project init
 ```
 
-Continue with the generated [CLI reference](/docs/cli) or the focused [self-update guide](/docs/cli/self-update).
+Continue by [bootstrapping the current Workspace in an Environment](/docs/environments/setup), or use the generated [CLI reference](/docs/cli) and focused [self-update guide](/docs/cli/self-update).

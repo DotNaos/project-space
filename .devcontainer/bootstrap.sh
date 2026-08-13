@@ -43,14 +43,12 @@ if [[ "${current_node_gyp_version}" != "${node_gyp_version}" ]]; then
 fi
 
 current_project_version="$(project --version 2>/dev/null | awk '{print $NF}' || true)"
-current_connector_version="$(project-space-connector --version 2>/dev/null | awk '{print $NF}' || true)"
-anchor_required=1
-if [[ "${current_project_version}" == "${current_connector_version}" &&
-  "${current_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ &&
+release_required=1
+if [[ "${current_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ &&
   "$(printf '%s\n%s\n' "${project_version}" "${current_project_version}" | sort -V | head -n 1)" == "${project_version}" ]]; then
-  anchor_required=0
+  release_required=0
 fi
-if [[ ${anchor_required} -eq 1 ]]; then
+if [[ ${release_required} -eq 1 ]]; then
   temporary_root="$(mktemp -d)"
   archive_path="${temporary_root}/${archive}"
   curl --fail --location --proto '=https' --tlsv1.2 \
@@ -62,7 +60,7 @@ if [[ ${anchor_required} -eq 1 ]]; then
   bundle_root="${temporary_root}/project-space-machine-tools-linux-x64-v${project_version}"
   install -m 0700 -- "${repository_root}/packaging/linux/install-machine-tools.sh" \
     "${bundle_root}/install-codespace.sh"
-  "${bundle_root}/install-codespace.sh" --external-connector-supervisor
+  "${bundle_root}/install-codespace.sh"
 fi
 
 if ! project self-update --yes --format json; then

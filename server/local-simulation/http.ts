@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RuntimeBindingEvidence } from '../runtime-binding';
 import { readJson, writeJson } from '../project-space-http-response';
+import { legacyConnectorRetirement } from '../legacy-connector-retirement';
 import { localSimulationAvatarUrl, localSimulationIdentity } from './seed';
 import { handleLocalSimulationGitHubMutation } from './github-http';
 import { LocalSimulationStore } from './store';
@@ -100,8 +101,11 @@ export function createLocalSimulationRequestHandler(options: {
       writeJson(response, 200, connectorOverview(state, options.repositoryRoot));
       return;
     }
-    if (method === 'GET' && url.pathname === '/api/connectors/credentials') {
-      writeJson(response, 200, { credentials: [] });
+    if (
+      url.pathname === '/api/connectors/credentials' ||
+      url.pathname === '/api/connectors/project-registry'
+    ) {
+      writeJson(response, 410, legacyConnectorRetirement);
       return;
     }
     if (method === 'GET' && url.pathname === '/api/physical-machines') {

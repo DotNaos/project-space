@@ -1,17 +1,9 @@
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
-import {
-  registerLocalConnectorDevServerExecutor,
-  registerLocalConnectorWorktreeActionExecutor,
-  registerLocalWorkspaceCommandExecutor
-} from './connector-command-hub';
 import type { ConnectorDevServerAdapter } from './connector-dev-server-contract';
 import { createLocalDevServerAdapter } from './local-dev-server-adapter';
 import type { ConnectorWorktreeActionAdapter } from './connector-worktree-action-contract';
 import { createLocalWorktreeActionAdapter } from './local-worktree-action-adapter';
-import { createLocalWorkspaceCommandAdapter } from './workspace-command/local-adapter';
 import { runTerminalCommand } from './local-command-runner';
-import { loadConnectorProjectDiscovery } from './connector-discovery';
-import { getRegisteredConnectorDiscovery } from './connector-hub';
 import {
   commitGitChanges,
   getGitDiff,
@@ -50,7 +42,6 @@ import { localMachineName } from './local-machine-identity';
 import {
   discoverLocalProjects,
   localProjectsDiscoveryRoot,
-  mergeProjectDiscoveries,
   readProjectsState,
   writeProjectsState
 } from './local-project-discovery';
@@ -69,25 +60,7 @@ import {
 import { getProjectctlOverview, getProjectctlPreview } from './local-projectctl-client';
 import { backupProject, deployProject, getPlatformOverview } from './local-platform-operations';
 import { readAppMeta } from './app-meta';
-import { connectorRuntimeRecord } from './connector-build-info';
 import { configuredConnectorMachineId } from './project-connector-config';
-import {
-  CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
-  CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY,
-  CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY,
-  CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
-  CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY,
-  CODEX_RUNTIME_CONNECTOR_CAPABILITY,
-  CODEX_SESSIONS_CONNECTOR_CAPABILITY,
-  CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
-  CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
-  CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
-} from './codex-sessions-connector-contract';
-import {
-  CODEX_DAEMON_CONNECTOR_CAPABILITY,
-  type CodexDaemonEvidence
-} from '../src/shared/codex-daemon-api';
-import { CodexDaemonManager } from './codex-daemon/manager';
 import {
   applyProjectStructureAction,
   listProjectTrash,
@@ -167,89 +140,12 @@ export type LocalProjectSpaceBackend = ProjectSpaceBackend &
   ConnectorDevServerAdapter &
   ConnectorWorktreeActionAdapter;
 export { isWebHubMachine };
-const baseConnectorCommandCapabilities = [
-  'filesystem.directory',
-  'filesystem.file',
-  'filesystem.folder.create',
-  'filesystem.folder.delete',
-  'filesystem.folder.rename',
-  'filesystem.root',
-  'dev-server.inspect',
-  'dev-server.list',
-  'dev-server.start',
-  'dev-server.stop',
-  'worktree.materialize',
-  'worktree.setup.inspect',
-  'worktree.setup.run',
-  'workspace.commands.v1',
-  'terminal.run',
-  'runtime.restart',
-  'runtime.stop',
-  'runtime.update',
-  'worktrees.list',
-  'worktrees.list.v2'
-];
-const codexDaemonInspector = new CodexDaemonManager({
-  manager: {
-    executeManagedOperation: async (_operationId, _fingerprint, action) => action()
-  }
-});
-const inspectCodexDaemon = () => codexDaemonInspector.inspect();
-
-async function connectorCommandCapabilities(daemon: CodexDaemonEvidence) {
-  const readiness = daemon.state === 'ready'
-    ? 'ready'
-    : daemon.state === 'authorization-required'
-      ? 'authorization-required'
-      : daemon.installed
-        ? 'runtime-only'
-        : 'missing';
-  return [
-    ...baseConnectorCommandCapabilities,
-    ...(process.platform === 'linux' &&
-      process.env.PROJECT_SPACE_INSTALL_SOURCE === 'managed'
-      ? [CODEX_DAEMON_CONNECTOR_CAPABILITY]
-      : []),
-    ...(readiness !== 'missing' ? [CODEX_RUNTIME_CONNECTOR_CAPABILITY] : []),
-    ...(readiness !== 'missing' ? [CODEX_AUTHORIZATION_CONNECTOR_CAPABILITY] : []),
-    ...(readiness === 'authorization-required'
-      ? [CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY]
-      : []),
-    ...(readiness === 'ready' ? [
-    CODEX_SESSIONS_BROWSER_CONNECTOR_CAPABILITY,
-    CODEX_MACHINE_TASKS_CONNECTOR_CAPABILITY,
-    ...(process.env.PROJECT_CODEX_OPERATION_SNAPSHOT_FILE
-      ? [CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY]
-      : []),
-    CODEX_SESSIONS_CONNECTOR_CAPABILITY,
-    CODEX_SESSIONS_INSPECT_CONNECTOR_CAPABILITY,
-    CODEX_SESSIONS_MODEL_SELECTION_CONNECTOR_CAPABILITY,
-    CODEX_SESSIONS_MODEL_SETTINGS_CONNECTOR_CAPABILITY
-    ] : [])
-  ];
-}
-
 export function createLocalProjectSpaceBackend(
   options: LocalProjectSpaceBackendOptions = {}
 ): LocalProjectSpaceBackend {
   const devServerAdapter = createLocalDevServerAdapter();
   const worktreeActionAdapter = createLocalWorktreeActionAdapter();
-  const workspaceCommandAdapter = createLocalWorkspaceCommandAdapter();
   const loadConnectorOverview = () => loadConnectorOverviewForMachine(options.connectorMachineId);
-  const registeredLocalMachines = new Set<string>();
-
-  function registerLocalDevServer(machineId: string) {
-    if (!registeredLocalMachines.has(machineId)) {
-      registerLocalConnectorDevServerExecutor(machineId, devServerAdapter);
-      registerLocalConnectorWorktreeActionExecutor(machineId, worktreeActionAdapter);
-      registerLocalWorkspaceCommandExecutor(machineId, workspaceCommandAdapter);
-      registeredLocalMachines.add(machineId);
-    }
-  }
-
-  registerLocalDevServer(
-    options.connectorMachineId ?? configuredConnectorMachineId() ?? localMachineName()
-  );
   return {
     ...createLocalProjectMachineBackend(loadConnectorOverview),
     async getAppMeta() {
@@ -285,41 +181,9 @@ export function createLocalProjectSpaceBackend(
       throw new Error('Connector runtime stop has been retired.');
     },
     async getConnectorProjectRegistry() {
-      const [identity, rawDiscovery, daemon] = await Promise.all([
-        localConnectorIdentity(options.connectorMachineId, options.connectorMachineName),
-        discoverLocalProjects(),
-        inspectCodexDaemon()
-      ]);
-      const capabilities = await connectorCommandCapabilities(daemon);
-      const { connector, localMachine, machineId, machineName } = identity;
-      const discovery = scopeDiscoveryToMachine(rawDiscovery, machineId);
-      registerLocalDevServer(machineId);
-
-      return {
-        checkedAt: new Date().toISOString(),
-        connector: {
-          battery: localMachine?.battery,
-          capabilities,
-          compute: localMachine?.compute,
-          daemon,
-          environment: localMachine?.environment,
-          executionScopeId: localMachine?.executionScopeId,
-          kind: process.env.PROJECT_CONNECTOR_MACHINE_KIND ?? localMachine?.kind,
-          machineId,
-          machineName,
-          network: {
-            ...localMachine?.network,
-            localName: process.env.PROJECT_CONNECTOR_SSH_HOST ?? localMachine?.network.localName,
-            sshUser: process.env.PROJECT_CONNECTOR_SSH_USER ?? localMachine?.network.sshUser,
-            tailscaleIp: process.env.PROJECT_CONNECTOR_SSH_HOST ?? localMachine?.network.tailscaleIp
-          },
-          origin: connector.connectorOrigin,
-          primaryUser: process.env.PROJECT_CONNECTOR_SSH_USER ?? localMachine?.primaryUser,
-          runtime: connectorRuntimeRecord(),
-          serviceName: process.env.PROJECT_CONNECTOR_SERVICE_NAME ?? 'project-space-connector'
-        },
-        discovery
-      };
+      throw new Error(
+        'The permanent Project Space Connector has been retired. Use a canonical Environment and Workspace Runtime.'
+      );
     },
     async getDeployedEnvironmentStatus(repositoryFullName) {
       return getDeployedEnvironmentStatus(repositoryFullName);
@@ -394,29 +258,11 @@ export function createLocalProjectSpaceBackend(
       return loadLauncherAppIcon(appId);
     },
     async loadProjectDiscovery() {
-      if (process.env.PROJECT_SPACE_DISCOVERY_SOURCE === 'connector') {
-        const identity = await localConnectorIdentity(
-          options.connectorMachineId,
-          options.connectorMachineName
-        );
-        const discovery = (await loadConnectorProjectDiscovery()) ?? {
-          groups: [],
-          projects: [],
-          rootItems: [],
-          rootPath: 'connector',
-          structureViolations: []
-        };
-        return scopeDiscoveryToMachine(discovery, identity.machineId);
-      }
-
       const [identity, localDiscovery] = await Promise.all([
         localConnectorIdentity(options.connectorMachineId, options.connectorMachineName),
         discoverLocalProjects()
       ]);
-      return mergeProjectDiscoveries(
-        scopeDiscoveryToMachine(localDiscovery, identity.machineId),
-        await getRegisteredConnectorDiscovery()
-      );
+      return scopeDiscoveryToMachine(localDiscovery, identity.machineId);
     },
     async applyProjectStructureAction(request) {
       return applyProjectStructureAction(localProjectsDiscoveryRoot, request);

@@ -33,7 +33,7 @@ func TestProcessProviderPassesRuntimeCredentialOnlyThroughProtectedBootstrap(t *
 			EnvironmentID: "33333333-3333-4333-8333-333333333333", ExpiresAt: time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 			RuntimeVersion: "0.4.66", Capabilities: []string{"runtime.lifecycle", "runtime.heartbeat"},
 			RequestedCapabilities: []string{"runtime.codex.v1", "runtime.control.v1"}, OwnerUserID: "owner",
-			ControllerBinary: "/verified/project-space-connector",
+			ControllerBinary: "/verified/project-codex-host",
 		}, Commit: func(RuntimeHandle) error { return nil },
 	})
 	if err != nil {

@@ -1,6 +1,8 @@
 # Install Project on Windows
 
-Project runs natively on 64-bit Windows 10 and Windows 11. The installer is per-user, does not need administrator access, and installs both `project.exe` and `project-space-connector.exe` in `%LOCALAPPDATA%\Programs\Project Space`.
+Project runs natively on 64-bit Windows 10 and Windows 11. The installer is
+per-user, does not need administrator access, and installs `project.exe` plus
+the pinned Codex host in `%LOCALAPPDATA%\Programs\Project Space`.
 
 ## Distribution policy
 
@@ -18,13 +20,24 @@ Install the approved Windows installer from PowerShell:
 .\project-space-machine-tools-windows-x64-setup.exe /VERYSILENT /NORESTART
 ```
 
-Open a new terminal after the first installation so it sees the updated user `PATH`. Then connect the machine:
+Open a new terminal after the first installation so it sees the updated user
+`PATH`. Register the machine once. This stores an owner-bound Machine
+Credential but does not start a background process or Scheduled Task:
 
 ```powershell
 project connect
 ```
 
-`project connect` opens the Project Space approval page in the browser. The installer does not include a login, token, or machine credential. After approval, Project stores the complete machine identity in a current-user DPAPI-protected file under LocalAppData and keeps the connector running through a per-user Scheduled Task. The state remains encrypted at rest and works from both normal PowerShell and Windows OpenSSH sessions.
+Then inspect the selected WSL Environment and launch its Runtime from inside
+that distribution:
+
+```powershell
+wsl.exe --list --quiet
+```
+
+The permanent Connector is retired. Environment selection and Runtime launch
+are scoped to the selected WSL distribution; they do not install or start a
+Windows Scheduled Task, service, or background Connector.
 
 Useful checks are:
 
@@ -35,7 +48,10 @@ project doctor
 
 ## Native Windows and WSL boundary
 
-Installation, machine connection, status, diagnostics, and disconnection work directly in native Windows PowerShell. Project runtime commands still depend on Linux process behavior, so `project run`, `project prepare`, `project serve`, and their status, list, reconcile, and stop commands must run inside the selected Linux distribution on WSL. Use `wsl.exe --list --quiet` to find its exact distribution name.
+Installation and diagnostics work directly in native Windows PowerShell.
+Project Environment and Workspace Runtime commands depend on Linux process
+behavior, so they must run inside the selected Linux distribution on WSL. Use
+`wsl.exe --list --quiet` to find its exact distribution name.
 
 For example:
 
@@ -45,7 +61,10 @@ wsl.exe --distribution <distribution> -- project prepare
 wsl.exe --distribution <distribution> -- project serve
 ```
 
-Replace `<distribution>` with the exact name reported by WSL. The WinGet package does not install WSL or install Project inside an existing WSL distribution. Install the Linux Project CLI separately inside that distribution before using those runtime commands. The native Windows connector and the WSL runtime are independent; installing or stopping one does not silently replace or remove the other.
+Replace `<distribution>` with the exact name reported by WSL. The WinGet
+package does not install WSL or install Project inside an existing WSL
+distribution. Install the Linux Project CLI separately inside that
+distribution before using Environment and Workspace Runtime commands.
 
 ## Upgrade
 
@@ -59,19 +78,14 @@ project self-update --format json
 The command verifies the signed manifest and prints the exact approved
 installer URL, but it does not replace a running `project.exe`. Download that
 installer and run the same installation command again. This explicit boundary
-avoids an unsafe partial replacement of the CLI and connector.
+avoids an unsafe partial replacement of the CLI and Codex host.
 
-The installer stops the existing connector before replacing either executable. It starts the connector again only when a machine credential already exists. The stable installation path means the Scheduled Task continues to point at the same `project.exe` across upgrades.
+The installer preserves the stable CLI path and retains only scoped cleanup for
+known old Connector artifacts. It never starts the retired Connector again.
 
 This release does not install a background updater and is not included in public `winget upgrade --all` results.
 
-## Disconnect or uninstall
-
-Disconnect explicitly when you still want to keep the CLI:
-
-```powershell
-project disconnect
-```
+## Uninstall
 
 Remove the package through Windows Settings, or with:
 
@@ -79,7 +93,11 @@ Remove the package through Windows Settings, or with:
 winget uninstall --id DotNaos.Project --exact
 ```
 
-Uninstall first attempts the normal backend revocation. Whether or not that online step succeeds, it then removes the local Scheduled Task and the complete DPAPI-protected machine identity before deleting the programs. If the computer is offline during uninstall, also remove that machine from Project Space when you are next online so the server-side credential is revoked.
+Uninstall keeps the old-artifact cleanup narrow: it removes known retired
+Connector tasks and files without invoking the old executable or deleting
+unrelated user-owned files. If the computer is offline, retry the same scoped
+uninstall or upgrade cleanup when it is available; do not recreate the retired
+service manually.
 
 ## Validate or install an operator release with WinGet
 

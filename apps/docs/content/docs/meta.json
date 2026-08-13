@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "setup",
+    "environments",
     "cli",
     "api",
     "project-mcp",

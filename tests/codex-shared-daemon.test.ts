@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
-import { generateKeyPairSync } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,11 +18,6 @@ import {
   CodexWebSocketTransport,
   codexAppServerSocketPath
 } from '../server/codex-sessions/websocket-transport';
-import {
-  CodexSessionsGrantReplayProtection,
-  createCodexSessionsWireRequest,
-  verifyCodexSessionsWireRequest
-} from '../server/codex-sessions-connector-contract';
 
 const cleanupPaths: string[] = [];
 const unixSocketFixtureRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
@@ -382,39 +376,6 @@ describe('managed shared Codex daemon', () => {
     await fixture.close();
   });
 
-  test('binds daemon repair to a signed generation, machine, payload, and one-time grant', () => {
-    const keys = generateKeyPairSync('ed25519');
-    const request = createCodexSessionsWireRequest({
-      generation: 7,
-      operation: 'daemon',
-      operationId: 'doctor-signed-ensure',
-      payload: {
-        machineId: 'remote-control:env_os_pc',
-        operation: 'ensure',
-        operationId: 'doctor-signed-ensure'
-      },
-      userId: 'owner'
-    }, keys.privateKey, { nonce: 'signed-daemon-nonce', now: 1_000 });
-    const replay = new CodexSessionsGrantReplayProtection();
-
-    expect(verifyCodexSessionsWireRequest(request, 'daemon', keys.publicKey, {
-      expectedGeneration: 7,
-      expectedMachineId: 'remote-control:env_os_pc',
-      now: 1_001,
-      replayProtection: replay
-    })).toEqual({ userId: 'owner' });
-    expect(() => verifyCodexSessionsWireRequest(request, 'daemon', keys.publicKey, {
-      expectedGeneration: 7,
-      expectedMachineId: 'remote-control:env_os_pc',
-      now: 1_001,
-      replayProtection: replay
-    })).toThrow();
-    expect(() => verifyCodexSessionsWireRequest(request, 'daemon', keys.publicKey, {
-      expectedGeneration: 8,
-      expectedMachineId: 'remote-control:env_os_pc',
-      now: 1_001
-    })).toThrow();
-  });
 });
 
 async function daemonFixture(options: {

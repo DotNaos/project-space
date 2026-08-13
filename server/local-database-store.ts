@@ -7,18 +7,14 @@ import { runDatabaseMigrations } from './database/migrations';
 import type { TransactionalDatabaseQueryClient } from './machine-connection-database-store';
 import { PostgresProjectChatRepository } from './project-chat/postgres-store';
 import { PostgresRoadmapPlanStore, type RoadmapPlanStore } from './roadmap/roadmap-store';
-import { ConnectorMachineSnapshotStore } from './connector-machine-snapshot-store';
 import type {
-  AuthenticateConnectorCredentialInput,
   CreateDevServerSessionInput,
-  CreateConnectorCredentialInput,
   DevServerSessionKey,
   DevServerSessionListFilter,
   MachineMembershipKey,
   MachineExecutionScopeKey,
   PhysicalMachineKey,
   ProjectRunSettingsKey,
-  RevokeConnectorCredentialInput,
   SavePhysicalMachineInput,
   SaveMachineExecutionScopeInput,
   TransitionDevServerSessionInput,
@@ -29,11 +25,7 @@ import { ProjectSpaceDatabaseRepository } from './database/repository';
 import { PostgresPrivateNetworkStore, type PrivateNetworkStore } from './private-network/store';
 
 export type {
-  AuthenticateConnectorCredentialInput,
-  AuthenticatedConnectorCredential,
   CreateDevServerSessionInput,
-  CreateConnectorCredentialInput,
-  CreatedConnectorCredential,
   DevServerSession,
   DevServerSessionKey,
   DevServerSessionListFilter,
@@ -44,11 +36,9 @@ export type {
   MachineMembershipRole,
   ProjectRunSettings,
   ProjectRunSettingsKey,
-  RevokeConnectorCredentialInput,
   PhysicalMachineKey,
   SavePhysicalMachineInput,
   SaveMachineExecutionScopeInput,
-  StoredConnectorCredential,
   TransitionDevServerSessionInput,
   UpsertUserProjectsStateInput,
   UpsertProjectRunSettingsInput
@@ -75,7 +65,6 @@ interface GitHubOAuthTokenRow {
 let pool: pg.Pool | null = null;
 let repository: ProjectSpaceDatabaseRepository | null = null;
 let projectChatRepository: PostgresProjectChatRepository | null = null;
-let connectorMachineSnapshotStore: ConnectorMachineSnapshotStore | null = null;
 let roadmapPlanStore: RoadmapPlanStore | null = null;
 let privateNetworkStore: PrivateNetworkStore | null = null;
 let schemaReady: Promise<void> | null = null;
@@ -146,7 +135,6 @@ function encryptionKey() {
   const source =
     process.env.PROJECT_SPACE_TOKEN_ENCRYPTION_KEY ??
     process.env.CLERK_SECRET_KEY ??
-    process.env.PROJECT_CONNECTOR_REGISTRATION_TOKEN ??
     databaseUrl();
 
   return createHash('sha256').update(source).digest();
@@ -265,18 +253,6 @@ export async function getPrivateNetworkStore() {
   await ensureDatabaseSchema();
   privateNetworkStore ??= new PostgresPrivateNetworkStore(createPoolQueryClient(databasePool));
   return privateNetworkStore;
-}
-
-export async function getConnectorMachineSnapshotStore() {
-  const databasePool = getPool();
-  if (!databasePool) {
-    return null;
-  }
-  await ensureDatabaseSchema();
-  connectorMachineSnapshotStore ??= new ConnectorMachineSnapshotStore(
-    createPoolQueryClient(databasePool)
-  );
-  return connectorMachineSnapshotStore;
 }
 
 export async function readGitHubOAuthToken(
@@ -411,24 +387,6 @@ export async function transitionDevServerSession(input: TransitionDevServerSessi
 
 export async function deleteDevServerSession(input: DevServerSessionKey) {
   return (await getDatabaseRepository()).deleteDevServerSession(input);
-}
-
-export async function createConnectorCredential(input: CreateConnectorCredentialInput) {
-  return (await getDatabaseRepository()).createConnectorCredential(input);
-}
-
-export async function authenticateConnectorCredential(
-  input: AuthenticateConnectorCredentialInput
-) {
-  return (await getDatabaseRepository()).authenticateConnectorCredential(input);
-}
-
-export async function listConnectorCredentials(userId: string) {
-  return (await getDatabaseRepository()).listConnectorCredentials(userId);
-}
-
-export async function revokeConnectorCredential(input: RevokeConnectorCredentialInput) {
-  return (await getDatabaseRepository()).revokeConnectorCredential(input);
 }
 
 export async function listComputeInventory(userId: string) {

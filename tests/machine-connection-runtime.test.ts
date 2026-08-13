@@ -62,7 +62,6 @@ function runtimeOptions(databaseClient: MaintenanceDatabase) {
   return {
     cleanupIntervalMs: 5_000,
     databaseClient,
-    isMachineOnline: () => false,
     publicOrigin: 'https://projects.os-home.net',
     rateLimitSecret: Buffer.alloc(32, 8),
     readAuthenticatedUserId: async () => null

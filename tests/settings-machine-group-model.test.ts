@@ -1,13 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  ConnectorCredentialRecord,
-  MachineRecord,
-  PhysicalMachineRecord
-} from '../src/shared/project-space-api';
-import {
-  groupSettingsMachines,
-  safeConnectorOrigin
-} from '../src/features/project-desktop/components/settings-machine-group-model';
+import type { MachineRecord } from '../src/shared/project-space-api';
+import { settingsConnectorInstances } from '../src/features/project-desktop/components/settings-machine-group-model';
 
 function machine({
   channel = 'stable',
@@ -50,143 +43,45 @@ function machine({
   };
 }
 
-function physicalMachine(id: string, connectorIds: string[]): PhysicalMachineRecord {
-  return { connectorIds, id, name: id };
-}
+describe('settings connector instance model', () => {
+  test('keeps canonical machine instances ordered by channel and connectivity', () => {
+    const instances = settingsConnectorInstances([
+      machine({ channel: 'dev', id: 'dev-offline', status: 'offline' }),
+      machine({ channel: 'stable', id: 'stable-online' }),
+      machine({ channel: 'dev', id: 'dev-online' })
+    ]);
 
-function credential(
-  id: string,
-  machineId: string | undefined,
-  status: ConnectorCredentialRecord['status']
-): ConnectorCredentialRecord {
-  return {
-    createdAt: '2026-07-15T00:00:00.000Z',
-    expiresAt: '2027-07-15T00:00:00.000Z',
-    id,
-    machineId,
-    status
-  };
-}
-
-describe('settings machine grouping model', () => {
-  test('links only safe http origins without embedded credentials', () => {
-    expect(safeConnectorOrigin('https://dev.example.test/path')).toBe('https://dev.example.test/path');
-    expect(safeConnectorOrigin('http://127.0.0.1:5173')).toBe('http://127.0.0.1:5173/');
-    expect(safeConnectorOrigin('https://user:secret@example.test')).toBeUndefined();
-    expect(safeConnectorOrigin('data:text/html,unsafe')).toBeUndefined();
-    expect(safeConnectorOrigin('not a url')).toBeUndefined();
-  });
-
-  test('groups stable and dev connector installations only through one explicit physical machine', () => {
-    const stable = machine({ id: 'stable-id', name: 'same display name' });
-    const dev = machine({
-      channel: 'dev',
-      id: 'dev-id',
-      name: 'totally unrelated display name',
-      platform: 'linux'
-    });
-
-    const result = groupSettingsMachines({
-      connectors: [dev, stable],
-      physicalMachines: [physicalMachine('physical-os-pc', ['stable-id', 'dev-id', 'stable-id'])]
-    });
-
-    expect(result.groups).toHaveLength(1);
-    expect(result.groups[0]).toMatchObject({
-      archivedConnectorCount: 0,
-      connectorCount: 2,
-      id: 'physical-os-pc',
-      connectorIds: ['stable-id', 'dev-id'],
-      onlineConnectorCount: 2,
-      platformLabels: ['Windows', 'Linux']
-    });
-    expect(result.groups[0]?.instances.map(({ channel, id }) => ({
-      channel,
-      id
-    }))).toEqual([
-      { channel: 'stable', id: 'stable-id' },
-      { channel: 'dev', id: 'dev-id' }
+    expect(instances.map(({ channel, id, isOnline }) => ({ channel, id, isOnline }))).toEqual([
+      { channel: 'stable', id: 'stable-online', isOnline: true },
+      { channel: 'dev', id: 'dev-online', isOnline: true },
+      { channel: 'dev', id: 'dev-offline', isOnline: false }
     ]);
   });
 
-  test('never groups matching names and never infers dev from display or runtime text', () => {
-    const nameOnlyDev = machine({ id: 'one', name: 'os-pc-dev' });
-    nameOnlyDev.connector.runtime!.channel = 'dev';
-    nameOnlyDev.connector.runtime!.source = 'source';
-    const matchingName = machine({ id: 'two', name: 'os-pc-dev' });
-
-    const result = groupSettingsMachines({ connectors: [nameOnlyDev, matchingName], physicalMachines: [] });
-
-    expect(result.groups).toEqual([]);
-    expect(result.unscopedInstances.map(({ channel, id }) => ({ channel, id }))).toEqual([
-      { channel: 'stable', id: 'one' },
-      { channel: 'stable', id: 'two' }
+  test('uses typed machine metadata for platform and runtime labels', () => {
+    const local = machine({ id: 'local-mac', platform: 'darwin', status: 'local' });
+    local.connector.runtime = undefined;
+    local.kind = 'darwin';
+    const ubuntu = machine({ id: 'ubuntu', platform: 'linux', status: 'not-installed' });
+    ubuntu.connector.runtime = undefined;
+    ubuntu.kind = 'laptop';
+    ubuntu.os = { family: 'ubuntu' };
+    const [localMac, uninstalledUbuntu] = settingsConnectorInstances([
+      local,
+      ubuntu
     ]);
-  });
 
-  test('uses typed machine metadata and honest fallbacks when runtime details are absent', () => {
-    const localMac = machine({ id: 'local-mac', platform: 'darwin', status: 'local' });
-    localMac.connector.runtime = undefined;
-    localMac.kind = 'darwin';
-    const uninstalledUbuntu = machine({ id: 'ubuntu', platform: 'linux', status: 'not-installed' });
-    uninstalledUbuntu.connector.runtime = undefined;
-    uninstalledUbuntu.kind = 'laptop';
-    uninstalledUbuntu.os = { family: 'ubuntu' };
-
-    const result = groupSettingsMachines({
-      connectors: [localMac, uninstalledUbuntu],
-      physicalMachines: [physicalMachine('local-machines', [localMac.id, uninstalledUbuntu.id])]
+    expect(localMac).toMatchObject({
+      id: 'local-mac',
+      isOnline: true,
+      platformLabel: 'macOS',
+      runtimeLabel: 'Local Project Space connector'
     });
-
-    expect(result.groups[0]?.platformLabels).toEqual(['macOS', 'Ubuntu']);
-    expect(result.groups[0]?.instances.map(({ id, platformLabel, runtimeLabel }) => ({
-      id,
-      platformLabel,
-      runtimeLabel
-    }))).toEqual([
-      { id: 'local-mac', platformLabel: 'macOS', runtimeLabel: 'Local Project Space connector' },
-      { id: 'ubuntu', platformLabel: 'Ubuntu', runtimeLabel: 'Connector not installed' }
-    ]);
-  });
-
-  test('keeps an offline connector primary unless credential evidence proves it historical', () => {
-    const temporarilyOffline = machine({ id: 'offline-current', status: 'offline' });
-    const revokedDuplicate = machine({ id: 'offline-revoked', status: 'offline' });
-
-    const result = groupSettingsMachines({
-      credentials: [
-        credential('credential-current', temporarilyOffline.id, 'active'),
-        credential('credential-old', revokedDuplicate.id, 'revoked')
-      ],
-      connectors: [revokedDuplicate, temporarilyOffline],
-      physicalMachines: [physicalMachine('physical-os-pc', [temporarilyOffline.id, revokedDuplicate.id])]
+    expect(uninstalledUbuntu).toMatchObject({
+      id: 'ubuntu',
+      isOnline: false,
+      platformLabel: 'Ubuntu',
+      runtimeLabel: 'Connector not installed'
     });
-
-    expect(result.groups[0]?.instances.map(({ id }) => id)).toEqual(['offline-current']);
-    expect(result.groups[0]?.archivedInstances.map(({ id }) => id)).toEqual(['offline-revoked']);
-    expect(result.groups[0]).toMatchObject({
-      archivedConnectorCount: 1,
-      connectorCount: 1,
-      onlineConnectorCount: 0
-    });
-  });
-
-  test('fails ambiguous scope membership closed and exposes unmatched credential evidence', () => {
-    const conflicted = machine({ id: 'conflicted' });
-    const result = groupSettingsMachines({
-      credentials: [credential('orphan', 'removed-machine', 'revoked')],
-      connectors: [conflicted],
-      physicalMachines: [
-        physicalMachine('scope-a', [conflicted.id]),
-        physicalMachine('scope-b', [conflicted.id])
-      ]
-    });
-
-    expect(result.groups).toEqual([]);
-    expect(result.unscopedInstances.map(({ id }) => id)).toEqual(['conflicted']);
-    expect(result.scopeConflicts).toEqual([
-      { machineId: 'conflicted', scopeIds: ['scope-a', 'scope-b'] }
-    ]);
-    expect(result.unmatchedCredentials.map(({ id }) => id)).toEqual(['orphan']);
   });
 });

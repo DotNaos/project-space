@@ -142,14 +142,18 @@ describe('Codespaces runner devcontainer', () => {
     }
   });
 
-  test('pins the released connector that retains Codespaces metadata', async () => {
+  test('pins the released Project CLI and Codex runtime', async () => {
     const bootstrap = await readFile('.devcontainer/bootstrap.sh', 'utf8');
+    const verification = await readFile('.devcontainer/verify-runner.sh', 'utf8');
 
     expect(bootstrap).toContain('readonly project_version="0.10.18"');
     expect(bootstrap).toContain(
       'readonly archive_sha256="056469cbff0cc4ed1d16b446a8223915b01abef08501edc00cac3cb53915b1df"'
     );
-    expect(bootstrap).toContain('--external-connector-supervisor');
+    expect(bootstrap).not.toContain('project-space-connector');
+    expect(bootstrap).not.toContain('--external-connector-supervisor');
+    expect(verification).not.toContain('project-space-connector');
+    expect(verification).not.toContain('connector');
     expect(bootstrap).toContain('sort -V');
     expect(bootstrap).toContain('project self-update --yes --format json');
     expect(bootstrap).toContain('continuing with pinned v${project_version}');

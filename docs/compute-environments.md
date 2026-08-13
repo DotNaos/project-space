@@ -11,15 +11,15 @@ Project Space models compute with four different identities:
 Platform
 ├── Host?                              optional
 │   └── Environment
-│       └── Connector installation(s)
+│       └── Workspace Runtime generation(s)
 └── Environment                       provider-managed host is hidden
-    └── Connector installation(s)
+    └── Workspace Runtime generation(s)
 ```
 
 The words in this hierarchy are not interchangeable. The historical
-`MachineRecord` wire contract identifies one connector installation. It remains
-available during migration, but it is not evidence for a physical device or an
-environment.
+`MachineRecord` wire contract identifies retired transport evidence. It remains
+available only for compatibility and cleanup; it is not evidence for a physical
+device, an Environment, or an execution target.
 
 ## Glossary
 
@@ -34,7 +34,7 @@ and environment lifecycle, but is not an execution target.
 
 A Host is an optional, user-recognizable physical or virtual device whose
 identity and total hardware capacity are known. A Host can exist with no
-environment and no connector. It owns host-wide capabilities such as Wake-on-
+Environment or Runtime. It owns host-wide capabilities such as Wake-on-
 LAN, JetKVM, physical CPU, memory, GPU, and storage.
 
 Provider-managed compute does not fabricate a Host when the provider hides the
@@ -50,19 +50,18 @@ Environments. An Environment belongs to exactly one Platform, can optionally
 belong to one Host, and can contain nested Environments.
 
 An Environment owns its effective allocation, limits, usage, lifecycle, and
-scheduling capabilities. It can exist before any connector enrolls.
+scheduling capabilities. It can exist before any Workspace Runtime starts.
 
-### Connector installation
+### Retired Connector record
 
-A Connector installation is one authenticated transport/runtime installed in
-exactly one Environment. Development and stable connector channels in the same
-macOS Environment are two connectors, not two Environments. A persisted
-connector cannot be unassigned and cannot move between Environments without
-revoke and re-enroll.
+A Connector record is historical transport evidence associated with one
+Environment. It is not an execution target and must not be installed, enrolled,
+started, or used to select work. New execution uses a generation-scoped
+Workspace Runtime instead.
 
-The existing connector and machine-task v1 APIs continue using `machineId` for
-the connector installation during migration. New code must not silently treat
-that ID as a Host or Environment ID.
+Historical records and stored v1 results may still contain a `machineId` that
+identified a Connector installation. New requests cannot select that identity,
+and no code may silently treat it as a Host or Environment ID.
 
 ### Runner Host and Runner Workspace
 
@@ -102,8 +101,7 @@ boot changes the active Environment, not the Host.
 Host: MacBook
 └── Environment: macOS
     └── Environment: Docker devbox
-        ├── Connector: stable
-        └── Connector: development
+        └── Workspace Runtime generations
 ```
 
 A trusted host broker or provisioner supplies the container's derived
@@ -133,7 +131,7 @@ fictional physical Host.
 Platform: Kubernetes
 └── Environment: cluster/namespace allocation
     └── Environment: workload or development Pod
-        └── Connector installation
+        └── Workspace Runtime generations
 ```
 
 The identity level must match the intended lifecycle. A long-lived namespace
@@ -142,12 +140,13 @@ derived before enrollment; Pod names alone are display metadata.
 
 ## Identity and privacy boundary
 
-Host, Environment, and Connector identities are independent:
+Host, Environment, and Workspace Runtime identities are independent:
 
 ```text
 hostKey          stable hardware/provider-derived Host identity
 environmentKey   stable OS/runtime/provider-derived Environment identity
-connectorId      unique installation credential identity
+workspaceId      stable managed checkout identity
+generation       one exact Workspace Runtime lifecycle
 ```
 
 `DerivedIdentityKey` contains only an account-scoped, application-specific,
@@ -184,31 +183,23 @@ Every Environment carries one explicit association state:
 | `not_applicable` | provider or none | Provider managed | The provider intentionally hides the Host. |
 
 Reliable later evidence may upgrade `manual` to `verified`. Contradiction never
-silently reassigns an Environment or Connector.
+silently reassigns an Environment or Workspace Runtime.
 
-## Registration transaction and impossible states
+## Runtime bootstrap and impossible states
 
-Enrollment requests are not Connector installations:
+Environment bootstrap resolves or creates the exact Environment before it can
+launch a Workspace Runtime:
 
-1. a client creates an enrollment request and public key;
-2. a provider, host broker, deterministic resolver, or explicit user action
-   resolves or creates the exact Environment;
-3. one transaction persists both the connector credential and a mandatory
-   Environment association; a legacy bootstrap association can be replaced
-   exactly once by the connector's first trusted topology report;
-4. only then can the Connector become active.
+1. the caller selects one exact Environment Instance;
+2. the control boundary verifies the Workspace, owner, commit, manifest digest,
+   and requested generation;
+3. one Runtime generation is started or reused only when every binding matches;
+4. mismatched, stale, or legacy Connector input is rejected rather than
+   reinterpreted.
 
-Migration `0030_compute_inventory` enforces a mandatory row in
-`connector_compute_environments`, unique versioned Host and Environment
-identities within account/Platform scope, and immutable post-reconciliation
-Connector-to-Environment associations. Enrollment creates a conservative
-`legacy` Environment in the same transaction as membership. The first valid
-connector report may atomically replace that bootstrap association and marks it
-`connector`; later identity changes are rejected and require revoke/re-enroll.
-
-This means an old or evidence-poor connector is still never unassigned. It is
-shown as **Needs assignment** in an explicit Environment. Project Space does
-not guess that it shares another Environment merely because names match.
+Historical connector tables and machine records remain available only for
+read-only migration evidence and exact cleanup. They cannot create a new
+permanent process or select execution.
 
 ## Resources and aggregation
 
@@ -216,11 +207,11 @@ Resource ownership follows the hierarchy:
 
 - Host: physical capacity and hardware capabilities.
 - Environment: effective allocation, limit, usage, and scheduling capacity.
-- Connector: reports a Resource Profile; it does not own capacity.
+- Runtime or host telemetry source: reports a Resource Profile; it does not own capacity.
 - Task: consumes resources inside exactly one Environment.
 
 Every Resource Profile includes its source and `reportedAt` freshness. A
-connector report, provider report, and configured limit are distinguishable;
+runtime report, host report, provider report, and configured limit are distinguishable;
 stale data must stay visibly stale rather than being presented as current.
 
 Environment resource modes define aggregation:
@@ -230,22 +221,22 @@ Environment resource modes define aggregation:
 - `exclusive`: mutually exclusive environments, such as dual boot, use the
   common Host capacity and are not additive.
 
-Multiple connectors inside one Environment always share the same capacity
-owner. Host-backed nested Environments collapse to their Host for capacity
+Multiple Runtime generations inside one Environment always share the same
+capacity owner. Host-backed nested Environments collapse to their Host for capacity
 summaries. Hostless, dedicated Codespaces or sandboxes remain independent.
 
 ## Task targeting
 
-The canonical target is an Environment. Scheduling first authorizes the exact
-Environment, then resolves one currently eligible Connector installation under
-it. Connector selection can consider channel, capabilities, version, health,
-and current leases without changing Environment identity.
+The canonical target is an Environment. Scheduling authorizes the exact
+Environment and then launches or resumes one exact Workspace Runtime
+generation. Runtime selection is bound to the Workspace, manifest, generation,
+capabilities, health, and current lease; no Connector ID is accepted as a
+substitute.
 
-Machine-task API v1 continues accepting its historical physical-machine and
-connector selectors. The additive `environmentId` selector resolves an exact
-Environment and then one eligible Connector beneath it. The compatibility
-`physicalMachine` result remains populated for old clients, but its existing ID
-meaning is never changed in place.
+Historical machine-task v1 records retain their original physical-machine and
+Connector selectors as immutable evidence. New requests use `environmentId`
+and an eligible Workspace Runtime; old selectors fail predictably and are not
+translated into a canonical target.
 
 ## Compatibility and migration
 
@@ -262,17 +253,17 @@ This model is not a rename of `physical_machines`:
   visible **Manually assigned** Host association; deterministic connector
   evidence produces **Verified**, missing evidence produces **Needs
   assignment**, and provider-managed sandboxes produce **Provider managed**.
-- Compatibility tables, routes, and aliases can be removed only after every
-  consumer uses the new model and every persisted connector has an Environment.
+- Compatibility tables, routes, and aliases remain read-only cleanup/migration
+  input; they never create a new permanent Connector installation.
 
 The migration is additive and rollback-safe: legacy tables and routes are not
 dropped. Every existing membership is backfilled to one conservative
-Environment; new runtimes progressively enrich identity, platform kind, and
-resources as they reconnect after the signed connector release is installed.
+Environment; new Workspace Runtimes progressively enrich identity, platform
+kind, and resources through the canonical bootstrap flow.
 
 ## Runtime detection and rollout
 
-The connector reports an application-specific derivative, never the raw input:
+Environment bootstrap reports an application-specific derivative, never the raw input:
 
 - GitHub Codespaces: `CODESPACES` plus a locally hashed Codespace identity;
 - Kubernetes: cluster/runtime presence plus a locally hashed workload identity;
@@ -286,6 +277,5 @@ stored key is account-scoped. CPU, memory, filesystem, architecture, source,
 and report time are included in `ResourceProfile`. Host-backed profiles are
 stored once at Host level; provider-managed capacity stays on the Environment.
 
-Old connector releases remain visible through conservative fallback
-Environments. A signed connector update adds richer detection; it does not
-gate the database migration or make old connectors disappear.
+Old Connector records remain visible only as conservative compatibility evidence.
+They do not gate the Environment migration or create a new runtime path.

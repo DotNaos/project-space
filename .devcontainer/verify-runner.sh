@@ -3,7 +3,7 @@ set -euo pipefail
 
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 
-for command_name in bun gh git node node-gyp project project-space-connector python3 sshd; do
+for command_name in bun gh git node node-gyp project python3 sshd; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "Required Codespace runner tool is missing: ${command_name}." >&2
     exit 1
@@ -16,9 +16,8 @@ if ! python3 -c 'import shlex' >/dev/null 2>&1; then
 fi
 
 project_version="$(project --version | awk '{print $NF}')"
-connector_version="$(project-space-connector --version | awk '{print $NF}')"
-if [[ -z "${project_version}" || "${project_version}" != "${connector_version}" ]]; then
-  echo 'Project CLI and connector versions do not match.' >&2
+if [[ -z "${project_version}" ]]; then
+  echo 'Project CLI version could not be determined.' >&2
   exit 1
 fi
 

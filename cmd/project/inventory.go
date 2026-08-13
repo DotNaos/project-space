@@ -229,11 +229,7 @@ func newEnvironmentCommandWithDependencies(dependencies computeInventoryCommandD
 	command := &cobra.Command{Use: "environment", Short: "Discover Environment definitions and instances"}
 	command.AddCommand(newEnvironmentListCommand(dependencies))
 	command.AddCommand(newEnvironmentShowCommand(dependencies))
-	command.AddCommand(newEnvironmentBootstrapCommand(environmentBootstrapDependencies{
-		Inventory:      dependencies,
-		LoadControl:    loadComputeControlWorkspaceRuntimeClient,
-		NewOperationID: newCodexOperationID,
-	}))
+	command.AddCommand(newEnvironmentBootstrapCommand(defaultEnvironmentBootstrapDependencies(dependencies)))
 	instance := &cobra.Command{Use: "instance", Short: "Discover concrete Environment Instances"}
 	instance.AddCommand(newEnvironmentInstanceListCommand(dependencies))
 	instance.AddCommand(newEnvironmentInstanceShowCommand(dependencies))

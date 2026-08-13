@@ -1,7 +1,6 @@
 import type { ComputeInventorySnapshot } from '../src/shared/compute-environment-api';
 import type { MachineRecord, ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { computeInventoryFromConnectors } from './compute-inventory';
-import { connectorSessionGeneration } from './connector-command-session-registry';
 import {
   isDatabaseConfigured,
   listComputeInventory,
@@ -22,10 +21,6 @@ export async function loadConfiguredComputeInventory(input: {
 }): Promise<ConfiguredComputeInventoryResult> {
   const overview = input.overview ?? await input.backend.getConnectorOverview();
   const generations = new Map<string, number>();
-  for (const connector of overview.machines) {
-    const generation = connectorSessionGeneration(connector.id);
-    if (generation !== undefined) generations.set(connector.id, generation);
-  }
   if (!isDatabaseConfigured()) {
     return {
       checkedAt: new Date().toISOString(),
