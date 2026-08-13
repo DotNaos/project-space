@@ -1,0 +1,37 @@
+---
+title: Remote development architecture
+description: How Project Space connects Platforms, Hosts, Environment Instances, Workspaces, and Runtime sessions.
+---
+
+Project Space keeps compute identity, private-network access, runtime execution, and Host console control separate. The current hierarchy is:
+
+```text
+Platform
+├── optional Host
+│   └── Environment Instance
+│       └── Workspace Runtime
+└── provider-managed Environment Instance
+    └── Workspace Runtime
+```
+
+An Environment Instance is the concrete owner-scoped execution target. A Workspace Runtime is ephemeral and generation-bound. Provider-managed instances do not receive a fabricated Host.
+
+## Start with the detected Workspace
+
+From the project Workspace, let Project resolve the matching Environment Instance and runtime values:
+
+```sh
+project environment bootstrap
+```
+
+For inventory or an ambiguous selection, use the [Environment setup guide](https://projects.os-home.net/docs/environments/setup) and [CLI reference](https://projects.os-home.net/docs/cli#project-inventory).
+
+## Follow the active boundaries
+
+- [Compute model](https://github.com/DotNaos/project-space/blob/main/docs/compute-environments.md) — Platform, optional Host, Environment Instance, identity, and resource ownership.
+- [SSH control gateway](https://github.com/DotNaos/project-space/blob/main/docs/ssh-control-gateway.md) — private-network SSH, pinned identity, and typed control.
+- [Workspace Runtime sessions](https://github.com/DotNaos/project-space/blob/main/docs/workspace-runtime-sessions.md) — outbound runtime state, scoped credentials, and Codex promotion.
+- [Host control](https://github.com/DotNaos/project-space/blob/main/docs/host-control.md) — typed Host operations and the external [#643 JetKVM adapter](https://github.com/DotNaos/project-space/issues/643).
+- [Connector retirement](https://github.com/DotNaos/project-space/blob/main/docs/connector-retirement.md) — cleanup-only treatment of old artifacts; no current development path depends on them.
+
+The complete architecture source is maintained in `docs/remote-development-architecture.md`. It records the security boundary, control flow, failure semantics, and why normal development does not depend on JetKVM frame/HID support.
