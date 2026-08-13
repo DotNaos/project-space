@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 
-import { connectorHubSourcePath } from '../server/connector-hub';
 import { createLocalProjectMachineBackend } from '../server/local-project-machine-backend';
 import type {
   ConnectorOverviewResult,
@@ -36,7 +35,7 @@ function untrustedConnectorMachine(id: string, kind: string): MachineRecord {
       tailscaleIp: '203.0.113.17'
     },
     roles: ['connector'],
-    sourcePath: connectorHubSourcePath
+    sourcePath: 'connector-hub'
   };
 }
 
@@ -57,8 +56,31 @@ describe('connector machine execution trust', () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('');
-      expect(result.stderr).toContain('live command channel is not connected');
+      expect(result.stderr).toContain('canonical Environment and Workspace Runtime');
       expect(Date.now() - startedAt).toBeLessThan(1_000);
     });
   }
+
+  test('remote Connector filesystem and worktree actions fail closed', async () => {
+    const machine = untrustedConnectorMachine('trust-filesystem', 'connector');
+    const backend = createLocalProjectMachineBackend(async () => connectorOverview(machine));
+
+    await expect(backend.loadProjectWorktrees('/tmp/project', machine.id)).rejects.toThrow(
+      'canonical Environment and Workspace Runtime'
+    );
+    await expect(backend.getMachineFileSystemRoot({ machineId: machine.id })).resolves.toMatchObject({
+      errorCode: 'unsupported',
+      message: expect.stringContaining('canonical Environment and Workspace Runtime'),
+      status: 'error'
+    });
+    await expect(backend.createMachineDirectory({
+      machineId: machine.id,
+      name: 'should-not-exist',
+      parentPath: '/tmp'
+    })).resolves.toMatchObject({
+      errorCode: 'unsupported',
+      message: expect.stringContaining('canonical Environment and Workspace Runtime'),
+      status: 'error'
+    });
+  });
 });

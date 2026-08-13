@@ -11,7 +11,7 @@ import {
   resolveProjectSpaceApiBaseUrl
 } from '@/api/project-space-client';
 import { Button, Surface, Tab, TabIndicator, TabList, Tabs, Text } from '@/app/dotnaos-ui';
-import { Files, FolderKanban, LayoutDashboard, Terminal as TerminalIcon } from 'lucide-react';
+import { FolderKanban, LayoutDashboard, Terminal as TerminalIcon } from 'lucide-react';
 import type { MachineDetailTab } from '../hooks/use-project-desktop';
 import { WTerm } from '@wterm/dom';
 import '@wterm/dom/css';
@@ -24,7 +24,6 @@ import {
 } from './machine-visuals';
 import { formatOptionalTime, machineSubtitle } from './project-main-model';
 import { MachineProjectsPanel } from './machine-projects-panel';
-import { MachineExplorerPanel } from './machine-explorer-panel';
 import { MachineConnectorActionsMenu } from './machine-connector-actions-menu';
 import {
   runtimeStateLabel,
@@ -272,7 +271,6 @@ const machineTabItems: Array<{
 }> = [
   { icon: LayoutDashboard, id: 'overview', label: 'Overview' },
   { icon: FolderKanban, id: 'projects', label: 'Projects' },
-  { icon: Files, id: 'explorer', label: 'Explorer' },
   { icon: TerminalIcon, id: 'terminal', label: 'Terminal' }
 ];
 
@@ -322,7 +320,7 @@ export function MachineDetailView({
     machine.connector.origin ?? machine.network.tailscaleIp ?? machine.connector.installCommand;
 
   return (
-    <div className={`mx-auto flex min-h-full w-full flex-col gap-4 ${tab === 'explorer' ? 'max-w-[100rem]' : 'max-w-5xl'}`}>
+    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-4">
       <section className="border-b border-neutral-800/70 pb-4">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -406,8 +404,6 @@ export function MachineDetailView({
       ) : null}
 
       {tab === 'terminal' ? <MachineTerminalPanel machine={machine} /> : null}
-
-      {tab === 'explorer' ? <MachineExplorerPanel key={machine.id} machine={machine} /> : null}
 
       {tab === 'projects' ? (
         <MachineProjectsPanel

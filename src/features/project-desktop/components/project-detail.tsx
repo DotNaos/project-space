@@ -23,7 +23,6 @@ import type {
 } from '@/shared/project-space-api';
 import type { MachineDetailTab, ProjectDetailTab } from '../hooks/use-project-desktop';
 import { GitWorkbenchPanel } from './git-workbench-panel';
-import { ProjectCliCommandPanel } from './project-cli-command-panel';
 import { ProjectTasksExperience } from '@/features/project-tasks/project-tasks-experience';
 import { ProjectMachinesPanel } from './project-machines-panel';
 import { ProjectDeploymentsPanel } from './project-deployments-panel';
@@ -471,7 +470,6 @@ export function ProjectDetail({
                   targetPath={templateTargetPath}
                 />
                 <TemplateStatusCard check={project.fullstackTemplate} />
-                <ProjectCliCommandPanel project={project} targetPath={templateTargetPath} />
                 <ProjectctlManifestPanel targetPath={templateTargetPath} />
               </div>
             )}
