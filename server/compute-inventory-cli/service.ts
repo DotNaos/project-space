@@ -44,6 +44,7 @@ export function buildProjectCliComputeInventory(
   const hasControlledInventory = schemaVersion !== projectCliInventoryLegacySchemaVersion;
   const hasHostdInventory = schemaVersion === projectCliInventoryHostdSchemaVersion;
   const privateNetworkInventory = input.privateNetworkInventory ?? { networks: [], routes: [] };
+  const hasRuntimeInventory = input.runtimeSessions !== undefined;
   const networksById = new Map(privateNetworkInventory.networks.map((network) => [network.id, network]));
   const connectorsById = new Map(input.connectors.map((connector) => [connector.id, connector]));
   const routesByEnvironment = new Map<string, ProjectCliAccessRoute[]>();
@@ -142,7 +143,9 @@ export function buildProjectCliComputeInventory(
       ...(hostd
         ? { resources: hostdResourceSummary(hostd) }
         : environment.resources ? { resources: resourceSummary(environment.resources) } : {}),
-      workspaceInventory: { state: workspaces.length > 0 ? 'available' as const : 'unavailable' as const },
+      workspaceInventory: {
+        state: hasRuntimeInventory ? 'available' as const : 'unavailable' as const
+      },
       workspaces
     } satisfies ProjectCliEnvironmentInstance;
   }).sort((left, right) => left.reference.localeCompare(right.reference) || left.id.localeCompare(right.id));
@@ -354,10 +357,17 @@ function accessSummary(
   rawRoutes: readonly AccessRouteRecord[]
 ) {
   const controlled = routes.filter((route) => route.type !== 'connector');
-  const ssh = controlled.find((route) => route.type === 'ssh_private_network');
+  const sshRoutes = controlled.filter((route) => route.type === 'ssh_private_network');
+  const sshProjectCli = sshRoutes.find((route) => route.capabilities.includes('project_cli'));
+  const ssh = sshProjectCli ?? sshRoutes[0];
   const provider = controlled.find((route) => route.type === 'provider_native');
-  const projectCliRoute = ssh ?? provider;
-  const rawSsh = rawRoutes.find((route) => route.routeKind === 'ssh_private_network');
+  const providerProjectCli = controlled.find((route) =>
+    route.type === 'provider_native' && route.capabilities.includes('project_cli')
+  );
+  const projectCliRoute = sshProjectCli ?? providerProjectCli;
+  const rawSsh = ssh?.id
+    ? rawRoutes.find((route) => safeProjectionId('route', route.id) === ssh.id)
+    : undefined;
   return {
     providerKind: provider
       ? 'provider_native' as const

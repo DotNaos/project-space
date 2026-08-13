@@ -233,6 +233,66 @@ describe('agent-safe compute inventory', () => {
     ]) expect(serialized).not.toContain(forbidden);
   });
 
+  test('binds SSH host-key and Project CLI evidence to the same exact route', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const environment = snapshot.environments.find(({ kind }) => kind === 'native_windows')!;
+    const networkId = 'network-for-exact-route-binding';
+    const common = {
+      allowedGatewayIds: ['gateway-one'], availability: 'available' as const,
+      credentialReference: 'op://Personal/SSH/private key',
+      enabled: true, freshnessSeconds: 60, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
+      ownerUserId: 'owner-one', policyState: 'approved' as const,
+      privateAddress: '100.64.0.10', requiresInteractiveApproval: false,
+      privateNetworkId: networkId,
+      providerKind: 'tailscale' as const,
+      routeKind: 'ssh_private_network' as const, sshPort: 22, sshUser: 'private-user',
+      target: { id: environment.id, kind: 'environment' as const },
+      targetIdentityRevision: `${environment.identity.version}:${environment.identity.key}`,
+      verifiedUntil: '2026-08-11T10:05:00.000Z'
+    };
+    const inventory = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors,
+      privateNetworkInventory: { networks: [{
+        approvalState: 'approved', availability: 'available', enabled: true,
+        credentialReference: 'op://Personal/Tailscale/token',
+        id: networkId, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
+        name: 'Private network', ownerUserId: 'owner-one', providerKind: 'tailscale',
+        providerReference: 'private-provider-reference',
+        verifiedUntil: '2026-08-11T10:05:00.000Z'
+      }], routes: [{
+        ...common, capabilities: [], id: 'route-without-cli-or-host-key', priority: 1
+      }, {
+        ...common, capabilities: ['project_cli'], hostKeySha256: `SHA256:${'A'.repeat(43)}`,
+        id: 'route-with-cli-and-host-key', priority: 200
+      }] },
+      schemaVersion: 2,
+      snapshot
+    });
+
+    expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.accessSummary)
+      .toMatchObject({ ssh: {
+        hostKey: 'verified', projectCli: 'available', readiness: 'available'
+      } });
+  });
+
+  test('keeps an authoritative empty Workspace inventory available', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const available = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors, runtimeSessions: [],
+      schemaVersion: 3, snapshot
+    });
+    const unavailable = buildProjectCliComputeInventory({
+      checkedAt: '2026-08-11T10:01:00.000Z', connectors, schemaVersion: 3, snapshot
+    });
+
+    expect(available.environmentInstances.every(({ workspaceInventory }) =>
+      workspaceInventory.state === 'available')).toBe(true);
+    expect(unavailable.environmentInstances.every(({ workspaceInventory }) =>
+      workspaceInventory.state === 'unavailable')).toBe(true);
+  });
+
   test('does not infer a provider from generic Host routes', () => {
     const connectors = representativeConnectors();
     const snapshot = computeInventoryFromConnectors({ connectors });
