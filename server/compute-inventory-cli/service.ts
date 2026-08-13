@@ -414,7 +414,10 @@ function projectWorkspaceSummaries(
     .sort((left, right) => left.workspaceId.localeCompare(right.workspaceId))
     .map((session, index) => ({
       id: safeWorkspaceId(environmentId, session.workspaceId),
-      name: `Workspace Runtime ${index + 1}`,
+      name: session.presentation?.task
+        ? `Task #${session.presentation.task.number}`
+        : session.presentation?.repository ?? `Workspace Runtime ${index + 1}`,
+      ...(session.presentation ? { repository: session.presentation.repository } : {}),
       runtime: {
         codex: runtimeCapabilityState(session, session.capabilities.includes('runtime.codex.v1')),
         connection: session.connectionState,

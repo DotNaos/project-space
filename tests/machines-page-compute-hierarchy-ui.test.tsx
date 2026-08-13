@@ -148,18 +148,69 @@ describe('machines page canonical inventory UI', () => {
           workspaceInventory: { state: 'available' as const },
           workspaces: [{
             id: 'workspace-runtime-1',
-            name: 'Project Space',
+            name: 'Task #717',
             repository: 'DotNaos/project-space',
-            state: 'active' as const
+            runtime: {
+              codex: 'unavailable' as const, connection: 'stopped' as const,
+              devServers: [], evidence: 'workspace-runtime' as const, lifecycle: 'stopped' as const
+            },
+            state: 'inactive' as const
           }]
         }],
         platforms: [{ alias: 'github-codespaces', id: 'codespaces', kind: 'github_codespaces', name: 'GitHub Codespaces' }]
       })
     }));
 
-    expect(html).toContain('Workspace Runtime · Project Space · DotNaos/project-space');
+    expect(html).toContain('Workspace Runtime · Task #717 · DotNaos/project-space');
     expect(html).toContain('Access unavailable');
     expect(html).toContain('Provider managed');
+  });
+
+  test('covers present, missing, stale, and stopped Runtime presentation context', () => {
+    const renderRuntime = (input: {
+      connection: 'online' | 'stale' | 'stopped';
+      lifecycle: 'running' | 'stopped';
+      name: string;
+      repository?: string;
+    }) => renderToStaticMarkup(createElement(MachinesPage, {
+      ...baseProps,
+      computeInventory: inventory({
+        environmentInstances: [{
+          ...codespace(`runtime-${input.connection}`),
+          workspaceInventory: { state: 'available' as const },
+          workspaces: [{
+            id: `workspace-${input.connection}`,
+            name: input.name,
+            ...(input.repository ? { repository: input.repository } : {}),
+            runtime: {
+              codex: 'unavailable' as const,
+              connection: input.connection,
+              devServers: [],
+              evidence: 'workspace-runtime' as const,
+              lifecycle: input.lifecycle
+            },
+            state: input.lifecycle === 'stopped' ? 'inactive' as const : 'active' as const
+          }]
+        }],
+        platforms: [{ alias: 'github-codespaces', id: 'codespaces', kind: 'github_codespaces', name: 'GitHub Codespaces' }]
+      })
+    }));
+
+    expect(renderRuntime({
+      connection: 'online', lifecycle: 'running', name: 'Task #717', repository: 'DotNaos/project-space'
+    })).toContain('Workspace Runtime · Task #717 · DotNaos/project-space');
+    expect(renderRuntime({
+      connection: 'online', lifecycle: 'running', name: 'Workspace Runtime 1'
+    })).toContain('Workspace Runtime · Workspace Runtime 1');
+    expect(renderRuntime({
+      connection: 'online', lifecycle: 'running', name: 'DotNaos/project-space', repository: 'DotNaos/project-space'
+    })).not.toContain('Workspace Runtime · DotNaos/project-space · DotNaos/project-space');
+    expect(renderRuntime({
+      connection: 'stale', lifecycle: 'running', name: 'Task #717', repository: 'DotNaos/project-space'
+    })).toContain('Workspace Runtime · Task #717 · DotNaos/project-space');
+    expect(renderRuntime({
+      connection: 'stopped', lifecycle: 'stopped', name: 'Task #717', repository: 'DotNaos/project-space'
+    })).toContain('Workspace Runtime · Task #717 · DotNaos/project-space');
   });
 
   test('shows empty and unavailable states without falling back to legacy rows', () => {

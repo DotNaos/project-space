@@ -7,7 +7,10 @@ import {
   type WorkspaceRuntimeStartDispatch
 } from '../server/workspace-runtime-session/launch-service';
 import { workspaceRuntimeCodexCapability } from '../src/shared/workspace-runtime-codex-api';
-import { workspaceRuntimeControlCapability } from '../src/shared/workspace-runtime-session-api';
+import {
+  workspaceRuntimeBaseCapabilities,
+  workspaceRuntimeControlCapability
+} from '../src/shared/workspace-runtime-session-api';
 
 const authority = {
   branch: 'issue-625', commit: 'a'.repeat(40),
@@ -134,6 +137,38 @@ describe('Workspace Runtime trusted launch boundary', () => {
     });
     await expect(service.start(authority)).resolves.toEqual({ replayed: true, result });
     expect({ dispatched, issued }).toEqual({ dispatched: 0, issued: 0 });
+  });
+
+  test('keeps a completed launch idempotent when optional presentation resolution changes', async () => {
+    const sessions = new MemoryRuntimeSessionStore(undefined, undefined, () => 'R'.repeat(43));
+    const presented = {
+      ...authority,
+      operationId: 'workspace-start:presentation-replay',
+      presentation: { repository: 'DotNaos/project-space', task: { number: 717 } }
+    };
+    await sessions.issue({
+      branch: presented.branch, capabilities: [...workspaceRuntimeBaseCapabilities], commit: presented.commit,
+      environmentId: presented.environmentId, generation: presented.generation,
+      manifestDigest: presented.manifestDigest, operationId: presented.operationId,
+      ownerUserId: presented.ownerUserId, presentation: presented.presentation,
+      requestedCapabilities: [workspaceRuntimeCodexCapability, workspaceRuntimeControlCapability],
+      runtimeVersion: presented.runtimeVersion, workspaceId: presented.workspaceId
+    });
+    const result = {
+      checkedAt: new Date().toISOString(), generation: presented.generation,
+      manifestDigest: presented.manifestDigest, operation: 'workspace-runtime.start.v1' as const,
+      operationId: presented.operationId, sourceHead: presented.commit,
+      state: 'running' as const, workspaceId: presented.workspaceId
+    };
+    const service = new WorkspaceRuntimeLaunchService({
+      dispatcher: { async replay() { return result; }, async start() { return result; } },
+      endpoint: 'wss://projects.os-home.net/api/workspace-runtimes/socket', sessions
+    });
+    await expect(service.start(presented)).resolves.toEqual({ replayed: true, result });
+    await expect(service.start({ ...presented, presentation: undefined })).resolves.toEqual({ replayed: true, result });
+    await expect(service.start({
+      ...presented, presentation: { repository: 'DotNaos/other' }
+    })).resolves.toEqual({ replayed: true, result });
   });
 
   test('dispatches the protected credential through the internal typed SSH service only', async () => {

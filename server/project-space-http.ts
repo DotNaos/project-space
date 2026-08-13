@@ -277,6 +277,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     runtimeSessions: options.workspaceRuntimeSessions
   });
   const sshControlGateway = createConfiguredSshControlGatewayHandler({
+    backend: rawBackend,
     machineConnection: options.machineConnectionRuntime,
     runtimeSessions: options.workspaceRuntimeSessions
   });

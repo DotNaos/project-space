@@ -67,6 +67,10 @@ import {
   canonicalRuntimeMutationMigrationId,
   canonicalRuntimeMutationMigrationSql
 } from '../server/database/canonical-runtime-mutation-migration';
+import {
+  workspaceRuntimePresentationMigrationId,
+  workspaceRuntimePresentationMigrationSql
+} from '../server/database/workspace-runtime-presentation-migration';
 
 interface QueryCall {
   sql: string;
@@ -321,7 +325,7 @@ describe('database migrations', () => {
     expect(canonicalRuntimeControlMigrationSql).not.toMatch(
       /password|credential_reference|private_key|request_body|stdout|stderr/i
     );
-    expect(databaseMigrations.at(-2)?.id).toBe(canonicalRuntimeControlMigrationId);
+    expect(databaseMigrations.at(-3)?.id).toBe(canonicalRuntimeControlMigrationId);
   });
 
   test('extends canonical control additively with safe mutation replay and ownership fences', () => {
@@ -354,7 +358,17 @@ describe('database migrations', () => {
     expect(canonicalRuntimeMutationMigrationSql).toContain(
       'add constraint ssh_gateway_operations_operation_v3_check'
     );
-    expect(databaseMigrations.at(-1)?.id).toBe(canonicalRuntimeMutationMigrationId);
+    expect(databaseMigrations.at(-2)?.id).toBe(canonicalRuntimeMutationMigrationId);
+  });
+
+  test('stores only bounded Runtime presentation fields', () => {
+    expect(databaseMigrations.at(-1)?.id).toBe(workspaceRuntimePresentationMigrationId);
+    expect(workspaceRuntimePresentationMigrationSql).toContain('presentation_repository');
+    expect(workspaceRuntimePresentationMigrationSql).toContain('presentation_task_number');
+    expect(workspaceRuntimePresentationMigrationSql).not.toContain('presentation_task_title');
+    expect(workspaceRuntimePresentationMigrationSql).not.toMatch(
+      /local_path|branch|commit|credential|generation_id|session_id|stdout|stderr/i
+    );
   });
 
   test('persists explicit Codex message delivery and durable queue state', () => {
@@ -435,7 +449,8 @@ describe('database migrations', () => {
       '0048_host_control_hardening',
       '0049_connector_compatibility_usage',
       '0050_canonical_runtime_control_operations',
-      '0051_canonical_runtime_mutations'
+      '0051_canonical_runtime_mutations',
+      '0052_workspace_runtime_presentation'
     ]);
 
     expect(connectorCompatibilityUsageMigrationId).toBe('0049_connector_compatibility_usage');

@@ -99,7 +99,6 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 				}
 				options.generation = generation
 			}
-
 			inventory, err := loadComputeInventory(command.Context(), dependencies.Inventory)
 			if err != nil {
 				return err
@@ -128,6 +127,10 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 			client, err := dependencies.LoadControl(command.Context())
 			if err != nil {
 				return err
+			}
+			if !manual && options.profile != "mutation" && plan.WorktreeOwnerThreadID != "" &&
+				client.SupportsWorkspaceRuntimePresentation(command.Context()) {
+				options.worktreeOwnerThreadID = plan.WorktreeOwnerThreadID
 			}
 			result, err := client.LaunchWorkspaceRuntime(command.Context(), computecontrol.WorkspaceRuntimeLaunchRequest{
 				Branch: options.branch, Commit: options.commit, EnvironmentID: instance.ID,

@@ -43,6 +43,13 @@ export function validateCredentialIssue(input: IssueRuntimeCredentialInput) {
     !Number.isSafeInteger(expiresInSeconds) || expiresInSeconds < 30 || expiresInSeconds > 3_600) invalid();
   safeText(input.branch, 256);
   safeText(input.runtimeVersion, 64);
+  if (input.presentation) {
+    safeText(input.presentation.repository, 256);
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input.presentation.repository)) invalid();
+    if (input.presentation.task) {
+      if (!Number.isSafeInteger(input.presentation.task.number) || input.presentation.task.number <= 0) invalid();
+    }
+  }
   parseCapabilities(input.capabilities);
   parseRequestedCapabilities(input.requestedCapabilities);
   return expiresInSeconds;

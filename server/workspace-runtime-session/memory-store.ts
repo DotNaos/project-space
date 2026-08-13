@@ -61,24 +61,35 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
       throw new RuntimeSessionError('generation_replaced', 'Runtime generation already has a registered session.');
     }
     const replacedCredentialId = this.currentCredentials.get(key);
-    if (replacedCredentialId) {
-      const previous = [...this.credentials.values()].find((entry) => entry.credentialId === replacedCredentialId);
-      if (previous && previous.generation === input.generation &&
+    const previous = replacedCredentialId
+      ? [...this.credentials.values()].find((entry) => entry.credentialId === replacedCredentialId)
+      : [...this.credentials.values()].find((entry) => runtimeKey(entry) === key && entry.generation === input.generation);
+    if (previous) {
+      if (previous.generation === input.generation &&
         (previous.environmentId !== input.environmentId || previous.branch !== input.branch ||
           previous.commit !== input.commit || previous.manifestDigest !== input.manifestDigest ||
           previous.runtimeVersion !== input.runtimeVersion)) {
         throw new RuntimeSessionError('generation_replaced', 'Runtime source binding changed.');
       }
-      if (previous && previous.generation === input.generation && !previous.revokedAt) {
+      if (previous.generation === input.generation && !previous.revokedAt) {
         throw new RuntimeSessionError('generation_replaced', 'Runtime generation already has an active session credential.');
       }
-      if (previous) previous.revokedAt = now.toISOString();
+      previous.revokedAt = now.toISOString();
     }
+    const sameGeneration = previous?.generation === input.generation ? previous : undefined;
+    const { presentation: _presentation, ...identity } = input;
     const scope: StoredCredential = {
-      ...input,
+      ...identity,
       capabilities: [...input.capabilities],
       credentialId,
       expiresAt,
+      ...(sameGeneration
+        ? sameGeneration.presentation
+          ? { presentation: structuredClone(sameGeneration.presentation) }
+          : {}
+        : input.presentation
+          ? { presentation: structuredClone(input.presentation) }
+          : {}),
       requestedCapabilities: [...input.requestedCapabilities],
       tokenHash: tokenHash(token)
     };
@@ -149,6 +160,7 @@ export class MemoryRuntimeSessionStore implements RuntimeSessionStore {
       lastSequence: 0,
       lifecycleState: 'starting',
       manifestDigest: registration.manifestDigest,
+      ...(scope.presentation ? { presentation: structuredClone(scope.presentation) } : {}),
       runtimeVersion: registration.runtimeVersion,
       schemaVersion: workspaceRuntimeSessionSchemaVersion,
       sessionId,
@@ -277,6 +289,7 @@ function safeScope(scope: StoredCredential): RuntimeCredentialScope {
     credentialId: scope.credentialId,
     environmentId: scope.environmentId, expiresAt: scope.expiresAt, generation: scope.generation,
     manifestDigest: scope.manifestDigest, ownerUserId: scope.ownerUserId,
+    ...(scope.presentation ? { presentation: structuredClone(scope.presentation) } : {}),
     requestedCapabilities: [...scope.requestedCapabilities],
     runtimeVersion: scope.runtimeVersion, workspaceId: scope.workspaceId
   };
@@ -290,7 +303,8 @@ function sameIssue(left: StoredCredential, right: IssueRuntimeCredentialInput) {
   return left.workspaceId === right.workspaceId && left.environmentId === right.environmentId &&
     left.generation === right.generation && left.branch === right.branch && left.commit === right.commit &&
     left.manifestDigest === right.manifestDigest && left.runtimeVersion === right.runtimeVersion &&
-    [...left.capabilities].sort().join('\0') === [...right.capabilities].sort().join('\0');
+    [...left.capabilities].sort().join('\0') === [...right.capabilities].sort().join('\0') &&
+    [...left.requestedCapabilities].sort().join('\0') === [...right.requestedCapabilities].sort().join('\0');
 }
 
 function requireCapability(scope: RuntimeCredentialScope, event: WorkspaceRuntimeEvent) {

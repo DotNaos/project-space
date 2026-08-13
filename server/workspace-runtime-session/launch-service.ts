@@ -9,6 +9,7 @@ import type {
   SshGatewayExecutionResult,
   SshGatewayRequest
 } from '../ssh-control-gateway/contracts';
+import type { WorkspaceRuntimePresentation } from '../../src/shared/workspace-runtime-session-api';
 import type { RuntimeSessionStore } from './contracts';
 
 export interface WorkspaceRuntimeStartAuthority {
@@ -20,6 +21,7 @@ export interface WorkspaceRuntimeStartAuthority {
   mode: 'process' | 'devcontainer';
   operationId: string;
   ownerUserId: string;
+  presentation?: WorkspaceRuntimePresentation;
   profile: 'codex' | 'inspection' | 'mutation';
   runtimeVersion: string;
   workspaceId: string;
@@ -92,7 +94,7 @@ export class WorkspaceRuntimeSshStartDispatcher implements WorkspaceRuntimeStart
       runtimeSessionRequestedCapabilities: requestedCapabilities(input.profile),
       expectedRuntimeVersion: input.runtimeVersion,
       workspaceId: input.workspaceId,
-      ...(input.worktreeOwnerThreadId
+      ...(input.profile === 'mutation' && input.worktreeOwnerThreadId
         ? { worktreeOwnerThreadId: input.worktreeOwnerThreadId }
         : {})
     });
@@ -164,6 +166,7 @@ export class WorkspaceRuntimeLaunchService {
       manifestDigest: input.manifestDigest,
       ownerUserId: input.ownerUserId,
       operationId: input.operationId,
+      ...(input.presentation ? { presentation: input.presentation } : {}),
       requestedCapabilities: capabilities,
       runtimeVersion: input.runtimeVersion,
       workspaceId: input.workspaceId
@@ -189,7 +192,7 @@ export class WorkspaceRuntimeLaunchService {
         runtimeSessionToken: issued.credential.token,
         runtimeSessionVersion: input.runtimeVersion,
         workspaceId: input.workspaceId,
-        ...(input.worktreeOwnerThreadId
+        ...(input.profile === 'mutation' && input.worktreeOwnerThreadId
           ? { worktreeOwnerThreadId: input.worktreeOwnerThreadId }
           : {})
       });

@@ -153,7 +153,10 @@ function EnvironmentRow({ row, onSelect }: { row: ComputeRow; onSelect(): void }
             <span className="mt-1 block truncate text-[11px] text-neutral-500">
               {row.workspaces.map((workspace) => (
                 <span key={workspace.id} className="mr-2 inline-block max-w-full truncate align-bottom">
-                  Workspace Runtime · {workspace.name}{workspace.repository ? ` · ${workspace.repository}` : ''}
+                  Workspace Runtime · {workspace.name}
+                  {workspace.repository && workspace.repository !== workspace.name
+                    ? ` · ${workspace.repository}`
+                    : ''}
                 </span>
               ))}
             </span>
@@ -294,8 +297,10 @@ function EnvironmentDetails({
           <div className="mt-2 space-y-2">
             {instance.workspaces.map((workspace) => (
               <div key={workspace.id} className="border-l border-neutral-800 pl-3 text-xs">
-                <Text className="truncate text-neutral-200">{workspace.name}</Text>
-                <Text className="mt-0.5 truncate text-neutral-500">{workspace.repository ?? 'Repository unavailable'}</Text>
+                <Text className="block truncate text-neutral-200">{workspace.name}</Text>
+                {workspace.repository !== workspace.name ? (
+                  <Text className="mt-0.5 block truncate text-neutral-500">{workspace.repository ?? 'Repository unavailable'}</Text>
+                ) : null}
                 {workspace.runtime ? (
                   <>
                     <Text className="mt-1 block text-neutral-400">

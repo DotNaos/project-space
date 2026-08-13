@@ -81,6 +81,13 @@ export interface WorkspaceRuntimeDevServer {
   url?: string;
 }
 
+export interface WorkspaceRuntimePresentation {
+  repository: string;
+  task?: {
+    number: number;
+  };
+}
+
 export type WorkspaceRuntimeEvent =
   | {
       eventId: string;
@@ -138,6 +145,7 @@ export interface WorkspaceRuntimeSessionSnapshot {
   lifecycleState: WorkspaceRuntimeLifecycleState;
   logPointer?: string;
   manifestDigest: string;
+  presentation?: WorkspaceRuntimePresentation;
   runtimeVersion: string;
   schemaVersion: typeof workspaceRuntimeSessionSchemaVersion;
   sessionId: string;
