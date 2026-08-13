@@ -32,6 +32,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"__docs-model",
 		"__runtime-supervisor",
 		"__runtime-tmux",
+		"__update-notice-refresh",
 		"__workspace-runtime-idle",
 		"__workspace-runtime-session",
 		"adopt",

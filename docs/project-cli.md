@@ -240,6 +240,15 @@ shows the verified plan and asks for `y/N` confirmation. `--check` is always
 read-only, while `--yes` installs without prompting. JSON output never prompts;
 it is read-only unless `--yes` is also present.
 
+Normal interactive commands reuse a private cached result and refresh the
+signed approved release check in the background after 24 hours. A known newer
+compatible release is reported on interactive stderr with the current version,
+target version, and `project self-update` command. Failed checks are silent and
+retry after 15 minutes. Pipes, redirected output, JSON automation, completion,
+help, and `self-update` remain clean. Set `PROJECT_CLI_NO_UPDATE_CHECK=1` to
+disable these automatic read-only checks. This never downloads or installs a
+release in the background.
+
 Only a managed macOS arm64 or Linux x64/WSL installation is changed in place.
 The updater downloads the exact archive named by the signed manifest, verifies
 its size and SHA-256 checksum, and delegates the switch to the existing paired
@@ -249,8 +258,8 @@ credentials remain outside the release directory.
 
 Homebrew, native Windows, source-checkout, and unrecognized installations are
 reported without being overwritten. The result includes the appropriate
-package-manager, installer, or rebuild guidance. This is a user-invoked command;
-Project does not perform silent or background updates.
+package-manager, installer, or rebuild guidance. Installation remains strictly
+user-invoked; Project never performs silent or background updates.
 
 ## Read And Update The Issue Roadmap
 
