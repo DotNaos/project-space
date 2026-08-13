@@ -26,12 +26,6 @@ import type {
   WorktreeMaterializeRequest,
   WorktreeSetupInspectRequest,
   WorktreeSetupRunRequest,
-  MachineDirectoryCreateRequest,
-  MachineDirectoryDeleteRequest,
-  MachineDirectoryRenameRequest,
-  MachineFileSystemDirectoryRequest,
-  MachineFileSystemFileRequest,
-  MachineFileSystemRequest,
   OpenPathInAppRequest,
   ProjectCliCommandRequest,
   ProjectCliCommandResult,
@@ -490,39 +484,19 @@ export function createProjectSpaceCoreApiRoutes(
       return true;
     }
 
-    if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/root') {
-      const payload = await readJson<MachineFileSystemRequest>(request);
-      writeJson(response, 200, await backend.getMachineFileSystemRoot(payload));
-      return true;
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/directory') {
-      const payload = await readJson<MachineFileSystemDirectoryRequest>(request);
-      writeJson(response, 200, await backend.readMachineDirectory(payload));
-      return true;
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/file') {
-      const payload = await readJson<MachineFileSystemFileRequest>(request);
-      writeJson(response, 200, await backend.readMachineFile(payload));
-      return true;
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/folders/create') {
-      const payload = await readJson<MachineDirectoryCreateRequest>(request);
-      writeJson(response, 200, await backend.createMachineDirectory(payload));
-      return true;
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/folders/rename') {
-      const payload = await readJson<MachineDirectoryRenameRequest>(request);
-      writeJson(response, 200, await backend.renameMachineDirectory(payload));
-      return true;
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/machines/filesystem/folders/delete') {
-      const payload = await readJson<MachineDirectoryDeleteRequest>(request);
-      writeJson(response, 200, await backend.deleteMachineDirectories(payload));
+    if (
+      request.method === 'POST' &&
+      [
+        '/api/machines/filesystem/root',
+        '/api/machines/filesystem/directory',
+        '/api/machines/filesystem/file',
+        '/api/machines/filesystem/folders/create',
+        '/api/machines/filesystem/folders/rename',
+        '/api/machines/filesystem/folders/delete'
+      ].includes(url.pathname)
+    ) {
+      await readJson<unknown>(request);
+      canonicalRuntimeRequired(response, 'Machine filesystem access');
       return true;
     }
 

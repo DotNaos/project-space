@@ -19,7 +19,6 @@ import {
   type CodexSessionsWireRequest,
   type CodexSessionsWireResult
 } from '../codex-sessions-connector-contract';
-import { connectorDevServerSigningKey } from '../connector-dev-server-routing';
 import {
   addConnectorCapabilities,
   connectorHasCapability,
@@ -42,6 +41,13 @@ import {
   type BoundCodexSessionsResult,
   type CodexSessionsCommandBinding
 } from './connector-channel';
+
+function legacyConnectorSigningKey(options: CodexSessionsHubRequestOptions) {
+  if (options.signingKey) return options.signingKey;
+  // Production no longer provisions a Connector command signing authority. Callers
+  // that have not explicitly supplied a test-only key must use Workspace Runtime.
+  throw new CodexConnectorNotDispatchedError();
+}
 
 type CompatibilityUseRecorder = (ownerUserId: string, surface: string) => Promise<unknown>;
 const ignoreCompatibilityUse: CompatibilityUseRecorder = async () => undefined;
@@ -156,7 +162,7 @@ export function openConnectorCodexAttach(
     operationId: input.operationId,
     payload,
     userId: options.userId
-  }, connectorDevServerSigningKey({ signingKey: options.signingKey }), {
+  }, legacyConnectorSigningKey(options), {
     nonce: options.nonce,
     now: options.now,
     ttlMs: options.grantTtlMs
@@ -226,7 +232,7 @@ function run(
     operationId,
     payload,
     userId: options.userId
-  }, connectorDevServerSigningKey({ signingKey: options.signingKey }), {
+  }, legacyConnectorSigningKey(options), {
     nonce: options.nonce,
     now: options.now,
     ttlMs: options.grantTtlMs

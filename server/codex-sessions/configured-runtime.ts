@@ -23,14 +23,14 @@ import {
   readMachineMembership
 } from '../local-database-store';
 import { getRegisteredConnectorMachines } from '../connector-hub';
-import {
-  isConnectorCommandChannelAvailable,
-  requestConnectorCodexSessions,
-  streamConnectorCodexSessions
-} from '../connector-command-hub';
+import { isConnectorCommandChannelAvailable } from '../connector-command-session-registry';
 import {
   CodexConnectorNotDispatchedError,
   CodexConnectorRemoteError
+} from './connector-hub';
+import {
+  requestConnectorCodexSessions,
+  streamConnectorCodexSessions
 } from './connector-hub';
 import { writeJson } from '../project-space-http-response';
 import {

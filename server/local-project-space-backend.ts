@@ -1,14 +1,8 @@
 import { getCodexStatus, openCodexTarget } from './local-codex-client';
-import {
-  registerLocalConnectorDevServerExecutor,
-  registerLocalConnectorWorktreeActionExecutor,
-  registerLocalWorkspaceCommandExecutor
-} from './connector-command-hub';
 import type { ConnectorDevServerAdapter } from './connector-dev-server-contract';
 import { createLocalDevServerAdapter } from './local-dev-server-adapter';
 import type { ConnectorWorktreeActionAdapter } from './connector-worktree-action-contract';
 import { createLocalWorktreeActionAdapter } from './local-worktree-action-adapter';
-import { createLocalWorkspaceCommandAdapter } from './workspace-command/local-adapter';
 import { runTerminalCommand } from './local-command-runner';
 import { loadConnectorProjectDiscovery } from './connector-discovery';
 import { getRegisteredConnectorDiscovery } from './connector-hub';
@@ -167,28 +161,6 @@ export type LocalProjectSpaceBackend = ProjectSpaceBackend &
   ConnectorDevServerAdapter &
   ConnectorWorktreeActionAdapter;
 export { isWebHubMachine };
-const baseConnectorCommandCapabilities = [
-  'filesystem.directory',
-  'filesystem.file',
-  'filesystem.folder.create',
-  'filesystem.folder.delete',
-  'filesystem.folder.rename',
-  'filesystem.root',
-  'dev-server.inspect',
-  'dev-server.list',
-  'dev-server.start',
-  'dev-server.stop',
-  'worktree.materialize',
-  'worktree.setup.inspect',
-  'worktree.setup.run',
-  'workspace.commands.v1',
-  'terminal.run',
-  'runtime.restart',
-  'runtime.stop',
-  'runtime.update',
-  'worktrees.list',
-  'worktrees.list.v2'
-];
 const codexDaemonInspector = new CodexDaemonManager({
   manager: {
     executeManagedOperation: async (_operationId, _fingerprint, action) => action()
@@ -205,7 +177,6 @@ async function connectorCommandCapabilities(daemon: CodexDaemonEvidence) {
         ? 'runtime-only'
         : 'missing';
   return [
-    ...baseConnectorCommandCapabilities,
     ...(process.platform === 'linux' &&
       process.env.PROJECT_SPACE_INSTALL_SOURCE === 'managed'
       ? [CODEX_DAEMON_CONNECTOR_CAPABILITY]
@@ -234,22 +205,7 @@ export function createLocalProjectSpaceBackend(
 ): LocalProjectSpaceBackend {
   const devServerAdapter = createLocalDevServerAdapter();
   const worktreeActionAdapter = createLocalWorktreeActionAdapter();
-  const workspaceCommandAdapter = createLocalWorkspaceCommandAdapter();
   const loadConnectorOverview = () => loadConnectorOverviewForMachine(options.connectorMachineId);
-  const registeredLocalMachines = new Set<string>();
-
-  function registerLocalDevServer(machineId: string) {
-    if (!registeredLocalMachines.has(machineId)) {
-      registerLocalConnectorDevServerExecutor(machineId, devServerAdapter);
-      registerLocalConnectorWorktreeActionExecutor(machineId, worktreeActionAdapter);
-      registerLocalWorkspaceCommandExecutor(machineId, workspaceCommandAdapter);
-      registeredLocalMachines.add(machineId);
-    }
-  }
-
-  registerLocalDevServer(
-    options.connectorMachineId ?? configuredConnectorMachineId() ?? localMachineName()
-  );
   return {
     ...createLocalProjectMachineBackend(loadConnectorOverview),
     async getAppMeta() {
@@ -293,8 +249,6 @@ export function createLocalProjectSpaceBackend(
       const capabilities = await connectorCommandCapabilities(daemon);
       const { connector, localMachine, machineId, machineName } = identity;
       const discovery = scopeDiscoveryToMachine(rawDiscovery, machineId);
-      registerLocalDevServer(machineId);
-
       return {
         checkedAt: new Date().toISOString(),
         connector: {

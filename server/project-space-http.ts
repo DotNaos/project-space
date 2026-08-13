@@ -2,10 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 
 import { createAuthorizedProjectSpaceBackend } from './authorized-project-space-backend';
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
-import {
-  createMachineTerminalUpgradeHandler,
-  createProjectTerminalUpgradeHandler
-} from './machine-terminal-websocket';
+import { createProjectTerminalUpgradeHandler } from './machine-terminal-websocket';
 import type { MachineConnectionRuntime } from './machine-connection-runtime';
 import { createProjectSpaceApiHandler } from './project-space-api-handler';
 import {
@@ -80,7 +77,8 @@ import {
 import { createConfiguredHostControlHandler } from './host-control/configured-runtime';
 import {
   handleRetiredConnectorHttp,
-  rejectRetiredConnectorUpgrade
+  rejectRetiredConnectorUpgrade,
+  rejectRetiredMachineTerminalUpgrade
 } from './legacy-connector-retirement';
 import {
   createCanonicalRuntimeControlRuntime,
@@ -357,7 +355,6 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
   const logger = options.logger ?? projectSpaceLogger.child({ component: 'server' });
   const host = options.host ?? '127.0.0.1';
   const backend = options.backend ?? createLocalProjectSpaceBackend();
-  const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
   const projectChatRuntime = await resolveProjectChatRuntime(options, backend);
   const machineConnectionRuntime = options.machineConnectionRuntime;
   const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
@@ -404,7 +401,6 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
       projectHostdInventory: projectHostd.service
     })
   );
-  const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
   const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
   const codexAttach = createCodexAttachUpgradeHandler(codexAttachLeases);
   const workspaceRuntimeSessions = createWorkspaceRuntimeSessionUpgradeHandler(
@@ -428,7 +424,7 @@ export async function createProjectSpaceServer(options: ProjectSpaceHttpOptions 
         !codexAttach.handleUpgrade(request, socket, head) &&
         !workspaceRuntimeSessions.handleUpgrade(request, socket, head) &&
         !rejectRetiredConnectorUpgrade(request, socket) &&
-        !handleMachineTerminalUpgrade(request, socket, head) &&
+        !rejectRetiredMachineTerminalUpgrade(request, socket) &&
         !handleProjectTerminalUpgrade(request, socket, head)
       ) {
         socket.destroy();

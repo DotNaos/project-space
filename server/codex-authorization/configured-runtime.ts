@@ -5,8 +5,8 @@ import type {
   CodexAuthorizationResult
 } from '../../src/shared/codex-authorization-api';
 import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
-import { requestConnectorCodexSessions } from '../connector-command-hub';
 import { connectorSessionGeneration } from '../connector-command-session-registry';
+import { requestConnectorCodexSessions } from '../codex-sessions/connector-hub';
 import { createCodexMachineTasksAuthResolver } from '../codex-machine-tasks/auth-context';
 import {
   isDatabaseConfigured,

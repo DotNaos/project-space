@@ -5,7 +5,6 @@ import type {
   CodexSessionOperationResult,
   CodexSessionStreamEvent
 } from '../../src/shared/codex-sessions-api';
-import { requestConnectorCodexSessions } from '../connector-command-hub';
 import {
   connectorHasCapability,
   connectorSessionGeneration
@@ -20,6 +19,7 @@ import {
   CodexConnectorOutcomeUnknownError,
   CodexConnectorRemoteError
 } from '../codex-sessions/connector-hub';
+import { requestConnectorCodexSessions } from '../codex-sessions/connector-hub';
 import {
   getCodexSessionsDatabaseClient,
   isDatabaseConfigured,

@@ -5,9 +5,10 @@ import {
   type MachineConnectionBackendOptions
 } from './machine-connection-backend';
 import {
-  disconnectConnectorCommandChannel,
+  disconnectConnectorSession,
   isConnectorCommandChannelAuthenticated
-} from './connector-command-hub';
+} from './connector-command-session-registry';
+import { failCodexSessionCommandsForMachine } from './codex-sessions/connector-hub';
 import {
   readMachineConnectionPublicOrigin,
   readMachineConnectionRateLimitSecret
@@ -69,7 +70,9 @@ export function createMachineConnectionRuntime(
     onMachineRevoked:
       options.onMachineRevoked ??
       ((machineId) => {
-        disconnectConnectorCommandChannel(machineId);
+        if (disconnectConnectorSession(machineId)) {
+          failCodexSessionCommandsForMachine(machineId);
+        }
       })
   });
   const scheduler = options.scheduler ?? nodeScheduler;

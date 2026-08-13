@@ -29,7 +29,10 @@ describe('legacy mutation aliases', () => {
     const fixture = routes();
     for (const pathname of [
       '/api/worktrees/materialize', '/api/worktrees/setup/run',
-      '/api/dev-servers/start', '/api/dev-servers/stop'
+      '/api/dev-servers/start', '/api/dev-servers/stop',
+      '/api/machines/filesystem/root', '/api/machines/filesystem/directory',
+      '/api/machines/filesystem/file', '/api/machines/filesystem/folders/create',
+      '/api/machines/filesystem/folders/rename', '/api/machines/filesystem/folders/delete'
     ]) {
       expect(await fixture.core(request(), fixture.response, new URL(`http://project.test${pathname}`)))
         .toBe(true);
@@ -38,6 +41,20 @@ describe('legacy mutation aliases', () => {
         status: 409
       });
     }
+    expect(fixture.calls).toEqual([]);
+  });
+
+  test('fails a legacy machine terminal command without reaching execution', async () => {
+    const fixture = routes();
+    expect(await fixture.integration(
+      request(),
+      fixture.response,
+      new URL('http://project.test/api/machines/terminal/run')
+    )).toBe(true);
+    expect(fixture.read()).toMatchObject({
+      body: { error: { code: 'canonical_runtime_required' } },
+      status: 409
+    });
     expect(fixture.calls).toEqual([]);
   });
 });

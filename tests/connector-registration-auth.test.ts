@@ -5,11 +5,11 @@ import { describe, expect, test } from 'bun:test';
 import { WebSocket } from 'ws';
 
 import {
-  createConnectorCommandUpgradeHandler,
-  disconnectConnectorCommandChannel,
   isConnectorCommandChannelAuthenticated,
-  isConnectorCommandChannelAvailable
-} from '../server/connector-command-hub';
+  isConnectorCommandChannelAvailable,
+  disconnectConnectorSession
+} from '../server/connector-command-session-registry';
+import { createCodexSessionsConnectorUpgradeHandler } from '../server/codex-sessions/connector-upgrade-handler';
 import type { ConnectorProjectRegistryResult } from '../src/shared/project-space-api';
 
 function registrationMessage(machineId: string, token: string) {
@@ -69,7 +69,7 @@ async function connect(url: string) {
 describe('connector credential authentication', () => {
   test('measures both initial and recurring authenticated registry use', async () => {
     const uses: unknown[] = [];
-    const commands = createConnectorCommandUpgradeHandler({
+    const commands = createCodexSessionsConnectorUpgradeHandler({
       async authenticateConnectorCredential(_token, machineId) {
         return { machineId, userId: 'owner-one' };
       },
@@ -108,7 +108,7 @@ describe('connector credential authentication', () => {
   });
 
   test('requires authenticated profile binding before registering a source connector', async () => {
-    const commands = createConnectorCommandUpgradeHandler({
+    const commands = createCodexSessionsConnectorUpgradeHandler({
       async authenticateConnectorCredential(_token, machineId) {
         return machineId === 'bound-development-machine'
           ? {
@@ -150,7 +150,7 @@ describe('connector credential authentication', () => {
 
   test('awaits the injected per-connector credential and machine binding', async () => {
     const authentications: Array<[string, string]> = [];
-    const commands = createConnectorCommandUpgradeHandler({
+    const commands = createCodexSessionsConnectorUpgradeHandler({
       async authenticateConnectorCredential(token, machineId) {
         authentications.push([token, machineId]);
         return token === 'machine-specific-credential' && machineId === 'bound-machine';
@@ -208,7 +208,7 @@ describe('connector credential authentication', () => {
   test('revalidates the credential before accepting a registry refresh', async () => {
     let valid = true;
     let authenticationCount = 0;
-    const commands = createConnectorCommandUpgradeHandler({
+    const commands = createCodexSessionsConnectorUpgradeHandler({
       async authenticateConnectorCredential() {
         authenticationCount += 1;
         return valid;
@@ -246,7 +246,7 @@ describe('connector credential authentication', () => {
 
   test('periodically closes a socket after its credential is revoked', async () => {
     let valid = true;
-    const commands = createConnectorCommandUpgradeHandler({
+    const commands = createCodexSessionsConnectorUpgradeHandler({
       async authenticateConnectorCredential() {
         return valid;
       },
@@ -282,7 +282,7 @@ describe('connector credential authentication', () => {
   });
 
   test('removes a revoked machine from the command channel immediately', async () => {
-    const commands = createConnectorCommandUpgradeHandler({
+    const commands = createCodexSessionsConnectorUpgradeHandler({
       async authenticateConnectorCredential() {
         return true;
       }
@@ -305,11 +305,11 @@ describe('connector credential authentication', () => {
       await once(socket, 'message');
       const closed = once(socket, 'close');
 
-      expect(disconnectConnectorCommandChannel('immediate-revocation-machine')).toBe(true);
+      expect(disconnectConnectorSession('immediate-revocation-machine')).not.toBeNull();
       expect(isConnectorCommandChannelAvailable('immediate-revocation-machine')).toBe(false);
       const [code] = (await closed) as [number, Buffer];
       expect(code).toBe(1008);
-      expect(disconnectConnectorCommandChannel('immediate-revocation-machine')).toBe(false);
+      expect(disconnectConnectorSession('immediate-revocation-machine')).toBeNull();
     } finally {
       server.closeAllConnections();
       await commands.close();

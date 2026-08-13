@@ -8,7 +8,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   handleRetiredConnectorHttp,
   legacyConnectorRetirement,
-  rejectRetiredConnectorUpgrade
+  rejectRetiredConnectorUpgrade,
+  rejectRetiredMachineTerminalUpgrade
 } from '../server/legacy-connector-retirement';
 import { createLocalProjectSpaceBackend } from '../server/local-project-space-backend';
 import { createProjectSpaceServer } from '../server/project-space-http';
@@ -136,6 +137,66 @@ describe('legacy Connector retirement boundary', () => {
     expect(response).toContain('HTTP/1.1 410 Gone');
     expect(response).toContain('canonical_runtime_required');
     expect(response).not.toContain('101 Switching Protocols');
+  });
+
+  test('rejects the legacy machine terminal upgrade before backend dispatch', async () => {
+    const socket = new PassThrough();
+    let response = '';
+    socket.on('data', (chunk) => {
+      response += chunk.toString('utf8');
+    });
+
+    expect(rejectRetiredMachineTerminalUpgrade(
+      { url: '/api/machines/machine-one/terminal' } as IncomingMessage,
+      socket
+    )).toBe(true);
+    await new Promise<void>((resolve) => socket.once('end', resolve));
+
+    expect(response).toContain('HTTP/1.1 409 Conflict');
+    expect(response).toContain('canonical_runtime_required');
+    expect(response).not.toContain('101 Switching Protocols');
+  });
+
+  test('enforces legacy machine terminal retirement before production backend dispatch', async () => {
+    const backend = createLocalProjectSpaceBackend();
+    let machineOverviewCalls = 0;
+    const server = await createProjectSpaceServer({
+      backend: new Proxy(backend, {
+        get(target, property, receiver) {
+          if (property === 'getConnectorOverview') {
+            return async () => {
+              machineOverviewCalls += 1;
+              return target.getConnectorOverview();
+            };
+          }
+          return Reflect.get(target, property, receiver);
+        }
+      }),
+      host: '127.0.0.1',
+      port: 0
+    });
+
+    try {
+      const socket = new PassThrough();
+      let response = '';
+      socket.on('data', (chunk) => {
+        response += chunk.toString('utf8');
+      });
+      const closed = new Promise<void>((resolve) => socket.once('end', resolve));
+      server.server.emit(
+        'upgrade',
+        { url: '/api/machines/machine-one/terminal' } as IncomingMessage,
+        socket,
+        Buffer.alloc(0)
+      );
+      await closed;
+
+      expect(response).toContain('HTTP/1.1 409 Conflict');
+      expect(response).toContain('canonical_runtime_required');
+      expect(machineOverviewCalls).toBe(0);
+    } finally {
+      await server.close();
+    }
   });
 
   test('does not intercept canonical runtime routes', () => {

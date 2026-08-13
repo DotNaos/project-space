@@ -22,7 +22,6 @@ import type {
   GitHubOAuthDevicePollRequest,
   GitHubPullRequestCreateRequest,
   GitStageRequest,
-  MachineTerminalCommandRequest,
   ProjectBackupRequest,
   ProjectDeployRequest,
   RoadmapDependencyMutationRequest,
@@ -331,8 +330,8 @@ export function createProjectSpaceIntegrationApiRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/machines/terminal/run') {
-      const payload = await readJson<MachineTerminalCommandRequest>(request);
-      writeJson(response, 200, await backend.runMachineTerminalCommand(payload));
+      await readJson<unknown>(request);
+      canonicalRuntimeRequired(response);
       return true;
     }
 
