@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { CodexSessionManager } from '../server/codex-sessions/manager';
-import type { LocalProjectSpaceBackend } from '../server/local-project-space-backend';
 import { createPrototypeReviewLocalRuntime } from '../server/prototype-review-local-runtime';
 
 const repositoryRoot = process.cwd();
@@ -47,17 +46,6 @@ class LocalInspectionManager {
   async close() {}
 }
 
-const backend = {
-  async getConnectorProjectRegistry() {
-    return {
-      connector: {
-        machineId: 'os-macbook',
-        machineName: 'MacBook'
-      }
-    };
-  }
-} as unknown as LocalProjectSpaceBackend;
-
 function createRuntime(options: {
   environment?: NodeJS.ProcessEnv;
   issue?: number;
@@ -71,7 +59,6 @@ function createRuntime(options: {
   worktreeRoot?: string;
 } = {}) {
   return createPrototypeReviewLocalRuntime({
-    backend,
     environment: options.environment ?? { CODEX_THREAD_ID: threadId },
     manager: new LocalInspectionManager() as unknown as CodexSessionManager,
     readWorktreeClaim: options.readWorktreeClaim ?? (async () => ({
@@ -94,8 +81,8 @@ describe('prototype review local runtime', () => {
         state: 'available'
       });
       expect(context.codex).toEqual({
-        machineId: 'os-macbook',
-        machineName: 'MacBook',
+        machineId: expect.stringMatching(/^local-review-[0-9a-f]{32}$/),
+        machineName: 'Local review runtime',
         state: 'available',
         threadId
       });
@@ -110,8 +97,8 @@ describe('prototype review local runtime', () => {
       const context = await runtime.readContext('DotNaos/project-space', 356);
       expect(context.checkout.state).toBe('available');
       expect(context.codex).toEqual({
-        machineId: 'os-macbook',
-        machineName: 'MacBook',
+        machineId: expect.stringMatching(/^local-review-[0-9a-f]{32}$/),
+        machineName: 'Local review runtime',
         state: 'available',
         threadId
       });

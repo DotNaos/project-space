@@ -37,6 +37,10 @@ var portlessRouteLine = regexp.MustCompile(
 
 var issueWorktreeLabel = regexp.MustCompile(`^(?:task-)?issue-([0-9]+(?:-|$).*)$`)
 
+// Portless issues a certificate for <name>.localhost. Keep the complete name
+// below the 64-character certificate common-name boundary.
+const maximumGeneratedPortlessNameLength = 53
+
 func (portless PortlessCLI) Register(ctx context.Context, name string, port int) (string, error) {
 	if err := validatePortlessName(name); err != nil {
 		return "", err
@@ -182,7 +186,17 @@ func portlessName(identity ServerIdentity) string {
 	if identity.ServerKey != "dev" {
 		base = portlessLabel(identity.ServerKey) + "." + base
 	}
-	return base
+	return boundedPortlessName(base)
+}
+
+func boundedPortlessName(value string) string {
+	if len(value) <= maximumGeneratedPortlessNameLength {
+		return value
+	}
+	digest := sha256.Sum256([]byte(value))
+	suffix := hex.EncodeToString(digest[:4])
+	prefixLength := maximumGeneratedPortlessNameLength - len(suffix) - 1
+	return strings.TrimRight(value[:prefixLength], "-.") + "-" + suffix
 }
 
 func portlessWorktreeLabel(value string) string {

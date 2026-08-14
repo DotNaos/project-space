@@ -102,7 +102,7 @@ function localCodexStatusMessage(result: PrototypeReviewLocalContextResult) {
   }
   const messages = {
     'checkout-unavailable': 'The local checkout could not be verified.',
-    'codex-unavailable': 'Codex is unavailable through the owning connector.',
+    'codex-unavailable': 'Codex is unavailable through the owning local review runtime.',
     'missing-thread': 'No owning Codex task is attached to this dev server.',
     'repository-mismatch': 'This checkout does not match the requested repository.',
     'task-mismatch': 'This dev server belongs to a different Codex task.'
