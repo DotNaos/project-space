@@ -16,6 +16,11 @@ import {
   projectOverviewPrototypeScenario,
 } from './project-overview-scenarios';
 import {
+  isMobileWorkflowScenario,
+  MOBILE_WORKFLOW_SCENARIO_ID,
+} from './mobile-workflow/mobile-workflow-data';
+import { MobileWorkflowScreen } from './mobile-workflow/mobile-workflow-screen';
+import {
   PrototypeFrameControl,
   PrototypePresentationControls,
   PrototypeSurfaceTabs,
@@ -103,7 +108,10 @@ function EmbeddedMobilePrototype({
   onOpenLink(href: string): void;
 }) {
   const scenarioIds = useMemo(
-    () => PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.map((scenario) => scenario.id),
+    () => [
+      ...PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.map((scenario) => scenario.id),
+      MOBILE_WORKFLOW_SCENARIO_ID,
+    ],
     []
   );
   const initial = useMemo(
@@ -116,13 +124,14 @@ function EmbeddedMobilePrototype({
     [launchSearch, scenarioIds]
   );
   const scenario = projectOverviewPrototypeScenario(initial.scenarioId);
+  const workflowScenario = isMobileWorkflowScenario(initial.scenarioId);
   const presentation = useMemo(
     () =>
       readPrototypePresentation(
         launchSearch,
-        scenario?.theme ?? 'dark'
+        workflowScenario ? 'dark' : (scenario?.theme ?? 'dark')
       ),
-    [launchSearch, scenario?.theme]
+    [launchSearch, scenario?.theme, workflowScenario]
   );
 
   useEffect(() => {
@@ -145,7 +154,9 @@ function EmbeddedMobilePrototype({
             : 0,
       }}
     >
-      {scenario ? (
+      {workflowScenario ? (
+        <MobileWorkflowScreen />
+      ) : scenario ? (
         <PrototypeLaunchScreen
           identity={identity}
           initialState={nativePrototypeScenarioState(scenario.id)}
@@ -177,7 +188,10 @@ function MobilePrototypeWorkspace({
     []
   );
   const scenarioIds = useMemo(
-    () => PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.map((scenario) => scenario.id),
+    () => [
+      ...PROJECT_OVERVIEW_PROTOTYPE_SCENARIOS.map((scenario) => scenario.id),
+      MOBILE_WORKFLOW_SCENARIO_ID,
+    ],
     []
   );
   const initial = useMemo(
@@ -190,13 +204,14 @@ function MobilePrototypeWorkspace({
     [launchSearch, scenarioIds]
   );
   const initialScenario = projectOverviewPrototypeScenario(initial.scenarioId);
+  const workflowScenario = isMobileWorkflowScenario(initial.scenarioId);
   const initialPresentation = useMemo(
     () =>
       readPrototypePresentation(
         launchSearch,
-        initialScenario?.theme ?? 'dark'
+        workflowScenario ? 'dark' : (initialScenario?.theme ?? 'dark')
       ),
-    [initialScenario?.theme, launchSearch]
+    [initialScenario?.theme, launchSearch, workflowScenario]
   );
   const [scenarioId] = useState(initial.scenarioId);
   const [viewport, setViewport] = useState<PrototypeViewport>(initial.viewport);
@@ -214,6 +229,7 @@ function MobilePrototypeWorkspace({
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
   const scenario = projectOverviewPrototypeScenario(scenarioId);
+  const workflowScenarioActive = isMobileWorkflowScenario(scenarioId);
   const compactControls = width < 900;
   const phoneControls = width < 520;
   const controlsVisible = !presentation.fullscreen || hudVisible;
@@ -406,7 +422,9 @@ function MobilePrototypeWorkspace({
         theme={presentation.theme}
         viewport={viewport}
       >
-        {scenario ? (
+        {workflowScenarioActive ? (
+          <MobileWorkflowScreen key={scenarioId} />
+        ) : scenario ? (
           <PrototypeLaunchScreen
             identity={identity}
             key={scenario.id}
