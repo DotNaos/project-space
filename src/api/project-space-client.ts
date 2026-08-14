@@ -81,6 +81,10 @@ import type {
   ToolLaunchResult
 } from '@/shared/project-space-api';
 import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
+import type {
+  TailscaleClassificationRequest,
+  TailscaleInventoryResult
+} from '@/shared/tailscale-inventory-api';
 import {
   refreshProjectSpaceAuthToken,
   setProjectSpaceAuthToken
@@ -169,6 +173,20 @@ export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements 
       headers: {
         Accept: 'application/vnd.project-space.compute-inventory+json; version=3'
       }
+    });
+  }
+
+  getTailscaleInventory(refresh = false): Promise<TailscaleInventoryResult> {
+    return this.request(`/api/compute/tailscale/devices${refresh ? '?refresh=1' : ''}`);
+  }
+
+  setTailscaleDeviceClassification(
+    deviceId: string,
+    request: TailscaleClassificationRequest
+  ): Promise<{ classification: TailscaleClassificationRequest['classification']; id: string; revision: number }> {
+    return this.request(`/api/compute/tailscale/devices/${encodeURIComponent(deviceId)}/classification`, {
+      body: JSON.stringify(request),
+      method: 'POST'
     });
   }
 

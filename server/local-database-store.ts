@@ -23,6 +23,9 @@ import type {
 } from './database/models';
 import { ProjectSpaceDatabaseRepository } from './database/repository';
 import { PostgresPrivateNetworkStore, type PrivateNetworkStore } from './private-network/store';
+import {
+  PostgresTailscaleInventoryStore
+} from './tailscale-inventory/store';
 
 export type {
   CreateDevServerSessionInput,
@@ -67,6 +70,7 @@ let repository: ProjectSpaceDatabaseRepository | null = null;
 let projectChatRepository: PostgresProjectChatRepository | null = null;
 let roadmapPlanStore: RoadmapPlanStore | null = null;
 let privateNetworkStore: PrivateNetworkStore | null = null;
+let tailscaleInventoryStore: PostgresTailscaleInventoryStore | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function databaseUrl() {
@@ -253,6 +257,16 @@ export async function getPrivateNetworkStore() {
   await ensureDatabaseSchema();
   privateNetworkStore ??= new PostgresPrivateNetworkStore(createPoolQueryClient(databasePool));
   return privateNetworkStore;
+}
+
+export async function getTailscaleInventoryStore() {
+  const databasePool = getPool();
+  if (!databasePool) return null;
+  await ensureDatabaseSchema();
+  tailscaleInventoryStore ??= new PostgresTailscaleInventoryStore(
+    createPoolQueryClient(databasePool)
+  );
+  return tailscaleInventoryStore;
 }
 
 export async function readGitHubOAuthToken(

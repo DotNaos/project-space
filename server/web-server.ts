@@ -26,6 +26,7 @@ Environment:
   PROJECT_SPACE_PORT  Port to bind. Defaults to 4173.
   CLERK_SECRET_KEY  Clerk secret key for Project Space login.
   PROJECT_SPACE_ALLOWED_EMAILS  Optional comma-separated Clerk email allowlist.
+  PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_EMAIL  Tailnet owner allowed to discover/classify devices.
   PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET  Independent secret for public machine enrollment limits.
   PROJECT_SPACE_PUBLIC_ORIGIN  Public HTTPS origin used for machine approval links.
   PROJECT_SPACE_PREVIEW_MODE=1  Accept only trusted Preview gateway identity assertions.

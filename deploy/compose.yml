@@ -37,6 +37,8 @@ services:
       PROJECT_SPACE_PRIVATE_VPS_BASE_URL: ${PROJECT_SPACE_PRIVATE_VPS_BASE_URL:-}
       PROJECT_SPACE_PUBLIC_ORIGIN: https://${PROJECT_DOMAIN:-projects.os-home.net}
       PROJECT_SPACE_SSH_CONTROL_GATEWAY_ID: ${PROJECT_SPACE_SSH_CONTROL_GATEWAY_ID:-project-space-prod-web}
+      PROJECT_SPACE_TAILSCALE_INVENTORY_SOURCE: proxy
+      PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_EMAIL: ${PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_EMAIL:-}
       PROJECT_SPACE_PREVIEW_STATUS_ROOT: /workspace/deploy-state/project-space-preview
       PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64:-}
       PROJECT_DEPLOY_ENVIRONMENT: ${PROJECT_ENV:-prod}
@@ -60,6 +62,9 @@ services:
       start_period: 20s
     image: project-space-web:${PROJECT_SPACE_BUILD_COMMIT:-local}
     logging: *runtime-logs
+    networks:
+      - default
+      - tailscale-status
     restart: unless-stopped
     volumes:
       - ..:/workspace/backend-repo:ro
@@ -68,6 +73,32 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  tailscale-status:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: tailscale-status-runner
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "/tailscale-status-proxy", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    image: project-space-tailscale-status:${PROJECT_SPACE_BUILD_COMMIT:-local}
+    logging: *runtime-logs
+    networks:
+      - tailscale-status
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    user: "65534:65534"
+    volumes:
+      # The fixed-operation proxy is the capability boundary; :ro only prevents socket replacement.
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
 
   docs:
     build:
@@ -103,3 +134,7 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  tailscale-status:
+    internal: true
