@@ -237,6 +237,45 @@ func TestManagedRuntimeStopsItsProcessGroupOnSIGHUP(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimeRecordsChildExit(t *testing.T) {
+	runner := OSProcessRunner{SupervisorExecutable: buildProjectCLI(t)}
+	root := t.TempDir()
+	exitPath := filepath.Join(root, "watcher.exit")
+	process, err := runner.StartDetached(Command{
+		Argv: []string{os.Args[0], "-test.run=TestProjectRunHelperProcess", "--", "exit"},
+		Env:  []string{"GO_WANT_PROJECTRUN_HELPER=1"}, ExitPath: exitPath,
+	}, filepath.Join(root, "watcher.log"), func(ProcessRef) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.StopGroup(process, time.Second)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		body, readErr := os.ReadFile(exitPath)
+		if readErr == nil {
+			if !strings.Contains(string(body), `"exitCode":7`) {
+				t.Fatalf("exit marker = %s", body)
+			}
+			break
+		}
+		if !os.IsNotExist(readErr) {
+			t.Fatal(readErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("runtime supervisor did not record the child exit")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	manager := &Manager{processes: runner}
+	err = manager.checkLocalNodeWatchers(runtimeState{Watchers: []LocalNodeWatcher{{
+		Package: "@example/watcher", PID: process.PID, ProcessIdentity: process.Identity,
+		ExitPath: exitPath, LogPath: filepath.Join(root, "watcher.log"),
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "exited") {
+		t.Fatalf("watcher health error = %v", err)
+	}
+}
+
 func TestExclusiveTCPOwnershipRejectsForeignCoListener(t *testing.T) {
 	listeners := []tcpListener{
 		{PID: 1001, Address: "127.0.0.1:43117"},
@@ -272,6 +311,9 @@ func TestProjectRunHelperProcess(t *testing.T) {
 			os.Exit(5)
 		}
 		os.Exit(0)
+	}
+	if mode == "exit" {
+		os.Exit(7)
 	}
 	port, err := strconv.Atoi(os.Getenv("PROJECT_PORT"))
 	if err != nil {

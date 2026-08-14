@@ -57,35 +57,38 @@ const (
 )
 
 type ServeResult struct {
-	SchemaVersion     int              `json:"schemaVersion"`
-	Operation         string           `json:"operation"`
-	Disposition       ServeDisposition `json:"disposition,omitempty"`
-	Mode              ServeMode        `json:"mode"`
-	APIs              APIsMode         `json:"apis"`
-	Data              DataMode         `json:"data"`
-	Secrets           string           `json:"secrets"`
-	ServerID          string           `json:"serverId"`
-	ServerGeneration  string           `json:"serverGeneration,omitempty"`
-	ServerKey         string           `json:"serverKey"`
-	Script            string           `json:"script"`
-	Directory         string           `json:"directory"`
-	Repository        string           `json:"repository"`
-	TmuxSession       string           `json:"tmuxSession"`
-	WorkspaceID       string           `json:"workspaceId,omitempty"`
-	RuntimeGeneration string           `json:"runtimeGeneration,omitempty"`
-	Capability        Capability       `json:"capability"`
-	State             State            `json:"state"`
-	PID               *int             `json:"pid"`
-	LocalPort         *int             `json:"localPort"`
-	LocalURL          *string          `json:"localUrl"`
-	PortlessName      string           `json:"portlessName"`
-	PublicPort        *int             `json:"publicPort"`
-	PublicURL         *string          `json:"publicUrl"`
-	TailscaleIPv4     *string          `json:"tailscaleIPv4"`
-	AllowedHosts      []string         `json:"allowedHosts"`
-	StartedAt         *string          `json:"startedAt"`
-	CheckedAt         string           `json:"checkedAt"`
-	LastError         *string          `json:"lastError"`
+	SchemaVersion     int                `json:"schemaVersion"`
+	Operation         string             `json:"operation"`
+	Disposition       ServeDisposition   `json:"disposition,omitempty"`
+	Mode              ServeMode          `json:"mode"`
+	APIs              APIsMode           `json:"apis"`
+	Data              DataMode           `json:"data"`
+	Secrets           string             `json:"secrets"`
+	ServerID          string             `json:"serverId"`
+	ServerGeneration  string             `json:"serverGeneration,omitempty"`
+	ServerKey         string             `json:"serverKey"`
+	Script            string             `json:"script"`
+	Directory         string             `json:"directory"`
+	Repository        string             `json:"repository"`
+	TmuxSession       string             `json:"tmuxSession"`
+	WorkspaceID       string             `json:"workspaceId,omitempty"`
+	RuntimeGeneration string             `json:"runtimeGeneration,omitempty"`
+	Capability        Capability         `json:"capability"`
+	State             State              `json:"state"`
+	PID               *int               `json:"pid"`
+	LocalPort         *int               `json:"localPort"`
+	LocalURL          *string            `json:"localUrl"`
+	PortlessName      string             `json:"portlessName"`
+	PublicPort        *int               `json:"publicPort"`
+	PublicURL         *string            `json:"publicUrl"`
+	TailscaleIPv4     *string            `json:"tailscaleIPv4"`
+	AllowedHosts      []string           `json:"allowedHosts"`
+	Libraries         []LocalNodeLibrary `json:"libraries"`
+	Watchers          []LocalNodeWatcher `json:"watchers"`
+	Companions        []CompanionServer  `json:"companions"`
+	StartedAt         *string            `json:"startedAt"`
+	CheckedAt         string             `json:"checkedAt"`
+	LastError         *string            `json:"lastError"`
 }
 
 type StartOptions struct {
@@ -96,6 +99,28 @@ type StartOptions struct {
 	WorkspaceID       string
 	RuntimeGeneration string
 	Environment       []string
+	With              []string
+}
+
+type CompanionServer struct {
+	Library   string  `json:"library"`
+	Script    string  `json:"script"`
+	Directory string  `json:"directory"`
+	ServerID  string  `json:"serverId"`
+	State     State   `json:"state"`
+	LocalURL  *string `json:"localUrl"`
+	Created   bool    `json:"created"`
+	Owned     bool    `json:"owned"`
+}
+
+type LocalNodeWatcher struct {
+	Package         string   `json:"package"`
+	Directory       string   `json:"directory"`
+	Command         []string `json:"command"`
+	PID             int      `json:"pid"`
+	ProcessIdentity string   `json:"processIdentity"`
+	LogPath         string   `json:"logPath"`
+	ExitPath        string   `json:"exitPath"`
 }
 
 type RunOptions struct {
@@ -123,6 +148,7 @@ type Command struct {
 	Dir        string
 	Env        []string
 	InheritEnv bool
+	ExitPath   string
 }
 
 type ProcessRef struct {

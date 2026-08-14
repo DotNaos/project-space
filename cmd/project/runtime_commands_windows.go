@@ -35,6 +35,7 @@ func newServeCommand() *cobra.Command {
 	cmd.Flags().Bool("tailnet", false, "publish through Tailscale (the default; retained for compatibility)")
 	cmd.Flags().String("apis", "simulated", "backend API binding: simulated or external")
 	cmd.Flags().String("data", "local", "backend data binding: local or remote")
+	cmd.Flags().StringArray("with", nil, "use a local Node library worktree for this server (repeatable)")
 	cmd.AddCommand(newWindowsServeReconcileCommand())
 	cmd.AddCommand(newWindowsServeListCommand())
 	cmd.AddCommand(newWindowsServeLogsCommand())

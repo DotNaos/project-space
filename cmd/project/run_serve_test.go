@@ -22,11 +22,15 @@ func TestServeCommandsExposeStableJSONContract(t *testing.T) {
 	startOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
 		"dev", "/tmp/worktree", "--json",
 		"--allowed-host", "preview.example.com", "--allowed-host", "app.example.com",
+		"--with", "/tmp/ui", "--with", "/tmp/sdk",
 	})
 	assertServeJSONKeys(t, startOutput)
 	if manager.startDirectory != "/tmp/worktree" || manager.startScript != "dev" ||
 		!reflect.DeepEqual(manager.allowedHosts, []string{"preview.example.com", "app.example.com"}) {
 		t.Fatalf("start call = directory %q script %q hosts %#v", manager.startDirectory, manager.startScript, manager.allowedHosts)
+	}
+	if !reflect.DeepEqual(manager.with, []string{"/tmp/ui", "/tmp/sdk"}) {
+		t.Fatalf("--with values = %#v", manager.with)
 	}
 	localOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
 		"dev", "/tmp/worktree", "--no-tailnet", "--json",
@@ -235,6 +239,7 @@ func assertServeJSONKeys(t *testing.T, output string) {
 		"apis", "data", "secrets",
 		"pid", "localPort", "localUrl", "portlessName", "publicPort", "publicUrl", "tailscaleIPv4",
 		"allowedHosts", "startedAt", "checkedAt", "lastError",
+		"libraries", "watchers", "companions",
 	} {
 		if _, exists := payload[key]; !exists {
 			t.Fatalf("JSON is missing %q: %#v", key, payload)
@@ -253,6 +258,7 @@ type fakeProjectCommandManager struct {
 	localOnly        bool
 	apis             projectrun.APIsMode
 	data             projectrun.DataMode
+	with             []string
 	reconcileCalls   int
 	statusDirectory  string
 	statusScript     string
@@ -300,6 +306,7 @@ func (manager *fakeProjectCommandManager) StartWithOptions(
 	manager.localOnly = options.LocalOnly
 	manager.apis = options.APIs
 	manager.data = options.Data
+	manager.with = append([]string{}, options.With...)
 	return manager.Start(ctx, directory, script, options.AllowedHosts)
 }
 

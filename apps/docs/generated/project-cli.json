@@ -2856,6 +2856,12 @@
             "type": "bool",
             "description": "publish through Tailscale (the default; retained for compatibility)",
             "inherited": false
+          },
+          {
+            "name": "with",
+            "type": "stringArray",
+            "description": "use a local Node library worktree for this server (repeatable)",
+            "inherited": false
           }
         ],
         "commands": [

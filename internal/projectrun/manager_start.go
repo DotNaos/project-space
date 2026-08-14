@@ -21,10 +21,12 @@ func (manager *Manager) startLocalRuntime(
 	workspaceID string,
 	runtimeGeneration string,
 	environment []string,
+	libraries []LocalNodeLibrary,
 ) (runtimeState, ServeResult, error) {
 	for attempt := 1; attempt <= maximumPortRaceAttempts; attempt++ {
 		state, err := manager.reserveSession(
 			ctx, identity, requestedDirectory, mode, allowedHosts, apis, data, workspaceID, runtimeGeneration, environment,
+			libraries,
 		)
 		if err != nil {
 			return runtimeState{}, manager.runtimeErrorResult("start", root, identity.ServerKey, err), err
@@ -48,6 +50,20 @@ func (manager *Manager) startLocalRuntime(
 			state.APIs,
 			state.Data,
 		)
+		manifestPath, err := manager.store.saveLocalLibraries(state)
+		if err != nil {
+			failure, failErr := manager.failStart(state, err)
+			return runtimeState{}, failure, failErr
+		}
+		if manifestPath != "" {
+			command.Env = mergeEnvironment(command.Env, map[string]string{
+				"PROJECT_SERVE_WITH": manifestPath,
+			})
+		}
+		if err := manager.startLocalNodeWatchers(ctx, &state); err != nil {
+			failure, failErr := manager.failStart(state, err)
+			return runtimeState{}, failure, failErr
+		}
 		command.Env = mergeEnvironment(command.Env, environmentMap(environment))
 		if state.APIs == APIsModeSimulated && state.Data == DataModeLocal {
 			command.Env = mergeEnvironment(command.Env, map[string]string{
@@ -89,6 +105,9 @@ func (manager *Manager) startLocalRuntime(
 			if ownerErr == nil && inspectErr == nil && !owned && portOpen &&
 				attempt < maximumPortRaceAttempts &&
 				failure.PID == nil && failure.LocalPort == nil {
+				if artifactErr := manager.cleanupStartAttemptArtifacts(state); artifactErr != nil {
+					return runtimeState{}, failure, errors.Join(failErr, artifactErr)
+				}
 				continue
 			}
 			return runtimeState{}, failure, failErr
@@ -116,6 +135,9 @@ func (manager *Manager) startLocalRuntime(
 			)
 			failure, failErr := manager.failStart(state, cause)
 			if attempt < maximumPortRaceAttempts && failure.PID == nil && failure.LocalPort == nil {
+				if artifactErr := manager.cleanupStartAttemptArtifacts(state); artifactErr != nil {
+					return runtimeState{}, failure, errors.Join(failErr, artifactErr)
+				}
 				continue
 			}
 			return runtimeState{}, failure, failErr
@@ -132,4 +154,11 @@ func (manager *Manager) startLocalRuntime(
 		return state, ServeResult{}, nil
 	}
 	panic("unreachable bounded port-race loop")
+}
+
+func (manager *Manager) cleanupStartAttemptArtifacts(state runtimeState) error {
+	return errors.Join(
+		manager.store.deleteLocalLibraries(state),
+		deleteLocalNodeWatcherLogs(state.Watchers),
+	)
 }

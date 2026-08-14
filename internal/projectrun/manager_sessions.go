@@ -126,12 +126,13 @@ func (manager *Manager) stopExpected(ctx context.Context, directory, scriptName,
 		return manager.persistCleanupFailure("stop", capability, state, cleanupErr)
 	}
 	stopped := state
-	clearRuntimeResources(&stopped)
+	clearRuntimeOwnership(&stopped)
 	stopped.State = StateStopped
 	stopped.LastError = ""
 	stopped.CheckedAt = manager.timestamp()
 	if err := manager.deleteSessionArtifacts(state); err != nil {
 		clearRuntimeResources(&state)
+		state.Companions = nil
 		state.State = StateError
 		state.LastError = err.Error()
 		state.CheckedAt = manager.timestamp()
@@ -243,6 +244,7 @@ func (manager *Manager) reconcileSession(
 	if err := manager.deleteSessionArtifacts(state); err != nil {
 		combined := errors.Join(cause, err)
 		clearRuntimeResources(&state)
+		state.Companions = nil
 		state.State = StateError
 		state.LastError = combined.Error()
 		state.CheckedAt = manager.timestamp()
@@ -250,7 +252,7 @@ func (manager *Manager) reconcileSession(
 		return manager.resultFromState("reconcile", capability, state, combined), true, combined
 	}
 	stopped := state
-	clearRuntimeResources(&stopped)
+	clearRuntimeOwnership(&stopped)
 	stopped.State = StateStopped
 	stopped.CheckedAt = manager.timestamp()
 	stopped.LastError = cause.Error()
@@ -345,6 +347,11 @@ func (manager *Manager) markStatusError(state runtimeState, cause error) (ServeR
 	cleanupErr := manager.cleanupRuntime(state)
 	if cleanupErr == nil {
 		clearRuntimeResources(&state)
+		if artifactErr := manager.cleanupStartAttemptArtifacts(state); artifactErr == nil {
+			state.Watchers = nil
+		} else {
+			cause = errors.Join(cause, artifactErr)
+		}
 	} else {
 		cause = errors.Join(cause, cleanupErr)
 	}
@@ -373,6 +380,12 @@ func (manager *Manager) persistCleanupFailure(
 }
 
 func (manager *Manager) deleteSessionArtifacts(state runtimeState) error {
+	if err := deleteLocalNodeWatcherLogs(state.Watchers); err != nil {
+		return err
+	}
+	if err := manager.store.deleteLocalLibraries(state); err != nil {
+		return err
+	}
 	if err := manager.store.deleteLog(state.ServerID); err != nil {
 		return err
 	}
@@ -385,6 +398,12 @@ func clearRuntimeResources(state *runtimeState) {
 	state.PortlessName, state.PortlessURL = "", ""
 	state.TailscaleIPv4 = ""
 	state.StartedAt = ""
+	state.Companions = nil
+}
+
+func clearRuntimeOwnership(state *runtimeState) {
+	clearRuntimeResources(state)
+	state.Watchers = nil
 }
 
 func hasRuntimeResources(state runtimeState) bool {

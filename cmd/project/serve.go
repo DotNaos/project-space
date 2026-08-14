@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/DotNaos/project-space/internal/projectrun"
 	"github.com/spf13/cobra"
@@ -25,6 +26,7 @@ type projectServeOptions struct {
 	Script       string
 	Configured   bool
 	Follow       bool
+	With         []string
 }
 
 type projectServeReconciler interface {
@@ -71,6 +73,7 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 				LocalOnly:    options.LocalOnly || options.NoTailnet,
 				APIs:         apis,
 				Data:         data,
+				With:         options.With,
 			})
 			if err := printServeResult(cmd, result, format); err != nil {
 				return err
@@ -85,6 +88,7 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 	cmd.Flags().BoolVar(&options.Tailnet, "tailnet", false, "publish through Tailscale (the default; retained for compatibility)")
 	cmd.Flags().StringVar(&options.APIs, "apis", "simulated", "backend API binding: simulated or external")
 	cmd.Flags().StringVar(&options.Data, "data", "local", "backend data binding: local or remote")
+	cmd.Flags().StringArrayVar(&options.With, "with", nil, "use a local Node library worktree for this server (repeatable)")
 	must(cmd.RegisterFlagCompletionFunc("apis", fixedValuesCompletion("simulated", "external")))
 	must(cmd.RegisterFlagCompletionFunc("data", fixedValuesCompletion("local", "remote")))
 	cmd.AddCommand(newServeReconcileCommand(managerFactory))
@@ -385,6 +389,21 @@ func printServeResult(cmd *cobra.Command, result projectrun.ServeResult, format 
 	}
 	if result.PublicURL != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "Tailscale: %s\n", *result.PublicURL)
+	}
+	for _, library := range result.Libraries {
+		packageNames := make([]string, 0, len(library.Packages))
+		for _, pkg := range library.Packages {
+			packageNames = append(packageNames, pkg.Name)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "With: %s (%s)\n", library.Directory, strings.Join(packageNames, ", "))
+	}
+	for _, watcher := range result.Watchers {
+		fmt.Fprintf(cmd.OutOrStdout(), "Watcher: %s (%s)\n", watcher.Package, strings.Join(watcher.Command, " "))
+	}
+	for _, companion := range result.Companions {
+		if companion.LocalURL != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "Companion: %s (%s)\n", *companion.LocalURL, companion.Script)
+		}
 	}
 	if result.LastError != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "Error: %s\n", *result.LastError)

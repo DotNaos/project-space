@@ -134,6 +134,10 @@ func (manager *Manager) StartWithOptions(
 	if err != nil {
 		return manager.configErrorResult("start", root, scriptName, err), err
 	}
+	libraries, err := discoverLocalNodeLibraries(ctx, root, options.With)
+	if err != nil {
+		return manager.configErrorResult("start", root, scriptName, err), err
+	}
 	identity, err := manager.identity.Resolve(ctx, root, scriptName)
 	if err != nil {
 		return manager.runtimeErrorResult("start", root, scriptName, err), err
@@ -186,6 +190,10 @@ func (manager *Manager) StartWithOptions(
 			err := fmt.Errorf("serve session belongs to a different Workspace runtime generation; stop it through its owning runtime")
 			return manager.resultFromState("start", CapabilityConfigured, existing, err), err
 		}
+		if !sameLocalNodeLibraryBindings(existing.Libraries, libraries) {
+			err := fmt.Errorf("serve session is already running with different --with libraries; stop it first")
+			return manager.resultFromState("start", CapabilityConfigured, existing, err), err
+		}
 		if existing.State == StateRunning || existing.State == StateLocalOnly {
 			if healthErr := manager.checkRuntime(ctx, existing, script); healthErr == nil {
 				if existing.APIs != apis || existing.Data != data {
@@ -206,6 +214,7 @@ func (manager *Manager) StartWithOptions(
 					err := fmt.Errorf("serve session is already running with different allowed hosts; stop it first")
 					return manager.resultFromState("start", CapabilityConfigured, existing, err), err
 				}
+				existing.Libraries = libraries
 				existing.CheckedAt = manager.timestamp()
 				existing.LastError = ""
 				_ = manager.store.save(existing)
@@ -231,6 +240,12 @@ func (manager *Manager) StartWithOptions(
 			_ = manager.store.save(existing)
 			return manager.resultFromState("start", CapabilityConfigured, existing, cleanupErr), cleanupErr
 		}
+		if cleanupErr := errors.Join(
+			manager.store.deleteLocalLibraries(existing),
+			deleteLocalNodeWatcherLogs(existing.Watchers),
+		); cleanupErr != nil {
+			return manager.resultFromState("start", CapabilityConfigured, existing, cleanupErr), cleanupErr
+		}
 	}
 
 	startCtx, cancelStart := context.WithTimeout(ctx, script.Timeout())
@@ -238,7 +253,7 @@ func (manager *Manager) StartWithOptions(
 	state, failure, err := manager.startLocalRuntime(
 		startCtx, identity, requestedDirectory, mode, allowedHosts, script, root,
 		apis, data, options.WorkspaceID, options.RuntimeGeneration,
-		options.Environment,
+		options.Environment, libraries,
 	)
 	if err != nil {
 		return failure, err
@@ -264,6 +279,14 @@ func (manager *Manager) StartWithOptions(
 	if err := manager.store.save(state); err != nil {
 		return manager.failStart(state, err)
 	}
+	companions, err := manager.startCompanionServers(ctx, &state)
+	if err != nil {
+		return manager.failStart(state, err)
+	}
+	state.Companions = companions
+	if err := manager.store.save(state); err != nil {
+		return manager.failStart(state, err)
+	}
 	result := manager.resultFromState("start", CapabilityConfigured, state, nil)
 	result.Disposition = ServeDispositionCreated
 	return result, nil
@@ -280,6 +303,7 @@ func (manager *Manager) reserveSession(
 	workspaceID string,
 	runtimeGeneration string,
 	environment []string,
+	libraries []LocalNodeLibrary,
 ) (runtimeState, error) {
 	unlock, err := acquireFileLock(manager.store.portLockPath())
 	if err != nil {
@@ -350,6 +374,7 @@ func (manager *Manager) reserveSession(
 		PublicPort:         publicPort,
 		TailscaleIPv4:      address,
 		AllowedHosts:       allowedHosts,
+		Libraries:          libraries,
 		CheckedAt:          manager.timestamp(),
 	}
 	if err := manager.store.save(state); err != nil {
@@ -359,6 +384,12 @@ func (manager *Manager) reserveSession(
 }
 
 func (manager *Manager) checkRuntime(ctx context.Context, state runtimeState, script Script) error {
+	if err := manager.checkLocalNodeWatchers(state); err != nil {
+		return err
+	}
+	if err := manager.checkCompanionServers(ctx, state.Companions); err != nil {
+		return err
+	}
 	observation, err := manager.tmux.Inspect(ctx, state.TmuxSession)
 	if err != nil {
 		return transientRuntime(fmt.Errorf("inspect tmux session: %w", err))
@@ -463,6 +494,12 @@ func (manager *Manager) cleanupRuntimeVerified(state runtimeState) error {
 			failures = append(failures, err)
 		}
 	}
+	if err := manager.cleanupLocalNodeWatchers(state); err != nil {
+		failures = append(failures, err)
+	}
+	if err := manager.cleanupCompanionServers(state.Companions, state.ServerID); err != nil {
+		failures = append(failures, err)
+	}
 	return errors.Join(failures...)
 }
 
@@ -494,10 +531,13 @@ func (manager *Manager) failStart(state runtimeState, cause error) (ServeResult,
 	}
 	state.State = StateError
 	if cleanupErr == nil {
-		state.PID, state.ProcessID = 0, ""
-		state.LocalPort, state.PublicPort = 0, 0
-		state.PortlessName, state.PortlessURL = "", ""
-		state.TailscaleIPv4 = ""
+		artifactErr := manager.cleanupStartAttemptArtifacts(state)
+		clearRuntimeResources(&state)
+		if artifactErr == nil {
+			state.Watchers = nil
+		} else {
+			cause = errors.Join(cause, fmt.Errorf("rollback artifact cleanup failed: %w", artifactErr))
+		}
 	}
 	state.StartedAt = ""
 	state.CheckedAt = manager.timestamp()
@@ -554,7 +594,7 @@ func (manager *Manager) preserveRuntimeAfterTransientFailure(
 		cause = errors.Join(cause, fmt.Errorf("record transient runtime failure: %w", err))
 	}
 	observed := state
-	clearRuntimeResources(&observed)
+	clearRuntimeOwnership(&observed)
 	observed.State = StateError
 	observed.CheckedAt = manager.timestamp()
 	observed.LastError = cause.Error()
