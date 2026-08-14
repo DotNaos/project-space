@@ -32,13 +32,17 @@ import {
   loadHiddenIssueColumns,
   loadIssueColumnOrder,
   loadIssueColumnOverrides,
+  loadIssueSortMode,
   orderedIssueColumns,
   saveHiddenIssueColumns,
   saveIssueColumnOrder,
   saveIssueColumnOverrides,
+  saveIssueSortMode,
+  sortIssues,
   topIssueLabels,
   type IssueColumnId,
   type IssueColumnOverrides,
+  type IssueSortMode,
   type IssueViewMode
 } from './issue-board-model';
 
@@ -79,6 +83,7 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
     loadHiddenIssueColumns()
   );
   const [columnOrder, setColumnOrder] = useState<IssueColumnId[]>(() => loadIssueColumnOrder());
+  const [sortMode, setSortMode] = useState<IssueSortMode>(() => loadIssueSortMode());
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [moveFailure, setMoveFailure] = useState<IssueMoveFailure | null>(null);
   const [movingIssues, setMovingIssues] = useState<ReadonlyMap<number, IssueColumnId>>(
@@ -185,11 +190,17 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
   }, [props]);
 
   const filteredIssues = filterIssues(props.issues, props.query, props.activeLabels);
+  const sortedIssues = sortIssues(filteredIssues, {
+    mode: sortMode,
+    overrides,
+    placementIssues: props.issues,
+    roadmapItems: props.roadmap?.result?.plan.items
+  });
   const labels = topIssueLabels(props.issues);
   const hasFilter = props.query.trim().length > 0 || props.activeLabels.size > 0;
   const orderedColumns = orderedIssueColumns(columnOrder);
   const visibleColumns = orderedColumns.filter((column) => !hiddenColumns.has(column.id));
-  const columnGroups = groupIssuesByColumn(filteredIssues, overrides, props.issues);
+  const columnGroups = groupIssuesByColumn(sortedIssues, overrides, props.issues);
 
   const moveIssue = async (issueNumber: number, columnId: IssueColumnId) => {
     const moveToken = moveLockRef.current.begin(issueNumber, columnId);
@@ -272,8 +283,13 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
         onCreate={openCreation}
         onFilter={() => setIsFilterOpen(true)}
         onQueryChange={props.onQueryChange}
+        onSortModeChange={(nextMode) => {
+          setSortMode(nextMode);
+          saveIssueSortMode(nextMode);
+        }}
         onViewModeChange={props.onViewModeChange}
         query={props.query}
+        sortMode={sortMode}
         totalCount={props.issues.length}
         viewMode={props.viewMode}
       />
@@ -324,7 +340,7 @@ export function IssueIndexPanel(props: IssueIndexPanelProps) {
 
       <IssueContent
         {...props}
-        filteredIssues={filteredIssues}
+        filteredIssues={sortedIssues}
         movingIssueNumbers={new Set(movingIssues.keys())}
         onMoveIssue={moveIssue}
         overrides={overrides}

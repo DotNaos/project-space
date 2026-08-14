@@ -8,6 +8,7 @@ import {
   normalizeIssueColumnOrder,
   resolveIssueColumn,
   resolveIssueColumnFromPlacement,
+  sortIssues,
   topIssueLabels
 } from '../src/features/project-desktop/components/issue-board-model';
 
@@ -76,5 +77,68 @@ describe('issue board model', () => {
         issuePlacementIndices(issues)
       )
     ).toBe('backlog');
+  });
+
+  test('sorts automatic priority by roadmap, status, priority label, and issue number', () => {
+    const issues = [
+      issue(50, 'Backlog'),
+      issue(49, 'Ready low', ['ready', 'priority: low']),
+      issue(48, 'Ready urgent', ['ready', 'P0']),
+      issue(47, 'Active', ['in progress']),
+      issue(46, 'Blocked', ['blocked']),
+      issue(45, 'Closed', [], 'closed')
+    ];
+
+    expect(sortIssues(issues, {
+      mode: 'priority',
+      overrides: {},
+      placementIssues: issues,
+      roadmapItems: [
+        {
+          issue: { fullName: 'owner/repo', id: 46, number: 46 },
+          plannedState: 'planned'
+        },
+        {
+          issue: { fullName: 'owner/repo', id: 50, number: 50 },
+          plannedState: 'planned'
+        }
+      ]
+    }).map((entry) => entry.number)).toEqual([46, 50, 47, 48, 49, 45]);
+  });
+
+  test('keeps roadmap order authoritative for alternate sort modes', () => {
+    const olderPlanned = {
+      ...issue(10, 'Older planned'),
+      updatedAt: '2024-01-01T00:00:00Z'
+    };
+    const newer = {
+      ...issue(20, 'Newer'),
+      updatedAt: '2025-01-01T00:00:00Z'
+    };
+
+    expect(sortIssues([newer, olderPlanned], {
+      mode: 'updated',
+      overrides: {},
+      roadmapItems: [{
+        issue: { fullName: 'owner/repo', id: 10, number: 10 },
+        plannedState: 'active'
+      }]
+    })).toEqual([olderPlanned, newer]);
+  });
+
+  test('sorts board cards deterministically without mutating their derived placement', () => {
+    const issues = Array.from({ length: 6 }, (_, index) =>
+      issue(index + 1, `Issue ${index + 1}`)
+    );
+    const sorted = sortIssues(issues, {
+      mode: 'number',
+      overrides: {},
+      placementIssues: issues
+    });
+    const groups = groupIssuesByColumn(sorted, {}, issues);
+
+    expect(groups.ready.map((entry) => entry.number)).toEqual([4, 3, 2, 1]);
+    expect(groups.backlog.map((entry) => entry.number)).toEqual([6, 5]);
+    expect(issues.map((entry) => entry.number)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });

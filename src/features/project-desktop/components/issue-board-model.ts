@@ -1,7 +1,9 @@
 import type { GitHubIssueRecord } from '@/shared/project-space-api';
+import type { RoadmapPlanItem } from '@/shared/roadmap-api';
 import { formatRelativeTime } from './project-main-model';
 
 export type IssueColumnId = 'backlog' | 'blocked' | 'closed' | 'in-progress' | 'ready';
+export type IssueSortMode = 'number' | 'priority' | 'updated';
 export type IssueViewMode = 'board' | 'graph' | 'list';
 
 export interface IssueColumnDefinition {
@@ -132,6 +134,126 @@ export function groupIssuesByColumn(
   });
 
   return groups;
+}
+
+const automaticStatusOrder: Record<IssueColumnId, number> = {
+  'in-progress': 0,
+  ready: 1,
+  blocked: 2,
+  backlog: 3,
+  closed: 4
+};
+
+const priorityLabelOrder = new Map([
+  ['priority: critical', 0],
+  ['priority: urgent', 0],
+  ['priority: high', 1],
+  ['priority: medium', 2],
+  ['priority: normal', 2],
+  ['priority: low', 3],
+  ['p0', 0],
+  ['p1', 1],
+  ['p2', 2],
+  ['p3', 3]
+]);
+
+function issueLabelPriority(issue: GitHubIssueRecord) {
+  let priority = Number.MAX_SAFE_INTEGER;
+
+  for (const label of issue.labels) {
+    priority = Math.min(
+      priority,
+      priorityLabelOrder.get(label.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+    );
+  }
+
+  return priority;
+}
+
+function issueTimestamp(issue: GitHubIssueRecord) {
+  const timestamp = issue.updatedAt ? Date.parse(issue.updatedAt) : NaN;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export function sortIssues(
+  issues: readonly GitHubIssueRecord[],
+  {
+    mode,
+    overrides,
+    placementIssues = issues,
+    roadmapItems = []
+  }: {
+    mode: IssueSortMode;
+    overrides: IssueColumnOverrides;
+    placementIssues?: readonly GitHubIssueRecord[];
+    roadmapItems?: readonly RoadmapPlanItem[];
+  }
+) {
+  const placementIndices = issuePlacementIndices([...placementIssues]);
+  const roadmapPositions = new Map(
+    roadmapItems.map((item, index) => [item.issue.number, index])
+  );
+  const roadmapFallback = roadmapItems.length;
+  const originalPositions = new Map(issues.map((issue, index) => [issue.number, index]));
+
+  return [...issues].sort((left, right) => {
+    const leftRoadmap = roadmapPositions.get(left.number);
+    const rightRoadmap = roadmapPositions.get(right.number);
+    const roadmapOrder = (leftRoadmap ?? roadmapFallback) - (rightRoadmap ?? roadmapFallback);
+
+    if (roadmapOrder !== 0) return roadmapOrder;
+    if ((leftRoadmap === undefined) !== (rightRoadmap === undefined)) {
+      return leftRoadmap === undefined ? 1 : -1;
+    }
+
+    if (mode === 'updated') {
+      const updatedOrder = issueTimestamp(right) - issueTimestamp(left);
+      if (updatedOrder !== 0) return updatedOrder;
+    } else if (mode === 'number') {
+      const numberOrder = right.number - left.number;
+      if (numberOrder !== 0) return numberOrder;
+    } else {
+      const leftColumn = resolveIssueColumnFromPlacement(
+        left,
+        originalPositions.get(left.number) ?? 0,
+        overrides,
+        placementIndices
+      );
+      const rightColumn = resolveIssueColumnFromPlacement(
+        right,
+        originalPositions.get(right.number) ?? 0,
+        overrides,
+        placementIndices
+      );
+      const statusOrder = automaticStatusOrder[leftColumn] - automaticStatusOrder[rightColumn];
+      if (statusOrder !== 0) return statusOrder;
+
+      const labelOrder = issueLabelPriority(left) - issueLabelPriority(right);
+      if (labelOrder !== 0) return labelOrder;
+    }
+
+    return right.number - left.number
+      || (originalPositions.get(left.number) ?? 0) - (originalPositions.get(right.number) ?? 0);
+  });
+}
+
+const issueSortModeStorageKey = 'project-space:issue-sort-mode:v1';
+
+export function loadIssueSortMode(): IssueSortMode {
+  try {
+    const stored = window.localStorage.getItem(issueSortModeStorageKey);
+    return stored === 'number' || stored === 'updated' ? stored : 'priority';
+  } catch {
+    return 'priority';
+  }
+}
+
+export function saveIssueSortMode(mode: IssueSortMode) {
+  try {
+    window.localStorage.setItem(issueSortModeStorageKey, mode);
+  } catch {
+    // Persisting the sort choice is best-effort.
+  }
 }
 
 const columnIds = new Set<string>(issueColumns.map((column) => column.id));
