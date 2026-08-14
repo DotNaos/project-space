@@ -67,7 +67,6 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"status",
 		"storage",
 		"template",
-		"token",
 		"validate",
 		"workspace",
 		"worktree",

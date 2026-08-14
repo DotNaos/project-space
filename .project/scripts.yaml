@@ -41,7 +41,7 @@ servers:
       PROJECT_SPACE_AUTH_DISABLED: "1"
       PROJECT_SPACE_PUBLIC_ORIGIN: ""
     secretEnvironment:
-      GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
+      GITHUB_OAUTH_CLIENT_ID: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID
     healthCheck:
       path: /
       timeoutSeconds: 45

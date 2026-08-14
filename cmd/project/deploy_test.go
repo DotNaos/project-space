@@ -23,12 +23,12 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		APIDomain:     "api.example.com",
 		ProjectDomain: "example.com",
 		Secrets: map[string]deploySecretValue{
-			"CLERK_PUBLISHABLE_KEY":                {Value: "clerk-publishable-value", Source: "op://projects/clerk-project/publishable_key"},
-			"CLERK_SECRET_KEY":                     {Value: "clerk-secret-value", Source: "op://projects/clerk-project/secret_key"},
-			"GITHUB_OAUTH_CLIENT_ID":               {Value: "oauth-client-id", Source: "op://projects/GitHub OAuth App/client_id"},
-			"GITHUB_TOKEN":                         {Value: "github-token-value", Source: "op://projects/GitHub Personal Access Token/token"},
-			"PROJECT_CONNECTOR_REGISTRATION_TOKEN": {Value: "connector-registration-token-value", Source: "op://projects/Project Space Connector Registration Token/password"},
-			"VITE_CLERK_PUBLISHABLE_KEY":           {Value: "clerk-publishable-value", Source: "op://projects/clerk-project/publishable_key"},
+			"CLERK_PUBLISHABLE_KEY":                {Value: "clerk-publishable-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY"},
+			"CLERK_SECRET_KEY":                     {Value: "clerk-secret-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_SECRET_KEY"},
+			"GITHUB_OAUTH_CLIENT_ID":               {Value: "oauth-client-id", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_OAUTH_CLIENT_ID"},
+			"GITHUB_TOKEN":                         {Value: "github-token-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_TOKEN"},
+			"PROJECT_CONNECTOR_REGISTRATION_TOKEN": {Value: "connector-registration-token-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/PROJECT_CONNECTOR_REGISTRATION_TOKEN"},
+			"VITE_CLERK_PUBLISHABLE_KEY":           {Value: "clerk-publishable-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY"},
 		},
 	}
 
@@ -43,12 +43,12 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		"-p example-prod -f deploy/compose.yml -f deploy/ingress.labels.yml",
 		"PROJECT_DOMAIN=example.com",
 		"PROJECT_API_DOMAIN=api.example.com",
-		"GITHUB_TOKEN=<secret from op://projects/GitHub Personal Access Token/token>",
-		"GITHUB_OAUTH_CLIENT_ID=<secret from op://projects/GitHub OAuth App/client_id>",
-		"CLERK_PUBLISHABLE_KEY=<secret from op://projects/clerk-project/publishable_key>",
-		"VITE_CLERK_PUBLISHABLE_KEY=<secret from op://projects/clerk-project/publishable_key>",
-		"CLERK_SECRET_KEY=<secret from op://projects/clerk-project/secret_key>",
-		"PROJECT_CONNECTOR_REGISTRATION_TOKEN=<secret from op://projects/Project Space Connector Registration Token/password>",
+		"GITHUB_TOKEN=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_TOKEN>",
+		"GITHUB_OAUTH_CLIENT_ID=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_OAUTH_CLIENT_ID>",
+		"CLERK_PUBLISHABLE_KEY=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY>",
+		"VITE_CLERK_PUBLISHABLE_KEY=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY>",
+		"CLERK_SECRET_KEY=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_SECRET_KEY>",
+		"PROJECT_CONNECTOR_REGISTRATION_TOKEN=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/PROJECT_CONNECTOR_REGISTRATION_TOKEN>",
 	} {
 		if !strings.Contains(steps, want) {
 			t.Fatalf("deploy steps missing %q:\n%s", want, steps)
@@ -69,11 +69,11 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 		APIDomain:     "api.example.com",
 		ProjectDomain: "example.com",
 		Secrets: map[string]deploySecretValue{
-			"CLERK_PUBLISHABLE_KEY":                {Value: "clerk-publishable-value", Source: "op://projects/clerk-project/publishable_key"},
-			"CLERK_SECRET_KEY":                     {Value: "clerk-secret-value", Source: "op://projects/clerk-project/secret_key"},
-			"GITHUB_OAUTH_CLIENT_ID":               {Value: "oauth-client-id", Source: "op://projects/GitHub OAuth App/client_id"},
-			"GITHUB_TOKEN":                         {Value: "github-token-value", Source: "op://projects/GitHub Personal Access Token/token"},
-			"PROJECT_CONNECTOR_REGISTRATION_TOKEN": {Value: "connector-registration-token-value", Source: "op://projects/Project Space Connector Registration Token/password"},
+			"CLERK_PUBLISHABLE_KEY":                {Value: "clerk-publishable-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY"},
+			"CLERK_SECRET_KEY":                     {Value: "clerk-secret-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_SECRET_KEY"},
+			"GITHUB_OAUTH_CLIENT_ID":               {Value: "oauth-client-id", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_OAUTH_CLIENT_ID"},
+			"GITHUB_TOKEN":                         {Value: "github-token-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_TOKEN"},
+			"PROJECT_CONNECTOR_REGISTRATION_TOKEN": {Value: "connector-registration-token-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/PROJECT_CONNECTOR_REGISTRATION_TOKEN"},
 		},
 	}
 

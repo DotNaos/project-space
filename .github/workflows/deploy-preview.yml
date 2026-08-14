@@ -243,6 +243,7 @@ jobs:
     permissions:
       contents: read
       deployments: write
+      id-token: write
       pull-requests: read
     steps:
       - name: Revalidate exact PR head before VPS handoff
@@ -291,20 +292,20 @@ jobs:
           {"state":"in_progress","environment":"preview/pr-$PR_NUMBER","auto_inactive":false,
            "log_url":"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"}
           JSON
-      - name: Load Preview-only controller credentials
+      - name: Load Preview-only controller credentials from Infisical
         if: steps.freshness.outputs.disposition == 'current'
         id: preview-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
-          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
-          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
+        uses: Infisical/secrets-action@8a06c1bdcd5b8635d510c52d4b57a92c1ccef785 # v1.0.9
+        with:
+          method: oidc
+          identity-id: 5eaeaafe-2b13-4ca2-9506-4c914924e5b6
+          oidc-audience: https://github.com/DotNaos
+          domain: https://eu.infisical.com
+          project-slug: project-space-preview
+          env-slug: staging
       - name: Configure forced-command Preview SSH identity
         if: steps.freshness.outputs.disposition == 'current'
         shell: bash
-        env:
-          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           install -d -m 700 "$HOME/.ssh"
@@ -330,8 +331,8 @@ jobs:
         if: steps.freshness.outputs.disposition == 'current'
         uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
         with:
-          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
           tags: tag:ci-project-space-preview
           ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
       - name: Apply trusted Preview transaction
@@ -563,6 +564,7 @@ jobs:
     permissions:
       contents: read
       deployments: write
+      id-token: write
       pull-requests: read
     steps:
       - name: Validate explicit controller request
@@ -588,18 +590,18 @@ jobs:
           gh api --paginate "repos/$PREVIEW_REPOSITORY/pulls?state=open&per_page=100" --jq '.[].number' |
             jq -s 'map(select(type == "number" and . > 0)) | unique' > open-prs.json
           jq -e 'type == "array"' open-prs.json >/dev/null
-      - name: Load Preview-only controller credentials
+      - name: Load Preview-only controller credentials from Infisical
         id: preview-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SSH_PRIVATE_KEY: op://projects/Project Space Preview Deploy SSH/private_key
-          TS_OAUTH_CLIENT_ID: op://projects/Project Space Preview Tailscale CI Client ID/credential
-          TS_OAUTH_SECRET: op://projects/Project Space Preview Tailscale CI Secret/credential
+        uses: Infisical/secrets-action@8a06c1bdcd5b8635d510c52d4b57a92c1ccef785 # v1.0.9
+        with:
+          method: oidc
+          identity-id: 5eaeaafe-2b13-4ca2-9506-4c914924e5b6
+          oidc-audience: https://github.com/DotNaos
+          domain: https://eu.infisical.com
+          project-slug: project-space-preview
+          env-slug: staging
       - name: Configure forced-command Preview SSH identity
         shell: bash
-        env:
-          SSH_PRIVATE_KEY: ${{ steps.preview-secrets.outputs.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           install -d -m 700 "$HOME/.ssh"
@@ -624,8 +626,8 @@ jobs:
       - name: Connect ephemeral Preview CI identity to Tailscale
         uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
         with:
-          oauth-client-id: ${{ steps.preview-secrets.outputs.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ steps.preview-secrets.outputs.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
           tags: tag:ci-project-space-preview
           ping: ${{ vars.PROJECT_SPACE_PREVIEW_DEPLOY_IP }}
       - name: Apply explicit lifecycle transition

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { DatabaseQueryClient } from '../server/database/client';
 import type { SshGatewayAuditEvidence } from '../server/ssh-control-gateway/contracts';
-import { OnePasswordSshCredentialResolver } from '../server/ssh-control-gateway/one-password-resolver';
+import { EnvironmentSshCredentialResolver } from '../server/ssh-control-gateway/environment-credential-resolver';
 import { PostgresSshGatewayOperationStore } from '../server/ssh-control-gateway/postgres-store';
 
 const owner = 'owner-1';
@@ -179,20 +179,20 @@ describe('SSH control gateway durable store', () => {
   });
 });
 
-test('1Password resolver uses only the opaque reference and hides command failures', async () => {
+test('environment resolver accepts only a named variable and hides lookup failures', async () => {
   let received = '';
-  const resolver = new OnePasswordSshCredentialResolver({
-    read: async (reference) => {
-      received = reference;
+  const resolver = new EnvironmentSshCredentialResolver({
+    read: (name) => {
+      received = name;
       return '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----';
     }
   });
-  const credential = await resolver.resolve('op://Vault/Item/private-key');
-  expect(received).toBe('op://Vault/Item/private-key');
+  const credential = await resolver.resolve('env://PROJECT_SPACE_SSH_PRIVATE_KEY');
+  expect(received).toBe('PROJECT_SPACE_SSH_PRIVATE_KEY');
   expect(credential.privateKey).toContain('OPENSSH PRIVATE KEY');
-  await expect(new OnePasswordSshCredentialResolver({
-    read: async () => { throw new Error('raw secret service failure'); }
-  }).resolve('op://Vault/Item/private-key')).rejects.toMatchObject({
+  await expect(new EnvironmentSshCredentialResolver({
+    read: () => undefined
+  }).resolve('env://PROJECT_SPACE_SSH_PRIVATE_KEY')).rejects.toMatchObject({
     code: 'credential_unavailable', message: 'SSH credential is unavailable.'
   });
 });

@@ -59,7 +59,6 @@ project
 | [`status`](#project-status) | - | Show this machine's Project Space connection |
 | [`storage`](#project-storage) | - | Audit local project storage |
 | [`template`](#project-template) | - | Manage the local project template snapshot |
-| [`token`](#project-token) | - | Manage the Project 1Password token |
 | [`validate`](#project-validate) | - | Validate a project against its template |
 | [`workspace`](#project-workspace) | - | Manage one exact repository Workspace |
 | [`worktree`](#project-worktree) | - | Prepare and validate isolated Codex worktrees |
@@ -1484,34 +1483,6 @@ project template update [directory]
 | `-h`, `--help` | `bool` | local | help for update |
 | `--template-path` | `string` | local | template source path |
 | `-y`, `--yes` | `bool` | local | apply the template update without prompting |
-
-<h3 id="project-token" className="scroll-m-28"><code>project token</code></h3>
-
-Manage the Project 1Password token
-
-```sh
-project token
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `-h`, `--help` | `bool` | local | help for token |
-
-<h3 id="project-token-create" className="scroll-m-28"><code>project token create</code></h3>
-
-Create the Project 1Password service account token
-
-```sh
-project token create
-```
-
-| Flag | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `--dry-run` | `bool` | local | show what would happen without creating a token |
-| `--expires-in` | `string` | local | create a temporary token with a 1Password expiry, for example 24h |
-| `-h`, `--help` | `bool` | local | help for create |
-| `--json` | `bool` | local | print machine-readable output |
-| `-y`, `--yes` | `bool` | local | create the token without prompting |
 
 <h3 id="project-validate" className="scroll-m-28"><code>project validate</code></h3>
 

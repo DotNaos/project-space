@@ -103,7 +103,8 @@ project new my-app --target web:desktop,tablet --target native:mobile
 
 GitHub repositories are private by default. Use `--github-visibility public` to create a public repository.
 
-`--github` also sets `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository from the project 1Password vault before the first push.
+`--github` does not create or store any secret-delivery credential. CI identities
+must be fixed and provisioned separately for the exact repository and environment.
 
 When `--template-path` and `PROJECT_SPACE_TEMPLATE_ROOT` are omitted, `project new`
 fetches the GitHub template named by `--template`. If `--template` is omitted,
@@ -164,31 +165,6 @@ Waivers require a reason and cannot cover blocker files.
 missing template-owned files, never overwrites existing files, and records the
 module in `.project/template.lock.yaml`. Dependency modules are adopted with the
 requested module.
-
-## Create The Project Token
-
-```sh
-project token create
-project token create --expires-in 24h
-project token create --dry-run
-project token create --yes
-project token create --json
-```
-
-This creates the one Project service-account token used to read shared secrets from 1Password.
-
-Fixed policy:
-
-- Vault: `projects`
-- Permission: `read_items`
-- Stable item: `project-ci-service-account`
-- Stable reference: `op://projects/project-ci-service-account/password`
-
-`--expires-in` creates a temporary token item instead of replacing the stable CI token.
-
-1Password item names created by this command use slug-style names, so generated secret references do not contain spaces.
-
-The token value is stored directly in 1Password and is never printed.
 
 ## Diagnose The Current Machine
 
@@ -310,7 +286,7 @@ servers:
       PROJECT_SPACE_AUTH_DISABLED: "1"
       PROJECT_SPACE_PUBLIC_ORIGIN: ""
     secretEnvironment:
-      GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
+      GITHUB_OAUTH_CLIENT_ID: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID
     healthCheck:
       path: /
       timeoutSeconds: 45
@@ -324,11 +300,12 @@ separate `commands` and `servers` sections rejects the file instead of falling
 back to a package script.
 
 Use `environment` for ordinary configuration and `secretEnvironment` for
-1Password `op://` references. A secret declaration is launched through
-`op run`: the declaration and the protected tmux request contain only the
-reference, while 1Password resolves the value for the child process. This is
-repeated on every managed restart. Project CLI rejects plaintext values and
-keys duplicated across the two sections.
+`infisical://<project-id>/<environment>/<secret-name>` references. A secret
+declaration is launched through `infisical run`; the declaration and protected
+runtime request contain only the reference, while Infisical injects the value
+into the child process. This is repeated on every managed restart. Project CLI
+rejects plaintext values, mixed project scopes, and keys duplicated across the
+two sections.
 
 Project Space's `dev` server deliberately declares its database-free local
 preview profile: `PROJECT_SPACE_AUTH_DISABLED=1`,
@@ -380,7 +357,7 @@ project serve reconcile --json
 `--apis=simulated`, and `--data=local`. The default starts a stateful local
 simulation of provider APIs, stores its scenario state outside the repository,
 and blocks outbound network connections. It does not require internet access,
-a hosted database, an external account, an API key, or a 1Password secret. If
+a hosted database, an external account, an API key, or an external secret. If
 its only positional argument is an existing directory, it runs `dev` there.
 
 The supported backend combinations are:
@@ -547,7 +524,7 @@ host: deploy@100.84.238.75
 preview:
   statusHost: project-space-preview-status
 secrets:
-  GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
+  GITHUB_TOKEN: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_GITHUB_TOKEN
 environments:
   prod:
     default: true
@@ -574,7 +551,7 @@ Deploy status and dry-run JSON include clickable URLs for the app, API, and
 docs. The docs URL is derived from the app domain at `/docs`.
 
 Flags override config. Values from `deploy/deploy.yaml` are used directly,
-without confirmation prompts. Secret values are read from 1Password only for
+without confirmation prompts. Secret values are read from Infisical only for
 real deploys; dry-runs show only secret references.
 
 Production deploys resolve one full Git SHA and re-check it against current
@@ -756,7 +733,7 @@ This creates a generated tmp project, installs default modules, validates it, an
 
 Use `--container --skip-checks` for a focused generated-container smoke test.
 
-Use `--skip-secrets-doctor` for local smoke checks when no 1Password service token is available.
+Use `--skip-secrets-doctor` only when a generated template has no secret-doctor command available.
 
 ## Modules
 

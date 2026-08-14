@@ -10,15 +10,12 @@ import (
 	"strings"
 )
 
-const projectServiceAccountTokenRef = "op://projects/yiw7onwcvruugyi2ji6c4crwpy/password"
-
 type createGitHubRepositoryOptions struct {
 	Visibility string
 }
 
 type createGitHubRepositoryResult struct {
-	URL       string
-	SecretSet bool
+	URL string
 }
 
 func createGitHubRepository(projectRoot string, options createGitHubRepositoryOptions) (createGitHubRepositoryResult, error) {
@@ -32,10 +29,6 @@ func createGitHubRepository(projectRoot string, options createGitHubRepositoryOp
 	if _, err := exec.LookPath("git"); err != nil {
 		return createGitHubRepositoryResult{}, errors.New("git is required for --github")
 	}
-	if _, err := exec.LookPath("op"); err != nil {
-		return createGitHubRepositoryResult{}, errors.New("op is required for --github")
-	}
-
 	output, err := runCommand("", nil, "gh", "repo", "create", repoName, githubRepositoryVisibilityFlag(options.Visibility))
 	if err != nil {
 		return createGitHubRepositoryResult{}, fmt.Errorf("create GitHub repository: %w", err)
@@ -47,23 +40,10 @@ func createGitHubRepository(projectRoot string, options createGitHubRepositoryOp
 			return createGitHubRepositoryResult{}, err
 		}
 	}
-	repoRef, err := githubRepositoryRef(repoURL)
-	if err != nil {
-		return createGitHubRepositoryResult{}, err
-	}
-
-	token, err := readProjectServiceAccountToken()
-	if err != nil {
-		return createGitHubRepositoryResult{}, err
-	}
-	if err := setGitHubSecret(repoRef, token); err != nil {
-		return createGitHubRepositoryResult{}, err
-	}
-
 	if err := initializeAndPushRepository(projectRoot, repoURL); err != nil {
 		return createGitHubRepositoryResult{}, err
 	}
-	return createGitHubRepositoryResult{URL: repoURL, SecretSet: true}, nil
+	return createGitHubRepositoryResult{URL: repoURL}, nil
 }
 
 func githubRepositoryVisibilityFlag(visibility string) string {
@@ -91,30 +71,6 @@ func repositoryURL(repoName string) (string, error) {
 		return "", errors.New("GitHub repository URL was empty")
 	}
 	return repoURL, nil
-}
-
-func readProjectServiceAccountToken() (string, error) {
-	var lastErr error
-	for _, ref := range []string{projectTokenRef, legacyProjectTokenRef} {
-		output, err := runCommand("", nil, "op", "read", ref)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		token := strings.TrimRight(output, "\r\n")
-		if token != "" {
-			return token, nil
-		}
-		lastErr = errors.New("OP_SERVICE_ACCOUNT_TOKEN from 1Password was empty")
-	}
-	return "", fmt.Errorf("read OP_SERVICE_ACCOUNT_TOKEN from 1Password: %w", lastErr)
-}
-
-func setGitHubSecret(repoRef string, token string) error {
-	if _, err := runCommand("", []byte(token), "gh", "secret", "set", "OP_SERVICE_ACCOUNT_TOKEN", "--repo", repoRef); err != nil {
-		return fmt.Errorf("set GitHub secret OP_SERVICE_ACCOUNT_TOKEN: %w", err)
-	}
-	return nil
 }
 
 func initializeAndPushRepository(projectRoot string, repoURL string) error {

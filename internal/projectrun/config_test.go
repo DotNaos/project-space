@@ -99,7 +99,7 @@ servers:
       PROJECT_SPACE_AUTH_DISABLED: "1"
       PROJECT_SPACE_PUBLIC_ORIGIN: ""
     secretEnvironment:
-      GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
+      GITHUB_OAUTH_CLIENT_ID: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID
 `)
 	root, command, err := LoadCommand(project, "test")
 	if err != nil || root == "" || strings.Join(command.Command, " ") != "bun test" {
@@ -112,7 +112,7 @@ servers:
 	if server.Environment["PROJECT_SPACE_AUTH_DISABLED"] != "1" ||
 		server.Environment["VITE_PROJECT_SPACE_AUTH_DISABLED"] != "1" ||
 		server.Environment["PROJECT_SPACE_PUBLIC_ORIGIN"] != "" ||
-		server.SecretEnvironment["GITHUB_OAUTH_CLIENT_ID"] != "op://projects/GitHub OAuth App/client_id" {
+		server.SecretEnvironment["GITHUB_OAUTH_CLIENT_ID"] != "infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID" {
 		t.Fatalf("managed local preview environment = %#v", server)
 	}
 	if _, _, err := LoadCommand(project, "dev"); err == nil ||
@@ -121,11 +121,11 @@ servers:
 	}
 }
 
-func TestSecretEnvironmentRequiresOnePasswordReferencesAndDistinctKeys(t *testing.T) {
+func TestSecretEnvironmentRequiresInfisicalReferencesAndDistinctKeys(t *testing.T) {
 	project := t.TempDir()
 	for _, body := range []string{
 		"version: 1\nscripts:\n  dev:\n    command: [true]\n    secretEnvironment: {TOKEN: plaintext}\n",
-		"version: 1\nscripts:\n  dev:\n    command: [true]\n    environment: {TOKEN: value}\n    secretEnvironment: {TOKEN: op://vault/item/field}\n",
+		"version: 1\nscripts:\n  dev:\n    command: [true]\n    environment: {TOKEN: value}\n    secretEnvironment: {TOKEN: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/TOKEN}\n",
 	} {
 		writeScriptsBody(t, project, body)
 		if _, _, err := LoadScript(project, "dev"); err == nil {
@@ -134,19 +134,19 @@ func TestSecretEnvironmentRequiresOnePasswordReferencesAndDistinctKeys(t *testin
 	}
 }
 
-func TestSecretEnvironmentUsesOnePasswordWithoutPersistingResolvedSecrets(t *testing.T) {
+func TestSecretEnvironmentUsesInfisicalWithoutPersistingReferences(t *testing.T) {
 	script := Script{
 		Command: []string{"bun", "x", "vite"},
 		SecretEnvironment: map[string]string{
-			"GITHUB_OAUTH_CLIENT_ID": "op://projects/GitHub OAuth App/client_id",
+			"GITHUB_OAUTH_CLIENT_ID": "infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID",
 		},
 	}
 	command := commandFor(script, "/tmp/project", "127.0.0.1", 43117, nil)
-	if got := strings.Join(command.Argv, " "); got != "op run -- bun x vite" {
+	if got := strings.Join(command.Argv, " "); got != "infisical run --silent --domain=https://eu.infisical.com --projectId=d786940c-96a1-4937-981a-dc8729effcf4 --env=dev -- bun x vite" {
 		t.Fatalf("command = %q", got)
 	}
-	if !containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=op://projects/GitHub OAuth App/client_id") {
-		t.Fatalf("command environment = %#v", command.Env)
+	if containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID") {
+		t.Fatalf("opaque Infisical reference leaked into command environment: %#v", command.Env)
 	}
 }
 
@@ -178,7 +178,7 @@ func TestSimulatedServeDoesNotLoadDeclaredSecrets(t *testing.T) {
 	script := Script{
 		Command: []string{"bun", "x", "vite"},
 		SecretEnvironment: map[string]string{
-			"GITHUB_OAUTH_CLIENT_ID": "op://projects/GitHub OAuth App/client_id",
+			"GITHUB_OAUTH_CLIENT_ID": "infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID",
 		},
 	}
 	command := serverCommandFor(
@@ -189,7 +189,7 @@ func TestSimulatedServeDoesNotLoadDeclaredSecrets(t *testing.T) {
 	if got := strings.Join(command.Argv, " "); got != "bun x vite" {
 		t.Fatalf("command = %q", got)
 	}
-	if containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=op://projects/GitHub OAuth App/client_id") {
+	if containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID") {
 		t.Fatalf("simulated command loaded an external secret: %#v", command.Env)
 	}
 	for _, expected := range []string{

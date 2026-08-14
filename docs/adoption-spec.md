@@ -29,7 +29,7 @@ Every file in the project is in exactly one state:
 
 **Blocker rules** are template-defined patterns for files that must never be
 carried over or waived — first entry: plaintext secret files (`.env`,
-`.env.local` with non-`op://` values). Declared in the template module YAML
+`.env.local` with plaintext values). Declared in the template module YAML
 (`blockers:` list of glob + reason), enforced by classifier and validate.
 
 Blocker detection runs before slot or waiver pruning. A slotted or waived
@@ -115,7 +115,7 @@ Unknown
   deploy.sh                                 superseded by deploy/ module
 Blockers
   .env                                      plaintext secrets -> migrate to
-                                            .env.secrets (op:// refs), delete
+                                            .env.secrets (Infisical refs), delete
 ```
 
 ## Lock schema additions (`.project/template.lock.yaml`)

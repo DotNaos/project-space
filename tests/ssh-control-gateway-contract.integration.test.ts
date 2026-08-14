@@ -81,7 +81,7 @@ describe('SSH control gateway cross-language contract', () => {
         routes: [{
           allowedGatewayIds: ['gateway-one'], availability: 'available',
           capabilities: ['project_cli'], credentialPurpose: 'project_control_gateway_v1',
-          credentialReference: 'op://Contract/Control/private-key', enabled: true,
+          credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY', enabled: true,
           freshnessSeconds: 300, hostKeySha256: pin, id: routeId,
           lastVerifiedAt: checkedAt, ownerUserId: 'owner-one', policyState: 'approved',
           priority: 100, privateAddress: '100.64.0.10', privateNetworkId: networkId,
@@ -136,7 +136,7 @@ describe('SSH control gateway cross-language contract', () => {
         }],
         routes: [{
           allowedGatewayIds: ['gateway-one'], availability: 'available', capabilities: ['project_cli'],
-          credentialPurpose: 'project_control_gateway_v1', credentialReference: 'op://Contract/Control/private-key',
+          credentialPurpose: 'project_control_gateway_v1', credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
           enabled: true, freshnessSeconds: 300, hostKeySha256: pin, id: routeId,
           lastVerifiedAt: checkedAt, ownerUserId: 'owner-one', policyState: 'approved', priority: 100,
           privateAddress: '100.64.0.10', privateNetworkId: networkId, providerKind: 'tailscale',

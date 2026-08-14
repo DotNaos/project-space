@@ -90,9 +90,6 @@ func newCreateCommand() *cobra.Command {
 					return err
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "GitHub repository: %s\n", result.URL)
-				if result.SecretSet {
-					fmt.Fprintln(cmd.OutOrStdout(), "GitHub secret: OP_SERVICE_ACCOUNT_TOKEN set")
-				}
 				fmt.Fprintln(cmd.OutOrStdout(), "Pushed initial commit: main")
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "cd %s\n", shellQuote(resolved))

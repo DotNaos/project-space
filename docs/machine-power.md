@@ -47,20 +47,20 @@ Each device has a versioned, non-secret desired configuration in
 `config/machine-power/<machine>.json`. It records the exact machine/device
 binding (owner ID and immutable physical-machine ID), firmware compatibility,
 broker endpoint, device-derived topic namespace and separate device/provider
-identities, TLS requirements, allowed actions, and the device's 1Password
+identities, TLS requirements, allowed actions, and named environment
 references. Provider secret references live in the deployment manifest rather
-than in a user-selectable binding. Passwords remain in 1Password and are
-injected only into the server or the one-time device setup.
+than in a user-selectable binding. Values remain in the dedicated Infisical VPS
+project and are injected only into the server or the one-time device setup.
 
 The same binding stores the non-secret provisioning contract: expected
 JetKVM hostname, Ethernet MAC, SSH host-key fingerprint, pinned JetKVM
 application hash, pinned Tailscale version and hostname, Tailnet tag, and
-1Password references for the dedicated SSH and Tailscale credentials. Check or
+environment references for the dedicated SSH and Tailscale credentials. Check or
 apply it with:
 
 ```text
-bun run jetkvm:provision --machine os-pc --format json
-bun run jetkvm:provision --machine os-pc --apply --format json
+infisical run --domain=https://eu.infisical.com --projectId=4c28bc69-18ff-4fef-9635-c7896bcd22bf --env=prod -- bun run jetkvm:provision --machine os-pc --format json
+infisical run --domain=https://eu.infisical.com --projectId=4c28bc69-18ff-4fef-9635-c7896bcd22bf --env=prod -- bun run jetkvm:provision --machine os-pc --apply --format json
 ```
 
 The default command is read-only and exits with status 2 when it detects

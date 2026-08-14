@@ -97,7 +97,7 @@ describe('private-network store', () => {
         if (sql.startsWith('insert into access_routes')) return { rows: [] as Row[] };
         return { rows: [{
           allowed_gateway_ids: ['gateway-one'], availability: 'available',
-          capabilities: ['project_cli'], credential_reference: 'op://Personal/SSH/private key',
+          capabilities: ['project_cli'], credential_reference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
           credential_purpose: 'project_control_gateway_v1',
           enabled: true, environment_id: '30000000-0000-4000-8000-000000000001',
           freshness_seconds: 60, host_id: null,
@@ -114,7 +114,7 @@ describe('private-network store', () => {
     };
     await expect(new PostgresPrivateNetworkStore(client).saveRoute('owner-one', {
       allowedGatewayIds: ['gateway-one'], availability: 'available',
-      capabilities: ['project_cli'], credentialReference: 'op://Personal/SSH/private key',
+      capabilities: ['project_cli'], credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
       credentialPurpose: 'project_control_gateway_v1',
       enabled: true, freshnessSeconds: 60, hostKeySha256: `SHA256:${'A'.repeat(43)}`,
       id: '20000000-0000-4000-8000-000000000001',

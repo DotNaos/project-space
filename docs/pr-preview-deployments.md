@@ -60,7 +60,11 @@ These changes are external to application implementation and need their own oper
 1. Route `*.projects.os-home.net` to the Preview ingress and provision trusted wildcard TLS, while the gateway admits only `pr-{positive integer}.projects.os-home.net`.
 2. Configure the existing Clerk instance to accept the Preview origins; do not create a second Clerk instance.
 3. Create a protected GitHub Actions environment named `Preview`, separate from `Production`.
-4. Give that environment only the Preview 1Password service account, forced-command SSH identity, and required Tailscale identity. Both authorized-key entries must use OpenSSH `restrict` together with their `command=...` binding, which disables port, agent, and X11 forwarding plus PTY allocation.
+4. Bind the fixed Infisical Preview OIDC identity to the exact GitHub `Preview`
+   environment subject. It may view only the delete-protected
+   `project-space-preview` project. Both authorized-key entries must use OpenSSH
+   `restrict` together with their `command=...` binding, which disables port,
+   agent, and X11 forwarding plus PTY allocation.
 5. Bind the mutating key with `restrict,command="/opt/platform/share/project-space-preview/preview-ssh-entrypoint.sh"`. Configure the local SSH alias `project-space-preview-status` from `deploy/deploy.yaml` with a separate key bound by `restrict,command="/opt/platform/share/project-space-preview/preview-status-entrypoint.sh"`. The two keys must not be interchangeable.
 6. Let the normal Production workflow install each exact-main trusted runner and Compose
    release under `/opt/platform/share/project-space-preview-releases`, atomically activate

@@ -141,7 +141,7 @@ function records(providerKind: PrivateNetworkProviderKind): {
     network,
     route: {
       allowedGatewayIds: ['gateway-one'], availability: 'unknown', capabilities: ['project_cli'],
-      credentialReference: 'op://Personal/SSH/private key', enabled: true, freshnessSeconds: 60,
+      credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY', enabled: true, freshnessSeconds: 60,
       hostKeySha256: `SHA256:${'A'.repeat(43)}`,
       id: '20000000-0000-4000-8000-000000000001', ownerUserId: 'owner-one',
       policyState: 'approved', priority: 100, privateNetworkId: network.id, providerKind,

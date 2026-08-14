@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DotNaos/project-space/internal/infisicalref"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -198,16 +199,21 @@ func resolveDeploySecrets(sources map[string]string) (map[string]deploySecretVal
 			secrets[name] = deploySecretValue{Value: value, Source: "$" + name}
 			continue
 		}
-		if !strings.HasPrefix(source, "op://") {
-			return nil, fmt.Errorf("secret %s must use an op:// reference or an environment variable override", name)
-		}
-		output, err := runCommand("", nil, "op", "read", source)
+		reference, err := infisicalref.Parse(source, "")
 		if err != nil {
-			return nil, fmt.Errorf("read secret %s from 1Password: %w", name, err)
+			return nil, fmt.Errorf("secret %s must use an Infisical reference or an environment variable override: %w", name, err)
+		}
+		output, err := runCommand(
+			"", nil, "infisical", "secrets", "get", reference.SecretName,
+			"--plain", "--silent", "--domain=https://eu.infisical.com",
+			"--projectId="+reference.ProjectID, "--env="+reference.Environment, "--path=/",
+		)
+		if err != nil {
+			return nil, fmt.Errorf("read secret %s from Infisical: %w", name, err)
 		}
 		value = strings.TrimRight(output, "\r\n")
 		if value == "" {
-			return nil, fmt.Errorf("secret %s from 1Password was empty", name)
+			return nil, fmt.Errorf("secret %s from Infisical was empty", name)
 		}
 		if strings.ContainsAny(value, "\r\n\x00") {
 			return nil, fmt.Errorf("secret %s contains unsupported control characters", name)

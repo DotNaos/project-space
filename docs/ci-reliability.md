@@ -115,7 +115,7 @@ publication, and the protected Production handoff where required.
 
 The `release-signing` GitHub environment is an automatic secret boundary, not
 a human approval gate. It has no required reviewers or wait timer, is limited
-to protected branches, and alone supplies the 1Password service-account token
+to protected branches, and alone permits the fixed Infisical release-signing OIDC identity
 used to load the dedicated manifest key. The reusable signer is callable only
 from the trusted release workflow; pull-request and fork workflows cannot enter
 the environment or receive its secrets. Signing still fails closed unless the
@@ -127,7 +127,7 @@ Repository administrators apply or repair that boundary with
 `scripts/configure-release-signing-environment.sh OWNER/REPOSITORY`. The script
 idempotently removes required reviewers, keeps protected-branch restriction,
 and reads the environment back to verify that no interactive rule remains. If
-the environment or 1Password token is unavailable, the release stops at the
+the environment or Infisical OIDC exchange is unavailable, the release stops at the
 signer and the serial queue can be woken again after configuration is repaired;
 never bypass signing or publish the prepared unsigned manifest.
 

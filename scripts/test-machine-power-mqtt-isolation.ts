@@ -147,11 +147,11 @@ function binding(
         enable_ha_discovery: false,
         enabled: true,
         expectedUsername: `jetkvm-${deviceId}`,
-        passwordRef: `op://test/device-${suffix}/password`,
+        passwordRef: 'env://TEST_DEVICE_PASSWORD',
         port: 8883,
         tls_insecure: false,
         use_tls: true,
-        usernameRef: `op://test/device-${suffix}/username`
+        usernameRef: 'env://TEST_DEVICE_USERNAME'
       },
       topicPrefix: prefix
     },
@@ -164,14 +164,14 @@ function binding(
         ethernetMac: '00:11:22:33:44:55',
         sshHostKeySha256:
           'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-        sshPrivateKeyRef: `op://test/device-${suffix}/private_key`,
-        sshPublicKeyRef: `op://test/device-${suffix}/public_key`
+        sshPrivateKeyRef: 'env://TEST_DEVICE_PRIVATE_KEY',
+        sshPublicKeyRef: 'env://TEST_DEVICE_PUBLIC_KEY'
       },
       schema: 'project-space.jetkvm-provisioning/v1',
       tailscale: {
         hostname: `jetkvm-${suffix}`,
-        oauthClientIdRef: 'op://test/tailscale/username',
-        oauthClientSecretRef: 'op://test/tailscale/password',
+        oauthClientIdRef: 'env://TEST_TAILSCALE_CLIENT_ID',
+        oauthClientSecretRef: 'env://TEST_TAILSCALE_CLIENT_SECRET',
         packageBaseUrl: 'https://pkgs.tailscale.com/stable',
         tag: 'tag:jetkvm',
         version: '1.98.10'
