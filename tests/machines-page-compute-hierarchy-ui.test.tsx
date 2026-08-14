@@ -54,7 +54,13 @@ mock.module('@heroui/react', () => {
     Dialog: element('div'), Footer: element('div'), Header: element('div'),
     Heading: element('h2'), Icon: element('div'), CloseTrigger: element('button')
   });
-  return { Modal };
+  return {
+    Button: element('button'),
+    Input: element('input'),
+    Label: element('label'),
+    Modal,
+    TextField: element('div')
+  };
 });
 const { MachinesPage } = await import('../src/features/project-desktop/components/machines-page');
 

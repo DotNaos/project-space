@@ -15,7 +15,10 @@ import {
 } from './store';
 
 export class TailscaleInventoryServiceError extends Error {
-  constructor(readonly code: 'machine-forbidden' | 'unknown-device', message: string) {
+  constructor(
+    readonly code: 'connection-unavailable' | 'machine-forbidden' | 'unknown-device',
+    message: string
+  ) {
     super(message);
     this.name = 'TailscaleInventoryServiceError';
   }
@@ -40,35 +43,42 @@ export function createTailscaleInventoryService(options: {
   const now = options.now ?? (() => new Date());
   const clock = options.clock ?? (() => Date.now());
   const minimumRefreshIntervalMs = options.minimumRefreshIntervalMs ?? 2_000;
-  let refreshInFlight: ReturnType<TailscaleInventorySource['observe']> | undefined;
-  let cachedRefresh: {
+  const refreshInFlight = new Map<string, ReturnType<TailscaleInventorySource['observe']>>();
+  const cachedRefresh = new Map<string, {
     completedAt: number;
     result: Awaited<ReturnType<TailscaleInventorySource['observe']>>;
-  } | undefined;
+  }>();
 
-  const observe = async () => {
+  const observe = async (ownerUserId: string, cacheKey: string) => {
     const currentTime = clock();
-    if (cachedRefresh && currentTime - cachedRefresh.completedAt < minimumRefreshIntervalMs) {
-      return cachedRefresh.result;
+    const cached = cachedRefresh.get(cacheKey);
+    if (cached && currentTime - cached.completedAt < minimumRefreshIntervalMs) {
+      return cached.result;
     }
-    const current = refreshInFlight ?? options.source.observe();
-    refreshInFlight = current;
+    const current = refreshInFlight.get(cacheKey) ?? options.source.observe(ownerUserId);
+    refreshInFlight.set(cacheKey, current);
     try {
       const result = await current;
-      cachedRefresh = { completedAt: clock(), result };
+      cachedRefresh.set(cacheKey, { completedAt: clock(), result });
       return result;
     } finally {
-      if (refreshInFlight === current) refreshInFlight = undefined;
+      if (refreshInFlight.get(cacheKey) === current) refreshInFlight.delete(cacheKey);
     }
   };
 
   return {
     async list(ownerUserId: string, refresh = false): Promise<TailscaleInventoryResult> {
+      let descriptor = await options.source.describe?.(ownerUserId) ?? {
+        connectionState: 'not_connected' as const,
+        source: 'not_connected' as const
+      };
       let refreshState: TailscaleInventoryResult['provider']['refreshState'] = 'not_checked';
       let reasonCode: string | undefined;
       let errorCount: number | undefined;
       if (refresh) {
-        const observed = await observe();
+        const cacheKey = [ownerUserId, descriptor.source, descriptor.connectionId ?? '',
+          descriptor.revision ?? 0].join('\u0000');
+        const observed = await observe(ownerUserId, cacheKey);
         if (observed.available) {
           await options.store.reconcile(ownerUserId, {
             complete: true, kind: 'snapshot', snapshot: observed.snapshot
@@ -80,6 +90,11 @@ export function createTailscaleInventoryService(options: {
           }
         } else {
           refreshState = 'unavailable'; reasonCode = observed.error.code;
+          if (observed.error.code === 'connection_missing' ||
+            observed.error.code === 'credentials_invalid' ||
+            observed.error.code === 'scope_insufficient') {
+            descriptor = { ...descriptor, connectionState: 'reauthorization_required' };
+          }
           await options.store.reconcile(ownerUserId, {
             kind: 'provider-failure', observedAt: now().toISOString()
           });
@@ -87,11 +102,15 @@ export function createTailscaleInventoryService(options: {
       }
       return {
         devices: (await options.store.list(ownerUserId)).map((device) =>
-          toPublicDevice(device, refreshState === 'unavailable')
+          toPublicDevice(device, refreshState === 'unavailable' ||
+            !['connected', 'legacy'].includes(descriptor.connectionState))
         ),
         provider: {
+          ...(descriptor.connectionId ? { connectionId: descriptor.connectionId } : {}),
+          connectionState: descriptor.connectionState,
           ...(errorCount === undefined ? {} : { errorCount }),
-          ...(reasonCode ? { reasonCode } : {}), refreshState
+          ...(reasonCode ? { reasonCode } : {}), refreshState,
+          source: descriptor.source
         },
         schemaVersion: tailscaleInventoryApiVersion
       };
@@ -103,6 +122,13 @@ export function createTailscaleInventoryService(options: {
     ) {
       if (actor.kind !== 'human') {
         throw new TailscaleInventoryServiceError('machine-forbidden', 'Only a person may classify Tailscale devices.');
+      }
+      const descriptor = await options.source.describe?.(actor.ownerUserId);
+      if (descriptor && !['connected', 'legacy'].includes(descriptor.connectionState)) {
+        throw new TailscaleInventoryServiceError(
+          'connection-unavailable',
+          'A Tailscale provider connection is required before devices can be classified.'
+        );
       }
       try {
         return await options.store.setClassification({

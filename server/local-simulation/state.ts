@@ -8,6 +8,7 @@ import type {
   ProjectsState
 } from '../../src/shared/project-space-api';
 import type { CodexMachineTaskIdentity } from '../../src/shared/codex-machine-tasks-api';
+import type { TailscaleDeviceClassification } from '../../src/shared/tailscale-inventory-api';
 
 export const localSimulationSchema = 'project-space.local-simulation/v1' as const;
 
@@ -41,6 +42,10 @@ export interface LocalSimulationState {
   machine: {
     id: string;
     name: string;
+  };
+  tailscale?: {
+    classifications: Record<string, TailscaleDeviceClassification>;
+    connectedAt: string;
   };
   projectsState: ProjectsState;
   revision: number;

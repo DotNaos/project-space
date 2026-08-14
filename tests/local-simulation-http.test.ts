@@ -48,6 +48,41 @@ describe('local simulation HTTP runtime', () => {
     expect((await stat(statePath)).mode & 0o777).toBe(0o600);
   });
 
+  test('dogfoods a credential-free simulated Tailscale connection lifecycle', async () => {
+    expect(await json('/api/compute/tailscale/connection')).toMatchObject({
+      connectionState: 'not_connected', requiredScope: 'devices:core:read', source: 'not_connected'
+    });
+
+    const connected = await json('/api/compute/tailscale/connection', {
+      body: JSON.stringify({ clientId: 'simulated-client', clientSecret: 'simulated-secret' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    expect(connected).toMatchObject({
+      connectionId: 'local-simulation-tailscale', connectionState: 'connected', source: 'tailscale_oauth_api'
+    });
+    expect(JSON.stringify(connected)).not.toContain('simulated-secret');
+
+    const inventory = await json('/api/compute/tailscale/devices?refresh=1') as {
+      devices: Array<{ id: string; revision: number }>;
+      provider: { connectionState: string; source: string };
+    };
+    expect(inventory.provider).toMatchObject({ connectionState: 'connected', source: 'tailscale_oauth_api' });
+    expect(inventory.devices).toHaveLength(2);
+
+    const classified = await json(`/api/compute/tailscale/devices/${inventory.devices[0]!.id}/classification`, {
+      body: JSON.stringify({ classification: 'environment', expectedRevision: inventory.devices[0]!.revision }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    expect(classified).toMatchObject({ classification: 'environment' });
+
+    expect(await json('/api/compute/tailscale/connection', { method: 'DELETE' })).toMatchObject({
+      connectionState: 'not_connected', source: 'not_connected'
+    });
+    expect(JSON.stringify(await json('/api/compute/tailscale/devices'))).not.toContain('simulated-secret');
+  });
+
   test('persists mutations and fully resets optional scenario state', async () => {
     const start = await json('/api/codex/tasks/start', {
       body: JSON.stringify({ issue: 616, operationId: 'local-test-operation' }),

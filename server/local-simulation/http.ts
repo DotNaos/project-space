@@ -1,4 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import {
+  tailscaleDeviceClassifications,
+  type TailscaleDeviceClassification
+} from '../../src/shared/tailscale-inventory-api';
 import type { RuntimeBindingEvidence } from '../runtime-binding';
 import { readJson, writeJson } from '../project-space-http-response';
 import { legacyConnectorRetirement } from '../legacy-connector-retirement';
@@ -14,6 +18,27 @@ import {
   localSimulationCsp,
   projectRecord
 } from './views';
+
+const simulatedTailscaleDevices = [
+  { addresses: ['100.101.0.2', 'fd7a:115c:a1e0::2'], id: 'local-sim-device-a', name: 'development-mac', online: true, os: 'macOS' },
+  { addresses: ['100.101.0.3', 'fd7a:115c:a1e0::3'], id: 'local-sim-device-b', name: 'remote-linux', online: false, os: 'linux' }
+] as const;
+
+function simulatedTailscaleConnection(state: LocalSimulationState) {
+  return {
+    ...(state.tailscale ? {
+      connectedAt: state.tailscale.connectedAt,
+      connectionId: 'local-simulation-tailscale',
+      connectionState: 'connected' as const,
+      source: 'tailscale_oauth_api' as const,
+      verifiedAt: state.tailscale.connectedAt
+    } : {
+      connectionState: 'not_connected' as const,
+      source: 'not_connected' as const
+    }),
+    requiredScope: 'devices:core:read' as const
+  };
+}
 
 export function createLocalSimulationRequestHandler(options: {
   binding: RuntimeBindingEvidence;
@@ -62,6 +87,93 @@ export function createLocalSimulationRequestHandler(options: {
           secrets: 'none'
         },
         version: 'unknown'
+      });
+      return;
+    }
+    if (url.pathname === '/api/compute/tailscale/connection') {
+      if (method === 'GET') {
+        writeJson(response, 200, simulatedTailscaleConnection(state));
+        return;
+      }
+      if (method === 'POST') {
+        const payload = await readJson<{ clientId?: unknown; clientSecret?: unknown }>(request);
+        if (typeof payload.clientId !== 'string' || payload.clientId.trim().length < 3 ||
+          typeof payload.clientSecret !== 'string' || payload.clientSecret.length < 8) {
+          writeJson(response, 400, { error: 'Invalid simulated Tailscale connection.' });
+          return;
+        }
+        await store.update((current) => {
+          current.tailscale = { classifications: {}, connectedAt: new Date().toISOString() };
+        });
+        writeJson(response, 200, simulatedTailscaleConnection(await store.read()));
+        return;
+      }
+      if (method === 'DELETE') {
+        await store.update((current) => { delete current.tailscale; });
+        writeJson(response, 200, simulatedTailscaleConnection(await store.read()));
+        return;
+      }
+    }
+    if (method === 'GET' && url.pathname === '/api/compute/tailscale/devices') {
+      const now = new Date().toISOString();
+      writeJson(response, 200, {
+        devices: state.tailscale ? simulatedTailscaleDevices.map((device) => ({
+          addresses: [...device.addresses],
+          classification: state.tailscale?.classifications[device.id] ?? 'unclassified',
+          id: device.id,
+          name: device.name,
+          network: {
+            checkedAt: now,
+            freshUntil: new Date(Date.now() + 60_000).toISOString(),
+            lastSeenAt: now,
+            state: device.online ? 'online' : 'offline'
+          },
+          os: device.os,
+          revision: state.revision,
+          tags: ['tag:development']
+        })) : [],
+        provider: state.tailscale ? {
+          connectionId: 'local-simulation-tailscale',
+          connectionState: 'connected',
+          refreshState: 'available',
+          source: 'tailscale_oauth_api'
+        } : {
+          connectionState: 'not_connected',
+          reasonCode: 'connection_missing',
+          refreshState: 'not_checked',
+          source: 'not_connected'
+        },
+        schemaVersion: 1
+      });
+      return;
+    }
+    const simulatedClassification = url.pathname.match(/^\/api\/compute\/tailscale\/devices\/([^/]+)\/classification$/);
+    if (method === 'POST' && simulatedClassification) {
+      const deviceId = decodeURIComponent(simulatedClassification[1] ?? '');
+      const payload = await readJson<{ classification?: unknown; expectedRevision?: unknown }>(request);
+      const classifications = new Set<string>(tailscaleDeviceClassifications);
+      if (!state.tailscale || !simulatedTailscaleDevices.some((device) => device.id === deviceId) ||
+        typeof payload.classification !== 'string' || !classifications.has(payload.classification) ||
+        payload.expectedRevision !== state.revision) {
+        writeJson(response, 409, { error: 'The simulated Tailnet device changed.' });
+        return;
+      }
+      await store.update((current) => {
+        if (current.tailscale) {
+          current.tailscale.classifications[deviceId] = payload.classification as TailscaleDeviceClassification;
+        }
+      });
+      const updated = await store.read();
+      const device = simulatedTailscaleDevices.find((candidate) => candidate.id === deviceId)!;
+      writeJson(response, 200, {
+        addresses: [...device.addresses],
+        classification: updated.tailscale?.classifications[deviceId],
+        id: device.id,
+        name: device.name,
+        network: { checkedAt: updated.updatedAt, freshUntil: new Date(Date.now() + 60_000).toISOString(), state: device.online ? 'online' : 'offline' },
+        os: device.os,
+        revision: updated.revision,
+        tags: ['tag:development']
       });
       return;
     }

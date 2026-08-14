@@ -8,11 +8,17 @@ import {
   isProjectSpaceAuthRequired,
   readAuthSessionFromRequest
 } from '../local-auth-store';
-import { getTailscaleInventoryStore } from '../local-database-store';
+import {
+  getTailscaleInventoryStore,
+  getTailscaleProviderConnectionStore
+} from '../local-database-store';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { createCommandTailscaleInventorySource } from './command-source';
+import { createAccountTailscaleInventorySource } from './account-source';
 import { createTailscaleInventoryHttpApi } from './http';
+import { createTailscaleOAuthApiClient } from './oauth-api-client';
 import { createProxyTailscaleInventorySource } from './proxy-source';
+import { createTailscaleProviderConnectionService } from './provider-connection-service';
 import { createTailscaleInventoryService } from './service';
 import type { TailscaleInventorySource } from './source';
 
@@ -20,16 +26,43 @@ export function createConfiguredTailscaleInventoryHandler(options: {
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   source?: TailscaleInventorySource;
 }) {
-  const source = options.source ?? configuredSource(process.env);
-  let service: ReturnType<typeof createTailscaleInventoryService> | undefined;
-  const getService = async () => {
-    if (service) return service;
+  const legacyOwners = new Set<string>();
+  let runtime: {
+    connection?: ReturnType<typeof createTailscaleProviderConnectionService>;
+    inventory: ReturnType<typeof createTailscaleInventoryService>;
+  } | undefined;
+  const getRuntime = async () => {
+    if (runtime) return runtime;
     const store = await getTailscaleInventoryStore();
     if (!store) {
       throw new Error('Tailscale inventory persistence is unavailable.');
     }
-    service = createTailscaleInventoryService({ source, store });
-    return service;
+    const connections = await getTailscaleProviderConnectionStore();
+    const api = createTailscaleOAuthApiClient();
+    const source = options.source ?? (connections
+      ? createAccountTailscaleInventorySource({
+          api,
+          connections,
+          isLegacyOwner: (ownerUserId) =>
+            !isProjectSpaceAuthRequired() || legacyOwners.has(ownerUserId),
+          legacy: configuredLegacySource(process.env)
+        })
+      : configuredLegacySource(process.env));
+    const inventory = createTailscaleInventoryService({ source, store });
+    runtime = {
+      inventory,
+      ...(connections ? {
+        connection: createTailscaleProviderConnectionService({
+          api,
+          connections,
+          describe: async (ownerUserId) => source.describe?.(ownerUserId) ?? ({
+            connectionState: 'not_connected', source: 'not_connected'
+          }),
+          inventory: store
+        })
+      } : {})
+    };
+    return runtime;
   };
   const resolve = createCodexMachineTasksAuthResolver({
     authenticateMachine: async ({ machineId, token }) => (
@@ -43,10 +76,25 @@ export function createConfiguredTailscaleInventoryHandler(options: {
   });
   return createTailscaleInventoryHttpApi({
     async list(ownerUserId, refresh) {
-      return (await getService()).list(ownerUserId, refresh);
+      return (await getRuntime()).inventory.list(ownerUserId, refresh);
     },
     async setClassification(actor, deviceId, request) {
-      return (await getService()).setClassification(actor, deviceId, request);
+      return (await getRuntime()).inventory.setClassification(actor, deviceId, request);
+    },
+    async getConnection(ownerUserId) {
+      const connection = (await getRuntime()).connection;
+      if (!connection) throw new Error('Tailscale provider connections are unavailable.');
+      return connection.get(ownerUserId);
+    },
+    async connect(actor, request) {
+      const connection = (await getRuntime()).connection;
+      if (!connection) throw new Error('Tailscale provider connections are unavailable.');
+      return connection.connect(actor, request);
+    },
+    async revoke(actor) {
+      const connection = (await getRuntime()).connection;
+      if (!connection) throw new Error('Tailscale provider connections are unavailable.');
+      return connection.revoke(actor);
     }
   }, async (request) => {
     const actor = await resolve(request);
@@ -55,9 +103,8 @@ export function createConfiguredTailscaleInventoryHandler(options: {
     }
     if (isProjectSpaceAuthRequired()) {
       const session = await readAuthSessionFromRequest(request);
-      if (!session || !isConfiguredInventoryOwner(session, process.env)) {
-        throw new CodexMachineTasksAuthError(403);
-      }
+      if (!session) throw new CodexMachineTasksAuthError(401);
+      if (isConfiguredInventoryOwner(session, process.env)) legacyOwners.add(session.userId);
     }
     return { actorId: actor.userId, kind: 'human', ownerUserId: actor.userId };
   });
@@ -92,7 +139,7 @@ export function isConfiguredInventoryOwner(
   return allowed.length === 1 && allowed[0] === email.toLowerCase();
 }
 
-function configuredSource(environment: NodeJS.ProcessEnv): TailscaleInventorySource {
+function configuredLegacySource(environment: NodeJS.ProcessEnv): TailscaleInventorySource {
   const mode = environment.PROJECT_SPACE_TAILSCALE_INVENTORY_SOURCE?.trim() || 'command';
   if (mode === 'command') return createCommandTailscaleInventorySource();
   if (mode === 'proxy') return createProxyTailscaleInventorySource();

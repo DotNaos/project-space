@@ -6,7 +6,7 @@ function setup() {
   const calls: unknown[] = []; let devices = [base()];
   const service = createTailscaleInventoryService({
     now: () => new Date('2026-08-14T09:02:00.000Z'),
-    source: { async observe() { return { available: true as const, snapshot: { backendState: 'running' as const, deviceErrors: [], devices: [], freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const }, source: 'tailscale_status_json' as const } }; } },
+    source: { async describe() { return { connectionState: 'connected' as const, source: 'tailscale_oauth_api' as const }; }, async observe() { return { available: true as const, snapshot: { backendState: 'running' as const, deviceErrors: [], devices: [], freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const }, source: 'tailscale_status_json' as const } }; } },
     store: {
       async list(owner) { calls.push(['list', owner]); return devices; },
       async reconcile(owner, input) { calls.push(['reconcile', owner, input]); },
@@ -36,7 +36,7 @@ describe('Tailscale inventory service', () => {
     const service = createTailscaleInventoryService({
       clock: () => clock,
       minimumRefreshIntervalMs: 2_000,
-      source: { async observe() { observeCalls += 1; await blocked; return { available: true as const, snapshot }; } },
+      source: { async describe() { return { connectionState: 'connected' as const, source: 'tailscale_oauth_api' as const }; }, async observe() { observeCalls += 1; await blocked; return { available: true as const, snapshot }; } },
       store: {
         async list() { return []; },
         async reconcile(owner, input) { storeCalls.push([owner, input]); },
@@ -56,13 +56,61 @@ describe('Tailscale inventory service', () => {
     await service.list('owner', true);
     expect(observeCalls).toBe(2);
   });
+  test('never coalesces or reuses provider evidence across owners', async () => {
+    const observedOwners: string[] = [];
+    const reconciled: string[] = [];
+    const snapshot = {
+      backendState: 'running' as const, deviceErrors: [], devices: [],
+      freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const },
+      source: 'tailscale_api_devices' as const
+    };
+    const service = createTailscaleInventoryService({
+      source: {
+        async describe() { return { connectionState: 'connected' as const, source: 'tailscale_oauth_api' as const }; },
+        async observe(owner) { observedOwners.push(owner); return { available: true as const, snapshot }; }
+      },
+      store: {
+        async list() { return []; },
+        async reconcile(owner) { reconciled.push(owner); },
+        async setClassification() { throw new Error(); }
+      }
+    });
+    await Promise.all([service.list('owner-a', true), service.list('owner-b', true)]);
+    await Promise.all([service.list('owner-a', true), service.list('owner-b', true)]);
+    expect(observedOwners.sort()).toEqual(['owner-a', 'owner-b']);
+    expect(reconciled.sort()).toEqual(['owner-a', 'owner-a', 'owner-b', 'owner-b']);
+  });
+  test('fences cached evidence when the same owner rotates their connection', async () => {
+    let revision = 1;
+    let observeCalls = 0;
+    const snapshot = {
+      backendState: 'running' as const, deviceErrors: [], devices: [],
+      freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const },
+      source: 'tailscale_api_devices' as const
+    };
+    const service = createTailscaleInventoryService({
+      source: {
+        async describe() { return { connectionId: 'connection', connectionState: 'connected' as const, revision, source: 'tailscale_oauth_api' as const }; },
+        async observe() { observeCalls += 1; return { available: true as const, snapshot }; }
+      },
+      store: {
+        async list() { return []; }, async reconcile() {}, async setClassification() { throw new Error(); }
+      }
+    });
+    await service.list('owner', true);
+    await service.list('owner', true);
+    expect(observeCalls).toBe(1);
+    revision = 2;
+    await service.list('owner', true);
+    expect(observeCalls).toBe(2);
+  });
   test('reports whether a provider refresh was checked and completed', async () => {
     const fixture = setup();
     expect((await fixture.service.list('owner')).provider).toEqual({
-      refreshState: 'not_checked'
+      connectionState: 'connected', refreshState: 'not_checked', source: 'tailscale_oauth_api'
     });
     expect((await fixture.service.list('owner', true)).provider).toEqual({
-      refreshState: 'available'
+      connectionState: 'connected', refreshState: 'available', source: 'tailscale_oauth_api'
     });
     expect(fixture.calls).toContainEqual([
       'reconcile',
@@ -80,11 +128,12 @@ describe('Tailscale inventory service', () => {
     const fixture = setup();
     (fixture.service as never); // source replacement is exercised by a fresh service below.
     const calls: unknown[] = []; const store = { async list() { return [base(true, 'stale')]; }, async reconcile(_: string, input: unknown) { calls.push(input); }, async setClassification() { throw new Error(); } };
-    const partial = createTailscaleInventoryService({ source: { async observe() { return { available: true as const, snapshot: { backendState: 'running' as const, deviceErrors: [{ code: 'invalid_device' as const, source: 'peer' as const }], devices: [], freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const }, source: 'tailscale_status_json' as const } }; } }, store });
-    expect((await partial.list('owner', true)).provider).toEqual({ errorCount: 1, refreshState: 'partial' });
-    const failed = createTailscaleInventoryService({ now: () => new Date('2026-08-14T09:02:00.000Z'), source: { async observe() { return { available: false as const, error: { code: 'command_failed' as const, source: 'command' as const } }; } }, store });
+    const descriptor = async () => ({ connectionState: 'connected' as const, source: 'tailscale_oauth_api' as const });
+    const partial = createTailscaleInventoryService({ source: { describe: descriptor, async observe() { return { available: true as const, snapshot: { backendState: 'running' as const, deviceErrors: [{ code: 'invalid_device' as const, source: 'peer' as const }], devices: [], freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const }, source: 'tailscale_status_json' as const } }; } }, store });
+    expect((await partial.list('owner', true)).provider).toEqual({ connectionState: 'connected', errorCount: 1, refreshState: 'partial', source: 'tailscale_oauth_api' });
+    const failed = createTailscaleInventoryService({ now: () => new Date('2026-08-14T09:02:00.000Z'), source: { describe: descriptor, async observe() { return { available: false as const, error: { code: 'command_failed' as const, source: 'command' as const } }; } }, store });
     const unavailable = await failed.list('owner', true);
-    expect(unavailable.provider).toEqual({ reasonCode: 'command_failed', refreshState: 'unavailable' });
+    expect(unavailable.provider).toEqual({ connectionState: 'connected', reasonCode: 'command_failed', refreshState: 'unavailable', source: 'tailscale_oauth_api' });
     expect(unavailable.devices[0]?.network.state).toBe('unknown');
     expect(calls).toHaveLength(2);
   });

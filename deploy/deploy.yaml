@@ -10,6 +10,8 @@ secrets:
   PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: op://projects/project-space-machine-rate-limit/password
   PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/password
   PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME: op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/username
+  PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64: op://projects/project-space-provider-credential-encryption/key_b64
+  PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID: op://projects/project-space-provider-credential-encryption/key_id
   VITE_CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
 environments:
   prod:

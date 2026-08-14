@@ -84,7 +84,7 @@ export interface TailscaleStatusSnapshot {
   devices: readonly TailscaleDeviceObservation[];
   deviceErrors: readonly TailscaleDeviceDecodeError[];
   freshness: TailscaleFreshness;
-  source: 'tailscale_status_json';
+  source: 'tailscale_api_devices' | 'tailscale_status_json';
 }
 
 export interface DecodeTailscaleStatusOptions {

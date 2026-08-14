@@ -9,6 +9,8 @@ const previewWebDockerfile = new URL(
 );
 const productionWebDockerfile = new URL('../deploy/Dockerfile', import.meta.url);
 const productionComposeFile = new URL('../deploy/compose.yml', import.meta.url);
+const deploymentConfigFile = new URL('../deploy/deploy.yaml', import.meta.url);
+const tailscaleOAuthComposeFile = new URL('../deploy/compose.tailscale-oauth.yml', import.meta.url);
 const previewComposeFile = new URL('../deploy/preview.compose.yml', import.meta.url);
 
 describe('Project build routing', () => {
@@ -102,6 +104,25 @@ describe('Project build routing', () => {
     expect(sidecar).toContain('/var/run/tailscale/tailscaled.sock:ro');
     expect(sidecar).not.toContain('CLERK_SECRET_KEY');
     expect(sidecar).not.toContain('GITHUB_TOKEN');
+  });
+
+  test('supports host-independent OAuth inventory without starting the legacy sidecar', async () => {
+    const overlay = await readFile(tailscaleOAuthComposeFile, 'utf8');
+    expect(overlay).toContain('tailscale-status:');
+    expect(overlay).toContain('legacy-vps-local-tailscale');
+    expect(overlay).not.toContain('tailscaled.sock');
+    expect(overlay).not.toContain('/var/run/tailscale');
+  });
+
+  test('resolves provider credential encryption only through named 1Password fields', async () => {
+    const deployment = await readFile(deploymentConfigFile, 'utf8');
+    expect(deployment).toContain(
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64: op://projects/project-space-provider-credential-encryption/key_b64'
+    );
+    expect(deployment).toContain(
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID: op://projects/project-space-provider-credential-encryption/key_id'
+    );
+    expect(deployment).not.toMatch(/PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_(?:B64|ID):\s+(?!op:\/\/)/);
   });
 
   test('configures the SSH control gateway identity on each Project Space web service', async () => {

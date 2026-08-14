@@ -20,6 +20,18 @@ async function start(
         });
       }
       return { id, ...request, revision: request.expectedRevision + 1 };
+    },
+    async getConnection(owner) {
+      calls.push(['get-connection', owner]);
+      return { connectionState: 'not_connected', requiredScope: 'devices:core:read', source: 'not_connected' };
+    },
+    async connect(requestActor, request) {
+      calls.push(['connect', requestActor, request]);
+      return { connectionId: 'safe-connection-id', connectionState: 'connected', requiredScope: 'devices:core:read', source: 'tailscale_oauth_api' };
+    },
+    async revoke(requestActor) {
+      calls.push(['revoke', requestActor]);
+      return { connectionState: 'not_connected', requiredScope: 'devices:core:read', source: 'not_connected' };
     }
   }, async () => {
     if (options.authError) throw options.authError;
@@ -30,6 +42,28 @@ async function start(
 describe('Tailscale inventory HTTP boundary', () => {
   test('allows only exact refresh query and private no-store GET', async () => { const { calls, origin } = await start(); const response = await fetch(`${origin}/api/compute/tailscale/devices?refresh=1`); expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('private, no-store'); expect(calls).toEqual([['list', 'owner', true]]); expect((await fetch(`${origin}/api/compute/tailscale/devices?refresh=true`)).status).toBe(400); });
   test('enforces strict JSON human classification and never refreshes source', async () => { const { calls, origin } = await start(); const url = `${origin}/api/compute/tailscale/devices/device-a/classification`; expect((await fetch(url, { body: JSON.stringify({ classification: 'environment', expectedRevision: 0 }), headers: { 'Content-Type': 'application/json' }, method: 'POST' })).status).toBe(200); expect(calls[0]).toEqual(['classify', expect.objectContaining({ kind: 'human' }), 'device-a', { classification: 'environment', expectedRevision: 0 }]); expect((await fetch(url, { body: JSON.stringify({ classification: 'ignored', expectedRevision: 0, extra: true }), headers: { 'Content-Type': 'application/json' }, method: 'POST' })).status).toBe(400); });
+  test('manages only the authenticated owner connection and never echoes credentials', async () => {
+    const { calls, origin } = await start();
+    const route = `${origin}/api/compute/tailscale/connection`;
+    expect((await fetch(route)).status).toBe(200);
+    const credentials = { clientId: 'client-id-private', clientSecret: 'client-secret-private' };
+    const connected = await fetch(route, {
+      body: JSON.stringify(credentials), headers: { 'Content-Type': 'application/json' }, method: 'POST'
+    });
+    expect(connected.status).toBe(200);
+    expect(JSON.stringify(await connected.json())).not.toMatch(/client-id-private|client-secret-private/);
+    expect((await fetch(route, { method: 'DELETE' })).status).toBe(200);
+    expect(calls).toEqual([
+      ['get-connection', 'owner'],
+      ['connect', expect.objectContaining({ kind: 'human', ownerUserId: 'owner' }), credentials],
+      ['revoke', expect.objectContaining({ kind: 'human', ownerUserId: 'owner' })]
+    ]);
+    expect((await fetch(`${route}?owner=other`)).status).toBe(400);
+    expect((await fetch(route, {
+      body: JSON.stringify({ ...credentials, ownerUserId: 'other' }),
+      headers: { 'Content-Type': 'application/json' }, method: 'POST'
+    })).status).toBe(400);
+  });
   test('decodes one encoded stable device id without accepting an encoded path', async () => {
     const { calls, origin } = await start();
     const init = { body: JSON.stringify({ classification: 'ignored', expectedRevision: 0 }), headers: { 'Content-Type': 'application/json' }, method: 'POST' };
