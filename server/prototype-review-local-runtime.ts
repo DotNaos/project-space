@@ -18,7 +18,6 @@ import {
   CodexSessionsAccessError,
   type CodexSessionsTransport
 } from './codex-sessions/service';
-import type { LocalProjectSpaceBackend } from './local-project-space-backend';
 import {
   PrototypeReviewCodexImageStore,
   type PrototypeReviewCodexImagesHandler
@@ -45,16 +44,12 @@ export interface PrototypeReviewLocalRuntime {
 }
 
 export async function createPrototypeReviewLocalRuntime(options: {
-  backend: LocalProjectSpaceBackend;
   environment?: NodeJS.ProcessEnv;
   manager?: CodexSessionManager;
   readWorktreeClaim?: (repositoryRoot: string) => Promise<LocalWorktreeClaim | undefined>;
   repositoryRoot: string;
 }): Promise<PrototypeReviewLocalRuntime> {
   const environment = options.environment ?? process.env;
-  const registry = await options.backend.getConnectorProjectRegistry();
-  const machineId = registry.connector.machineId;
-  const machineName = registry.connector.machineName;
   const repositoryRoot = await realpath(options.repositoryRoot);
   const readWorktreeClaim =
     options.readWorktreeClaim ?? defaultReadWorktreeClaim;
@@ -62,6 +57,8 @@ export async function createPrototypeReviewLocalRuntime(options: {
   const threadId =
     cleanThreadId(environment.CODEX_THREAD_ID) ??
     cleanThreadId(initialClaim?.ownerThreadId);
+  const machineId = localReviewMachineId(repositoryRoot, threadId);
+  const machineName = 'Local review runtime';
   const transcript = new LocalCodexTranscriptReader({
     codexHome: environment.CODEX_HOME
   });
@@ -276,6 +273,15 @@ export async function createPrototypeReviewLocalRuntime(options: {
       }
     }
   };
+}
+
+function localReviewMachineId(repositoryRoot: string, threadId: string | undefined) {
+  return `local-review-${createHash('sha256')
+    .update(repositoryRoot)
+    .update('\0')
+    .update(threadId ?? '__missing_local_thread__')
+    .digest('hex')
+    .slice(0, 32)}`;
 }
 
 function guardTransport(

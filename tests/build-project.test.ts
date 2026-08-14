@@ -83,6 +83,23 @@ describe('Project build routing', () => {
     expect(compose).toContain('/opt/platform/state:/workspace/deploy-state:ro');
   });
 
+  test('isolates the host Tailscale socket behind a minimal fixed-operation sidecar', async () => {
+    const dockerfile = await readFile(productionWebDockerfile, 'utf8');
+    const compose = await readFile(productionComposeFile, 'utf8');
+    const web = /\n  web:\n([\s\S]*?)\n  tailscale-status:\n/.exec(compose)?.[1] ?? '';
+    const sidecar = /\n  tailscale-status:\n([\s\S]*?)\n  docs:\n/.exec(compose)?.[1] ?? '';
+
+    expect(dockerfile).toContain('FROM scratch AS tailscale-status-runner');
+    expect(dockerfile).toContain('USER 65534:65534');
+    expect(web).not.toContain('tailscaled.sock');
+    expect(sidecar).toContain('target: tailscale-status-runner');
+    expect(sidecar).toContain('read_only: true');
+    expect(sidecar).toContain('no-new-privileges:true');
+    expect(sidecar).toContain('/var/run/tailscale/tailscaled.sock:ro');
+    expect(sidecar).not.toContain('CLERK_SECRET_KEY');
+    expect(sidecar).not.toContain('GITHUB_TOKEN');
+  });
+
   test('configures the SSH control gateway identity on each Project Space web service', async () => {
     const production = await readFile(productionComposeFile, 'utf8');
     const preview = await readFile(previewComposeFile, 'utf8');

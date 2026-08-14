@@ -86,6 +86,7 @@ import {
 } from './canonical-runtime-control/configured-runtime';
 import { PostgresCanonicalRuntimeControlOperationStore } from './canonical-runtime-control/postgres-operation-store';
 import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
+import { createConfiguredTailscaleInventoryHandler } from './tailscale-inventory/configured-runtime';
 
 export interface ProjectSpaceHttpOptions {
   backend?: ProjectSpaceBackend;
@@ -276,6 +277,9 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
     projectHostd: options.projectHostdInventory,
     runtimeSessions: options.workspaceRuntimeSessions
   });
+  const tailscaleInventory = createConfiguredTailscaleInventoryHandler({
+    machineConnection: options.machineConnectionRuntime
+  });
   const sshControlGateway = createConfiguredSshControlGatewayHandler({
     backend: rawBackend,
     machineConnection: options.machineConnectionRuntime,
@@ -302,7 +306,8 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       projectHostd: options.projectHostd,
       projectTopology,
       roadmapCli,
-      sshControlGateway
+      sshControlGateway,
+      tailscaleInventory
     })
   );
 

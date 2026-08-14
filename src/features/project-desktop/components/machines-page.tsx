@@ -36,6 +36,7 @@ import {
   type MachineFilter
 } from './machines-page-model';
 import type { SettingsMachineGroupsStatus } from './settings-machine-groups-view-model';
+import { TailscaleDeviceClassification } from './tailscale-device-classification';
 
 const filters: Array<{ id: MachineFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -425,6 +426,7 @@ export function MachinesPage({
               <Button size="sm" variant="primary"><Plus className="size-4" />Add environment</Button>
             </a>
           ) : null}
+          <TailscaleDeviceClassification />
         </div>
       </header>
 

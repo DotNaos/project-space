@@ -2,7 +2,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { Plugin, ViteDevServer } from 'vite';
 
-import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { writeJson } from './project-space-http-response';
 import { createPrototypeReviewLocalRuntime } from './prototype-review-local-runtime';
 import { createPrototypeReviewLocalChangelogHandler } from './prototype-review-local-changelog';
@@ -17,7 +16,6 @@ export function prototypeReviewLocalApiPlugin(repositoryRoot: string): Plugin {
     name: 'prototype-review-local-api',
     configureServer(server: ViteDevServer) {
       const runtime = createPrototypeReviewLocalRuntime({
-        backend: createLocalProjectSpaceBackend(),
         repositoryRoot
       });
       const changelog = createPrototypeReviewLocalChangelogHandler(repositoryRoot);

@@ -80,7 +80,6 @@ function projectSpaceApiPlugin(binding: RuntimeBindingEvidence): Plugin {
       const backend = createLocalProjectSpaceBackend();
       const authorizedBackend = createAuthorizedProjectSpaceBackend(backend);
       const localReviewRuntime = createPrototypeReviewLocalRuntime({
-        backend,
         repositoryRoot: __dirname
       });
       const machineConnectionRuntime = createConfiguredMachineConnectionRuntime({

@@ -66,6 +66,24 @@ func TestPortlessLabelBoundsLongWorktreeNamesDeterministically(t *testing.T) {
 	}
 }
 
+func TestPortlessNameFitsLocalCertificateBoundary(t *testing.T) {
+	identity := ServerIdentity{
+		RepositoryPath: "/Users/oli/projects/project-space/.git",
+		WorktreePath:   "/Users/oli/projects/.worktrees/project-space/issue-721-make-compute-tailscale-native-with-client-owned-remote-d",
+		ServerKey:      "prototype-desktop",
+	}
+	first, second := portlessName(identity), portlessName(identity)
+	if first != second || len(first) > maximumGeneratedPortlessNameLength {
+		t.Fatalf("bounded Portless name = %q / %q", first, second)
+	}
+	if !strings.HasPrefix(first, "prototype-desktop.721-") || validatePortlessName(first) != nil {
+		t.Fatalf("bounded Portless name is not readable and valid: %q", first)
+	}
+	if len(first+".localhost") >= 64 {
+		t.Fatalf("Portless certificate name is too long: %q", first+".localhost")
+	}
+}
+
 func TestPortlessCLIRegistersVerifiesAndRemovesExactAlias(t *testing.T) {
 	routes := map[string]int{}
 	var calls [][]string

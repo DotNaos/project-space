@@ -11,6 +11,17 @@ function element(tag: ElementType) {
 mock.module('@/lib/utils', () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(' ')
 }));
+mock.module('@/api/project-space-client', () => ({
+  projectSpaceClient: {
+    getTailscaleInventory: async () => ({ devices: [], provider: { refreshState: 'not_checked' }, schemaVersion: 1 }),
+    setTailscaleDeviceClassification: async () => ({ classification: 'unclassified', id: 'device', revision: 0 })
+  }
+}));
+mock.module('@/shared/tailscale-inventory-api', () => ({
+  tailscaleDeviceClassifications: [
+    'unclassified', 'environment', 'deployment_destination', 'console_endpoint', 'ignored'
+  ]
+}));
 mock.module('@/app/dotnaos-ui', () => ({
   Button: ({ children, isIconOnly: _isIconOnly, onPress, ...props }: {
     children?: ReactNode;
@@ -24,12 +35,27 @@ mock.module('@/app/dotnaos-ui', () => ({
   SearchFieldGroup: element('div'),
   SearchFieldInput: (props: { [key: string]: unknown }) => createElement('input', props),
   SearchFieldSearchIcon: () => null,
+  ListBox: element('div'),
+  ListBoxItem: element('div'),
+  Select: Object.assign(element('div'), {
+    Indicator: element('span'), Popover: element('div'), Trigger: element('button')
+  }),
   Text: ({ as = 'span', children, ...props }: {
     as?: ElementType;
     children?: ReactNode;
     [key: string]: unknown;
   }) => createElement(as, props, children)
 }));
+mock.module('@heroui/react', () => {
+  const Modal = Object.assign(({ children, isOpen }: { children?: ReactNode; isOpen?: boolean }) => (
+    isOpen ? createElement('div', undefined, children) : null
+  ), {
+    Backdrop: element('div'), Body: element('div'), Container: element('div'),
+    Dialog: element('div'), Footer: element('div'), Header: element('div'),
+    Heading: element('h2'), Icon: element('div'), CloseTrigger: element('button')
+  });
+  return { Modal };
+});
 const { MachinesPage } = await import('../src/features/project-desktop/components/machines-page');
 
 const baseProps = {

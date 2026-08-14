@@ -520,6 +520,11 @@ export class ProjectSpaceDatabaseRepository {
                 select 1 from environment_provider_bindings binding
                  where binding.owner_user_id = environment.owner_user_id
                    and binding.environment_id = environment.id
+              )
+              and not exists (
+                select 1 from tailscale_compute_environment_projections projection
+                 where projection.owner_user_id = environment.owner_user_id
+                   and projection.environment_id = environment.id
               )`,
           [ownerUserId, environmentId]
         );

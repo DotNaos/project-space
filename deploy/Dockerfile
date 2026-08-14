@@ -40,7 +40,15 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -o /project ./cmd/project
+RUN CGO_ENABLED=0 go build -trimpath -o /project ./cmd/project \
+  && CGO_ENABLED=0 go build -trimpath -o /tailscale-status-proxy ./cmd/tailscale-status-proxy
+
+FROM scratch AS tailscale-status-runner
+
+COPY --from=cli-build /tailscale-status-proxy /tailscale-status-proxy
+USER 65534:65534
+EXPOSE 4180
+ENTRYPOINT ["/tailscale-status-proxy"]
 
 FROM oven/bun:1.3.14 AS runner
 

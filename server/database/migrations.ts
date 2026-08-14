@@ -139,6 +139,10 @@ import {
   workspaceRuntimePresentationMigrationId,
   workspaceRuntimePresentationMigrationSql
 } from './workspace-runtime-presentation-migration';
+import {
+  tailscaleInventoryMigrationId,
+  tailscaleInventoryMigrationSql
+} from './tailscale-inventory-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -859,6 +863,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: workspaceRuntimePresentationMigrationId,
     sql: workspaceRuntimePresentationMigrationSql
+  },
+  {
+    id: tailscaleInventoryMigrationId,
+    sql: tailscaleInventoryMigrationSql
   }
 ];
 

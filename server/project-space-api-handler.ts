@@ -40,6 +40,7 @@ import type {
 import type { createConfiguredProjectHostdRuntime } from './project-hostd/configured-runtime';
 import type { createHostControlHttpApi } from './host-control/http';
 import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
+import type { createConfiguredTailscaleInventoryHandler } from './tailscale-inventory/configured-runtime';
 
 interface ProjectSpaceApiHandlerOptions {
   canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
@@ -58,6 +59,7 @@ interface ProjectSpaceApiHandlerOptions {
   projectHostd?: ReturnType<typeof createConfiguredProjectHostdRuntime>['handleRequest'];
   roadmapCli?: ReturnType<typeof createConfiguredRoadmapCliHandler>;
   sshControlGateway?: ReturnType<typeof createConfiguredSshControlGatewayHandler>;
+  tailscaleInventory?: ReturnType<typeof createConfiguredTailscaleInventoryHandler>;
 }
 
 export function createProjectSpaceApiHandler(
@@ -146,6 +148,13 @@ export function createProjectSpaceApiHandler(
       if (
         options.computeInventoryCli &&
         await options.computeInventoryCli(request, response, url)
+      ) {
+        return true;
+      }
+
+      if (
+        options.tailscaleInventory &&
+        await options.tailscaleInventory(request, response, url)
       ) {
         return true;
       }
