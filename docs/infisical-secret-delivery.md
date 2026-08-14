@@ -52,6 +52,10 @@ this inventory.
   handshake passed.
 - Three obsolete local 1Password development files and 63 shell snapshots that
   contained the retired token assignment were deleted after verification.
+- The retired Go `os-connector` process, LaunchAgent, binary, local configuration,
+  registration token, and logs were removed. Current development uses the
+  Environment and Workspace Runtime path; no replacement Connector credential
+  was created or migrated.
 - Personal vault contents, the 1Password app and SSH agent, and personal SSH
   keys were not changed.
 - The already-running Codex desktop process may retain its inherited environment
