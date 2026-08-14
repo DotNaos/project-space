@@ -296,8 +296,21 @@ jobs:
           PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET }}
           PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD }}
           PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME }}
+          PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64: ${{ secrets.PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64 }}
+          PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID: ${{ secrets.PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
+          set -euo pipefail
+          for required_secret in \
+            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64 \
+            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID
+          do
+            if [[ -z "${!required_secret:-}" ]]; then
+              echo "::error::GitHub Production secret ${required_secret} is required."
+              exit 1
+            fi
+          done
+
           set +e
           "$RUNNER_TEMP/project" deploy \
             --env prod \
@@ -308,7 +321,7 @@ jobs:
           exit_code=$?
           set -e
           sed -E \
-            -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
+            -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY|ENCRYPTION_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
             -e 's/(Bearer|Basic)[[:space:]]+[A-Za-z0-9._~+\/=-]+/\1 [REDACTED]/Ig' \
             deploy-error.log | tail -n 40 > deploy-error.sanitized.log
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
@@ -327,7 +340,7 @@ jobs:
             status=$(jq -r '.status // "failed_before_deploy"' deploy-result.json)
             error_code="production_${status}"
             result_error=$(jq -r '.error // empty' deploy-result.json | sed -E \
-              -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
+              -e 's/([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|PRIVATE_KEY|ENCRYPTION_KEY)[A-Za-z0-9_]*)=[^[:space:]]+/\1=[REDACTED]/Ig' \
               -e 's/(Bearer|Basic)[[:space:]]+[A-Za-z0-9._~+\/=-]+/\1 [REDACTED]/Ig' |
               tr '\n' ' ' | cut -c1-1000)
             if [[ -n "$result_error" ]]; then

@@ -14,7 +14,8 @@ non-cancelling concurrency lane named `project-space-production`:
 2. Run Bun tests, type checking, the production build, Go tests, Go vet, the Go
    build, and the exact-commit CLI dry run without production credentials.
 3. Enter the GitHub `Production` environment.
-4. Load only the required deployment credentials from 1Password and join
+4. Load the existing deployment credentials from 1Password, receive the
+   provider-encryption values from the protected GitHub environment, and join
    Tailscale as the ephemeral `tag:ci-project-space-deploy` identity.
 5. Run `project deploy --env prod --commit <sha> --release-version <version> --format json` over pinned SSH.
 6. Independently compare GitHub `main`, the VPS checkout, running build
@@ -72,10 +73,14 @@ Manual and automatic commands use the same lock; they cannot overlap.
 
 ## GitHub Production configuration
 
-The `Production` environment contains one GitHub secret:
+The `Production` environment contains these GitHub secrets:
 
 - `OP_SERVICE_ACCOUNT_TOKEN`: a deploy-only 1Password service account that can
   read the required items in the `projects` vault.
+- `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64`: the 32-byte Base64
+  key that encrypts account-owned provider credentials at rest.
+- `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID`: the identifier stored
+  with encrypted provider credentials for explicit key-version checks.
 
 It also contains non-secret variables:
 
@@ -85,6 +90,13 @@ It also contains non-secret variables:
 1Password contains the deploy SSH key, the two Tailscale OAuth credential fields
 restricted to `tag:ci-project-space-deploy`, and the existing application
 deployment secrets.
+Only the protected deployment step receives the provider-encryption values. It
+passes them to the Project CLI, which sends the fixed deployment script over the
+pinned SSH connection and writes the VPS runtime `.env` atomically with mode
+`0600`. The deployment stops before contacting the VPS when either GitHub secret
+is missing. The VPS does not read GitHub Secrets or authenticate to GitHub itself.
+The `deploy/deploy.yaml` 1Password references for these two values are retained
+only as a manual transition fallback until the Infisical migration.
 The tailnet policy permits that CI tag to reach only the VPS on TCP port 22.
 Do not print, upload, or add any resolved value to workflow summaries.
 

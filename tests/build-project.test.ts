@@ -114,7 +114,7 @@ describe('Project build routing', () => {
     expect(overlay).not.toContain('/var/run/tailscale');
   });
 
-  test('resolves provider credential encryption only through named 1Password fields', async () => {
+  test('keeps secret-free provider credential fallback declarations in deploy config', async () => {
     const deployment = await readFile(deploymentConfigFile, 'utf8');
     expect(deployment).toContain(
       'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64: op://projects/project-space-provider-credential-encryption/key_b64'

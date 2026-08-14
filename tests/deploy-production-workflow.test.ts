@@ -131,6 +131,33 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain('tag:ci-project-space-deploy');
   });
 
+  test('limits provider credential encryption secrets to the protected deployment step', async () => {
+    const workflow = await readFile(workflowPath, 'utf8');
+    const validateJob = workflow.slice(workflow.indexOf('  validate:'), workflow.indexOf('  deploy:'));
+    const deployStep = workflow.slice(
+      workflow.indexOf('      - name: Deploy, verify, and roll back on failure'),
+      workflow.indexOf('      - name: Report deployment evidence')
+    );
+    const secretNames = [
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64',
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID'
+    ] as const;
+
+    expect(workflow).toContain('environment:\n      name: Production');
+    for (const secretName of secretNames) {
+      const mapping = `${secretName}: \${{ secrets.${secretName} }}`;
+      expect(validateJob).not.toContain(secretName);
+      expect(deployStep).toContain(mapping);
+      expect(workflow.split(mapping)).toHaveLength(2);
+      expect(workflow).not.toContain(`steps.deploy-secrets.outputs.${secretName}`);
+      expect(deployStep).toContain(
+        `echo "::error::GitHub Production secret \${required_secret} is required."`
+      );
+    }
+    expect(deployStep).toContain('if [[ -z "${!required_secret:-}" ]]');
+    expect(workflow.split('PRIVATE_KEY|ENCRYPTION_KEY')).toHaveLength(3);
+  });
+
   test('keeps generated secrets out of every Docker build context', async () => {
     const dockerIgnore = await readFile(dockerIgnorePath, 'utf8');
     expect(dockerIgnore.split('\n')).toContain('.env');

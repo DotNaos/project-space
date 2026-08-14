@@ -91,10 +91,17 @@ docker compose -f deploy/compose.yml -f deploy/compose.tailscale-oauth.yml up -d
 The current production deployment intentionally continues to use the base Compose file until its
 replacement connection and migration are verified.
 
-Before enabling connections in a deployed environment, the referenced 1Password item
-`project-space-provider-credential-encryption` must contain a newly generated 32-byte Base64 key
-and a non-secret key identifier. The application fails closed when either field is absent or
-invalid; this item is not needed for the temporary VPS-local adapter.
+Before enabling connections in production, the protected GitHub `Production` environment must
+contain `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64` as a generated 32-byte Base64 key
+and `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID` as its non-secret identifier. The
+approved deployment job passes those values to the Project CLI, which stores them only in the
+protected VPS runtime environment. The application fails closed when either field is absent or
+invalid, and the production deployment stops before contacting the VPS when either GitHub secret
+is missing. Neither field is needed for the temporary VPS-local adapter.
+
+The named 1Password references in `deploy/deploy.yaml` remain a manual transition fallback until
+the planned Infisical migration. The normal GitHub production deployment overrides those two
+references with the protected environment secrets and does not resolve them through 1Password.
 
 ## Data plane is separate
 
