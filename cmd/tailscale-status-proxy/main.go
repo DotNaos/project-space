@@ -17,6 +17,7 @@ const (
 	defaultListenAddress = "0.0.0.0:4180"
 	healthcheckURL       = "http://127.0.0.1:4180/healthz"
 	defaultSocketPath    = "/var/run/tailscale/tailscaled.sock"
+	localAPIHost         = "local-tailscaled.sock"
 	localAPIStatusPath   = "/localapi/v0/status"
 	upstreamTimeout      = 3 * time.Second
 	maximumStatusBytes   = 128 * 1024
@@ -113,7 +114,12 @@ func (reader *statusReader) read(parent context.Context) (statusResponse, error)
 	context, cancel := context.WithTimeout(parent, upstreamTimeout)
 	defer cancel()
 
-	request, err := http.NewRequestWithContext(context, http.MethodGet, "http://tailscaled"+localAPIStatusPath, nil)
+	request, err := http.NewRequestWithContext(
+		context,
+		http.MethodGet,
+		"http://"+localAPIHost+localAPIStatusPath,
+		nil,
+	)
 	if err != nil {
 		return statusResponse{}, err
 	}

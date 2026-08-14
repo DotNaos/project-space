@@ -12,9 +12,13 @@ import (
 )
 
 func TestStatusProxyReadsOnlyFixedLocalAPIStatusAndProjectsMinimalFields(t *testing.T) {
-	var method, path, query string
+	var host, method, path, query string
 	proxy := testProxy(t, func(response http.ResponseWriter, request *http.Request) {
-		method, path, query = request.Method, request.URL.Path, request.URL.RawQuery
+		host, method, path, query = request.Host, request.Method, request.URL.Path, request.URL.RawQuery
+		if request.Host != localAPIHost {
+			response.WriteHeader(http.StatusForbidden)
+			return
+		}
 		_, _ = response.Write([]byte(`{
 			"BackendState":"Running",
 			"Self":{"ID":"node-self","HostName":"os-pc","OS":"linux","Tags":["tag:developer"],"TailscaleIPs":["100.64.0.1"],"Online":true,"LastSeen":"2026-08-14T10:00:00Z","DNSName":"secret.ts.net","PublicKey":"secret-public-key"},
@@ -26,8 +30,8 @@ func TestStatusProxyReadsOnlyFixedLocalAPIStatusAndProjectsMinimalFields(t *test
 	if response.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
 	}
-	if method != http.MethodGet || path != localAPIStatusPath || query != "" {
-		t.Fatalf("upstream request = %s %s?%s", method, path, query)
+	if host != localAPIHost || method != http.MethodGet || path != localAPIStatusPath || query != "" {
+		t.Fatalf("upstream request = %s http://%s%s?%s", method, host, path, query)
 	}
 	if strings.Contains(response.Body.String(), "secret") || strings.Contains(response.Body.String(), "public-key") {
 		t.Fatalf("proxy leaked raw upstream fields: %s", response.Body.String())
