@@ -183,6 +183,11 @@ func TestManagedOutputRefusesSymlinkWithoutTruncatingForeignFile(t *testing.T) {
 	if err := os.WriteFile(foreign, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// WriteFile applies the process umask; make the foreign target's mode
+	// deterministic so the symlink rejection assertion is meaningful.
+	if err := os.Chmod(foreign, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	linked := filepath.Join(t.TempDir(), "runtime.log")
 	if err := os.Symlink(foreign, linked); err != nil {
 		t.Fatal(err)
