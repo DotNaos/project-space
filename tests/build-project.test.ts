@@ -88,10 +88,14 @@ describe('Project build routing', () => {
     const compose = await readFile(productionComposeFile, 'utf8');
     const web = /\n  web:\n([\s\S]*?)\n  tailscale-status:\n/.exec(compose)?.[1] ?? '';
     const sidecar = /\n  tailscale-status:\n([\s\S]*?)\n  docs:\n/.exec(compose)?.[1] ?? '';
+    const ownerSubjectHash = /PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_SUBJECT_SHA256:\s+\$\{PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_SUBJECT_SHA256:-([a-f0-9]{64})\}/
+      .exec(web)?.[1];
 
     expect(dockerfile).toContain('FROM scratch AS tailscale-status-runner');
     expect(dockerfile).toContain('USER 65534:65534');
     expect(web).not.toContain('tailscaled.sock');
+    expect(ownerSubjectHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(web).toContain('PROJECT_DEPLOY_ENVIRONMENT: ${PROJECT_ENV:-prod}');
     expect(sidecar).toContain('target: tailscale-status-runner');
     expect(sidecar).toContain('read_only: true');
     expect(sidecar).toContain('no-new-privileges:true');
