@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
+
 import {
   CodexMachineTasksAuthError,
   createCodexMachineTasksAuthResolver
@@ -53,7 +55,7 @@ export function createConfiguredTailscaleInventoryHandler(options: {
     }
     if (isProjectSpaceAuthRequired()) {
       const session = await readAuthSessionFromRequest(request);
-      if (!session?.email || !isConfiguredInventoryOwner(session.email, process.env)) {
+      if (!session || !isConfiguredInventoryOwner(session, process.env)) {
         throw new CodexMachineTasksAuthError(403);
       }
     }
@@ -61,7 +63,25 @@ export function createConfiguredTailscaleInventoryHandler(options: {
   });
 }
 
-export function isConfiguredInventoryOwner(email: string, environment: NodeJS.ProcessEnv) {
+export function isConfiguredInventoryOwner(
+  identity: { email?: string; userId: string },
+  environment: NodeJS.ProcessEnv
+) {
+  const configuredSubjectHash = environment
+    .PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_SUBJECT_SHA256?.trim()
+    .toLowerCase();
+  const production = environment.PROJECT_DEPLOY_ENVIRONMENT?.trim() === 'prod';
+  if (configuredSubjectHash || production) {
+    if (!configuredSubjectHash || !/^[a-f0-9]{64}$/.test(configuredSubjectHash)) {
+      return false;
+    }
+    const actual = createHash('sha256').update(identity.userId).digest();
+    const expected = Buffer.from(configuredSubjectHash, 'hex');
+    return timingSafeEqual(actual, expected);
+  }
+
+  const email = identity.email;
+  if (!email) return false;
   const configured = environment.PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_EMAIL?.trim()
     .toLowerCase();
   if (configured) return configured === email.toLowerCase();
