@@ -330,7 +330,7 @@ func testRetentionCollector(t *testing.T, sourceRoot string) *RetentionCollector
 	if err != nil {
 		t.Fatal(err)
 	}
-	collector.now = func() time.Time { return time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC) }
+	collector.now = func() time.Time { return time.Now().UTC().Add(time.Minute) }
 	return collector
 }
 
