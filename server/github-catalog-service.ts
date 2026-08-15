@@ -56,6 +56,17 @@ export class GitHubCatalogService {
           return this.decorate(next, 'fresh');
         }
         if (result.catalog.status !== 'connected') {
+          if (result.catalog.status === 'auth-required') {
+            await this.options.store.invalidate(
+              this.options.userId,
+              this.scope
+            ).catch(() => undefined);
+            return {
+              ...result.catalog,
+              cache: { state: 'miss' as const },
+              timings: result.timings
+            };
+          }
           if (snapshot) return this.decorate(snapshot, 'refresh-failed', result.catalog.message);
           return { ...result.catalog, cache: { state: 'miss' as const }, timings: result.timings };
         }

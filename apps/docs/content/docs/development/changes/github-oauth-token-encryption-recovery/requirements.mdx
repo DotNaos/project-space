@@ -1,0 +1,64 @@
+---
+title: Requirement delta
+description: Independent GitHub token encryption and safe reconnect requirements.
+---
+
+## ADDED Requirements
+
+### GITHUB-AUTH-001 — Independent token encryption
+
+Project Space MUST encrypt newly stored GitHub OAuth tokens with a dedicated secret that
+is independent from Clerk credentials.
+
+#### Scenario: Clerk credentials rotate
+
+- **Given** a GitHub token was stored with the dedicated encryption key
+- **When** the Clerk backend credential changes
+- **Then** Project Space can still decrypt the GitHub token with the unchanged dedicated key
+
+### GITHUB-AUTH-002 — Safe legacy recovery
+
+Project Space MUST migrate a readable legacy token to the dedicated key and MUST require
+reconnection when none of the bounded legacy sources can decrypt it.
+
+#### Scenario: A legacy token remains readable
+
+- **Given** the dedicated key and the matching legacy source are available
+- **When** Project Space reads the legacy GitHub token
+- **Then** it returns the token and atomically rewrites the encrypted fields with the dedicated key
+
+#### Scenario: A legacy token is unreadable
+
+- **Given** no configured source can authenticate the saved encrypted token
+- **When** Project Space loads the GitHub connection
+- **Then** it returns a sanitized reconnect-required state without exposing crypto or secret details
+
+### GITHUB-AUTH-003 — Honest connected state
+
+Project Space MUST NOT show stale connected GitHub catalog data after an authentication
+failure establishes that the saved connection must be replaced.
+
+#### Scenario: Cached catalog invalidation fails
+
+- **Given** a cached connected catalog and an unreadable saved token
+- **When** the cache cannot be deleted
+- **Then** the current response still exposes reconnect-required instead of the cached connected state
+
+### GITHUB-AUTH-004 — Least-privilege secret delivery
+
+The dedicated GitHub token-encryption key MUST be delivered only to the trusted web
+service through the approved Production secret source.
+
+#### Scenario: Production starts the application stack
+
+- **Given** the approved key is available to the deployment transaction
+- **When** the Production Compose stack is rendered
+- **Then** only the web service receives the named token-encryption environment variable
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

@@ -24,6 +24,7 @@ interface GitHubCatalogCacheRow {
 }
 
 export interface GitHubCatalogCacheStore {
+  invalidate(userId: string, scope: string): Promise<void>;
   read(userId: string, scope: string): Promise<GitHubCatalogCacheSnapshot | null>;
   markFailed(userId: string, scope: string, message: string, attemptedAt: string): Promise<void>;
   markRefreshing(userId: string, scope: string, attemptedAt: string): Promise<void>;
@@ -40,6 +41,13 @@ function isCatalog(value: unknown): value is GitHubCatalogResult {
 
 export class PostgresGitHubCatalogCacheStore implements GitHubCatalogCacheStore {
   constructor(private readonly client: DatabaseQueryClient) {}
+
+  async invalidate(userId: string, scope: string) {
+    await this.client.query(
+      `delete from github_catalog_cache where user_id = $1 and scope = $2`,
+      [userId, scope]
+    );
+  }
 
   async read(userId: string, scope: string) {
     const result = await this.client.query<GitHubCatalogCacheRow>(

@@ -1,0 +1,40 @@
+---
+title: Tasks
+description: Implementation and verification checklist for GitHub token recovery.
+---
+
+## 1. Token storage boundary
+
+- [x] 1.1 Separate encryption and database token-store responsibilities
+  - **Evidence:** Dedicated modules now own key selection, encryption, database reads, writes, and migration.
+- [x] 1.2 Migrate readable legacy rows without overwriting concurrent changes
+  - **Evidence:** The token store uses an optimistic encrypted-field match and tests decrypt the rewritten row with only the dedicated key.
+- [x] 1.3 Return a sanitized reconnect state for unreadable rows
+  - **Evidence:** Focused tests assert no token, key, or raw OpenSSL detail enters the returned error.
+
+## 2. Honest application state
+
+- [x] 2.1 Remove stale connected catalog data after authentication loss
+  - **Evidence:** The catalog service invalidates the exact user and scope and returns reconnect-required even when invalidation fails.
+- [x] 2.2 Present an explicit reconnect action
+  - **Evidence:** The shared catalog contract carries reconnect-required and the presentation model renders a reconnect title and action.
+
+## 3. Deployment boundary
+
+- [x] 3.1 Pass the named key only into the trusted web service
+  - **Evidence:** The Production Compose contract test excludes the key from the sidecar.
+- [x] 3.2 Preserve Infisical migration ownership
+  - **Evidence:** #754 and PR #755 remain responsible for the secret-provider migration; this change does not create, copy, or rotate a Production value.
+
+## 4. Verification
+
+- [x] 4.1 Run focused storage, cache, service, interface, and build tests
+  - **Evidence:** Forty focused tests pass, including the failing-cache-invalidation edge case.
+- [x] 4.2 Run broad repository validation
+  - **Evidence:** TypeScript checking and 2,895 repository tests pass; six environment-dependent integrations are skipped by their existing gates.
+- [x] 4.3 Review the exact diff independently
+  - **Evidence:** Independent review found and drove the cache-invalidation correction before handoff.
+
+## 5. Deferred follow-ups
+
+None.
