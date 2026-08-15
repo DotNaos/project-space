@@ -147,6 +147,10 @@ import {
   infisicalCredentialReferencesMigrationId,
   infisicalCredentialReferencesMigrationSql
 } from './infisical-credential-references-migration';
+import {
+  tailscaleProviderConnectionMigrationId,
+  tailscaleProviderConnectionMigrationSql
+} from './tailscale-provider-connection-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -875,6 +879,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: infisicalCredentialReferencesMigrationId,
     sql: infisicalCredentialReferencesMigrationSql
+  },
+  {
+    id: tailscaleProviderConnectionMigrationId,
+    sql: tailscaleProviderConnectionMigrationSql
   }
 ];
 

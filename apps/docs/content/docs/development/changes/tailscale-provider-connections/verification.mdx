@@ -1,0 +1,29 @@
+---
+title: Verification
+description: Requirement and delivery evidence for account-scoped Tailscale connections.
+---
+
+Verification status: **Complete**
+
+## Requirement evidence
+
+- [x] TAILSCALE-CONNECTION-001 — Owner-scoped provider connection
+- [x] TAILSCALE-CONNECTION-002 — Supported least-privilege inventory
+- [x] TAILSCALE-CONNECTION-003 — Protected credential lifecycle
+- [x] TAILSCALE-CONNECTION-004 — Explicit source and migration boundary
+- [x] TAILSCALE-CONNECTION-005 — Control-plane and data-plane separation
+- [x] TAILSCALE-CONNECTION-006 — Protected production key delivery
+
+## Final reconciliation
+
+- [x] Current requirements describe only delivered control-plane behavior
+- [x] Architecture and design decisions match the implementation
+- [x] Every required implementation task and subtask is complete
+- [x] Focused tenant, provider, storage, deployment, and UI tests pass
+- [x] Canonical repository validation and exact-head GitHub checks pass
+- [x] The representative connection lifecycle is dogfooded without exposing credentials
+- [x] Data-plane and WireGuard commitments are linked to dedicated continuation issues
+
+Structural validation confirms that this record is complete and well formed. Production deployment
+and real-account migration remain post-merge delivery evidence: the temporary adapter stays in place
+until the approved revision is live and fresh account-owned inventory is verified.

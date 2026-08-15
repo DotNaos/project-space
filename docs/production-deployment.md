@@ -83,7 +83,16 @@ It contains these non-secret variables:
 
 The delete-protected `project-space-production` Infisical project contains the
 deploy SSH key, the two Tailscale OAuth credential fields restricted to
-`tag:ci-project-space-deploy`, and the application deployment secrets.
+`tag:ci-project-space-deploy`, the application deployment secrets, and the two
+provider-credential encryption values. The encryption key is a 32-byte Base64
+value; its separate key ID is stored with encrypted account-owned credentials
+for explicit version checks.
+
+Only the protected deployment job receives these values. The Project CLI sends
+the fixed deployment script over pinned SSH and writes the VPS runtime `.env`
+atomically with mode `0600`. Deployment stops before contacting the VPS when
+either provider-encryption value is missing. The VPS does not authenticate to
+GitHub or Infisical to read these values itself.
 The tailnet policy permits that CI tag to reach only the VPS on TCP port 22.
 Do not print, upload, or add any resolved value to workflow summaries.
 

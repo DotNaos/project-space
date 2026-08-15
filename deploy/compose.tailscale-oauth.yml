@@ -1,0 +1,6 @@
+# Host-independent control-plane deployment for account-owned Tailscale OAuth inventory.
+# The base production compose file stays unchanged for the deployed temporary VPS-local adapter.
+services:
+  tailscale-status:
+    profiles:
+      - legacy-vps-local-tailscale

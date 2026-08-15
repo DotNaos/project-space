@@ -160,6 +160,21 @@ func TestDeployEnvironmentQuotesSecretInterpolationCharacters(t *testing.T) {
 	}
 }
 
+func TestResolveDeploySecretsPrefersEnvironmentOverride(t *testing.T) {
+	const name = "PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID"
+	t.Setenv(name, "provider-key-from-infisical")
+
+	secrets, err := resolveDeploySecrets(map[string]string{
+		name: "infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := secrets[name]; got.Value != "provider-key-from-infisical" || got.Source != "$"+name {
+		t.Fatalf("resolved secret = %#v", got)
+	}
+}
+
 func TestDeployComposeScriptWritesEnvironmentFileAtomicallyWithOwnerOnlyPermissions(t *testing.T) {
 	root := t.TempDir()
 	binDir := filepath.Join(root, "bin")

@@ -30,6 +30,8 @@ Environment:
   PROJECT_SPACE_ALLOWED_EMAILS  Optional comma-separated Clerk email allowlist.
   PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_EMAIL  Tailnet owner allowed to discover/classify devices.
   PROJECT_SPACE_TAILSCALE_INVENTORY_OWNER_SUBJECT_SHA256  SHA-256 of the Clerk subject allowed to discover/classify Tailnet devices.
+  PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64  Dedicated 32-byte Base64 key for account-owned provider credentials.
+  PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID  Stable identifier for the active provider credential encryption key.
   PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET  Independent secret for public machine enrollment limits.
   PROJECT_SPACE_PUBLIC_ORIGIN  Public HTTPS origin used for machine approval links.
   PROJECT_SPACE_PREVIEW_MODE=1  Accept only trusted Preview gateway identity assertions.

@@ -8,6 +8,13 @@ export type TailscaleDeviceClassification = typeof tailscaleDeviceClassification
 export type TailscaleProviderRefreshState =
   | 'available' | 'partial' | 'unavailable' | 'not_checked';
 export type TailscaleProviderNetworkState = 'online' | 'offline' | 'stale' | 'unknown';
+export type TailscaleInventorySourceKind =
+  | 'tailscale_oauth_api'
+  | 'temporary_vps_local_status'
+  | 'local_tailscale_command'
+  | 'not_connected';
+export type TailscaleProviderConnectionState =
+  | 'connected' | 'legacy' | 'not_connected' | 'reauthorization_required';
 
 export interface TailscaleInventoryDevice {
   addresses: string[];
@@ -28,11 +35,29 @@ export interface TailscaleInventoryDevice {
 export interface TailscaleInventoryResult {
   devices: TailscaleInventoryDevice[];
   provider: {
+    connectionId?: string;
+    connectionState: TailscaleProviderConnectionState;
     errorCount?: number;
     reasonCode?: string;
     refreshState: TailscaleProviderRefreshState;
+    source: TailscaleInventorySourceKind;
   };
   schemaVersion: typeof tailscaleInventoryApiVersion;
+}
+
+export interface TailscaleProviderConnectionResult {
+  connectionId?: string;
+  connectedAt?: string;
+  connectionState: TailscaleProviderConnectionState;
+  requiredScope: 'devices:core:read';
+  source: TailscaleInventorySourceKind;
+  verifiedAt?: string;
+}
+
+/** Credentials are accepted only on connect and never returned by the server. */
+export interface TailscaleProviderConnectionRequest {
+  clientId: string;
+  clientSecret: string;
 }
 
 export interface TailscaleClassificationRequest {

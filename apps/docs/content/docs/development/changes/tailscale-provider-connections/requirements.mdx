@@ -1,0 +1,84 @@
+---
+title: Requirement delta
+description: Isolation, inventory, and credential requirements for Tailscale provider connections.
+---
+
+## ADDED Requirements
+
+### TAILSCALE-CONNECTION-001 — Owner-scoped provider connection
+
+Project Space MUST bind each Tailscale provider connection, credential read, inventory refresh,
+and revocation action to the authenticated owner.
+
+#### Scenario: Two owners use different tailnets
+
+- **Given** two authenticated owners have different Tailscale provider connections
+- **When** either owner reads, refreshes, or disconnects their connection
+- **Then** they cannot see or operate the other owner's connection, credentials, or devices
+
+### TAILSCALE-CONNECTION-002 — Supported least-privilege inventory
+
+Project Space MUST use Tailscale's supported client-credentials token exchange and devices API
+with `devices:core:read`, MUST treat exact IP addresses as authoritative, and MUST NOT require
+MagicDNS or a host-installed Tailscale daemon for provider inventory.
+
+#### Scenario: Refresh account-owned inventory
+
+- **Given** an owner has valid least-privilege Tailscale client credentials
+- **When** Project Space refreshes that owner's inventory
+- **Then** it returns fresh devices from the connected tailnet with exact addresses and source identity
+
+### TAILSCALE-CONNECTION-003 — Protected credential lifecycle
+
+Project Space MUST encrypt provider client credentials at rest, keep short-lived access tokens
+in memory only, never return credentials or raw provider responses, and fail closed when the
+encryption key is missing, incorrect, or the provider credentials are revoked.
+
+#### Scenario: Provider credentials are invalid or revoked
+
+- **Given** an owner's stored credentials can no longer obtain a Tailscale access token
+- **When** Project Space refreshes that connection
+- **Then** it returns a safe unavailable state without credentials, raw output, or another source's data
+
+### TAILSCALE-CONNECTION-004 — Explicit source and migration boundary
+
+Project Space MUST expose provider and source identity and MUST NOT silently select the temporary
+VPS-local adapter for an unrelated owner or for an owner whose account connection failed.
+
+#### Scenario: Account connection fails
+
+- **Given** an owner has an account-scoped Tailscale connection that cannot refresh
+- **When** Compute requests inventory
+- **Then** the failed account source remains visible and no VPS-local inventory is substituted
+
+### TAILSCALE-CONNECTION-005 — Control-plane and data-plane separation
+
+Project Space MUST NOT treat Tailscale OAuth/API inventory as server tailnet membership or as
+authorization for ping, SSH, terminal, relay, or unrestricted remote commands.
+
+#### Scenario: Inventory connection succeeds
+
+- **Given** an owner successfully connects Tailscale inventory
+- **When** Project Space displays the discovered devices
+- **Then** no server data-plane operation becomes available solely because inventory is connected
+
+### TAILSCALE-CONNECTION-006 — Protected production key delivery
+
+The production deployment MUST receive the provider credential-encryption key only in its
+protected deployment job, MUST stop before contacting the VPS when required values are absent,
+and MUST deliver them through the existing authenticated deployment channel rather than a VPS
+GitHub API read.
+
+#### Scenario: Production key is absent
+
+- **Given** either required provider-encryption value is missing from the protected environment
+- **When** the production deployment starts
+- **Then** it fails before contacting or modifying the VPS
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

@@ -10,8 +10,10 @@ import {
   TailscaleClassificationRevisionConflict,
   TailscaleInventoryServiceError
 } from './service';
+import { TailscaleProviderConnectionError } from './provider-connection-service';
 
 const devicesRoute = '/api/compute/tailscale/devices';
+const connectionRoute = '/api/compute/tailscale/connection';
 const bodyLimit = 16 * 1024;
 const identifier = /^[A-Za-z0-9._:-]{1,256}$/;
 
@@ -21,17 +23,23 @@ export function createTailscaleInventoryHttpApi(
     setClassification(actor: { actorId: string; kind: 'human' | 'machine'; ownerUserId: string }, deviceId: string, request: {
       classification: TailscaleDeviceClassification; expectedRevision: number;
     }): Promise<unknown>;
+    getConnection?(ownerUserId: string): Promise<unknown>;
+    connect?(actor: { actorId: string; ownerUserId: string }, request: {
+      clientId: string; clientSecret: string;
+    }): Promise<unknown>;
+    revoke?(actor: { actorId: string; ownerUserId: string }): Promise<unknown>;
   },
   resolveActor: (request: IncomingMessage) => Promise<{ actorId: string; kind: 'human' | 'machine'; ownerUserId: string }>
 ) {
   return async function handle(request: IncomingMessage, response: ServerResponse, url: URL) {
-    if (url.pathname !== devicesRoute && !url.pathname.startsWith(`${devicesRoute}/`)) {
+    if (url.pathname !== connectionRoute && url.pathname !== devicesRoute &&
+      !url.pathname.startsWith(`${devicesRoute}/`)) {
       return false;
     }
     response.setHeader('Cache-Control', 'private, no-store');
     try {
       const deviceId = classificationDeviceId(url.pathname);
-      if (url.pathname !== devicesRoute && !deviceId) {
+      if (url.pathname !== connectionRoute && url.pathname !== devicesRoute && !deviceId) {
         writeJson(response, 404, { error: { code: 'not_found', message: 'Not found.' } });
         return true;
       }
@@ -42,7 +50,20 @@ export function createTailscaleInventoryHttpApi(
           'Only a person may access Tailscale inventory.'
         );
       }
-      if (url.pathname === devicesRoute && request.method === 'GET') {
+      if (url.pathname === connectionRoute) {
+        if ([...url.searchParams.keys()].length > 0) {
+          throw new HttpInputError('The Tailscale provider connection request is invalid.');
+        }
+        if (request.method === 'GET' && service.getConnection) {
+          writeJson(response, 200, await service.getConnection(actor.ownerUserId));
+        } else if (request.method === 'POST' && service.connect) {
+          writeJson(response, 200, await service.connect(actor, parseConnection(await readBody(request))));
+        } else if (request.method === 'DELETE' && service.revoke) {
+          writeJson(response, 200, await service.revoke(actor));
+        } else {
+          writeJson(response, 405, { error: { code: 'method_not_allowed', message: 'Method not allowed.' } });
+        }
+      } else if (url.pathname === devicesRoute && request.method === 'GET') {
         writeJson(response, 200, await service.list(actor.ownerUserId, parseRefresh(url)));
       } else if (deviceId && request.method === 'POST') {
         if ([...url.searchParams.keys()].length > 0) {
@@ -60,7 +81,14 @@ export function createTailscaleInventoryHttpApi(
       } else if (error instanceof TailscaleClassificationRevisionConflict) {
         writeJson(response, 409, { error: { code: 'revision_conflict', message: error.message } });
       } else if (error instanceof TailscaleInventoryServiceError) {
-        writeJson(response, error.code === 'unknown-device' ? 404 : 403, {
+        writeJson(response, error.code === 'unknown-device' ? 404 :
+          error.code === 'connection-unavailable' ? 409 : 403, {
+          error: { code: error.code.replaceAll('-', '_'), message: error.message }
+        });
+      } else if (error instanceof TailscaleProviderConnectionError) {
+        const status = error.code === 'credentials-invalid' ? 400 :
+          error.code === 'scope-insufficient' ? 403 : 503;
+        writeJson(response, status, {
           error: { code: error.code.replaceAll('-', '_'), message: error.message }
         });
       } else if (error instanceof HttpInputError) {
@@ -118,5 +146,17 @@ function parseClassification(body: Record<string, unknown>) {
     throw new HttpInputError('The Tailscale classification request is invalid.');
   }
   return { classification: body.classification as TailscaleDeviceClassification, expectedRevision: Number(body.expectedRevision) };
+}
+function parseConnection(body: Record<string, unknown>) {
+  if (Object.keys(body).length !== 2 || typeof body.clientId !== 'string' ||
+    typeof body.clientSecret !== 'string' || !validCredentialPart(body.clientId, 512) ||
+    !validCredentialPart(body.clientSecret, 2_048)) {
+    throw new HttpInputError('The Tailscale provider credential is invalid.');
+  }
+  return { clientId: body.clientId, clientSecret: body.clientSecret };
+}
+function validCredentialPart(value: string, maximum: number) {
+  return value === value.trim() && value.length >= 8 && value.length <= maximum &&
+    !/[\u0000-\u001f\u007f]/.test(value);
 }
 class HttpInputError extends Error {}
