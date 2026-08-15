@@ -1,0 +1,53 @@
+---
+title: Requirement delta
+description: Fail-closed Clerk credential requirements for deployment and runtime health.
+---
+
+## ADDED Requirements
+
+### AUTH-001 — Deployment credential preflight
+
+The Project CLI MUST verify the resolved Clerk backend credential before starting any
+remote deployment transaction.
+
+#### Scenario: Clerk rejects the deployment credential
+
+- **Given** a deployment has resolved a Clerk backend credential
+- **When** Clerk rejects that credential during preflight
+- **Then** the deployment fails before it changes the remote host
+
+#### Scenario: Clerk accepts the deployment credential
+
+- **Given** a deployment has resolved a Clerk backend credential
+- **When** Clerk accepts that credential during preflight
+- **Then** the existing remote deployment transaction may proceed
+
+### AUTH-002 — Authentication-aware service health
+
+Project Space MUST NOT report a healthy service when its required Clerk backend
+credential is missing, rejected, or unavailable during startup validation.
+
+#### Scenario: The running configuration cannot authenticate with Clerk
+
+- **Given** Project Space requires authentication
+- **When** startup validation cannot confirm the Clerk backend credential
+- **Then** the health endpoint returns an unhealthy response
+
+### AUTH-003 — Sanitized authentication diagnostics
+
+Project Space MUST distinguish an invalid authentication configuration from an
+unauthorized user without exposing the credential or upstream private response details.
+
+#### Scenario: A signed-in user reaches a misconfigured service
+
+- **Given** Clerk has rejected the service's backend credential
+- **When** the sign-in surface requests the Project Space session result
+- **Then** it receives a neutral authentication-configuration message without secret values or upstream response content
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.
