@@ -43,6 +43,7 @@ export function preflightPlan(input: {
   const lanes: PreflightLane[] = [
     { id: 'diff-hygiene', command: ['git', 'diff', '--check'] },
     { id: 'package-manager-policy', command: ['bun', 'run', 'check:package-manager'] },
+    { id: 'docs-specs', command: ['bun', 'run', 'docs:specs:check'] },
     { id: 'locked-root-dependencies', command: ['bun', 'install', '--frozen-lockfile'] },
     {
       id: 'changelog',
@@ -184,13 +185,17 @@ export function preflightLaneEnvironment(input: {
     TMP: input.temporaryRoot,
     TMPDIR: input.temporaryRoot,
   };
-  return input.laneId === 'changelog'
-    ? {
-        ...environment,
-        RELEASE_BASE_SHA: input.baseSha,
-        RELEASE_HEAD_SHA: input.headSha,
-      }
-    : environment;
+  if (input.laneId === 'changelog') {
+    return {
+      ...environment,
+      RELEASE_BASE_SHA: input.baseSha,
+      RELEASE_HEAD_SHA: input.headSha,
+    };
+  }
+  if (input.laneId === 'docs-specs') {
+    return { ...environment, DOCS_SPECS_BASE: input.baseSha };
+  }
+  return environment;
 }
 
 function remote(id: string, reason: string): PreflightLane {

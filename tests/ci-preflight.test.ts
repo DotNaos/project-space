@@ -94,6 +94,7 @@ describe('canonical local CI preflight', () => {
 
     expect(ids).toEqual(expect.arrayContaining([
       'changelog',
+      'docs-specs',
       'package-manager-policy',
       'generated-cli-docs',
       'cli-docs-contract',
@@ -140,6 +141,7 @@ describe('canonical local CI preflight', () => {
     expect(source).toContain("'--pull-request'");
     expect(source).toContain('is not the checked-out HEAD');
     expect(source).toContain('RELEASE_BASE_SHA: input.baseSha');
+    expect(source).toContain('DOCS_SPECS_BASE: input.baseSha');
     expect(source).toContain("conclusion: 'refused'");
     expect(source).toContain('generated files or edits remain after local lanes');
     expect(source).toContain('No test, install, build, or cache cleanup was started.');
@@ -180,6 +182,17 @@ describe('canonical local CI preflight', () => {
       TMP: '/private/tmp/project-space-ci-preflight-owned',
       TMPDIR: '/private/tmp/project-space-ci-preflight-owned',
     });
+  });
+
+  test('binds change-spec coverage to the exact preflight base', () => {
+    const environment = preflightLaneEnvironment({
+      baseSha: 'a'.repeat(40),
+      environment: { DOCS_SPECS_BASE: 'origin/main' },
+      headSha: 'b'.repeat(40),
+      laneId: 'docs-specs',
+      temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
+    });
+    expect(environment.DOCS_SPECS_BASE).toBe('a'.repeat(40));
   });
 
   test('refuses a report for a revision other than the clean checkout in JSON', () => {

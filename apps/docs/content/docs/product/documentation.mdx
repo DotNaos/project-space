@@ -1,0 +1,69 @@
+---
+title: Documentation requirements
+description: Current guarantees for Project Space documentation and change reconciliation.
+---
+
+Status: **Current**
+
+### DOCS-001 — Canonical deployed documentation
+
+Project Space MUST publish its maintained product, architecture, decision, development,
+operations, reference, and release documentation through the deployed docs application.
+
+#### Scenario: A reader needs system context
+
+- **Given** a reader opens the deployed documentation
+- **When** they navigate from the documentation overview
+- **Then** they can reach requirements, architecture, decisions, development, operations, reference, and releases
+
+### DOCS-002 — Requirements follow delivered behavior
+
+Every pull request that adds or changes observable behavior MUST reconcile the affected
+requirements with the behavior delivered by that exact revision.
+
+#### Scenario: Behavior changes in a pull request
+
+- **Given** a pull request changes observable behavior
+- **When** the pull request is ready for review
+- **Then** its change specification identifies the affected requirements and the current requirements describe only delivered behavior
+
+### DOCS-003 — Change work remains accountable
+
+Every commitment in an active change MUST be implemented and verified, remain explicitly
+blocked, or move to a concrete linked continuation issue after the current scope is
+narrowed.
+
+#### Scenario: A required task is blocked
+
+- **Given** a required task cannot proceed
+- **When** the change checklist records the blocker
+- **Then** it includes the reason, prerequisite, and exact condition for resuming work
+
+#### Scenario: A pull request ships a smaller scope
+
+- **Given** blocked work will not ship in the current pull request
+- **When** the pull request is reconciled
+- **Then** its requirements and design are narrowed and the missing acceptance criteria exist in a linked continuation issue
+
+### DOCS-004 — Completion requires evidence
+
+A completed implementation task MUST include a reproducible verification reference. A
+completed change MUST reconcile requirements, design, tasks, documentation, tests, and
+issue or pull-request commitments.
+
+#### Scenario: A task is marked complete
+
+- **Given** a checklist item is marked complete
+- **When** documentation validation runs
+- **Then** the item contains an evidence entry or is a parent whose required descendants all contain evidence
+
+### DOCS-005 — Validation is honest about its limits
+
+Automated documentation validation MUST distinguish structural consistency from semantic
+proof that implementation satisfies requirements.
+
+#### Scenario: Structural checks pass
+
+- **Given** every required artifact and checklist field is valid
+- **When** the validator reports success
+- **Then** it reports structural conformance without claiming that code behavior was proven automatically

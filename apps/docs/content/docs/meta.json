@@ -1,15 +1,14 @@
 {
-  "title": "Project",
+  "title": "Project Space",
   "pages": [
     "index",
-    "setup",
-    "environments",
-    "cli",
-    "api",
-    "project-mcp",
-    "templates",
-    "deploy",
-    "[Changelog](/docs/changelog)",
-    "reference"
+    "getting-started",
+    "product",
+    "architecture",
+    "decisions",
+    "development",
+    "operations",
+    "reference",
+    "[Changelog](/docs/changelog)"
   ]
 }

@@ -29,6 +29,9 @@ test('folds path-selected documentation checks into one clear PR job', () => {
   expect(workflow).toContain('[[ "$GITHUB_SHA" == "$REQUESTED_HEAD_SHA" ]]');
   expect(workflow).toContain('EVENT_NAME: pull_request');
   expect(workflow).toContain('name: Check package-manager policy');
+  expect(workflow).toContain('name: Validate documentation and change specifications');
+  expect(workflow).toContain('DOCS_SPECS_BASE: ${{ github.event.pull_request.base.sha || inputs.base_sha }}');
+  expect(workflow).toContain('bun run docs:specs:check');
   expect(workflow).toContain('name: Run TypeScript tests');
   expect(workflow).toContain('name: Build web surfaces');
   expect(workflow).toContain("if: steps.select.outputs.cliDocs == 'true'");
