@@ -1,0 +1,26 @@
+---
+title: Testing and evidence
+description: Match verification evidence to the risk and contract of a Project Space change.
+---
+
+Evidence must show the observable behavior that a completed task claims. A file path or
+commit alone is not evidence.
+
+## Evidence examples
+
+- A deterministic unit or integration test and its passing command.
+- A generated-artifact freshness check that fails on drift.
+- A successful docs type-check and production build.
+- A browser walkthrough of the primary and narrow-layout paths.
+- A sanitized production status record when behavior cannot be proven locally.
+
+## Staged verification
+
+1. Run the smallest focused check while implementing.
+2. Run the documentation/spec validator.
+3. Run relevant application and integration tests.
+4. Build the changed deployable surfaces.
+5. Dogfood the realistic user path.
+6. Run the repository preflight on the clean exact commit.
+
+The final verification artifact links these results to requirements and issue commitments.

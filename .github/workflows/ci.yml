@@ -101,6 +101,11 @@ jobs:
       - name: Check package-manager policy
         run: bun run check:package-manager
 
+      - name: Validate documentation and change specifications
+        env:
+          DOCS_SPECS_BASE: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+        run: bun run docs:specs:check
+
       - name: Run TypeScript tests
         run: bun test --isolate
 

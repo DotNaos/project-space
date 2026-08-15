@@ -1,0 +1,46 @@
+---
+title: Documentation system architecture
+description: How current requirements, change specifications, implementation evidence, and deployed documentation fit together.
+---
+
+The documentation system separates current truth from proposed work while keeping both
+reviewable in the same deployed application.
+
+```mermaid
+flowchart LR
+    I[GitHub issue] --> P[Proposal]
+    P --> R[Requirement delta]
+    R --> D[Design]
+    D --> T[Hierarchical tasks]
+    T --> V[Verification]
+    V --> G{Completion gate}
+    G -->|complete| C[Current requirements and architecture]
+    G -->|blocked| B[Explicit blocker]
+    G -->|narrowed| F[Linked follow-up issue]
+    C --> X[Deployed docs]
+    P --> X
+    D --> X
+    V --> X
+```
+
+## Ownership boundaries
+
+- Current requirement pages state only supported behavior.
+- Active change pages state proposed, in-progress, or blocked behavior.
+- Architecture pages describe implemented structure and link the decisions that explain it.
+- Change designs describe the intended architecture for one change.
+- The validator proves document structure and reconciliation fields.
+- Tests and recorded evidence prove implementation behavior.
+- Human review decides whether the evidence is semantically sufficient.
+
+## Completion invariant
+
+```text
+Change complete
+=> every required in-scope task is complete
+=> every completed leaf task has evidence
+=> requirements, design, docs, tests, and issue commitments are reconciled
+```
+
+Structural validation intentionally does not infer implementation correctness from a
+checked box.

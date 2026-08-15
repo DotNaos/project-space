@@ -1,0 +1,77 @@
+---
+title: Requirement delta
+description: Requirements introduced by the validated documentation system change.
+---
+
+## ADDED Requirements
+
+### DOCS-001 — Canonical deployed documentation
+
+Project Space MUST publish maintained product, architecture, decision, development,
+operations, reference, and release documentation through the deployed docs application.
+
+#### Scenario: A reader needs developer documentation
+
+- **Given** the deployed documentation is available
+- **When** the reader navigates from its overview
+- **Then** every durable documentation category is reachable through the primary navigation
+
+### DOCS-002 — Requirements follow delivered behavior
+
+Every pull request that adds or changes observable behavior MUST reconcile the affected
+requirements with the exact behavior delivered by that revision.
+
+#### Scenario: Observable behavior changes
+
+- **Given** a pull request adds or changes observable behavior
+- **When** the revision becomes ready for review
+- **Then** the affected requirements, design, tasks, verification, and current docs are reconciled
+
+### DOCS-003 — Hierarchical tasks preserve incomplete work
+
+Change tasks MUST support nested subtasks, modest decimal numbering, explicit blockers,
+and concrete continuation issues without allowing a completed parent to hide incomplete
+required descendants.
+
+#### Scenario: A subtask is blocked
+
+- **Given** a required subtask cannot proceed
+- **When** it is marked blocked
+- **Then** it records the reason, prerequisite, and exact condition for resuming work
+
+#### Scenario: Work moves to a follow-up
+
+- **Given** blocked work will not ship in the current pull request
+- **When** the current scope is narrowed
+- **Then** a linked continuation issue contains the missing acceptance criteria and the current docs do not claim the behavior shipped
+
+### DOCS-004 — Completion has reproducible evidence
+
+Completed leaf tasks MUST identify reproducible evidence, and a completed change MUST
+reconcile requirements, design, tasks, tests, documentation, and issue or pull-request
+commitments.
+
+#### Scenario: Validation checks a completed task
+
+- **Given** a leaf checklist item is complete
+- **When** documentation validation runs
+- **Then** the item has a non-empty evidence entry
+
+### DOCS-005 — Structural validation remains honest
+
+The documentation validator MUST report structural conformance without presenting it as
+semantic proof that implementation satisfies the documented requirements.
+
+#### Scenario: All structural checks pass
+
+- **Given** the artifacts and declared reconciliation are structurally valid
+- **When** the validator succeeds
+- **Then** its report states that implementation correctness still depends on recorded tests and review
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.
