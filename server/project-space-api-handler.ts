@@ -41,8 +41,10 @@ import type { createConfiguredProjectHostdRuntime } from './project-hostd/config
 import type { createHostControlHttpApi } from './host-control/http';
 import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
 import type { createConfiguredTailscaleInventoryHandler } from './tailscale-inventory/configured-runtime';
+import type { ClerkBackendReadiness } from './clerk-backend-readiness';
 
 interface ProjectSpaceApiHandlerOptions {
+  authReadiness?: ClerkBackendReadiness;
   canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
   codexSessions?: CodexSessionsHttpHandler;
@@ -66,7 +68,10 @@ export function createProjectSpaceApiHandler(
   backend: ProjectSpaceBackend,
   options: ProjectSpaceApiHandlerOptions = {}
 ) {
-  const handlePublicRoute = createProjectSpacePublicApiRoutes(backend);
+  const handlePublicRoute = createProjectSpacePublicApiRoutes(
+    backend,
+    options.authReadiness
+  );
   const handleCoreRoute = createProjectSpaceCoreApiRoutes(backend);
   const handleIntegrationRoute = createProjectSpaceIntegrationApiRoutes(backend);
   const handleIssueCreationRoute = createGitHubIssueCreationRoutes();

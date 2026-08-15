@@ -11,16 +11,30 @@ import { writeJson } from './project-space-http-response';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { readExactPullRequestChangelogSource } from './pr-preview-changelog-source';
 import { releaseChangelogForVersion } from './release-changelog';
+import {
+  readyClerkBackend,
+  type ClerkBackendReadiness
+} from './clerk-backend-readiness';
 
 const exactSourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) {
+export function createProjectSpacePublicApiRoutes(
+  backend: ProjectSpaceBackend,
+  authReadiness: ClerkBackendReadiness = readyClerkBackend()
+) {
   return async function handleProjectSpacePublicApiRoute(
     request: IncomingMessage,
     response: ServerResponse,
     url: URL
   ) {
     if (request.method === 'GET' && url.pathname === '/api/health') {
+      if (!authReadiness.ready) {
+        writeJson(response, 503, {
+          error: authReadiness.message,
+          ok: false
+        });
+        return true;
+      }
       writeJson(response, 200, { ok: true });
       return true;
     }
@@ -63,6 +77,14 @@ export function createProjectSpacePublicApiRoutes(backend: ProjectSpaceBackend) 
     }
 
     if (request.method === 'GET' && url.pathname === '/api/auth/session') {
+      if (!authReadiness.ready) {
+        writeJson(response, 200, {
+          authenticated: false,
+          authRequired: true,
+          message: authReadiness.message
+        });
+        return true;
+      }
       writeJson(
         response,
         200,
