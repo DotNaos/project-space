@@ -13,6 +13,7 @@ const checkoutAction =
   'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10';
 const trustedJobCondition =
   "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'DotNaos/project-space'";
+const trustedShell = '/bin/bash --noprofile --norc -euo pipefail {0}';
 
 const boundaries = {
   preview: {
@@ -53,6 +54,7 @@ const boundaries = {
 type WorkflowStep = {
   name?: string;
   run?: string;
+  shell?: string;
   uses?: string;
   with?: Record<string, unknown>;
 };
@@ -140,11 +142,18 @@ function policyViolations(source: string) {
 
     for (const step of steps) {
       const run = step.run ?? '';
+      if (run && step.shell !== trustedShell) {
+        violations.push(`${jobName} run step shell changed`);
+      }
       if (/\b(?:printenv|declare\s+-p|export\s+-p|set\s+-x)\b/.test(run)) {
         violations.push(`${jobName} can enumerate or trace secret values`);
       }
+      if (/^\s*(?:\/usr\/bin\/)?(?:env|set)\s*$/m.test(run)) {
+        violations.push(`${jobName} can enumerate secret values`);
+      }
       for (const line of run.split('\n')) {
-        const referencesSecret = secretNames.some((name) => new RegExp(`\\$\\{?${name}\\b`).test(line));
+        const referencesSecret = line.includes('${!')
+          || secretNames.some((name) => new RegExp(`\\$\\{?${name}\\b`).test(line));
         if (!referencesSecret || !/\b(?:echo|printf)\b/.test(line)) continue;
         const isPipeOnlyPublicDerivation = jobName === 'release-signing'
           && line.includes('<(printf')
@@ -194,6 +203,9 @@ describe('trusted Infisical OIDC smoke workflow', () => {
     ['pull-request trigger', (source: string) => source.replace('  workflow_dispatch:\n', '  workflow_dispatch:\n  pull_request:\n')],
     ['mutable action tag', (source: string) => source.replace(infisicalAction, 'Infisical/secrets-action@v1')],
     ['secret printing', (source: string) => source.replace("printf '%s\\n' 'The Preview boundary contains every expected value.'", 'echo "$SSH_PRIVATE_KEY"')],
+    ['indirect secret printing', (source: string) => source.replace("printf '%s\\n' 'The Preview boundary contains every expected value.'", 'printf \'%s\\n\' "${!name}"')],
+    ['environment enumeration', (source: string) => source.replace("printf '%s\\n' 'The Preview boundary contains every expected value.'", 'env')],
+    ['shell tracing', (source: string) => source.replace(trustedShell, '/bin/bash --noprofile --norc -euxo pipefail {0}')],
     ['repository binding', (source: string) => source.replace("github.repository == 'DotNaos/project-space'", "github.repository_owner == 'DotNaos'")],
     ['GitHub environment binding', (source: string) => source.replace('environment: Preview', 'environment: Preview-or-Production')],
     ['Infisical project binding', (source: string) => source.replace('project-slug: project-space-preview', 'project-slug: project-space')],
