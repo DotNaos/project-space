@@ -1,0 +1,54 @@
+---
+title: Requirement delta
+description: Safety and recovery requirements for purging open-PR worktrees.
+---
+
+## ADDED Requirements
+
+### PURGE-001 — Explicit open-PR recovery mode
+
+The Project CLI MUST only consider an open pull request sufficient recovery evidence when
+the user explicitly enables open-PR purging.
+
+#### Scenario: Open pull request without opt-in
+
+- **Given** a clean worktree has an exact open pull request
+- **When** the user runs the default purge plan
+- **Then** the worktree remains blocked and the output identifies the required opt-in
+
+#### Scenario: Open pull request with opt-in
+
+- **Given** every local safety gate passes and the exact worktree head is preserved remotely
+- **When** the user runs purge with `--include-open-prs`
+- **Then** the worktree is eligible with `open-pr-backed` recovery evidence
+
+### PURGE-002 — Exact same-repository recovery evidence
+
+The Project CLI MUST require an exact pull-request branch and head commit owned by the
+same repository, and open-PR mode MUST additionally require the matching `origin` branch
+to preserve that commit.
+
+#### Scenario: Remote recovery evidence differs
+
+- **Given** an open pull request does not match the branch, head, repository, or remote head
+- **When** purge evaluates the worktree
+- **Then** the worktree remains blocked
+
+### PURGE-003 — Local safety gates remain mandatory
+
+Open-PR mode MUST NOT bypass worktree cleanliness, ignored-data, active Codex-task,
+running-process, managed-worktree, main-checkout, or fresh apply-time head checks.
+
+#### Scenario: Published work is still active locally
+
+- **Given** the exact open pull request exists but any local safety gate fails
+- **When** purge evaluates or applies the plan
+- **Then** the local checkout is not removed
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

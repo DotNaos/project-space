@@ -1,0 +1,35 @@
+---
+title: Tasks
+description: Implementation and verification checklist for open-PR worktree purge.
+---
+
+## 1. Recovery policy
+
+- [x] 1.1 Add the explicit open-pull-request option
+  - **Evidence:** `project worktree purge` exposes `--include-open-prs` for single and all-safe planning and apply flows.
+- [x] 1.2 Require exact same-repository GitHub and remote evidence
+  - **Evidence:** Recovery evaluation matches branch, head commit, head repository, pull-request state, and the open branch's `origin` head.
+- [x] 1.3 Preserve every existing local safety gate
+  - **Evidence:** Purge planning and apply still enforce cleanliness, ignored-data, Codex-task, process, linked-worktree, main-checkout, and expected-head checks.
+- [x] 1.4 Make recovery state observable
+  - **Evidence:** Plans and results expose the pull request plus `merged` or `open-pr-backed` recovery state in text and JSON.
+
+## 2. Tests and documentation
+
+- [x] 2.1 Cover recovery evidence and apply refresh behavior
+  - **Evidence:** Focused tests cover exact merged and open pull requests, missing opt-in, forks, stale remote heads, fail-closed evidence, and fresh batch checks.
+- [x] 2.2 Update generated CLI and release documentation
+  - **Evidence:** The generated CLI reference includes the new flag and `changelog/767.md` declares the patch release.
+- [x] 2.3 Validate the realistic read-only path
+  - **Evidence:** A real open-PR worktree was blocked without the flag, eligible with it, and remained present after both dry runs.
+
+## 3. Delivery evidence
+
+- [x] 3.1 Run focused and broad repository checks
+  - **Evidence:** Focused Go tests, full Go race tests, Go vet, generated CLI checks, docs validation, and GitHub CI passed for the implementation lineage.
+- [x] 3.2 Reconcile the issue and pull request
+  - **Evidence:** Issue #765 and pull request #767 cover the complete requested scope with no required follow-up.
+
+## 4. Deferred follow-ups
+
+None.
