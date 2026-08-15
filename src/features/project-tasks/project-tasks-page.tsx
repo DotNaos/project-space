@@ -87,6 +87,8 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
   const pullRequest = task.pullRequest;
   const merged = pullRequest?.state === 'merged';
   const PullRequestIcon = merged ? GitMerge : GitPullRequest;
+  const parentIssue = task.issue.parentIssue;
+  const subIssueProgress = task.issue.subIssueProgress;
   return (
     <button
       aria-label={`Open task #${task.issue.number}: ${task.issue.title}`}
@@ -97,7 +99,28 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
       <span className="flex min-w-0 items-center gap-2">
         <span className="shrink-0 text-[11px] tabular-nums text-current/30">#{task.issue.number}</span>
         <StatusIcon task={task} />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-current/85 group-hover:text-current">{task.issue.title}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-current/85 group-hover:text-current">{task.issue.title}</span>
+          {parentIssue ? (
+            <span className="mt-0.5 block truncate text-[10px] text-current/35">
+              Sub-issue of #{parentIssue.number}
+            </span>
+          ) : null}
+        </span>
+        {subIssueProgress ? (
+          <span
+            aria-label={`Sub-issues ${subIssueProgress.completed} of ${subIssueProgress.total} complete`}
+            className="hidden shrink-0 items-center gap-1.5 text-[10px] tabular-nums text-current/45 sm:flex"
+          >
+            <span aria-hidden="true" className="h-1 w-12 overflow-hidden rounded-full bg-current/[.08]">
+              <span
+                className="block h-full rounded-full bg-current/45"
+                style={{ width: `${subIssueProgress.percentCompleted}%` }}
+              />
+            </span>
+            {subIssueProgress.completed}/{subIssueProgress.total}
+          </span>
+        ) : null}
         {pullRequest ? (
           <span className={`flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${merged ? 'bg-violet-500/[.12] text-violet-300' : pullRequest.isDraft ? 'bg-current/[.055] text-current/40' : 'bg-emerald-500/[.12] text-emerald-300'}`}>
             <PullRequestIcon className="size-3" />#{pullRequest.number}
@@ -158,7 +181,7 @@ export function ProjectTasksPage({
   const [query, setQuery] = useState('');
   const visible = useMemo(() => tasks.filter((task) => {
     if (filter !== 'all' && task.state !== filter) return false;
-    const haystack = `${task.issue.number} ${task.issue.title} ${task.issue.labels.join(' ')} ${task.branch?.name ?? ''}`.toLowerCase();
+    const haystack = `${task.issue.number} ${task.issue.title} ${task.issue.labels.join(' ')} ${task.branch?.name ?? ''} ${task.issue.parentIssue?.number ?? ''} ${task.issue.parentIssue?.title ?? ''}`.toLowerCase();
     return haystack.includes(query.trim().toLowerCase());
   }), [filter, query, tasks]);
 

@@ -135,6 +135,8 @@ export function ProjectTaskDetail({
   const hasLongDescription = (task.issue.body?.length ?? 0) > 420;
   const stateChip = taskStateChip(task);
   const pullRequestChip = pullRequest ? pullRequestChipPresentation(pullRequest) : undefined;
+  const parentIssue = task.issue.parentIssue;
+  const subIssueProgress = task.issue.subIssueProgress;
 
   async function submitComment() {
     if (!commentBody.trim() || isPosting) return;
@@ -212,6 +214,20 @@ export function ProjectTaskDetail({
             </button>
           ) : null}
         </div>
+        {parentIssue || subIssueProgress ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-current/50">
+            {parentIssue ? (
+              <span className="rounded-full bg-current/[.05] px-2.5 py-1">
+                Sub-issue of #{parentIssue.number}
+              </span>
+            ) : null}
+            {subIssueProgress ? (
+              <span className="rounded-full bg-current/[.05] px-2.5 py-1 tabular-nums">
+                Sub-issues {subIssueProgress.completed}/{subIssueProgress.total} complete
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {task.workflowMessage ? (
           <p className="mt-4 text-sm leading-6 text-amber-300">{task.workflowMessage}</p>
         ) : null}
