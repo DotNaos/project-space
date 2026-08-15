@@ -1,0 +1,46 @@
+---
+title: Proposal
+description: Make retention collector tests independent of filesystem wall-clock timestamps.
+---
+
+Change status: **Complete**
+
+Change kind: **Bug fix**
+
+Issue: **[#759](https://github.com/DotNaos/project-space/issues/759)**
+Requirements: **Not applicable**
+
+## Summary
+
+Make retained archive age evidence deterministic in retention collector tests while
+leaving production retention behavior unchanged.
+
+## Problem
+
+The fixtures used a fixed collector clock but retained archive directories kept their
+real filesystem modification times. As the wall clock moved past the fixture clock, the
+collector deferred otherwise eligible archives and made replacement and recovery cases
+fail for reasons unrelated to the behavior under test.
+
+## Scope
+
+- Give retained archive fixtures a fixed modification time before collector inspection.
+- Restore a fixed collector clock that is later than the archive evidence.
+- Re-run the race-enabled collector cases and repository gates.
+
+## Out of scope
+
+- Changing production minimum-age policy or retention defaults.
+- Changing inode, replacement, hardlink, crash-recovery, or fail-closed checks.
+- Changing PR #755 or issue #754.
+
+## Delivery
+
+This test-only correction ships through the normal pull request and patch-release flow.
+It needs no migration, Preview surface, or Production deployment.
+
+## Requirements rationale
+
+Requirements are not applicable because the change only makes test fixture timestamps
+deterministic. It does not add, remove, or change supported product or operational
+behavior.
