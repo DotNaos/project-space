@@ -1,0 +1,49 @@
+---
+title: Tasks
+description: Hierarchical implementation checklist for the validated documentation system.
+---
+
+## 1. Canonical deployed documentation
+
+- [x] 1.1 Establish the complete primary navigation
+  - **Evidence:** The docs metadata exposes Getting Started, Product, Architecture, Decisions, Development, Operations, Reference, and Releases.
+- [x] 1.2 Publish the initial current requirements, architecture, and ADRs
+  - **Evidence:** The deployed content includes documentation requirements, two architecture pages, and ADR-0001/ADR-0002.
+- [x] 1.3 Render and dogfood architecture diagrams
+  - **Evidence:** The production docs build renders the Mermaid source as an SVG; desktop browser dogfooding confirmed the visible system-flow diagram.
+
+## 2. Change-spec workflow
+
+- [x] 2.1 Document proposal, requirement delta, design, task, blocker, follow-up, and verification rules
+  - **Evidence:** The documentation workflow and change-spec format pages contain the complete authoring contract.
+- [x] 2.2 Add reusable templates
+  - **Evidence:** Proposal, requirement, design, hierarchical task, and verification templates live under `apps/docs/content/change-template`.
+- [x] 2.3 Validate this change as the representative example
+  - **Evidence:** `bun run docs:specs:check` validates this complete change and the template set together.
+
+## 3. Deterministic validation
+
+- [x] 3.1 Implement the validator
+  - [x] Parse artifacts and requirement scenarios
+    - **Evidence:** Focused tests cover valid and invalid current requirements, deltas, and Given/When/Then scenarios.
+  - [x] Parse nested checklist relationships
+    - **Evidence:** Focused tests prove that a completed parent cannot hide an incomplete descendant.
+  - [x] Enforce evidence, blocker, and continuation metadata
+    - **Evidence:** Focused tests cover missing evidence, valid and incomplete blockers, and deferred continuation fields.
+- [x] 3.2 Add focused regression tests
+  - **Evidence:** The documentation-spec test file exercises ten positive and negative validation paths.
+- [x] 3.3 Integrate validation with CI and local preflight
+  - **Evidence:** CI runs the validator against the exact pull-request base, and the preflight test suite verifies the same local lane.
+
+## 4. Delivery evidence
+
+- [x] 4.1 Type-check and production-build the docs
+  - **Evidence:** `bun run typecheck` and `bun run build` pass in `apps/docs`; the production build emits 135 static pages.
+- [x] 4.2 Dogfood desktop and narrow navigation
+  - **Evidence:** Browser dogfooding covered the overview, architecture, task checklist, and a 390-pixel workflow view with no page overflow.
+- [x] 4.3 Complete final requirement and issue reconciliation
+  - **Evidence:** The verification record maps all five requirements, every issue commitment is complete, and no continuation issue is needed.
+
+## 5. Deferred follow-ups
+
+None.

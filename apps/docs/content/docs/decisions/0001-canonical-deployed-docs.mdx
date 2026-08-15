@@ -1,0 +1,33 @@
+---
+title: "ADR-0001: Deployed docs are the canonical knowledge base"
+description: Keep durable product and engineering truth in the published documentation application.
+---
+
+Status: **Accepted**
+Date: **2026-08-15**
+
+## Context
+
+Project Space already published setup, CLI, tool, and release material, while important
+requirements and architecture lived in scattered repository Markdown files or issues.
+That made the deployed docs incomplete and allowed implementation and design truth to
+drift apart.
+
+## Decision
+
+The deployed docs application is the canonical home for current requirements,
+architecture, design decisions, development guidance, operations, reference, and
+releases. Repository-root documents may remain as migration inputs or operational
+artifacts, but durable guidance must be reachable from the deployed navigation.
+
+## Consequences
+
+- Readers have one navigable source rather than separate user and developer sites.
+- Documentation changes use the same review and deployment path as code.
+- Current truth must be separated visibly from proposals and blocked work.
+- Existing detailed documents will be migrated incrementally when their owning feature changes.
+
+## Alternatives considered
+
+- A separate developer portal would duplicate navigation, deployment, and search.
+- Keeping developer documentation only in GitHub would preserve the current discoverability gap.

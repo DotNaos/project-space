@@ -1,0 +1,4 @@
+{
+  "title": "Operations",
+  "pages": ["index", "[Production deployment](/docs/deploy)", "[Environment setup](/docs/environments/setup)"]
+}

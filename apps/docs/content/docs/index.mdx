@@ -1,25 +1,31 @@
 ---
-title: Overview
-description: Documentation for the template-aware Project tooling.
+title: Project Space documentation
+description: Product, architecture, development, operations, and exact reference documentation for Project Space.
 ---
 
-Project is the package for template-backed project operations. It includes the CLI, API surface, and internal logic.
+This site is the complete maintained knowledge base for Project Space. It covers the
+product guarantees, the system architecture, the reasons behind important decisions,
+and the practical guidance needed to change or operate the system.
 
-## Quick Start
+## Find the right kind of truth
 
-```sh
-project create my-project
-project validate
-project template update --dry-run
-project deploy --dry-run
-```
+| Question | Source |
+| --- | --- |
+| What does Project Space guarantee? | [Product and requirements](/docs/product) |
+| How does the system work? | [Architecture](/docs/architecture) |
+| Why was an important choice made? | [Design decisions](/docs/decisions) |
+| How do I change the system safely? | [Development](/docs/development) |
+| How do I deploy, diagnose, or recover it? | [Operations](/docs/operations) |
+| What is the exact command or API contract? | [Reference](/docs/reference) |
+| What changed? | [Releases](/docs/releases) and [Changelog](/docs/changelog) |
 
-## Sections
+## Start here
 
-- [Setup](/docs/setup)
-- [CLI](/docs/cli)
-- [API](/docs/api)
-- [Templates](/docs/templates)
-- [Deploy](/docs/deploy)
-- [Changelog](/docs/changelog)
-- [Reference](/docs/reference)
+- [Install Project and create a first project](/docs/getting-started)
+- [Understand the Project Space architecture](/docs/architecture)
+- [Read the contributor workflow](/docs/development)
+- [Review the documentation and change-spec policy](/docs/development/documentation-workflow)
+
+Current requirements describe only behavior that is actually supported. Proposed and
+blocked behavior lives in a clearly labelled change specification until it is delivered
+and reconciled.
