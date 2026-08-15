@@ -33,14 +33,53 @@ only names, counts, and match results.
 | --- | --- | --- |
 | `project-space` | `dev` | `GITHUB_OAUTH_CLIENT_ID` |
 | `project-space-preview` | `staging` | `SSH_PRIVATE_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` |
-| `project-space-production` | `prod` | 12 names: deploy SSH/Tailscale, Clerk, GitHub OAuth/token, release public key, rate-limit, MQTT provider, and Vite Clerk |
+| `project-space-production` | `prod` | 11 names: deploy SSH/Tailscale, Clerk, GitHub OAuth application, release public key, rate-limit, MQTT provider, and Vite Clerk |
 | `project-space-release-signing` | `prod` | `PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64` |
-| `project-space-vps` | `prod` | 15 names: application runtime, machine-power MQTT, and JetKVM SSH/Tailscale provisioning |
+| `project-space-vps` | `prod` | 15 names: application runtime, machine-power MQTT, JetKVM SSH/Tailscale provisioning, and the VPS Cloudflare DNS challenge token |
 | `local-development` | `dev` | Shared development, Apple/EAS recovery, release recovery, and MCP credentials; consumers declare only the names they require |
 
 Each migrated secret has a 90-day review reminder. Secret values are not stored
 in repository files, workflow inputs, command arguments, shell snapshots, or
 this inventory.
+
+Production deliberately has no global GitHub access token. Signed-in users use
+their own stored Project Space OAuth connection for private GitHub operations,
+while public release metadata is fetched anonymously. This avoids keeping a
+broad personal GitHub CLI token in either Infisical or the application runtime.
+
+## 2026-08-15 credential rotation evidence
+
+An accidental diagnostic command exposed seven migrated values. Every exposed
+runtime or provider credential was replaced before the old value was retired:
+
+- Clerk has one fixed, dated replacement key. Its API check passed, Production
+  was restarted on the unchanged `afadb19e2b614a0e970475602f38a9e724dc3043`
+  revision, the running value matched Infisical in memory, authenticated browser
+  use passed, and the old Clerk key was deleted after email verification.
+- The JetKVM Tailscale OAuth client is restricted to Auth Keys write access for
+  only `tag:jetkvm`. Token exchange and the read-only provisioner passed, and the
+  old client is visibly revoked.
+- The dedicated JetKVM SSH key was regenerated, installed as the device's sole
+  authorized key through its cloud terminal, and removed from local temporary
+  storage after an Infisical-backed provisioner run reported `changes: []`.
+- Both exact MQTT identities received independent generated passwords. The
+  broker password file, JetKVM configuration, Infisical projects, and Production
+  runtime were updated; exact-topic authorization and a fresh physical-power
+  status from JetKVM passed.
+- The machine rate-limit secret was regenerated in memory, written to both
+  required Infisical projects, and matched the restarted Production container.
+- The exposed broad GitHub CLI OAuth token is no longer present in either
+  Infisical project or the Production container. Production uses the signed-in
+  user's stored Project Space OAuth connection; a real catalog refresh reported
+  100 repositories. Provider-side invalidation still requires revoking the
+  account-wide GitHub CLI grant, which can also sign out unrelated `gh` clients,
+  so that broader user action remains an explicit final gate.
+
+The Cloudflare DNS challenge token was not exposed. It was migrated from the
+legacy Traefik environment file into `project-space-vps`, verified against the
+Cloudflare token API, and materialized only as a root-owned mode `0600` runtime
+file. The legacy file remains until the corrected private-ingress Traefik
+revision is approved and deployed.
 
 ## Local macOS evidence
 

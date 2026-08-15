@@ -524,7 +524,7 @@ host: deploy@100.84.238.75
 preview:
   statusHost: project-space-preview-status
 secrets:
-  GITHUB_TOKEN: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_GITHUB_TOKEN
+  EXAMPLE_API_KEY: infisical://00000000-0000-4000-8000-000000000000/prod/EXAMPLE_API_KEY
 environments:
   prod:
     default: true

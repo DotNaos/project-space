@@ -152,5 +152,8 @@ describe('production deployment workflow contract', () => {
         `${name}: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/${name}`
       );
     }
+    expect(deploy).not.toContain('PROJECT_GITHUB_TOKEN');
+    expect(deploy).not.toMatch(/^\s+GITHUB_TOKEN:/m);
+    expect(workflow).not.toContain('GITHUB_TOKEN: ${{ env.PROJECT_GITHUB_TOKEN }}');
   });
 });
