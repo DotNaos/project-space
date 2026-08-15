@@ -80,8 +80,8 @@ func TestServeBindingsFailClosedBeforeStartup(t *testing.T) {
 		message string
 	}{
 		{[]string{"--apis=simulated", "--data=remote"}, "cannot be combined"},
-		{[]string{"--apis=external", "--data=local"}, "secure 1Password service-account delivery"},
-		{[]string{"--apis=external", "--data=remote"}, "secure 1Password service-account delivery"},
+		{[]string{"--apis=external", "--data=local"}, "required Infisical project mapping"},
+		{[]string{"--apis=external", "--data=remote"}, "required Infisical project mapping"},
 		{[]string{"--apis=unknown"}, "unknown APIs binding"},
 		{[]string{"--data=unknown"}, "unknown data binding"},
 		{[]string{"--no-tailnet", "--tailnet"}, "cannot be combined"},

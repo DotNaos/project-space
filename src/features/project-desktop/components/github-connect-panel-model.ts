@@ -34,9 +34,13 @@ export function getGitHubConnectPanelPresentation({
       isConnecting || githubCatalog.status === 'not-configured',
     primaryActionLabel: isPending
       ? 'Continue GitHub login'
-      : 'Login with GitHub',
+      : githubCatalog.reconnectRequired
+        ? 'Reconnect GitHub'
+        : 'Login with GitHub',
     title: isLoadError
       ? 'Project catalog unavailable'
-      : 'Connect your GitHub account'
+      : githubCatalog.reconnectRequired
+        ? 'Reconnect your GitHub account'
+        : 'Connect your GitHub account'
   };
 }

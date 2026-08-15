@@ -28,9 +28,11 @@ import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-
 import {
   getMachineConnectionDatabaseClient,
   isDatabaseConfigured,
+  isGitHubOAuthReconnectRequired,
   readGitHubOAuthToken,
   writeGitHubOAuthToken
 } from './local-database-store';
+import { githubOAuthReconnectMessage } from './github-oauth-token-encryption';
 import { PostgresGitHubCatalogCacheStore } from './github-catalog-cache-store';
 import { GitHubCatalogService } from './github-catalog-service';
 import { getGitHubCatalogRequestTiming } from './github-catalog-timing';
@@ -130,6 +132,17 @@ const catalogRefreshTimeoutMs = 10_000;
 const catalogDatabaseTimeoutMs = 2_000;
 export const githubOAuthClientIdMissingMessage = 'Set GITHUB_OAUTH_CLIENT_ID to enable GitHub OAuth.';
 
+function githubConnectionRequired(defaultMessage: string) {
+  const session = getCurrentAuthSession();
+  const reconnectRequired = Boolean(
+    session && isGitHubOAuthReconnectRequired(session.userId)
+  );
+  return {
+    message: reconnectRequired ? githubOAuthReconnectMessage : defaultMessage,
+    reconnectRequired
+  };
+}
+
 function bounded<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
@@ -159,6 +172,20 @@ function createEmptyCatalog(
     repositories: [],
     status
   };
+}
+
+function createGitHubConnectionRequiredCatalog(defaultMessage: string) {
+  const clientConfigured = Boolean(getGitHubClientId());
+  const connection = githubConnectionRequired(defaultMessage);
+  return {
+    ...createEmptyCatalog(
+      clientConfigured ? 'auth-required' : 'not-configured',
+      clientConfigured ? connection.message : githubOAuthClientIdMissingMessage
+    ),
+    ...(clientConfigured && connection.reconnectRequired
+      ? { reconnectRequired: true }
+      : {})
+  } satisfies GitHubCatalogResult;
 }
 
 function readStoredToken(): StoredGitHubToken | null {
@@ -396,12 +423,12 @@ async function refreshGitHubCatalog(etag?: string, signal?: AbortSignal) {
   const tokenLookupMs = performance.now() - tokenStartedAt;
 
   if (!auth) {
-    return { catalog: createEmptyCatalog(
-      getGitHubClientId() ? 'auth-required' : 'not-configured',
-      getGitHubClientId()
-        ? 'Connect GitHub to load the remote project catalog.'
-        : githubOAuthClientIdMissingMessage
-    ), timings: { tokenLookupMs, totalMs: performance.now() - startedAt } };
+    return {
+      catalog: createGitHubConnectionRequiredCatalog(
+        'Connect GitHub to load the remote project catalog.'
+      ),
+      timings: { tokenLookupMs, totalMs: performance.now() - startedAt }
+    };
   }
 
   try {
@@ -453,12 +480,25 @@ export async function getGitHubCatalog(options: { forceRefresh?: boolean } = {})
   const client = await bounded(getMachineConnectionDatabaseClient(), catalogDatabaseTimeoutMs, 'Catalog database timed out.');
   const postgresStore = new PostgresGitHubCatalogCacheStore(client);
   const store = {
+    invalidate: (userId: string, scope: string) => bounded(postgresStore.invalidate(userId, scope), catalogDatabaseTimeoutMs, 'Catalog cache invalidation timed out.'),
     read: (userId: string, scope: string) => bounded(postgresStore.read(userId, scope), catalogDatabaseTimeoutMs, 'Catalog cache read timed out.'),
     write: (snapshot: Parameters<typeof postgresStore.write>[0]) => bounded(postgresStore.write(snapshot), catalogDatabaseTimeoutMs, 'Catalog cache write timed out.'),
     markRefreshing: (userId: string, scope: string, attemptedAt: string) => bounded(postgresStore.markRefreshing(userId, scope, attemptedAt), catalogDatabaseTimeoutMs, 'Catalog cache update timed out.'),
     markFailed: (userId: string, scope: string, message: string, attemptedAt: string) => bounded(postgresStore.markFailed(userId, scope, message, attemptedAt), catalogDatabaseTimeoutMs, 'Catalog cache update timed out.')
   };
-  const service = new GitHubCatalogService({ refresh: refreshGitHubCatalogWithDeadline, store, userId: session.userId });
+  const service = new GitHubCatalogService({
+    refresh: refreshGitHubCatalogWithDeadline,
+    store,
+    userId: session.userId,
+    validateCachedConnection: async () => {
+      const auth = await resolveToken();
+      return auth
+        ? null
+        : createGitHubConnectionRequiredCatalog(
+            'Connect GitHub to load the remote project catalog.'
+          );
+    }
+  });
   const result = await service.get(options.forceRefresh);
   const timing = getGitHubCatalogRequestTiming();
   const sanitized = { ...result, timings: { ...result.timings, authMs: timing?.authMs, totalMs: timing ? performance.now() - timing.requestStartedAt : performance.now() - requestStartedAt } };
@@ -695,7 +735,7 @@ export async function getGitHubRepositoryDetails(
     return createEmptyRepositoryDetails(
       getGitHubClientId() ? 'auth-required' : 'not-configured',
       getGitHubClientId()
-        ? 'Connect GitHub to load repository details.'
+        ? githubConnectionRequired('Connect GitHub to load repository details.').message
         : githubOAuthClientIdMissingMessage
     );
   }

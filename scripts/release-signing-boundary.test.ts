@@ -22,7 +22,12 @@ describe('release signing boundary', () => {
     expect(signer).toContain('on:\n  workflow_call:');
     expect(signer).not.toMatch(/^\s+pull_request:/m);
     expect(signer).toContain('    environment: release-signing');
-    expect(signer).toContain('op://projects/project-space-release-manifest-signing-key/private_key_b64');
+    expect(signer).toContain('id-token: write');
+    expect(signer).toContain('project-slug: project-space-release-signing');
+    expect(signer).toContain('env-slug: prod');
+    expect(signer).toContain('PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64');
+    expect(signer).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
+    expect(signer).not.toContain('op://');
     expect(signer).toContain('Validate immutable release provenance');
     expect(signer).toContain('Validate immutable artifact metadata');
   });

@@ -779,6 +779,7 @@ export interface GitHubCatalogResult {
     state: 'miss' | 'fresh' | 'stale' | 'refreshing' | 'refresh-failed';
   };
   message?: string;
+  reconnectRequired?: boolean;
   repositories: GitHubCatalogRepository[];
   status: GitHubCatalogStatus;
   timings?: {

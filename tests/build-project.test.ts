@@ -85,6 +85,17 @@ describe('Project build routing', () => {
     expect(compose).toContain('/opt/platform/state:/workspace/deploy-state:ro');
   });
 
+  test('passes only the named GitHub token-encryption secret into the web runtime', async () => {
+    const compose = await readFile(productionComposeFile, 'utf8');
+    const web = /\n  web:\n([\s\S]*?)\n  tailscale-status:\n/.exec(compose)?.[1] ?? '';
+    const sidecar = /\n  tailscale-status:\n([\s\S]*?)\n  docs:\n/.exec(compose)?.[1] ?? '';
+
+    expect(web).toContain(
+      'PROJECT_SPACE_TOKEN_ENCRYPTION_KEY: ${PROJECT_SPACE_TOKEN_ENCRYPTION_KEY:-}'
+    );
+    expect(sidecar).not.toContain('PROJECT_SPACE_TOKEN_ENCRYPTION_KEY');
+  });
+
   test('isolates the host Tailscale socket behind a minimal fixed-operation sidecar', async () => {
     const dockerfile = await readFile(productionWebDockerfile, 'utf8');
     const compose = await readFile(productionComposeFile, 'utf8');
@@ -114,15 +125,17 @@ describe('Project build routing', () => {
     expect(overlay).not.toContain('/var/run/tailscale');
   });
 
-  test('keeps secret-free provider credential fallback declarations in deploy config', async () => {
+  test('loads provider credential encryption keys from the fixed Infisical project', async () => {
     const deployment = await readFile(deploymentConfigFile, 'utf8');
-    expect(deployment).toContain(
-      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64: op://projects/project-space-provider-credential-encryption/key_b64'
-    );
-    expect(deployment).toContain(
-      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID: op://projects/project-space-provider-credential-encryption/key_id'
-    );
-    expect(deployment).not.toMatch(/PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_(?:B64|ID):\s+(?!op:\/\/)/);
+    for (const name of [
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64',
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID'
+    ]) {
+      expect(deployment).toContain(
+        `${name}: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/${name}`
+      );
+    }
+    expect(deployment).not.toContain('op://');
   });
 
   test('configures the SSH control gateway identity on each Project Space web service', async () => {

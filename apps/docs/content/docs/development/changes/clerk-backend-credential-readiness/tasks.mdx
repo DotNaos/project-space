@@ -1,0 +1,33 @@
+---
+title: Tasks
+description: Implementation and verification checklist for Clerk backend credential readiness.
+---
+
+## 1. Deployment containment
+
+- [x] 1.1 Validate the resolved Clerk credential before remote deployment
+  - **Evidence:** The Project CLI calls the Clerk preflight after runtime secret resolution and before the remote transaction function.
+- [x] 1.2 Fail without leaking credential or upstream details
+  - **Evidence:** Focused Go tests cover accepted, rejected, and missing credentials and assert that private values do not enter errors.
+
+## 2. Runtime containment
+
+- [x] 2.1 Probe Clerk readiness during full-stack server startup
+  - **Evidence:** The web entry point records a bounded readiness result before constructing the HTTP server.
+- [x] 2.2 Make health and session diagnostics reflect readiness
+  - **Evidence:** The real HTTP router test receives health 503 and a neutral session message for rejected readiness.
+- [x] 2.3 Preserve disabled-auth and trusted Preview behavior
+  - **Evidence:** The readiness probe returns ready without calling Clerk for authentication-disabled and trusted Preview environments.
+
+## 3. Verification
+
+- [x] 3.1 Run focused and broad automated checks
+  - **Evidence:** Clerk readiness tests, the complete Go CLI suite, TypeScript checks, release documentation validation, and the production web build pass locally.
+- [x] 3.2 Dogfood the invalid-credential server path
+  - **Evidence:** The built local sign-in document remained reachable while `/api/health` returned 503 with the sanitized message.
+- [x] 3.3 Preserve incident and delivery boundaries
+  - **Evidence:** Production recovery remains separate, #775 tracks GitHub data access, and #735 is held until the Infisical delivery path is proven.
+
+## 4. Deferred follow-ups
+
+None.

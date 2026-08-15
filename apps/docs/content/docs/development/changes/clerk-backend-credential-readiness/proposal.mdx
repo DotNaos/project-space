@@ -1,0 +1,46 @@
+---
+title: Proposal
+description: Prevent invalid Clerk backend credentials from reaching Production as a healthy deployment.
+---
+
+Change status: **Complete**
+
+Change kind: **Fix**
+
+Issue: **[#772](https://github.com/DotNaos/project-space/issues/772)**
+Requirements: **Required**
+
+## Summary
+
+Validate the resolved Clerk backend credential before a Project Space deployment can
+touch the VPS. The running service also probes Clerk during startup, reports an unhealthy
+state when authentication is misconfigured, and returns a neutral diagnostic to the
+sign-in surface without exposing credentials or upstream response details.
+
+## Problem
+
+Production could pass its existing container and HTTP health checks while Clerk rejected
+the configured backend credential. Every signed-in user was then shown as unaccepted,
+even though the deployment itself appeared healthy and the email allowlist was not the
+cause.
+
+## Scope
+
+- Verify the resolved Clerk backend credential before starting a remote deployment transaction.
+- Fail closed when the credential is missing, rejected, or cannot be verified.
+- Mark the running service unhealthy when its startup credential is not accepted.
+- Preserve the reachable sign-in surface and return a sanitized configuration message.
+- Test accepted, rejected, missing, unavailable, and non-leaking behavior.
+
+## Out of scope
+
+- Migrating deployment secret delivery from 1Password to Infisical; that remains #754 and PR #755.
+- Changing the email allowlist or introducing owner-only authorization.
+- Repairing the separate GitHub workspace-data failure tracked in #775.
+- Merging or deploying this change without approval of its exact pull-request revision.
+
+## Delivery
+
+This is a backward-compatible server and Project CLI fix. No data migration is required.
+The exact pull-request revision must pass CI and receive approval before merge; the normal
+main release and VPS deployment then provide final Production evidence.

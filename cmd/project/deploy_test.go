@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,12 +24,12 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		APIDomain:     "api.example.com",
 		ProjectDomain: "example.com",
 		Secrets: map[string]deploySecretValue{
-			"CLERK_PUBLISHABLE_KEY":                {Value: "clerk-publishable-value", Source: "op://projects/clerk-project/publishable_key"},
-			"CLERK_SECRET_KEY":                     {Value: "clerk-secret-value", Source: "op://projects/clerk-project/secret_key"},
-			"GITHUB_OAUTH_CLIENT_ID":               {Value: "oauth-client-id", Source: "op://projects/GitHub OAuth App/client_id"},
-			"GITHUB_TOKEN":                         {Value: "github-token-value", Source: "op://projects/GitHub Personal Access Token/token"},
-			"PROJECT_CONNECTOR_REGISTRATION_TOKEN": {Value: "connector-registration-token-value", Source: "op://projects/Project Space Connector Registration Token/password"},
-			"VITE_CLERK_PUBLISHABLE_KEY":           {Value: "clerk-publishable-value", Source: "op://projects/clerk-project/publishable_key"},
+			"CLERK_PUBLISHABLE_KEY":      {Value: "clerk-publishable-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY"},
+			"CLERK_SECRET_KEY":           {Value: "clerk-secret-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_SECRET_KEY"},
+			"GITHUB_OAUTH_CLIENT_ID":     {Value: "oauth-client-id", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_OAUTH_CLIENT_ID"},
+			"GITHUB_TOKEN":               {Value: "github-token-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_TOKEN"},
+			"EXAMPLE_RUNTIME_SECRET":     {Value: "runtime-secret-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/EXAMPLE_RUNTIME_SECRET"},
+			"VITE_CLERK_PUBLISHABLE_KEY": {Value: "clerk-publishable-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY"},
 		},
 	}
 
@@ -43,12 +44,12 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		"-p example-prod -f deploy/compose.yml -f deploy/ingress.labels.yml",
 		"PROJECT_DOMAIN=example.com",
 		"PROJECT_API_DOMAIN=api.example.com",
-		"GITHUB_TOKEN=<secret from op://projects/GitHub Personal Access Token/token>",
-		"GITHUB_OAUTH_CLIENT_ID=<secret from op://projects/GitHub OAuth App/client_id>",
-		"CLERK_PUBLISHABLE_KEY=<secret from op://projects/clerk-project/publishable_key>",
-		"VITE_CLERK_PUBLISHABLE_KEY=<secret from op://projects/clerk-project/publishable_key>",
-		"CLERK_SECRET_KEY=<secret from op://projects/clerk-project/secret_key>",
-		"PROJECT_CONNECTOR_REGISTRATION_TOKEN=<secret from op://projects/Project Space Connector Registration Token/password>",
+		"GITHUB_TOKEN=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_TOKEN>",
+		"GITHUB_OAUTH_CLIENT_ID=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_OAUTH_CLIENT_ID>",
+		"CLERK_PUBLISHABLE_KEY=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY>",
+		"VITE_CLERK_PUBLISHABLE_KEY=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY>",
+		"CLERK_SECRET_KEY=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_SECRET_KEY>",
+		"EXAMPLE_RUNTIME_SECRET=<secret from infisical://00000000-0000-4000-8000-000000000000/prod/EXAMPLE_RUNTIME_SECRET>",
 	} {
 		if !strings.Contains(steps, want) {
 			t.Fatalf("deploy steps missing %q:\n%s", want, steps)
@@ -58,8 +59,59 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		strings.Contains(steps, "oauth-client-id") ||
 		strings.Contains(steps, "clerk-publishable-value") ||
 		strings.Contains(steps, "clerk-secret-value") ||
-		strings.Contains(steps, "connector-registration-token-value") {
+		strings.Contains(steps, "runtime-secret-value") {
 		t.Fatalf("deploy dry-run steps leaked secret values:\n%s", steps)
+	}
+}
+
+func TestResolveDeploySecretsUsesExactNonImportedLookup(t *testing.T) {
+	previous := runSecretExternalCommand
+	t.Cleanup(func() { runSecretExternalCommand = previous })
+	var executable string
+	var arguments []string
+	runSecretExternalCommand = func(name string, args ...string) (string, error) {
+		executable = name
+		arguments = append([]string(nil), args...)
+		return "selected-value\n", nil
+	}
+	secrets, err := resolveDeploySecrets(map[string]string{
+		"DECLARED_SECRET": "infisical://00000000-0000-4000-8000-000000000000/prod/DECLARED_SECRET",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executable != "infisical" || len(arguments) < 3 ||
+		strings.Join(arguments[:3], " ") != "secrets get DECLARED_SECRET" {
+		t.Fatalf("lookup = %q %q", executable, arguments)
+	}
+	joined := strings.Join(arguments, "\n")
+	for _, expected := range []string{"--path=/", "--include-imports=false", "--recursive=false"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("lookup missing %s: %q", expected, arguments)
+		}
+	}
+	if secrets["DECLARED_SECRET"].Value != "selected-value" {
+		t.Fatal("resolved value was not retained in memory")
+	}
+}
+
+func TestSecretExternalCommandDoesNotReturnFailureOutput(t *testing.T) {
+	bin := t.TempDir()
+	path := filepath.Join(bin, "infisical")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' sensitive-stdout\nprintf '%s\\n' sensitive-stderr >&2\nexit 9\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	_, err := executeSecretExternalCommand("infisical", "secrets", "get", "DECLARED_SECRET")
+	if err == nil {
+		t.Fatal("failed secret lookup was accepted")
+	}
+	if strings.Contains(err.Error(), "sensitive-") {
+		t.Fatalf("secret lookup output leaked through the error: %v", err)
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && len(exitError.Stderr) != 0 {
+		t.Fatal("secret lookup stderr remained attached to the returned error")
 	}
 }
 
@@ -69,11 +121,11 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 		APIDomain:     "api.example.com",
 		ProjectDomain: "example.com",
 		Secrets: map[string]deploySecretValue{
-			"CLERK_PUBLISHABLE_KEY":                {Value: "clerk-publishable-value", Source: "op://projects/clerk-project/publishable_key"},
-			"CLERK_SECRET_KEY":                     {Value: "clerk-secret-value", Source: "op://projects/clerk-project/secret_key"},
-			"GITHUB_OAUTH_CLIENT_ID":               {Value: "oauth-client-id", Source: "op://projects/GitHub OAuth App/client_id"},
-			"GITHUB_TOKEN":                         {Value: "github-token-value", Source: "op://projects/GitHub Personal Access Token/token"},
-			"PROJECT_CONNECTOR_REGISTRATION_TOKEN": {Value: "connector-registration-token-value", Source: "op://projects/Project Space Connector Registration Token/password"},
+			"CLERK_PUBLISHABLE_KEY":  {Value: "clerk-publishable-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_PUBLISHABLE_KEY"},
+			"CLERK_SECRET_KEY":       {Value: "clerk-secret-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/CLERK_SECRET_KEY"},
+			"GITHUB_OAUTH_CLIENT_ID": {Value: "oauth-client-id", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_OAUTH_CLIENT_ID"},
+			"GITHUB_TOKEN":           {Value: "github-token-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/GITHUB_TOKEN"},
+			"EXAMPLE_RUNTIME_SECRET": {Value: "runtime-secret-value", Source: "infisical://00000000-0000-4000-8000-000000000000/prod/EXAMPLE_RUNTIME_SECRET"},
 		},
 	}
 
@@ -90,7 +142,7 @@ func TestDeployComposeScriptUsesSecretValuesOnlyAtRuntime(t *testing.T) {
 		"GITHUB_OAUTH_CLIENT_ID='oauth-client-id'",
 		"CLERK_PUBLISHABLE_KEY='clerk-publishable-value'",
 		"CLERK_SECRET_KEY='clerk-secret-value'",
-		"PROJECT_CONNECTOR_REGISTRATION_TOKEN='connector-registration-token-value'",
+		"EXAMPLE_RUNTIME_SECRET='runtime-secret-value'",
 		"docker compose --env-file .env -p example-prod -f deploy/compose.yml -f deploy/ingress.labels.yml up -d --build",
 	} {
 		if !strings.Contains(script, want) {
@@ -110,15 +162,15 @@ func TestDeployEnvironmentQuotesSecretInterpolationCharacters(t *testing.T) {
 
 func TestResolveDeploySecretsPrefersEnvironmentOverride(t *testing.T) {
 	const name = "PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID"
-	t.Setenv(name, "provider-key-from-github")
+	t.Setenv(name, "provider-key-from-infisical")
 
 	secrets, err := resolveDeploySecrets(map[string]string{
-		name: "op://projects/provider-encryption/key_id",
+		name: "infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := secrets[name]; got.Value != "provider-key-from-github" || got.Source != "$"+name {
+	if got := secrets[name]; got.Value != "provider-key-from-infisical" || got.Source != "$"+name {
 		t.Fatalf("resolved secret = %#v", got)
 	}
 }

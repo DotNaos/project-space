@@ -19,8 +19,8 @@
       "enabled": true,
       "broker": "mqtt.os-home.net",
       "port": 443,
-      "usernameRef": "op://projects/jetkvm-os-pc-mqtt-client/username",
-      "passwordRef": "op://projects/jetkvm-os-pc-mqtt-client/password",
+      "usernameRef": "env://OS_PC_MQTT_USERNAME",
+      "passwordRef": "env://OS_PC_MQTT_PASSWORD",
       "base_topic": "project-space/jetkvm/jetkvm-b46e1a936ac89a4e",
       "use_tls": true,
       "tls_insecure": false,
@@ -38,16 +38,16 @@
       "ethernetMac": "30:52:53:08:5f:89",
       "applicationSha256": "ae9616fa9cf5877e2b5ca9d78b628308c990d7952354b72af284e9d74a39e1d3",
       "sshHostKeySha256": "SHA256:BtiJFccIxEjTr+MbXTI8CJ2hbe9q17QUQAhxn+x/rYM",
-      "sshPrivateKeyRef": "op://projects/jetkvm-provisioning-ssh/private_key",
-      "sshPublicKeyRef": "op://projects/jetkvm-provisioning-ssh/public_key"
+      "sshPrivateKeyRef": "env://JETKVM_PROVISIONING_SSH_PRIVATE_KEY",
+      "sshPublicKeyRef": "env://JETKVM_PROVISIONING_SSH_PUBLIC_KEY"
     },
     "tailscale": {
       "version": "1.98.10",
       "hostname": "jetkvm-os-pc",
       "tag": "tag:jetkvm",
       "packageBaseUrl": "https://pkgs.tailscale.com/stable",
-      "oauthClientIdRef": "op://projects/jetkvm-provisioning-tailscale/username",
-      "oauthClientSecretRef": "op://projects/jetkvm-provisioning-tailscale/password"
+      "oauthClientIdRef": "env://JETKVM_PROVISIONING_TAILSCALE_CLIENT_ID",
+      "oauthClientSecretRef": "env://JETKVM_PROVISIONING_TAILSCALE_CLIENT_SECRET"
     }
   }
 }

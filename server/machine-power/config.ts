@@ -62,7 +62,7 @@ const identifier = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const topic = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const userId = /^[A-Za-z0-9][A-Za-z0-9_-]{1,127}$/;
-const onePasswordReference = /^op:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+$/;
+const environmentReference = /^env:\/\/[A-Z_][A-Z0-9_]{0,127}$/;
 const macAddress = /^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/;
 const sha256 = /^[0-9a-f]{64}$/;
 const sshHostKeySha256 = /^SHA256:[A-Za-z0-9+/]{43}$/;
@@ -140,8 +140,8 @@ function parseBinding(value: unknown, name: string): JetKvmMqttBinding {
         `project-space-jetkvm-${provider.deviceId}` ||
       desired.expectedUsername !== `jetkvm-${provider.deviceId}` ||
       desired.debounce_ms !== 500 ||
-      !onePasswordReference.test(desired.usernameRef ?? '') ||
-      !onePasswordReference.test(desired.passwordRef ?? '')) {
+      !environmentReference.test(desired.usernameRef ?? '') ||
+      !environmentReference.test(desired.passwordRef ?? '')) {
     throw new Error(`${name} contains invalid desired JetKVM settings.`);
   }
   const provisioning = binding.provisioning;
@@ -151,15 +151,15 @@ function parseBinding(value: unknown, name: string): JetKvmMqttBinding {
       !macAddress.test(provisioning.identity.ethernetMac) ||
       !sha256.test(provisioning.identity.applicationSha256) ||
       !sshHostKeySha256.test(provisioning.identity.sshHostKeySha256) ||
-      !onePasswordReference.test(provisioning.identity.sshPrivateKeyRef) ||
-      !onePasswordReference.test(provisioning.identity.sshPublicKeyRef) ||
+      !environmentReference.test(provisioning.identity.sshPrivateKeyRef) ||
+      !environmentReference.test(provisioning.identity.sshPublicKeyRef) ||
       !identifier.test(provisioning.tailscale.hostname) ||
       !tailscaleTag.test(provisioning.tailscale.tag) ||
       !tailscaleVersion.test(provisioning.tailscale.version) ||
       provisioning.tailscale.packageBaseUrl !==
         'https://pkgs.tailscale.com/stable' ||
-      !onePasswordReference.test(provisioning.tailscale.oauthClientIdRef) ||
-      !onePasswordReference.test(provisioning.tailscale.oauthClientSecretRef)) {
+      !environmentReference.test(provisioning.tailscale.oauthClientIdRef) ||
+      !environmentReference.test(provisioning.tailscale.oauthClientSecretRef)) {
     throw new Error(`${name} contains invalid JetKVM provisioning settings.`);
   }
   return binding as JetKvmMqttBinding;

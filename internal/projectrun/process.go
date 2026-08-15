@@ -6,16 +6,19 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/DotNaos/project-space/internal/infisicalref"
 	"golang.org/x/sys/unix"
 )
 
@@ -29,7 +32,7 @@ func (OSProcessRunner) RunForeground(
 	streams Streams,
 	commit ProcessCommit,
 ) (int, error) {
-	cmd, err := prepareCommand(command)
+	cmd, err := prepareCommand(ctx, command)
 	if err != nil {
 		return -1, err
 	}
@@ -122,7 +125,7 @@ func startSupervisedDetached(
 	outputFile *os.File,
 	commit ProcessCommit,
 ) (ProcessRef, error) {
-	if _, err := prepareCommand(command); err != nil {
+	if _, err := validateProcessCommand(command); err != nil {
 		return ProcessRef{}, err
 	}
 	controlReader, controlWriter, err := os.Pipe()
@@ -400,13 +403,34 @@ func (runner OSProcessRunner) verifyGroupLeader(process ProcessRef) error {
 	return nil
 }
 
-func prepareCommand(command Command) (*exec.Cmd, error) {
+func validateProcessCommand(command Command) (string, error) {
 	if len(command.Argv) == 0 {
-		return nil, fmt.Errorf("command must not be empty")
+		return "", fmt.Errorf("command must not be empty")
 	}
 	executable, err := exec.LookPath(command.Argv[0])
 	if err != nil {
-		return nil, fmt.Errorf("find %q: %w", command.Argv[0], err)
+		return "", fmt.Errorf("find %q: %w", command.Argv[0], err)
+	}
+	plainEnvironment := environmentMap(command.Env)
+	for name, source := range command.SecretEnvironment {
+		if _, err := infisicalref.Parse(source, name); err != nil {
+			return "", fmt.Errorf("secret environment %s is invalid: %w", name, err)
+		}
+		if _, exists := plainEnvironment[name]; exists {
+			return "", fmt.Errorf("secret environment %s conflicts with the plain command environment", name)
+		}
+	}
+	return executable, nil
+}
+
+func prepareCommand(ctx context.Context, command Command) (*exec.Cmd, error) {
+	executable, err := validateProcessCommand(command)
+	if err != nil {
+		return nil, err
+	}
+	secrets, err := resolveCommandSecrets(ctx, command.SecretEnvironment)
+	if err != nil {
+		return nil, err
 	}
 	cmd := exec.Command(executable, command.Argv[1:]...)
 	cmd.Dir = command.Dir
@@ -415,7 +439,47 @@ func prepareCommand(command Command) (*exec.Cmd, error) {
 		base = os.Environ()
 	}
 	cmd.Env = mergeEnvironment(base, environmentMap(command.Env))
+	cmd.Env = mergeEnvironment(cmd.Env, secrets)
 	return cmd, nil
+}
+
+func resolveCommandSecrets(ctx context.Context, sources map[string]string) (map[string]string, error) {
+	resolved := make(map[string]string, len(sources))
+	names := make([]string, 0, len(sources))
+	for name := range sources {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		reference, err := infisicalref.Parse(sources[name], name)
+		if err != nil {
+			return nil, fmt.Errorf("secret environment %s is invalid: %w", name, err)
+		}
+		fetch := exec.CommandContext(
+			ctx,
+			"infisical", "secrets", "get", reference.SecretName,
+			"--plain", "--silent", "--domain=https://eu.infisical.com",
+			"--projectId="+reference.ProjectID, "--env="+reference.Environment,
+			"--path=/", "--include-imports=false", "--recursive=false",
+		)
+		fetch.Env = mergeEnvironment(safeEnvironment(os.Environ()), map[string]string{
+			"INFISICAL_DISABLE_UPDATE_CHECK": "true",
+		})
+		fetch.Stderr = io.Discard
+		output, err := fetch.Output()
+		if err != nil {
+			return nil, fmt.Errorf("read declared secret %s from Infisical: %w", name, err)
+		}
+		value := strings.TrimRight(string(output), "\r\n")
+		if value == "" {
+			return nil, fmt.Errorf("declared secret %s from Infisical is empty", name)
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return nil, fmt.Errorf("declared secret %s contains a null byte", name)
+		}
+		resolved[name] = value
+	}
+	return resolved, nil
 }
 
 func managedOutput(path string) (*os.File, error) {

@@ -1,0 +1,51 @@
+---
+title: Proposal
+description: Replace Project Space development and delivery secrets from 1Password with fixed Infisical boundaries.
+---
+
+Change status: **Complete**
+
+Change kind: **Security and operations**
+
+Issue: **[#754](https://github.com/DotNaos/project-space/issues/754)**
+Requirements: **Required**
+
+## Summary
+
+Move Project Space development, Preview, Production, release-signing, runtime SSH,
+and machine-power secret delivery to Infisical without creating unattended credentials
+or keeping a broad application-wide GitHub token.
+
+## Problem
+
+Project Space used opaque 1Password service-account automation across local development,
+GitHub Actions, deployment, runtime credential lookup, and release signing. A legacy
+Production deployment could therefore reload retired values even after an operator had
+restored valid Infisical values, as the Clerk incident on 2026-08-15 demonstrated.
+
+## Scope
+
+- Use the signed-in human Infisical session for local Project CLI development.
+- Give Preview, Production, and release signing separate fixed GitHub OIDC identities.
+- Fetch only root-folder, non-imported, non-recursive secrets into job environments.
+- Resolve declared Project deployment references through Infisical and process overrides.
+- Disable stored 1Password runtime references and use process-owned environment values.
+- Remove automatic Project token creation and the broad Production GitHub token.
+- Record consumers, ownership boundaries, migrations, rotations, and delivery gates.
+
+## Out of scope
+
+- Personal 1Password vault contents, the desktop app, SSH agent, or personal SSH keys.
+- Automatically creating Infisical identities, client secrets, or access tokens.
+- Provisioning the separately approved VPS workload credential.
+- Creating or rotating `PROJECT_SPACE_TOKEN_ENCRYPTION_KEY`, or changing existing
+  encrypted GitHub OAuth rows; issue #775 owns the dedicated-key and safe legacy-data path.
+- Merging or deploying pull request #755 before approval of its exact current revision.
+- Unrelated repository migrations recorded in the inventory and their own issues.
+
+## Delivery
+
+The implementation ships through pull request #755 and the normal patch-release and
+locked Production deployment flow. The protected non-deploying OIDC smoke on `main`
+proves the three fixed secret boundaries before merge. Approval of the exact pull-request
+head remains the human gate for merge and Production delivery.

@@ -1,0 +1,48 @@
+---
+title: Proposal
+description: Recover unreadable GitHub connections without coupling stored tokens to Clerk credentials.
+---
+
+Change status: **Complete**
+
+Change kind: **Fix**
+
+Issue: **[#775](https://github.com/DotNaos/project-space/issues/775)**
+Requirements: **Required**
+
+## Summary
+
+Store GitHub OAuth tokens with an independent encryption key, migrate readable legacy
+records when possible, and turn an unreadable saved connection into an explicit GitHub
+reconnect state. Cached connected data is discarded so the interface never hides the
+recovery action behind stale repository results.
+
+## Problem
+
+Project Space previously derived GitHub token encryption from the Clerk backend secret
+when no dedicated key was configured. Rotating Clerk therefore made an existing GitHub
+token unreadable. The raw AES-GCM error escaped as a server error, while stale catalog
+data continued to suggest that GitHub was connected.
+
+## Scope
+
+- Use a named, independent key for new GitHub OAuth token writes.
+- Read and migrate bounded legacy formats when the corresponding source is still available.
+- Return a sanitized reconnect state when a saved token cannot be decrypted.
+- Invalidate stale per-user GitHub catalog data on authentication loss.
+- Present a clear reconnect action in the Project Space interface.
+- Pass the named key only into the trusted web service.
+
+## Out of scope
+
+- Recovering a token whose former encryption key no longer exists.
+- Restoring a broad personal GitHub token.
+- Changing Clerk credentials, account authorization, or email policy.
+- Creating or copying a Production secret outside the approved Infisical path.
+
+## Delivery
+
+The code is backward compatible with readable legacy records. The independent key exists
+in the approved Infisical Production boundary; the affected user must complete one
+explicit GitHub reconnect after delivery. The exact pull-request revision must be
+approved before merge and normal Production delivery.

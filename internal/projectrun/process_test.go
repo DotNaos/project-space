@@ -70,6 +70,69 @@ func TestRunForegroundCancellationStopsDescendants(t *testing.T) {
 	}
 }
 
+func TestPrepareCommandFetchesOnlyDeclaredInfisicalNames(t *testing.T) {
+	bin := t.TempDir()
+	infisical := filepath.Join(bin, "infisical")
+	if err := os.WriteFile(infisical, []byte(`#!/bin/sh
+set -eu
+[ "$1" = secrets ]
+[ "$2" = get ]
+[ "$3" = DECLARED_SECRET ]
+printf '%s\n' "$@" | grep -qx -- '--path=/'
+printf '%s\n' "$@" | grep -qx -- '--include-imports=false'
+printf '%s\n' "$@" | grep -qx -- '--recursive=false'
+printf '%s\n' 'selected-value'
+`), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	command, err := prepareCommand(context.Background(), Command{
+		Argv: []string{os.Args[0]},
+		SecretEnvironment: map[string]string{
+			"DECLARED_SECRET": "infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/DECLARED_SECRET",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := environmentMap(command.Env)
+	if environment["DECLARED_SECRET"] != "selected-value" {
+		t.Fatalf("declared secret was not injected")
+	}
+	if _, exists := environment["UNDECLARED_SECRET"]; exists {
+		t.Fatal("undeclared secret reached the child environment")
+	}
+}
+
+func TestPrepareCommandRedactsInfisicalFailureOutput(t *testing.T) {
+	bin := t.TempDir()
+	infisical := filepath.Join(bin, "infisical")
+	if err := os.WriteFile(infisical, []byte(`#!/bin/sh
+printf '%s\n' 'sensitive-stdout'
+printf '%s\n' 'sensitive-stderr' >&2
+exit 9
+`), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	_, err := prepareCommand(context.Background(), Command{
+		Argv: []string{os.Args[0]},
+		SecretEnvironment: map[string]string{
+			"DECLARED_SECRET": "infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/DECLARED_SECRET",
+		},
+	})
+	if err == nil {
+		t.Fatal("failed Infisical lookup was accepted")
+	}
+	if strings.Contains(err.Error(), "sensitive-") {
+		t.Fatalf("Infisical output leaked through the error: %v", err)
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && len(exitError.Stderr) != 0 {
+		t.Fatal("Infisical stderr remained attached to the returned error")
+	}
+}
+
 func TestManagedProcessIdentityAndPortOwnership(t *testing.T) {
 	if _, err := exec.LookPath("lsof"); err != nil {
 		t.Skip("lsof is not installed")

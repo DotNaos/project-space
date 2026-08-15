@@ -30,10 +30,6 @@ on:
       trust-root-artifact-name:
         required: true
         type: string
-    secrets:
-      OP_SERVICE_ACCOUNT_TOKEN:
-        description: Supplied only by the protected release-signing environment.
-        required: false
     outputs:
       artifact-digest:
         value: ${{ jobs.sign.outputs.artifact-digest }}
@@ -45,6 +41,7 @@ on:
 permissions:
   actions: read
   contents: read
+  id-token: write
 
 jobs:
   sign:
@@ -365,15 +362,20 @@ jobs:
               'import json,sys; value=json.load(sys.stdin); expected=sys.argv[1]; raise SystemExit(0 if value.get("status") in {"ahead", "identical"} and (value.get("merge_base_commit") or {}).get("sha") == expected else 65)' \
               "$EXPECTED_SHA"
 
-      - name: Load dedicated release manifest signing key
+      - name: Load dedicated release manifest signing key from Infisical
         id: manifest-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
+        uses: Infisical/secrets-action@8a06c1bdcd5b8635d510c52d4b57a92c1ccef785 # v1.0.9
         with:
-          export-env: false
-          version: '2.35.0'
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64: op://projects/project-space-release-manifest-signing-key/private_key_b64
+          method: oidc
+          identity-id: 577f6b4c-943b-4bf5-94ac-07140f1e5b2d
+          oidc-audience: https://github.com/DotNaos
+          domain: https://eu.infisical.com
+          project-slug: project-space-release-signing
+          env-slug: prod
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
 
       - name: Sign the exact prepared payload
         id: signature
@@ -386,7 +388,6 @@ jobs:
           PATH: /usr/bin:/bin
           PREPARED_DIGEST: ${{ inputs.prepared-artifact-digest }}
           PREPARED_ID: ${{ inputs.prepared-artifact-id }}
-          PRIVATE_KEY_B64: ${{ steps.manifest-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 }}
         run: |
           private_key="$RUNNER_TEMP/release-manifest-signing-private-key.pem"
           derived_public="$RUNNER_TEMP/release-manifest-signing-derived-public-key.pem"
@@ -397,12 +398,13 @@ jobs:
           signature="$output/release-manifest-signature.bin"
           cleanup_private_material() {
             /bin/rm -f "$private_key" "$derived_public" "$expected_der" "$derived_der"
+            unset PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64
           }
           trap cleanup_private_material EXIT INT TERM HUP
           umask 077
           /bin/rm -rf "$output"
           /bin/mkdir -p "$output"
-          /usr/bin/printf '%s' "$PRIVATE_KEY_B64" | /usr/bin/base64 --decode > "$private_key"
+          /usr/bin/printf '%s' "$PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64" | /usr/bin/base64 --decode > "$private_key"
           runner_uid=$(/usr/bin/id -u)
           [[ $(/usr/bin/stat --format='%u' "$private_key") == "$runner_uid" ]]
           [[ $(/usr/bin/stat --format='%h' "$private_key") == 1 ]]
@@ -461,6 +463,8 @@ jobs:
             /bin/rm -f "$path" || status=$?
             [[ ! -e $path ]] || status=1
           done
+          unset PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64
+          /usr/bin/printf '%s\n' 'PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64=' >> "$GITHUB_ENV"
           exit "$status"
 
       - name: Validate signed handoff after key cleanup
@@ -474,6 +478,7 @@ jobs:
           PREPARED_DIGEST: ${{ inputs.prepared-artifact-digest }}
           PREPARED_ID: ${{ inputs.prepared-artifact-id }}
         run: |
+          [[ ! -v PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 || -z "$PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64" ]]
           /usr/bin/python3 -I - "$RUNNER_TEMP/release-manifest-signature" \
             "$RUNNER_TEMP/prepared-manifest/release-manifest-payload.bin" \
             "$EXPECTED_SHA" "$EXPECTED_REF" "$EXPECTED_VERSION" \

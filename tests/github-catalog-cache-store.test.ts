@@ -12,4 +12,16 @@ describe('PostgresGitHubCatalogCacheStore', () => {
     expect(calls[0]?.sql).toContain('where user_id = $1 and scope = $2');
     await expect(store.write({ catalog: { checkedAt: '', repositories: [], status: 'error' }, scope: 'default', updatedAt: '', userId: 'alice' })).rejects.toThrow('Only successful');
   });
+
+  test('invalidates only the selected user and cache scope', async () => {
+    const calls: Array<{ sql: string; values?: readonly unknown[] }> = [];
+    const client: DatabaseQueryClient = { async query<Row>(sql, values) { calls.push({ sql, values }); return { rows: [] as Row[] }; } };
+    const store = new PostgresGitHubCatalogCacheStore(client);
+
+    await store.invalidate('alice', 'default');
+
+    expect(calls[0]?.values).toEqual(['alice', 'default']);
+    expect(calls[0]?.sql).toContain('delete from github_catalog_cache');
+    expect(calls[0]?.sql).toContain('user_id = $1 and scope = $2');
+  });
 });

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DotNaos/project-space/internal/infisicalref"
 	"gopkg.in/yaml.v3"
 )
 
@@ -277,9 +278,19 @@ func validateScriptSecretEnvironment(name string, environment, secrets map[strin
 		if _, exists := environment[key]; exists {
 			return fmt.Errorf("declaration %q environment and secretEnvironment both define %q", name, key)
 		}
-		if !strings.HasPrefix(reference, "op://") || strings.TrimSpace(reference) != reference ||
-			strings.ContainsAny(reference, "\x00\r\n\t") {
-			return fmt.Errorf("declaration %q secretEnvironment value %q must be a single 1Password op:// reference", name, key)
+		if _, err := infisicalref.Parse(reference, key); err != nil {
+			return fmt.Errorf("declaration %q secretEnvironment value %q must be one matching Infisical reference: %w", name, key, err)
+		}
+	}
+	var projectID, infisicalEnvironment string
+	for key, source := range secrets {
+		reference, _ := infisicalref.Parse(source, key)
+		if projectID == "" {
+			projectID, infisicalEnvironment = reference.ProjectID, reference.Environment
+			continue
+		}
+		if reference.ProjectID != projectID || reference.Environment != infisicalEnvironment {
+			return fmt.Errorf("declaration %q secretEnvironment must use one Infisical project and environment", name)
 		}
 	}
 	return nil

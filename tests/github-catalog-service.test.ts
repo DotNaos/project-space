@@ -11,6 +11,7 @@ const catalog = (name: string): GitHubCatalogResult => ({
 
 class MemoryStore implements GitHubCatalogCacheStore {
   records = new Map<string, GitHubCatalogCacheSnapshot>();
+  invalidate(userId: string, scope: string) { this.records.delete(`${userId}:${scope}`); return Promise.resolve(); }
   read(userId: string, scope: string) { return Promise.resolve(this.records.get(`${userId}:${scope}`) ?? null); }
   write(snapshot: GitHubCatalogCacheSnapshot) { this.records.set(`${snapshot.userId}:${snapshot.scope}`, snapshot); return Promise.resolve(); }
   markRefreshing(userId: string, scope: string, attemptedAt: string) { const current = this.records.get(`${userId}:${scope}`); if (current) this.records.set(`${userId}:${scope}`, { ...current, lastError: undefined, lastRefreshAt: attemptedAt }); return Promise.resolve(); }
@@ -31,6 +32,80 @@ describe('GitHubCatalogService', () => {
     const service = new GitHubCatalogService({ refresh: async () => ({ catalog: { checkedAt: '', repositories: [], status: 'auth-required' } }), store, userId: 'a' });
     expect((await service.get()).status).toBe('auth-required');
     expect(store.records.size).toBe(0);
+  });
+
+  test('authentication failure invalidates stale connected data and exposes reconnect', async () => {
+    const store = new MemoryStore();
+    await store.write({ catalog: catalog('saved'), scope: 'default', updatedAt: new Date().toISOString(), userId: 'a' });
+    const service = new GitHubCatalogService({
+      refresh: async () => ({
+        catalog: {
+          checkedAt: '',
+          message: 'Reconnect GitHub to continue.',
+          repositories: [],
+          status: 'auth-required'
+        }
+      }),
+      store,
+      userId: 'a'
+    });
+    const result = await service.get(true);
+    expect(result.status).toBe('auth-required');
+    expect(result.message).toBe('Reconnect GitHub to continue.');
+    expect(result.cache?.state).toBe('miss');
+    expect(store.records.size).toBe(0);
+  });
+
+  test('still exposes reconnect when stale-cache invalidation fails', async () => {
+    const store = new MemoryStore();
+    await store.write({ catalog: catalog('saved'), scope: 'default', updatedAt: new Date().toISOString(), userId: 'a' });
+    store.invalidate = () => Promise.reject(new Error('database unavailable'));
+    const service = new GitHubCatalogService({
+      refresh: async () => ({
+        catalog: {
+          checkedAt: '',
+          message: 'Reconnect GitHub to continue.',
+          reconnectRequired: true,
+          repositories: [],
+          status: 'auth-required'
+        }
+      }),
+      store,
+      userId: 'a'
+    });
+
+    const result = await service.get(true);
+    expect(result.status).toBe('auth-required');
+    expect(result.reconnectRequired).toBe(true);
+    expect(result.cache?.state).toBe('miss');
+  });
+
+  test('checks the saved connection before serving a fresh connected cache', async () => {
+    const store = new MemoryStore();
+    await store.write({ catalog: catalog('saved'), scope: 'default', updatedAt: new Date().toISOString(), userId: 'a' });
+    let refreshCalls = 0;
+    const service = new GitHubCatalogService({
+      refresh: async () => {
+        refreshCalls += 1;
+        return { catalog: catalog('fresh') };
+      },
+      store,
+      userId: 'a',
+      validateCachedConnection: async () => ({
+        checkedAt: new Date().toISOString(),
+        message: 'Reconnect GitHub to continue.',
+        reconnectRequired: true,
+        repositories: [],
+        status: 'auth-required'
+      })
+    });
+
+    const result = await service.get();
+    expect(result.status).toBe('auth-required');
+    expect(result.reconnectRequired).toBe(true);
+    expect(result.cache?.state).toBe('miss');
+    expect(store.records.size).toBe(0);
+    expect(refreshCalls).toBe(0);
   });
 
   test('stale cache returns immediately, refreshes in background, and preserves last-known-good on failure', async () => {

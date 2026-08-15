@@ -1,4 +1,4 @@
-export const tailscaleProviderConnectionMigrationId = '0054_tailscale_provider_connections';
+export const tailscaleProviderConnectionMigrationId = '0055_tailscale_provider_connections';
 
 export const tailscaleProviderConnectionMigrationSql = `
   create table tailscale_provider_connections (

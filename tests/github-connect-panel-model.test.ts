@@ -45,6 +45,21 @@ describe('GitHub connect panel presentation', () => {
     expect(presentation.isLoadError).toBe(true);
   });
 
+  test('makes an unreadable saved connection an explicit reconnect action', () => {
+    const presentation = getGitHubConnectPanelPresentation({
+      githubCatalog: {
+        ...catalog,
+        message: 'The saved GitHub connection can no longer be read. Reconnect GitHub to continue.',
+        reconnectRequired: true
+      },
+      isConnecting: false
+    });
+
+    expect(presentation.title).toBe('Reconnect your GitHub account');
+    expect(presentation.primaryActionLabel).toBe('Reconnect GitHub');
+    expect(presentation.description).toContain('can no longer be read');
+  });
+
   test('disables login while GitHub OAuth is not configured', () => {
     const presentation = getGitHubConnectPanelPresentation({
       githubCatalog: {

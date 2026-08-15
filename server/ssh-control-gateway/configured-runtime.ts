@@ -24,7 +24,7 @@ import {
 import type { SshGatewayAuthorizationProvider } from './contracts';
 import { SshGatewayError } from './contracts';
 import { createSshControlGatewayHttpApi } from './http';
-import { OnePasswordSshCredentialResolver } from './one-password-resolver';
+import { EnvironmentSshCredentialResolver } from './environment-credential-resolver';
 import { OpenSshControlTransport } from './openssh-transport';
 import { PostgresSshGatewayOperationStore } from './postgres-store';
 import { SshControlGatewayService } from './service';
@@ -105,7 +105,7 @@ async function createHandler(options: {
   };
   const service = new SshControlGatewayService({
     authorization,
-    credentials: new OnePasswordSshCredentialResolver(),
+    credentials: new EnvironmentSshCredentialResolver(),
     operations: new PostgresSshGatewayOperationStore(database),
     routes: { load: (ownerUserId) => routeStore.list(ownerUserId) },
     targets,

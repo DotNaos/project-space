@@ -131,7 +131,7 @@ describe('OpenSSH control transport', () => {
 
 function sshRoute(): AuthorizedAccessRouteSelection {
   return {
-    credentialReference: 'op://Vault/Item/private-key',
+    credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
     credentialPurpose: 'project_control_gateway_v1',
     hostKeySha256: pin,
     ownerUserId: 'user-1',

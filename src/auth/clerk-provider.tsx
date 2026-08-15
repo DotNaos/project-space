@@ -9,7 +9,7 @@ function isAuthDisabled() {
 
 export function isClerkConfigured() {
   // Clerk publishable keys always start with `pk_`; anything else is an
-  // unresolved secret reference (e.g. `op://…`) leaking into a dev build.
+  // unresolved secret reference (e.g. `infisical://…`) leaking into a dev build.
   return !isAuthDisabled() && Boolean(clerkPublishableKey?.startsWith('pk_'));
 }
 

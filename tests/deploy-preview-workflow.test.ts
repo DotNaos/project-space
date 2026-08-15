@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { parse } from 'yaml';
 
 const deploymentWorkflowPath = new URL('../.github/workflows/deploy-preview.yml', import.meta.url);
 const artifactWorkflowPath = new URL('../.github/workflows/ci.yml', import.meta.url);
@@ -11,6 +12,17 @@ const productionDocsDockerfilePath = new URL('../apps/docs/Dockerfile', import.m
 
 function actionReferences(workflow: string) {
   return [...workflow.matchAll(/uses: [^@\n]+@([^\s#]+)/g)].map((match) => match[1]);
+}
+
+function infisicalScopes(workflow: string) {
+  const parsed = parse(workflow) as {
+    jobs?: Record<string, { steps?: Array<{ uses?: string; with?: Record<string, unknown> }> }>;
+  };
+  return Object.values(parsed.jobs ?? {}).flatMap((job) =>
+    (job.steps ?? [])
+      .filter((step) => step.uses?.startsWith('Infisical/secrets-action@'))
+      .map((step) => step.with)
+  );
 }
 
 describe('trusted PR Preview workflow contract', () => {
@@ -267,6 +279,20 @@ Connection to project-space-preview closed.
     expect(workflow).not.toContain('PROJECT_CONNECTOR_REGISTRATION_TOKEN');
     expect(workflow).not.toContain('PROJECT_CONNECTOR_COMMAND_SIGNING_PRIVATE_KEY_B64');
     expect(workflow).not.toContain('CLERK_SECRET_KEY');
+    expect(infisicalScopes(workflow)).toEqual([
+      expect.objectContaining({
+        'export-type': 'env',
+        'secret-path': '/',
+        'include-imports': false,
+        recursive: false
+      }),
+      expect.objectContaining({
+        'export-type': 'env',
+        'secret-path': '/',
+        'include-imports': false,
+        recursive: false
+      })
+    ]);
     expect(workflow.toLowerCase()).not.toContain('vercel');
     expect(workflow).not.toContain('actions/checkout');
     expect(actionReferences(workflow).length).toBeGreaterThanOrEqual(5);

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
+import { parse } from 'yaml';
 
 const workflowPath = new URL('../.github/workflows/deploy-production.yml', import.meta.url);
 const dockerIgnorePath = new URL('../.dockerignore', import.meta.url);
@@ -131,12 +132,12 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain('tag:ci-project-space-deploy');
   });
 
-  test('limits provider credential encryption secrets to the protected deployment step', async () => {
+  test('requires provider credential encryption secrets from protected Infisical delivery', async () => {
     const workflow = await readFile(workflowPath, 'utf8');
     const validateJob = workflow.slice(workflow.indexOf('  validate:'), workflow.indexOf('  deploy:'));
-    const deployStep = workflow.slice(
-      workflow.indexOf('      - name: Deploy, verify, and roll back on failure'),
-      workflow.indexOf('      - name: Report deployment evidence')
+    const providerSecretCheck = workflow.slice(
+      workflow.indexOf('      - name: Require provider credential encryption secrets'),
+      workflow.indexOf('      - name: Configure pinned SSH identity')
     );
     const secretNames = [
       'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64',
@@ -144,17 +145,19 @@ describe('production deployment workflow contract', () => {
     ] as const;
 
     expect(workflow).toContain('environment:\n      name: Production');
+    expect(workflow.indexOf('Require provider credential encryption secrets')).toBeLessThan(
+      workflow.indexOf('Configure pinned SSH identity')
+    );
     for (const secretName of secretNames) {
-      const mapping = `${secretName}: \${{ secrets.${secretName} }}`;
       expect(validateJob).not.toContain(secretName);
-      expect(deployStep).toContain(mapping);
-      expect(workflow.split(mapping)).toHaveLength(2);
+      expect(providerSecretCheck).toContain(secretName);
+      expect(workflow).not.toContain(`secrets.${secretName}`);
       expect(workflow).not.toContain(`steps.deploy-secrets.outputs.${secretName}`);
-      expect(deployStep).toContain(
-        `echo "::error::GitHub Production secret \${required_secret} is required."`
-      );
     }
-    expect(deployStep).toContain('if [[ -z "${!required_secret:-}" ]]');
+    expect(providerSecretCheck).toContain('if [[ -z "${!required_secret:-}" ]]');
+    expect(providerSecretCheck).toContain(
+      'echo "::error::Infisical Production secret ${required_secret} is required."'
+    );
     expect(workflow.split('PRIVATE_KEY|ENCRYPTION_KEY')).toHaveLength(3);
   });
 
@@ -166,22 +169,37 @@ describe('production deployment workflow contract', () => {
 
   test('loads and forwards every managed machine-power credential', async () => {
     const workflow = await readFile(workflowPath, 'utf8');
-    const credentials = [
-      {
-        name: 'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD',
-        reference: 'op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/password'
-      },
-      {
-        name: 'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME',
-        reference: 'op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/username'
-      }
-    ] as const;
-
-    for (const credential of credentials) {
-      expect(workflow).toContain(`${credential.name}: ${credential.reference}`);
-      expect(workflow).toContain(
-        `${credential.name}: \${{ steps.deploy-secrets.outputs.${credential.name} }}`
+    const deploy = await readFile(new URL('../deploy/deploy.yaml', import.meta.url), 'utf8');
+    const parsed = parse(workflow) as {
+      jobs?: Record<string, { steps?: Array<{ uses?: string; with?: Record<string, unknown> }> }>;
+    };
+    const infisical = Object.values(parsed.jobs ?? {}).flatMap((job) =>
+      (job.steps ?? []).filter((step) => step.uses?.startsWith('Infisical/secrets-action@'))
+    );
+    expect(workflow).toContain('project-slug: project-space-production');
+    expect(workflow).toContain('env-slug: prod');
+    expect(workflow).toContain('id-token: write');
+    expect(workflow).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
+    expect(infisical).toHaveLength(1);
+    expect(infisical[0]?.with).toEqual(expect.objectContaining({
+      'export-type': 'env',
+      'secret-path': '/',
+      'include-imports': false,
+      recursive: false
+    }));
+    for (const name of [
+      'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD',
+      'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME',
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64',
+      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID',
+      'PROJECT_SPACE_TOKEN_ENCRYPTION_KEY'
+    ]) {
+      expect(deploy).toContain(
+        `${name}: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/${name}`
       );
     }
+    expect(deploy).not.toContain('PROJECT_GITHUB_TOKEN');
+    expect(deploy).not.toMatch(/^\s+GITHUB_TOKEN:/m);
+    expect(workflow).not.toContain('GITHUB_TOKEN: ${{ env.PROJECT_GITHUB_TOKEN }}');
   });
 });

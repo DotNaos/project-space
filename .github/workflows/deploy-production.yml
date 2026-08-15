@@ -214,6 +214,9 @@ jobs:
     environment:
       name: Production
       url: https://projects.os-home.net
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out requested commit
@@ -232,28 +235,37 @@ jobs:
       - name: Build the validated Project CLI
         run: go build -trimpath -o "$RUNNER_TEMP/project" ./cmd/project
 
-      - name: Load deploy-only secrets from 1Password
+      - name: Load deploy-only secrets from Infisical
         id: deploy-secrets
-        uses: 1password/load-secrets-action@3a12b0ab99d9cd590a3e9b5a90ea017210ed9556 # v4
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SSH_PRIVATE_KEY: op://projects/Project Space Production Deploy SSH/private_key
-          TS_OAUTH_CLIENT_ID: op://projects/Project Space Production Tailscale CI Client ID/credential
-          TS_OAUTH_SECRET: op://projects/Project Space Production Tailscale CI Secret/credential
-          CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
-          CLERK_SECRET_KEY: op://projects/clerk-project/secret_key
-          GITHUB_OAUTH_CLIENT_ID: op://projects/GitHub OAuth App/client_id
-          PROJECT_GITHUB_TOKEN: op://projects/GitHub Personal Access Token/token
-          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64
-          PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: op://projects/project-space-machine-rate-limit/password
-          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/password
-          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME: op://projects/project-space-mqtt-jetkvm-b46e1a936ac89a4e-client/username
-          VITE_CLERK_PUBLISHABLE_KEY: op://projects/clerk-project/publishable_key
+        uses: Infisical/secrets-action@8a06c1bdcd5b8635d510c52d4b57a92c1ccef785 # v1.0.9
+        with:
+          method: oidc
+          identity-id: 454fcc36-3e86-4c9f-b25d-e581d342bc36
+          oidc-audience: https://github.com/DotNaos
+          domain: https://eu.infisical.com
+          project-slug: project-space-production
+          env-slug: prod
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
+
+      - name: Require provider credential encryption secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required_secret in \
+            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64 \
+            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID
+          do
+            if [[ -z "${!required_secret:-}" ]]; then
+              echo "::error::Infisical Production secret ${required_secret} is required."
+              exit 1
+            fi
+          done
 
       - name: Configure pinned SSH identity
         shell: bash
-        env:
-          SSH_PRIVATE_KEY: ${{ steps.deploy-secrets.outputs.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           install -d -m 700 "$HOME/.ssh"
@@ -279,38 +291,16 @@ jobs:
       - name: Connect the ephemeral CI identity to Tailscale
         uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
         with:
-          oauth-client-id: ${{ steps.deploy-secrets.outputs.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ steps.deploy-secrets.outputs.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
           tags: tag:ci-project-space-deploy
           ping: ${{ vars.PROJECT_SPACE_DEPLOY_IP }}
 
       - name: Deploy, verify, and roll back on failure
         id: deployment
         shell: bash
-        env:
-          CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.CLERK_PUBLISHABLE_KEY }}
-          CLERK_SECRET_KEY: ${{ steps.deploy-secrets.outputs.CLERK_SECRET_KEY }}
-          GITHUB_OAUTH_CLIENT_ID: ${{ steps.deploy-secrets.outputs.GITHUB_OAUTH_CLIENT_ID }}
-          GITHUB_TOKEN: ${{ steps.deploy-secrets.outputs.PROJECT_GITHUB_TOKEN }}
-          PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: ${{ steps.deploy-secrets.outputs.PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64 }}
-          PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET }}
-          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD }}
-          PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME: ${{ steps.deploy-secrets.outputs.PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME }}
-          PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64: ${{ secrets.PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64 }}
-          PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID: ${{ secrets.PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ steps.deploy-secrets.outputs.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
-          for required_secret in \
-            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64 \
-            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID
-          do
-            if [[ -z "${!required_secret:-}" ]]; then
-              echo "::error::GitHub Production secret ${required_secret} is required."
-              exit 1
-            fi
-          done
-
           set +e
           "$RUNNER_TEMP/project" deploy \
             --env prod \

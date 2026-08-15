@@ -144,6 +144,10 @@ import {
   tailscaleInventoryMigrationSql
 } from './tailscale-inventory-migration';
 import {
+  infisicalCredentialReferencesMigrationId,
+  infisicalCredentialReferencesMigrationSql
+} from './infisical-credential-references-migration';
+import {
   tailscaleProviderConnectionMigrationId,
   tailscaleProviderConnectionMigrationSql
 } from './tailscale-provider-connection-migration';
@@ -871,6 +875,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: tailscaleInventoryMigrationId,
     sql: tailscaleInventoryMigrationSql
+  },
+  {
+    id: infisicalCredentialReferencesMigrationId,
+    sql: infisicalCredentialReferencesMigrationSql
   },
   {
     id: tailscaleProviderConnectionMigrationId,

@@ -44,7 +44,7 @@ Synonym: `project new [directory] [flags]`
 - With `--tmp` or `--global-tmp`, writes tmp template values and installs the template's default modules.
 - With `--github`, initializes Git, creates a private GitHub repository by default, commits, and pushes `main`.
 - GitHub repositories are private by default. Use `--github-visibility public` to create a public repository.
-- With `--github`, stores `OP_SERVICE_ACCOUNT_TOKEN` on the new GitHub repository before the first push.
+- With `--github`, creates and pushes the repository without creating or storing any secret-delivery credential.
 - App templates with selectable targets require an explicit `--target`; omitted targets and devices are not generated and never fall back.
 - A valid target selection installs the template's shared defaults and only the selected target modules.
 
