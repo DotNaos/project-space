@@ -83,6 +83,17 @@ describe('Project build routing', () => {
     expect(compose).toContain('/opt/platform/state:/workspace/deploy-state:ro');
   });
 
+  test('passes only the named GitHub token-encryption secret into the web runtime', async () => {
+    const compose = await readFile(productionComposeFile, 'utf8');
+    const web = /\n  web:\n([\s\S]*?)\n  tailscale-status:\n/.exec(compose)?.[1] ?? '';
+    const sidecar = /\n  tailscale-status:\n([\s\S]*?)\n  docs:\n/.exec(compose)?.[1] ?? '';
+
+    expect(web).toContain(
+      'PROJECT_SPACE_TOKEN_ENCRYPTION_KEY: ${PROJECT_SPACE_TOKEN_ENCRYPTION_KEY:-}'
+    );
+    expect(sidecar).not.toContain('PROJECT_SPACE_TOKEN_ENCRYPTION_KEY');
+  });
+
   test('isolates the host Tailscale socket behind a minimal fixed-operation sidecar', async () => {
     const dockerfile = await readFile(productionWebDockerfile, 'utf8');
     const compose = await readFile(productionComposeFile, 'utf8');

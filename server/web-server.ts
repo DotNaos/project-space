@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { createConfiguredMachineConnectionRuntime } from './machine-connection-runtime';
+import { hasDedicatedGitHubOAuthTokenEncryptionKey } from './github-oauth-token-encryption';
 import { createProjectSpaceServer } from './project-space-http';
 import { probeClerkBackendReadiness } from './clerk-backend-readiness';
 import { connectorRuntimeRecord } from './connector-build-info';
@@ -34,6 +35,7 @@ Environment:
   PROJECT_SPACE_PREVIEW_MODE=1  Accept only trusted Preview gateway identity assertions.
   PROJECT_SPACE_PREVIEW_GATEWAY_SECRET  PR-scoped key used to verify Preview assertions.
   GITHUB_OAUTH_CLIENT_ID  GitHub OAuth app client ID for repository connection.
+  PROJECT_SPACE_TOKEN_ENCRYPTION_KEY  Independent key for stored GitHub OAuth tokens.
   PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
   PROJECT_SPACE_LOG_LEVEL  Structured log level: debug, info, warn, error, or fatal.
   OTEL_EXPORTER_OTLP_ENDPOINT  Optional OTLP collector base URL for traces and metrics.
@@ -59,6 +61,14 @@ if (command !== 'serve') {
 }
 
 const logger = projectSpaceLogger.child({ component: 'server', version });
+if (
+  process.env.PROJECT_DEPLOY_ENVIRONMENT === 'prod' &&
+  !hasDedicatedGitHubOAuthTokenEncryptionKey()
+) {
+  logger.warn('github.oauth.token.encryption.legacy_fallback', {
+    action: 'configure-dedicated-key'
+  });
+}
 await initializeOpenTelemetry(logger);
 installProcessErrorHandlers(logger);
 const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
