@@ -1,0 +1,46 @@
+---
+title: Tasks
+description: Implementation and verification checklist for account-scoped Tailscale connections.
+---
+
+## 1. Account-scoped control plane
+
+- [x] 1.1 Add owner-scoped encrypted provider storage
+  - **Evidence:** Provider connections and cached inventory are keyed by authenticated owner, and credential fields use the versioned credential vault.
+- [x] 1.2 Implement supported Tailscale token exchange and device inventory
+  - **Evidence:** The provider requests `devices:core:read`, normalizes the official devices response, and preserves exact IP addresses.
+- [x] 1.3 Enforce safe freshness and failure states
+  - **Evidence:** Refresh state includes provider, source, revision, timestamps, and normalized unavailable states without returning raw provider output.
+- [x] 1.4 Keep the legacy adapter explicit and migration-scoped
+  - **Evidence:** Account-connected owners never silently fall back, while the configured migration owner can continue using the named VPS-local source.
+
+## 2. User and deployment surfaces
+
+- [x] 2.1 Add authenticated connect, refresh, and disconnect APIs
+  - **Evidence:** Server routes derive owner identity from authentication and never accept a caller-selected owner.
+- [x] 2.2 Add the Compute connection interface
+  - **Evidence:** The UI can connect credentials, show provider/source state, refresh inventory, and disconnect without displaying stored secrets.
+- [x] 2.3 Remove the host Tailscale dependency from the provider runtime
+  - **Evidence:** The account provider uses HTTPS control-plane APIs and the production container overlay runs without a Tailscale socket.
+- [x] 2.4 Deliver the encryption key through the protected production job
+  - **Evidence:** Only the protected deploy step receives the two required values, validates them before VPS contact, and passes them through the existing deployment environment writer.
+
+## 3. Verification and follow-up boundaries
+
+- [x] 3.1 Test tenant isolation, revocation, encryption, freshness, and UI behavior
+  - **Evidence:** Focused server, store, route, deployment, and desktop tests cover two owners, invalid credentials, wrong keys, source isolation, and lifecycle behavior.
+- [x] 3.2 Dogfood a representative owner connection
+  - **Evidence:** The local review surface completed connect, inventory, refresh, source display, and disconnect flows with representative Tailscale responses.
+- [x] 3.3 Keep remote access and WireGuard outside this control-plane change
+  - **Evidence:** No ping, SSH, relay, terminal, or arbitrary-command path was added; dedicated continuation issues own those designs.
+
+## 4. Deferred follow-ups
+
+- [ ] 4.1 Implement an isolated Tailscale data plane
+  - **Issue:** #733
+  - **Reason:** OAuth inventory does not join Project Space to a tailnet, and cross-tenant network ownership needs a separate fail-closed design.
+  - **Acceptance criteria:** Authorized ping and bounded remote operations use isolated tenant-owned network state with reliable cleanup and no arbitrary browser relay.
+- [ ] 4.2 Define WireGuard ownership and lifecycle
+  - **Issue:** #734
+  - **Reason:** WireGuard has different enrollment, routing, key, and freshness semantics from Tailscale inventory.
+  - **Acceptance criteria:** The design proves enrollment, key storage and rotation, revocation, AllowedIPs ownership, NAT behavior, freshness, and multi-user isolation.

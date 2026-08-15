@@ -1,0 +1,4 @@
+{
+  "title": "Account-scoped Tailscale provider connections",
+  "pages": ["proposal", "requirements", "design", "tasks", "verification"]
+}
