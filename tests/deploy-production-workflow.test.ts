@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
+import { parse } from 'yaml';
 
 const workflowPath = new URL('../.github/workflows/deploy-production.yml', import.meta.url);
 const dockerIgnorePath = new URL('../.dockerignore', import.meta.url);
@@ -140,10 +141,23 @@ describe('production deployment workflow contract', () => {
   test('loads and forwards every managed machine-power credential', async () => {
     const workflow = await readFile(workflowPath, 'utf8');
     const deploy = await readFile(new URL('../deploy/deploy.yaml', import.meta.url), 'utf8');
+    const parsed = parse(workflow) as {
+      jobs?: Record<string, { steps?: Array<{ uses?: string; with?: Record<string, unknown> }> }>;
+    };
+    const infisical = Object.values(parsed.jobs ?? {}).flatMap((job) =>
+      (job.steps ?? []).filter((step) => step.uses?.startsWith('Infisical/secrets-action@'))
+    );
     expect(workflow).toContain('project-slug: project-space-production');
     expect(workflow).toContain('env-slug: prod');
     expect(workflow).toContain('id-token: write');
     expect(workflow).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
+    expect(infisical).toHaveLength(1);
+    expect(infisical[0]?.with).toEqual(expect.objectContaining({
+      'export-type': 'env',
+      'secret-path': '/',
+      'include-imports': false,
+      recursive: false
+    }));
     for (const name of [
       'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD',
       'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME'

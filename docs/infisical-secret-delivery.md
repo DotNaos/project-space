@@ -9,9 +9,9 @@ identity changes.
 | Consumer | Infisical project and environment | Authentication | Delivery | Status |
 | --- | --- | --- | --- | --- |
 | Local Project CLI development | `project-space` / `dev` | Signed-in human CLI session in the macOS Keychain | `infisical run` from the checked-in `infisical://` reference | Implemented and locally tested |
-| GitHub Preview deploy and reaper | `project-space-preview` / `staging` | Fixed identity `5eaeaafe-2b13-4ca2-9506-4c914924e5b6`; GitHub OIDC subject `repo:DotNaos/project-space:environment:Preview`; 15-minute token | Pinned `Infisical/secrets-action` exports job-only environment variables | Implemented in PR #755; trusted non-deploying proof requires #758 |
-| GitHub Production deploy | `project-space-production` / `prod` | Fixed identity `454fcc36-3e86-4c9f-b25d-e581d342bc36`; GitHub OIDC subject `repo:DotNaos/project-space:environment:Production`; 15-minute token | Pinned action exports job-only environment variables | Implemented in PR #755; trusted non-deploying proof requires #758 and no deployment may run before exact-revision approval |
-| Release-manifest signer | `project-space-release-signing` / `prod` | Fixed identity `577f6b4c-943b-4bf5-94ac-07140f1e5b2d`; GitHub OIDC subject `repo:DotNaos/project-space:environment:release-signing`; 15-minute token | Pinned action in the isolated no-checkout signer job | Implemented in PR #755; trusted key-boundary proof requires #758 before release |
+| GitHub Preview deploy and reaper | `project-space-preview` / `staging` | Fixed identity `5eaeaafe-2b13-4ca2-9506-4c914924e5b6`; GitHub OIDC subject `repo:DotNaos/project-space:environment:Preview`; 15-minute token | Pinned `Infisical/secrets-action` exports only root-folder, non-imported, non-recursive job environment variables | Implemented in PR #755; the trusted non-deploying smoke from PR #770 is available on `main` |
+| GitHub Production deploy | `project-space-production` / `prod` | Fixed identity `454fcc36-3e86-4c9f-b25d-e581d342bc36`; GitHub OIDC subject `repo:DotNaos/project-space:environment:Production`; 15-minute token | Pinned action exports only root-folder, non-imported, non-recursive job environment variables | Implemented in PR #755; no deployment may run before exact-revision approval |
+| Release-manifest signer | `project-space-release-signing` / `prod` | Fixed identity `577f6b4c-943b-4bf5-94ac-07140f1e5b2d`; GitHub OIDC subject `repo:DotNaos/project-space:environment:release-signing`; 15-minute token | Pinned action exports only root-folder, non-imported, non-recursive variables in the isolated no-checkout signer job | Implemented in PR #755; the trusted non-deploying smoke from PR #770 is available on `main` |
 | Manual `project deploy` | Referenced project and environment from `deploy/deploy.yaml` | Signed-in human CLI session | Environment override first, otherwise one `infisical secrets get` call per declared name | Implemented and unit tested |
 | Runtime SSH control gateway | Process environment supplied at application start | Same workload boundary as the server process | `env://NAME`; no per-request CLI or subprocess | Implemented; retired `op://` database rows are disabled and blocked by migration `0054` |
 | JetKVM and machine-power provisioning | `project-space-vps` / `prod` | Signed-in operator, or the fixed VPS identity after separate approval | `infisical run` injects named variables for the bounded provisioning process | Implemented; no unattended VPS credential exists |
@@ -56,6 +56,14 @@ runtime or provider credential was replaced before the old value was retired:
   was restarted on the unchanged `afadb19e2b614a0e970475602f38a9e724dc3043`
   revision, the running value matched Infisical in memory, authenticated browser
   use passed, and the old Clerk key was deleted after email verification.
+- Later legacy 1Password deployments at `bbb325eabaa3968bd7c825401d76fcb9be78fea8`
+  and `5a5f6f730b584c110cc88cdd0332bef12c82fd23` each replaced that valid Clerk
+  value with the retired invalid value and caused Clerk backend HTTP 401. Incident
+  #772 restored Production at exact commit `5a5f6f730b584c110cc88cdd0332bef12c82fd23`
+  and version `v0.24.3` through the normal locked deployment transaction using
+  validated Infisical values. The running container then probed Clerk with HTTP
+  200 and existing sessions were accepted. This recovery does not deploy PR #755;
+  it proves that the normal workflow must stop reading the legacy provider.
 - The JetKVM Tailscale OAuth client is restricted to Auth Keys write access for
   only `tag:jetkvm`. Token exchange and the read-only provisioner passed, and the
   old client is visibly revoked.
@@ -125,10 +133,10 @@ used as evidence that the review branch failed to remove an active path.
 
 - GitHub loads a `workflow_run` deployment workflow from the default branch.
   While `main` still contains the 1Password implementation, a green PR build
-  cannot execute or prove PR #755's own Infisical credential steps. Issue #758
-  therefore adds a separate trusted, manually dispatched, non-deploying OIDC
-  smoke workflow. It must be reviewed and merged before the three GitHub
-  identities can be proven without exposing credentials to pull-request code.
+  cannot execute PR #755's own credential steps. PR #770 therefore added a
+  trusted, manually dispatched, non-deploying OIDC smoke workflow on `main` so
+  the three fixed identities can be proven without exposing credentials to
+  pull-request code.
 - Do not merge this issue's pull request or deploy Production until the current
   exact revision is approved and the OIDC-backed Preview, Production, and signer
   jobs pass.

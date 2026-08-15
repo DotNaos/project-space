@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
+import { parse } from 'yaml';
 
 const repositoryRoot = join(import.meta.dir, '..');
 const infisicalAction =
@@ -23,6 +24,12 @@ describe('release signing Infisical boundary', () => {
 
   test('the reusable signer uses one fixed release identity and protected environment', async () => {
     const workflow = await source('.github/workflows/release-manifest-sign.yml');
+    const parsed = parse(workflow) as {
+      jobs?: Record<string, { steps?: Array<{ uses?: string; with?: Record<string, unknown> }> }>;
+    };
+    const infisical = Object.values(parsed.jobs ?? {}).flatMap((job) =>
+      (job.steps ?? []).filter((step) => step.uses?.startsWith('Infisical/secrets-action@'))
+    );
     expect(workflow).toContain('environment: release-signing');
     expect(workflow).toContain('id-token: write');
     expect(workflow).toContain(`uses: ${infisicalAction}`);
@@ -30,6 +37,13 @@ describe('release signing Infisical boundary', () => {
     expect(workflow).toContain('project-slug: project-space-release-signing');
     expect(workflow).toContain('env-slug: prod');
     expect(workflow).toContain('oidc-audience: https://github.com/DotNaos');
+    expect(infisical).toHaveLength(1);
+    expect(infisical[0]?.with).toEqual(expect.objectContaining({
+      'export-type': 'env',
+      'secret-path': '/',
+      'include-imports': false,
+      recursive: false
+    }));
     expect(workflow).not.toContain('actions/checkout@');
     expect(workflow).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
     expect(workflow).not.toContain('1password/');

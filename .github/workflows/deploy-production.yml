@@ -245,6 +245,10 @@ jobs:
           domain: https://eu.infisical.com
           project-slug: project-space-production
           env-slug: prod
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
 
       - name: Configure pinned SSH identity
         shell: bash

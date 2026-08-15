@@ -372,6 +372,10 @@ jobs:
           domain: https://eu.infisical.com
           project-slug: project-space-release-signing
           env-slug: prod
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
 
       - name: Sign the exact prepared payload
         id: signature

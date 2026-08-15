@@ -303,6 +303,10 @@ jobs:
           domain: https://eu.infisical.com
           project-slug: project-space-preview
           env-slug: staging
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
       - name: Configure forced-command Preview SSH identity
         if: steps.freshness.outputs.disposition == 'current'
         shell: bash
@@ -600,6 +604,10 @@ jobs:
           domain: https://eu.infisical.com
           project-slug: project-space-preview
           env-slug: staging
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
       - name: Configure forced-command Preview SSH identity
         shell: bash
         run: |
