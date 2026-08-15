@@ -322,6 +322,20 @@ func retainedRuntimeFixture(t *testing.T) (*Manager, string, runtimeRecord) {
 
 func testRetentionCollector(t *testing.T, sourceRoot string) *RetentionCollector {
 	t.Helper()
+	fixtureNow := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+	archives, err := os.ReadDir(filepath.Join(sourceRoot, "generations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, archive := range archives {
+		if !archive.IsDir() || !strings.HasPrefix(archive.Name(), ".retained-") {
+			continue
+		}
+		archiveTime := fixtureNow.Add(-time.Hour)
+		if err := os.Chtimes(filepath.Join(sourceRoot, "generations", archive.Name()), archiveTime, archiveTime); err != nil {
+			t.Fatal(err)
+		}
+	}
 	collectorRoot := t.TempDir()
 	if err := os.Chmod(collectorRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -330,7 +344,6 @@ func testRetentionCollector(t *testing.T, sourceRoot string) *RetentionCollector
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixtureNow := time.Now().UTC().Add(time.Hour)
 	collector.now = func() time.Time { return fixtureNow }
 	return collector
 }
