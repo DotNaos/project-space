@@ -31,6 +31,7 @@ func newWorktreeCommand() *cobra.Command {
 	cmd.AddCommand(newWorktreeCheckCommand())
 	cmd.AddCommand(newWorktreeMaterializeCommand())
 	cmd.AddCommand(newWorktreeRecoverCommand())
+	cmd.AddCommand(newWorktreePurgeCommand())
 	return cmd
 }
 

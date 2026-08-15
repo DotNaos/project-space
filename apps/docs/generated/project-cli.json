@@ -228,6 +228,73 @@
         ]
       },
       {
+        "path": "project checkout",
+        "name": "checkout",
+        "usage": "checkout",
+        "short": "Manage local main project checkouts",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for checkout",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project checkout purge",
+            "name": "purge",
+            "usage": "purge",
+            "short": "Remove one reconstructible main checkout after stronger safety checks",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "apply",
+                "type": "bool",
+                "description": "perform the purge after a fresh safety check",
+                "inherited": false
+              },
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "explicitly request the default read-only plan",
+                "inherited": false
+              },
+              {
+                "name": "expect-head",
+                "type": "string",
+                "description": "exact full reviewed checkout commit required for apply",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for purge",
+                "inherited": false
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "project ID, repository, or unique name",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project codex",
         "name": "codex",
         "usage": "codex",
@@ -3150,6 +3217,55 @@
         "commands": []
       },
       {
+        "path": "project storage",
+        "name": "storage",
+        "usage": "storage",
+        "short": "Audit local project storage",
+        "aliases": [],
+        "runnable": false,
+        "flags": [
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for storage",
+            "inherited": false
+          }
+        ],
+        "commands": [
+          {
+            "path": "project storage audit",
+            "name": "audit",
+            "usage": "audit",
+            "short": "Measure account projects and their registered worktrees",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for audit",
+                "inherited": false
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "limit the audit to one project ID, repository, or unique name",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          }
+        ]
+      },
+      {
         "path": "project template",
         "name": "template",
         "usage": "template",
@@ -4171,6 +4287,66 @@
                 "name": "issue",
                 "type": "int",
                 "description": "prepare a worktree for an existing open GitHub issue",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
+            "path": "project worktree purge",
+            "name": "purge",
+            "usage": "purge",
+            "short": "Remove one linked worktree only after every safety gate passes",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "all-safe",
+                "type": "bool",
+                "description": "inspect every linked worktree and act only on proven-safe candidates",
+                "inherited": false
+              },
+              {
+                "name": "apply",
+                "type": "bool",
+                "description": "perform the purge after a fresh safety check",
+                "inherited": false
+              },
+              {
+                "name": "dry-run",
+                "type": "bool",
+                "description": "explicitly request the default read-only plan",
+                "inherited": false
+              },
+              {
+                "name": "expect-head",
+                "type": "string",
+                "description": "exact full reviewed worktree commit required for apply",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for purge",
+                "inherited": false
+              },
+              {
+                "name": "id",
+                "type": "string",
+                "description": "opaque worktree ID from project storage audit",
+                "inherited": false
+              },
+              {
+                "name": "project",
+                "type": "string",
+                "description": "project ID, repository, or unique name",
                 "inherited": false
               }
             ],

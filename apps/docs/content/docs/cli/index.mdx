@@ -29,6 +29,7 @@ project
 | [`adopt`](#project-adopt) | - | Plan adoption of an existing project |
 | [`agent`](#project-agent) | - | Manage the current Codex agent identity |
 | [`chat`](#project-chat) | - | Coordinate with people and agents through Project Chat |
+| [`checkout`](#project-checkout) | - | Manage local main project checkouts |
 | [`codex`](#project-codex) | - | Start, inspect, continue, or attach to persistent Codex tasks |
 | [`completion`](#project-completion) | - | Generate the autocompletion script for the specified shell |
 | [`connect`](#project-connect) | - | Connect this machine to Project Space |
@@ -56,6 +57,7 @@ project
 | [`self-update`](#project-self-update) | - | Check for and install a signed Project CLI release |
 | [`serve`](#project-serve) | - | Run a project script with an explicit backend binding |
 | [`status`](#project-status) | - | Show this machine's Project Space connection |
+| [`storage`](#project-storage) | - | Audit local project storage |
 | [`template`](#project-template) | - | Manage the local project template snapshot |
 | [`token`](#project-token) | - | Manage the Project 1Password token |
 | [`validate`](#project-validate) | - | Validate a project against its template |
@@ -168,6 +170,35 @@ project chat send <message>
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `-h`, `--help` | `bool` | local | help for send |
+
+<h3 id="project-checkout" className="scroll-m-28"><code>project checkout</code></h3>
+
+Manage local main project checkouts
+
+```sh
+project checkout
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for checkout |
+
+<h3 id="project-checkout-purge" className="scroll-m-28"><code>project checkout purge</code></h3>
+
+Remove one reconstructible main checkout after stronger safety checks
+
+```sh
+project checkout purge
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--apply` | `bool` | local | perform the purge after a fresh safety check |
+| `--dry-run` | `bool` | local | explicitly request the default read-only plan |
+| `--expect-head` | `string` | local | exact full reviewed checkout commit required for apply |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for purge |
+| `--project` | `string` | local | project ID, repository, or unique name |
 
 <h3 id="project-codex" className="scroll-m-28"><code>project codex</code></h3>
 
@@ -1349,6 +1380,32 @@ project status
 | `-h`, `--help` | `bool` | local | help for status |
 | `--json` | `bool` | local | print machine-readable output |
 
+<h3 id="project-storage" className="scroll-m-28"><code>project storage</code></h3>
+
+Audit local project storage
+
+```sh
+project storage
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `-h`, `--help` | `bool` | local | help for storage |
+
+<h3 id="project-storage-audit" className="scroll-m-28"><code>project storage audit</code></h3>
+
+Measure account projects and their registered worktrees
+
+```sh
+project storage audit
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for audit |
+| `--project` | `string` | local | limit the audit to one project ID, repository, or unique name |
+
 <h3 id="project-template" className="scroll-m-28"><code>project template</code></h3>
 
 Manage the local project template snapshot
@@ -1734,6 +1791,25 @@ project worktree prepare [task-name]
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for prepare |
 | `--issue` | `int` | local | prepare a worktree for an existing open GitHub issue |
+
+<h3 id="project-worktree-purge" className="scroll-m-28"><code>project worktree purge</code></h3>
+
+Remove one linked worktree only after every safety gate passes
+
+```sh
+project worktree purge
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--all-safe` | `bool` | local | inspect every linked worktree and act only on proven-safe candidates |
+| `--apply` | `bool` | local | perform the purge after a fresh safety check |
+| `--dry-run` | `bool` | local | explicitly request the default read-only plan |
+| `--expect-head` | `string` | local | exact full reviewed worktree commit required for apply |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for purge |
+| `--id` | `string` | local | opaque worktree ID from project storage audit |
+| `--project` | `string` | local | project ID, repository, or unique name |
 
 <h3 id="project-worktree-recover" className="scroll-m-28"><code>project worktree recover</code></h3>
 
