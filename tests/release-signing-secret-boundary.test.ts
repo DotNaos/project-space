@@ -59,6 +59,21 @@ describe('release signing Infisical boundary', () => {
     expect(macos).not.toContain('Infisical/secrets-action@');
   });
 
+  test('clears the exported signing key before validation and upload steps', async () => {
+    const manifest = await source('.github/workflows/release-manifest-sign.yml');
+    const cleanup = manifest.indexOf('      - name: Remove dedicated signing key material');
+    const validation = manifest.indexOf('      - name: Validate signed handoff after key cleanup');
+    const upload = manifest.indexOf('      - name: Upload signed manifest handoff');
+    expect(cleanup).toBeGreaterThan(0);
+    expect(cleanup).toBeLessThan(validation);
+    expect(validation).toBeLessThan(upload);
+    const cleanupStep = manifest.slice(cleanup, validation);
+    expect(cleanupStep).toContain('unset PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64');
+    expect(cleanupStep).toContain("'PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64=' >> \"$GITHUB_ENV\"");
+    const validationStep = manifest.slice(validation, upload);
+    expect(validationStep).toContain('[[ ! -v PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 || -z "$PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64" ]]');
+  });
+
   test('keeps retired probe workflows absent', async () => {
     for (const path of [
       '.github/workflows/macos-signing-identity-probe.yml',

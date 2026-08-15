@@ -134,7 +134,7 @@ func TestSecretEnvironmentRequiresInfisicalReferencesAndDistinctKeys(t *testing.
 	}
 }
 
-func TestSecretEnvironmentUsesInfisicalWithoutPersistingReferences(t *testing.T) {
+func TestSecretEnvironmentDeclaresOnlyNamedInfisicalValues(t *testing.T) {
 	script := Script{
 		Command: []string{"bun", "x", "vite"},
 		SecretEnvironment: map[string]string{
@@ -142,8 +142,11 @@ func TestSecretEnvironmentUsesInfisicalWithoutPersistingReferences(t *testing.T)
 		},
 	}
 	command := commandFor(script, "/tmp/project", "127.0.0.1", 43117, nil)
-	if got := strings.Join(command.Argv, " "); got != "infisical run --silent --domain=https://eu.infisical.com --projectId=d786940c-96a1-4937-981a-dc8729effcf4 --env=dev -- bun x vite" {
+	if got := strings.Join(command.Argv, " "); got != "bun x vite" {
 		t.Fatalf("command = %q", got)
+	}
+	if got := command.SecretEnvironment["GITHUB_OAUTH_CLIENT_ID"]; got != "infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID" {
+		t.Fatalf("secret declaration = %q", got)
 	}
 	if containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID") {
 		t.Fatalf("opaque Infisical reference leaked into command environment: %#v", command.Env)
@@ -191,6 +194,9 @@ func TestSimulatedServeDoesNotLoadDeclaredSecrets(t *testing.T) {
 	}
 	if containsEnvironment(command.Env, "GITHUB_OAUTH_CLIENT_ID=infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID") {
 		t.Fatalf("simulated command loaded an external secret: %#v", command.Env)
+	}
+	if len(command.SecretEnvironment) != 0 {
+		t.Fatalf("simulated command retained external secret declarations: %#v", command.SecretEnvironment)
 	}
 	for _, expected := range []string{
 		"PROJECT_SPACE_APIS=simulated",

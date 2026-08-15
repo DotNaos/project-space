@@ -301,11 +301,12 @@ back to a package script.
 
 Use `environment` for ordinary configuration and `secretEnvironment` for
 `infisical://<project-id>/<environment>/<secret-name>` references. A secret
-declaration is launched through `infisical run`; the declaration and protected
-runtime request contain only the reference, while Infisical injects the value
-into the child process. This is repeated on every managed restart. Project CLI
-rejects plaintext values, mixed project scopes, and keys duplicated across the
-two sections.
+declaration is resolved by one exact `infisical secrets get` request with
+imports and recursion disabled. The declaration and protected runtime request
+contain only the reference; the resolved value exists in resolver process
+memory and the child environment. This is repeated on every managed restart.
+Project CLI rejects plaintext values, mixed project scopes, and keys duplicated
+across the two sections.
 
 Project Space's `dev` server deliberately declares its database-free local
 preview profile: `PROJECT_SPACE_AUTH_DISABLED=1`,

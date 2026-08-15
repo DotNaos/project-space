@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -203,10 +205,11 @@ func resolveDeploySecrets(sources map[string]string) (map[string]deploySecretVal
 		if err != nil {
 			return nil, fmt.Errorf("secret %s must use an Infisical reference or an environment variable override: %w", name, err)
 		}
-		output, err := runCommand(
-			"", nil, "infisical", "secrets", "get", reference.SecretName,
+		output, err := runSecretExternalCommand(
+			"infisical", "secrets", "get", reference.SecretName,
 			"--plain", "--silent", "--domain=https://eu.infisical.com",
-			"--projectId="+reference.ProjectID, "--env="+reference.Environment, "--path=/",
+			"--projectId="+reference.ProjectID, "--env="+reference.Environment,
+			"--path=/", "--include-imports=false", "--recursive=false",
 		)
 		if err != nil {
 			return nil, fmt.Errorf("read secret %s from Infisical: %w", name, err)
@@ -221,6 +224,18 @@ func resolveDeploySecrets(sources map[string]string) (map[string]deploySecretVal
 		secrets[name] = deploySecretValue{Value: value, Source: source}
 	}
 	return secrets, nil
+}
+
+var runSecretExternalCommand = executeSecretExternalCommand
+
+func executeSecretExternalCommand(name string, args ...string) (string, error) {
+	command := exec.Command(name, args...)
+	command.Stderr = io.Discard
+	output, err := command.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
 }
 
 func deploySecretSources(sources map[string]string) map[string]deploySecretValue {

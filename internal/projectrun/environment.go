@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/DotNaos/project-space/internal/infisicalref"
 )
 
 var dnsLabelPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -77,8 +75,6 @@ func commandForWithSecrets(
 	for key, value := range script.Environment {
 		replacements[key] = value
 	}
-	// Infisical injects resolved values only into the child process. Opaque
-	// references never enter the child environment or managed runtime state.
 	if allowedHosts != nil {
 		replacements["PROJECT_ALLOWED_HOSTS"] = strings.Join(allowedHosts, ",")
 		replacements["__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"] = ""
@@ -90,21 +86,15 @@ func commandForWithSecrets(
 		}
 	}
 	env := mergeEnvironment(nil, replacements)
+	secretEnvironment := map[string]string{}
 	if loadSecrets && len(script.SecretEnvironment) > 0 {
-		var reference infisicalref.Reference
-		for key, source := range script.SecretEnvironment {
-			reference, _ = infisicalref.Parse(source, key)
-			break
+		for name, reference := range script.SecretEnvironment {
+			secretEnvironment[name] = reference
 		}
-		argv = append([]string{
-			"infisical", "run", "--silent",
-			"--domain=https://eu.infisical.com",
-			"--projectId=" + reference.ProjectID,
-			"--env=" + reference.Environment,
-			"--",
-		}, argv...)
 	}
-	return Command{Argv: argv, Dir: directory, Env: env}
+	return Command{
+		Argv: argv, Dir: directory, Env: env, SecretEnvironment: secretEnvironment,
+	}
 }
 
 func serverCommandFor(

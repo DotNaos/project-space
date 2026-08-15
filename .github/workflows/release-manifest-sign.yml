@@ -398,6 +398,7 @@ jobs:
           signature="$output/release-manifest-signature.bin"
           cleanup_private_material() {
             /bin/rm -f "$private_key" "$derived_public" "$expected_der" "$derived_der"
+            unset PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64
           }
           trap cleanup_private_material EXIT INT TERM HUP
           umask 077
@@ -462,6 +463,8 @@ jobs:
             /bin/rm -f "$path" || status=$?
             [[ ! -e $path ]] || status=1
           done
+          unset PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64
+          /usr/bin/printf '%s\n' 'PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64=' >> "$GITHUB_ENV"
           exit "$status"
 
       - name: Validate signed handoff after key cleanup
@@ -475,6 +478,7 @@ jobs:
           PREPARED_DIGEST: ${{ inputs.prepared-artifact-digest }}
           PREPARED_ID: ${{ inputs.prepared-artifact-id }}
         run: |
+          [[ ! -v PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 || -z "$PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64" ]]
           /usr/bin/python3 -I - "$RUNNER_TEMP/release-manifest-signature" \
             "$RUNNER_TEMP/prepared-manifest/release-manifest-payload.bin" \
             "$EXPECTED_SHA" "$EXPECTED_REF" "$EXPECTED_VERSION" \

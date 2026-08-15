@@ -14,7 +14,8 @@ NOT require a persisted Infisical token or a 1Password service account.
 
 - **Given** the developer is signed in to the Infisical CLI
 - **When** a Project Space development command requests its declared secrets
-- **Then** only the child process receives those values through `infisical run`
+- **Then** Project CLI fetches only those exact names without imports or recursion and
+  supplies the values only to the child process
 
 ### SECRETS-002 — Fixed workload identities
 
@@ -61,6 +62,12 @@ references and MUST reject or disable persisted `op://` references without invok
 - **Given** a stored SSH route still contains a retired 1Password reference
 - **When** the migration or runtime loader inspects it
 - **Then** the route is disabled and no 1Password subprocess is started
+
+#### Scenario: No runtime SSH route exists
+
+- **Given** Production contains no private-network or access-route rows
+- **When** the migration is delivered
+- **Then** no SSH private key is added to Production merely for an unused contract
 
 ### SECRETS-006 — User-owned GitHub access
 

@@ -6,8 +6,9 @@ description: Implementation and verification checklist for Project Space Infisic
 ## 1. Secret ownership boundaries
 
 - [x] 1.1 Move local Project CLI development to the signed-in Infisical session
-  - **Evidence:** The checked-in project configuration uses `infisical run`, and the local
-    development path was exercised without a persisted service token.
+  - **Evidence:** The checked-in project configuration declares one named secret. Project
+    CLI performs one exact lookup with imports and recursion disabled, and the local path
+    was exercised without a persisted service token.
 - [x] 1.2 Separate Preview, Production, and release-signing workloads
   - **Evidence:** Each protected GitHub environment uses its own fixed identity, project,
     environment, and OIDC subject.
@@ -19,10 +20,13 @@ description: Implementation and verification checklist for Project Space Infisic
 
 - [x] 2.1 Resolve deployment values through Infisical or process overrides
   - **Evidence:** The Project CLI validates `infisical://` references and its focused Go
-    tests cover successful resolution and fail-closed missing values.
+    tests cover exact non-imported, non-recursive resolution, redacted failures, and
+    fail-closed missing values.
 - [x] 2.2 Disable stored 1Password runtime references
   - **Evidence:** Migration 0054 disables legacy rows and the runtime environment resolver
-    replaces the removed 1Password subprocess adapter.
+    replaces the removed 1Password subprocess adapter. A read-only Production check found
+    zero private-network rows and zero access-route rows, so no live route is disabled and
+    no unused SSH key needs to be provisioned.
 - [x] 2.3 Remove automatic Project token creation and global GitHub access
   - **Evidence:** The token command and its tests are removed, Production declares no broad
     GitHub token, and private operations use the connected user's OAuth session.
@@ -33,9 +37,11 @@ description: Implementation and verification checklist for Project Space Infisic
 ## 3. Verification and operational evidence
 
 - [x] 3.1 Run focused and broad local checks
-  - **Evidence:** 32 focused Infisical workflow tests, 2,881 Bun tests, the complete Go
-    suite, type checks, web/docs/mobile builds, action lint, shell syntax, Rust, and macOS
-    packaging checks passed; six declared persistent integration tests were skipped.
+  - **Evidence:** Focused secret and workflow suites, the complete Bun and Go suites,
+    type checks, web/docs/mobile builds, action lint, shell syntax, Rust, and macOS
+    packaging checks passed; six declared persistent integration tests were skipped. The
+    intermittent unchanged Workspace Runtime socket race test is tracked in #778; its
+    focused repetitions and a complete race-suite retry passed outside the parallel lane.
 - [x] 3.2 Prove the fixed GitHub identities without deploying
   - **Evidence:** Trusted run 31894189550 on exact `main` commit
     `5a5f6f730b584c110cc88cdd0332bef12c82fd23` passed Preview, Production, and
@@ -45,7 +51,8 @@ description: Implementation and verification checklist for Project Space Infisic
     of `v0.24.3`, after which Clerk probed HTTP 200 and existing sessions were accepted.
 - [x] 3.4 Review the complete ownership inventory and exact diff
   - **Evidence:** `docs/infisical-secret-delivery.md` maps every Project Space consumer,
-    identity, migration, repository follow-up, and remaining delivery gate.
+    identity, migration, dormant runtime boundary, repository follow-up, and remaining
+    delivery gate.
 
 ## 4. Deferred follow-ups
 

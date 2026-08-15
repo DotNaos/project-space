@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,57 @@ func TestDeployStepsUseExistingComposeFiles(t *testing.T) {
 		strings.Contains(steps, "clerk-secret-value") ||
 		strings.Contains(steps, "runtime-secret-value") {
 		t.Fatalf("deploy dry-run steps leaked secret values:\n%s", steps)
+	}
+}
+
+func TestResolveDeploySecretsUsesExactNonImportedLookup(t *testing.T) {
+	previous := runSecretExternalCommand
+	t.Cleanup(func() { runSecretExternalCommand = previous })
+	var executable string
+	var arguments []string
+	runSecretExternalCommand = func(name string, args ...string) (string, error) {
+		executable = name
+		arguments = append([]string(nil), args...)
+		return "selected-value\n", nil
+	}
+	secrets, err := resolveDeploySecrets(map[string]string{
+		"DECLARED_SECRET": "infisical://00000000-0000-4000-8000-000000000000/prod/DECLARED_SECRET",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executable != "infisical" || len(arguments) < 3 ||
+		strings.Join(arguments[:3], " ") != "secrets get DECLARED_SECRET" {
+		t.Fatalf("lookup = %q %q", executable, arguments)
+	}
+	joined := strings.Join(arguments, "\n")
+	for _, expected := range []string{"--path=/", "--include-imports=false", "--recursive=false"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("lookup missing %s: %q", expected, arguments)
+		}
+	}
+	if secrets["DECLARED_SECRET"].Value != "selected-value" {
+		t.Fatal("resolved value was not retained in memory")
+	}
+}
+
+func TestSecretExternalCommandDoesNotReturnFailureOutput(t *testing.T) {
+	bin := t.TempDir()
+	path := filepath.Join(bin, "infisical")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' sensitive-stdout\nprintf '%s\\n' sensitive-stderr >&2\nexit 9\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	_, err := executeSecretExternalCommand("infisical", "secrets", "get", "DECLARED_SECRET")
+	if err == nil {
+		t.Fatal("failed secret lookup was accepted")
+	}
+	if strings.Contains(err.Error(), "sensitive-") {
+		t.Fatalf("secret lookup output leaked through the error: %v", err)
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && len(exitError.Stderr) != 0 {
+		t.Fatal("secret lookup stderr remained attached to the returned error")
 	}
 }
 

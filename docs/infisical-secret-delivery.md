@@ -8,12 +8,13 @@ identity changes.
 
 | Consumer | Infisical project and environment | Authentication | Delivery | Status |
 | --- | --- | --- | --- | --- |
-| Local Project CLI development | `project-space` / `dev` | Signed-in human CLI session in the macOS Keychain | `infisical run` from the checked-in `infisical://` reference | Implemented and locally tested |
+| Local Project CLI development | `project-space` / `dev` | Signed-in human CLI session in the macOS Keychain | One exact, non-imported, non-recursive `infisical secrets get` lookup per checked-in `infisical://` declaration; values exist only in process memory and the child environment | Implemented and locally tested |
 | GitHub Preview deploy and reaper | `project-space-preview` / `staging` | Fixed identity `5eaeaafe-2b13-4ca2-9506-4c914924e5b6`; GitHub OIDC subject `repo:DotNaos/project-space:environment:Preview`; 15-minute token | Pinned `Infisical/secrets-action` exports only root-folder, non-imported, non-recursive job environment variables | Implemented in PR #755; trusted non-deploying run 31894189550 passed on exact `main` |
 | GitHub Production deploy | `project-space-production` / `prod` | Fixed identity `454fcc36-3e86-4c9f-b25d-e581d342bc36`; GitHub OIDC subject `repo:DotNaos/project-space:environment:Production`; 15-minute token | Pinned action exports only root-folder, non-imported, non-recursive job environment variables | Implemented in PR #755; trusted non-deploying run 31894189550 passed on exact `main`, and no deployment may run before exact-revision approval |
-| Release-manifest signer | `project-space-release-signing` / `prod` | Fixed identity `577f6b4c-943b-4bf5-94ac-07140f1e5b2d`; GitHub OIDC subject `repo:DotNaos/project-space:environment:release-signing`; 15-minute token | Pinned action exports only root-folder, non-imported, non-recursive variables in the isolated no-checkout signer job | Implemented in PR #755; trusted non-deploying run 31894189550 passed on exact `main` |
-| Manual `project deploy` | Referenced project and environment from `deploy/deploy.yaml` | Signed-in human CLI session | Environment override first, otherwise one `infisical secrets get` call per declared name | Implemented and unit tested |
-| Runtime SSH control gateway | Process environment supplied at application start | Same workload boundary as the server process | `env://NAME`; no per-request CLI or subprocess | Implemented; retired `op://` database rows are disabled and blocked by migration `0054` |
+| Release-manifest signer | `project-space-release-signing` / `prod` | Fixed identity `577f6b4c-943b-4bf5-94ac-07140f1e5b2d`; GitHub OIDC subject `repo:DotNaos/project-space:environment:release-signing`; 15-minute token | Pinned action exports only root-folder, non-imported, non-recursive variables in the isolated no-checkout signer job; the private key is cleared from the job environment before validation or upload | Implemented in PR #755; trusted non-deploying run 31894189550 passed on exact `main` |
+| Manual `project deploy` | Referenced project and environment from `deploy/deploy.yaml` | Signed-in human CLI session | Environment override first, otherwise one exact, non-imported, non-recursive `infisical secrets get` call per declared name; failed lookup output is discarded | Implemented and unit tested |
+| Runtime SSH control gateway | Process environment supplied at application start | Same workload boundary as the server process | `env://NAME`; no per-request CLI or subprocess | Dormant contract: Production contains no private-network or access-route rows, so no runtime SSH secret is provisioned; migration `0054` disables any future legacy `op://` row rather than invoking 1Password |
+| Stored GitHub OAuth token encryption | No dedicated Infisical value yet | Production process environment | Current code falls back to `CLERK_SECRET_KEY`; this is an unsafe coupling, not an accepted secret boundary | Tracked separately in #775 with a stable dedicated key and safe legacy/reconnect or re-encryption behavior; #755 does not create, rotate, copy, or deploy that key |
 | JetKVM and machine-power provisioning | `project-space-vps` / `prod` | Signed-in operator, or the fixed VPS identity after separate approval | `infisical run` injects named variables for the bounded provisioning process | Implemented; no unattended VPS credential exists |
 | VPS application runtime | `project-space-vps` / `prod` | Fixed identity `b6599fb1-c962-4c0c-b153-e51bc73b7f7a` | Intended process environment injection | Secrets migrated; authentication deliberately not provisioned yet |
 
@@ -23,6 +24,17 @@ the built-in read-only viewer role instead of sharing one broad project. The
 GitHub identities are bound to exact repository, environment subject, audience,
 owner, and repository claims. No repository workflow creates an Infisical
 identity, client secret, or token.
+
+A read-only Production database check on 2026-08-15 ran aggregate `count(*)`
+queries inside the running database container. It returned
+`private_networks_total=0`, `private_networks_op=0`,
+`private_networks_env=0`, `access_routes_total=0`,
+`access_routes_enabled=0`, `access_routes_op=0`, and
+`access_routes_env=0`. Migration `0054` therefore cannot disable a live
+Production route. Supplying an unused SSH private key to the application would
+widen Production access without a consumer, so #755 deliberately does not add
+one. A future route must be provisioned as an attributable `env://NAME`
+contract together with its dedicated Infisical value and deployment mapping.
 
 ## Secret name inventory
 
