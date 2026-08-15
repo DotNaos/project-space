@@ -1,0 +1,145 @@
+name: Trusted Infisical OIDC delivery smoke
+
+run-name: Trusted Infisical OIDC delivery smoke · ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: trusted-infisical-oidc-delivery-smoke
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    name: Preview secret boundary
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'DotNaos/project-space'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: Preview
+    permissions:
+      id-token: write
+    steps:
+      - name: Load the fixed Preview boundary from Infisical
+        uses: Infisical/secrets-action@8a06c1bdcd5b8635d510c52d4b57a92c1ccef785 # v1.0.9
+        with:
+          method: oidc
+          identity-id: 5eaeaafe-2b13-4ca2-9506-4c914924e5b6
+          oidc-audience: https://github.com/DotNaos
+          domain: https://eu.infisical.com
+          project-slug: project-space-preview
+          env-slug: staging
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
+
+      - name: Validate expected Preview names without exposing values
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        run: |
+          readonly expected_names=(
+            SSH_PRIVATE_KEY
+            TS_OAUTH_CLIENT_ID
+            TS_OAUTH_SECRET
+          )
+          for name in "${expected_names[@]}"; do
+            [[ -v "$name" && -n "${!name}" ]] || {
+              printf '%s\n' 'The Preview boundary is missing an expected value.' >&2
+              exit 1
+            }
+          done
+          printf '%s\n' 'The Preview boundary contains every expected value.'
+
+  production:
+    name: Production secret boundary
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'DotNaos/project-space'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: Production
+    permissions:
+      id-token: write
+    steps:
+      - name: Load the fixed Production boundary from Infisical
+        uses: Infisical/secrets-action@8a06c1bdcd5b8635d510c52d4b57a92c1ccef785 # v1.0.9
+        with:
+          method: oidc
+          identity-id: 454fcc36-3e86-4c9f-b25d-e581d342bc36
+          oidc-audience: https://github.com/DotNaos
+          domain: https://eu.infisical.com
+          project-slug: project-space-production
+          env-slug: prod
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
+
+      - name: Validate expected Production names without exposing values
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        run: |
+          readonly expected_names=(
+            CLERK_PUBLISHABLE_KEY
+            CLERK_SECRET_KEY
+            GITHUB_OAUTH_CLIENT_ID
+            PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64
+            PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD
+            PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME
+            PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET
+            SSH_PRIVATE_KEY
+            TS_OAUTH_CLIENT_ID
+            TS_OAUTH_SECRET
+            VITE_CLERK_PUBLISHABLE_KEY
+          )
+          for name in "${expected_names[@]}"; do
+            [[ -v "$name" && -n "${!name}" ]] || {
+              printf '%s\n' 'The Production boundary is missing an expected value.' >&2
+              exit 1
+            }
+          done
+          printf '%s\n' 'The Production boundary contains every expected value.'
+
+  release-signing:
+    name: Release-signing secret boundary
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'DotNaos/project-space'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release-signing
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the exact trusted revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Load the fixed release-signing boundary from Infisical
+        uses: Infisical/secrets-action@8a06c1bdcd5b8635d510c52d4b57a92c1ccef785 # v1.0.9
+        with:
+          method: oidc
+          identity-id: 577f6b4c-943b-4bf5-94ac-07140f1e5b2d
+          oidc-audience: https://github.com/DotNaos
+          domain: https://eu.infisical.com
+          project-slug: project-space-release-signing
+          env-slug: prod
+          export-type: env
+          secret-path: /
+          include-imports: false
+          recursive: false
+
+      - name: Compare the derived public key without persisting private material
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        run: |
+          [[ -v PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64 && -n "$PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64" ]] || {
+            printf '%s\n' 'The release-signing boundary is missing its expected value.' >&2
+            exit 1
+          }
+          cmp --silent \
+            <(printf '%s' "$PROJECT_RELEASE_MANIFEST_SIGNING_PRIVATE_KEY_B64" | base64 --decode | openssl pkey -pubout -outform DER) \
+            <(openssl pkey -pubin -in packaging/release/trust-roots/release-manifest-signing-public-key.pem -outform DER) || {
+              printf '%s\n' 'The release-signing key does not match the committed public trust root.' >&2
+              exit 1
+            }
+          printf '%s\n' 'The release-signing key matches the committed public trust root.'
