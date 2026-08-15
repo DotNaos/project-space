@@ -160,7 +160,8 @@ describe('production deployment workflow contract', () => {
     }));
     for (const name of [
       'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD',
-      'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME'
+      'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME',
+      'PROJECT_SPACE_TOKEN_ENCRYPTION_KEY'
     ]) {
       expect(deploy).toContain(
         `${name}: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/${name}`

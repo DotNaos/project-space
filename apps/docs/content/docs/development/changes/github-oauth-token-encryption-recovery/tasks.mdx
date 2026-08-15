@@ -23,18 +23,15 @@ description: Implementation and verification checklist for GitHub token recovery
 
 - [x] 3.1 Pass the named key only into the trusted web service
   - **Evidence:** The Production Compose contract test excludes the key from the sidecar.
-- [ ] 3.2 Source the key through the approved Infisical Production path
-  - **Status:** Blocked
-  - **Reason:** The normal deploy path cannot resolve an Infisical reference until the provider migration is merged.
-  - **Blocked by:** #754
-  - **Unblocked when:** PR #755 is merged and this branch is rebased onto its final main revision.
+- [x] 3.2 Source the key through the approved Infisical Production path
+  - **Evidence:** PR #755 is merged, the branch is rebased on its Infisical delivery path, the dedicated Production value was created without file or argument persistence, and deploy plus OIDC smoke contracts require the exact root-folder name.
 
 ## 4. Verification
 
 - [x] 4.1 Run focused storage, cache, service, interface, and build tests
-  - **Evidence:** Forty-four focused tests pass, including fresh-cache validation and the failing-cache-invalidation edge case.
+  - **Evidence:** Sixty-two focused tests pass, including fresh-cache validation, the failing-cache-invalidation edge case, and the Infisical delivery contract.
 - [x] 4.2 Run broad repository validation
-  - **Evidence:** TypeScript checking and 2,900 repository tests pass; six environment-dependent integrations are skipped by their existing gates.
+  - **Evidence:** TypeScript checking and 2,901 repository tests pass; six environment-dependent integrations are skipped by their existing gates.
 - [x] 4.3 Review the exact diff independently
   - **Evidence:** Independent review found and drove the cache-invalidation correction and identified the explicit #754 delivery dependency before handoff.
 

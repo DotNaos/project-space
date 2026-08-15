@@ -3,7 +3,7 @@ title: Proposal
 description: Recover unreadable GitHub connections without coupling stored tokens to Clerk credentials.
 ---
 
-Change status: **Active**
+Change status: **Complete**
 
 Change kind: **Fix**
 
@@ -42,7 +42,7 @@ data continued to suggest that GitHub was connected.
 
 ## Delivery
 
-The code is backward compatible with readable legacy records. Production recovery still
-requires the approved Infisical value for the independent key and one explicit GitHub
-reconnect by the affected user. The exact pull-request revision must be approved before
-merge and normal Production delivery.
+The code is backward compatible with readable legacy records. The independent key exists
+in the approved Infisical Production boundary; the affected user must complete one
+explicit GitHub reconnect after delivery. The exact pull-request revision must be
+approved before merge and normal Production delivery.

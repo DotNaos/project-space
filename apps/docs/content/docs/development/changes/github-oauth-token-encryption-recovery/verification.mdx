@@ -3,24 +3,24 @@ title: Verification
 description: Requirement and delivery evidence for GitHub OAuth token recovery.
 ---
 
-Verification status: **Incomplete**
+Verification status: **Complete**
 
 ## Requirement evidence
 
 - [x] GITHUB-AUTH-001 — Independent token encryption
 - [x] GITHUB-AUTH-002 — Safe legacy recovery
 - [x] GITHUB-AUTH-003 — Honest connected state
-- [ ] GITHUB-AUTH-004 — Least-privilege secret delivery
+- [x] GITHUB-AUTH-004 — Least-privilege secret delivery
 
 ## Final reconciliation
 
 - [x] Current requirements describe only delivered behavior
 - [x] Architecture and design decisions match the implementation
-- [ ] Every required task and subtask is complete
+- [x] Every required task and subtask is complete
 - [x] Focused tests and repository validation pass
 - [x] The visible reconnect state has focused presentation coverage
-- [ ] Every issue and pull-request commitment is implemented or linked to its owning change
+- [x] Every issue and pull-request commitment is implemented or linked to its owning change
 
-Structural validation confirms that the active record is well formed. Completion remains
-gated on the merged Infisical delivery path, exact-revision approval, approved Production
-secret provisioning, normal deployment, and the affected user's GitHub reconnect.
+Structural validation confirms that this record is complete and well formed. Delivery
+remains gated on exact-revision approval, normal Production deployment, and the affected
+user's GitHub reconnect.
