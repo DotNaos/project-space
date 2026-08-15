@@ -25,7 +25,7 @@ describe('documentation change-spec validation', () => {
 
     expect(report.diagnostics).toEqual([]);
     expect(report.requirements).toBe(5);
-    expect(report.changes).toBe(4);
+    expect(report.changes).toBe(5);
     expect(report.templates).toBe(1);
   });
 

@@ -137,7 +137,7 @@ export interface AuthorizedAccessRouteSelection {
 }
 
 export function isCredentialReference(value: string) {
-  return value.length <= 512 && /^op:\/\/[^\r\n/]+\/[^\r\n/]+\/.+$/.test(value);
+  return /^env:\/\/[A-Z_][A-Z0-9_]{0,127}$/.test(value);
 }
 
 export function isPinnedSshHostKey(value: string) {

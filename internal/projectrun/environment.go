@@ -75,11 +75,6 @@ func commandForWithSecrets(
 	for key, value := range script.Environment {
 		replacements[key] = value
 	}
-	if loadSecrets {
-		for key, reference := range script.SecretEnvironment {
-			replacements[key] = reference
-		}
-	}
 	if allowedHosts != nil {
 		replacements["PROJECT_ALLOWED_HOSTS"] = strings.Join(allowedHosts, ",")
 		replacements["__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"] = ""
@@ -91,10 +86,15 @@ func commandForWithSecrets(
 		}
 	}
 	env := mergeEnvironment(nil, replacements)
+	secretEnvironment := map[string]string{}
 	if loadSecrets && len(script.SecretEnvironment) > 0 {
-		argv = append([]string{"op", "run", "--"}, argv...)
+		for name, reference := range script.SecretEnvironment {
+			secretEnvironment[name] = reference
+		}
 	}
-	return Command{Argv: argv, Dir: directory, Env: env}
+	return Command{
+		Argv: argv, Dir: directory, Env: env, SecretEnvironment: secretEnvironment,
+	}
 }
 
 func serverCommandFor(

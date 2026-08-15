@@ -360,12 +360,14 @@ describe('connector release and production deployment contract', () => {
     const deployConfig = await source('deploy/deploy.yaml');
     const compose = await source('deploy/compose.yml');
 
-    expect(workflow).toContain(
-      'PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64'
-    );
+    expect(workflow).toContain('project-slug: project-space-production');
+    expect(workflow).toContain('env-slug: prod');
+    expect(workflow).toContain('id-token: write');
     expect(deployConfig).toContain(
-      'PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: op://projects/project-space-release-manifest-signing-key/public_key_b64'
+      'PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_RELEASE_MANIFEST_SIGNING_PUBLIC_KEY_B64'
     );
+    expect(workflow).not.toContain('OP_SERVICE_ACCOUNT_TOKEN');
+    expect(workflow).not.toContain('op://');
     expect(compose).not.toContain('PROJECT_SPACE_CONNECTOR_APPROVED_RELEASE_ID:');
     expect(compose).not.toContain('PROJECT_CONNECTOR_REGISTRATION_TOKEN:');
     expect(compose).not.toContain('PROJECT_SPACE_CONNECTOR_BUNDLE_ASSET:');

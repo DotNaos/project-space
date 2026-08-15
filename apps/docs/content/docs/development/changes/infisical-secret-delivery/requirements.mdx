@@ -1,0 +1,89 @@
+---
+title: Requirement delta
+description: Secret ownership and delivery requirements for the Infisical migration.
+---
+
+## ADDED Requirements
+
+### SECRETS-001 — Human local development boundary
+
+Project Space local development MUST use the signed-in human Infisical session and MUST
+NOT require a persisted Infisical token or a 1Password service account.
+
+#### Scenario: Start a local secret-backed command
+
+- **Given** the developer is signed in to the Infisical CLI
+- **When** a Project Space development command requests its declared secrets
+- **Then** Project CLI fetches only those exact names without imports or recursion and
+  supplies the values only to the child process
+
+### SECRETS-002 — Fixed workload identities
+
+Preview, Production, and release signing MUST use separate fixed GitHub OIDC identities
+bound to their protected environment, repository, project, and environment, and workflows
+MUST NOT create identities, client secrets, or access tokens.
+
+#### Scenario: Trusted delivery job authenticates
+
+- **Given** the job runs from the trusted repository in its bound GitHub environment
+- **When** it requests Infisical secrets through OIDC
+- **Then** Infisical authorizes only that fixed workload boundary with a short-lived token
+
+### SECRETS-003 — Narrow transient export
+
+Every GitHub secret load MUST explicitly export only root-folder, non-imported,
+non-recursive values into the job environment and MUST NOT print or artifact those values.
+
+#### Scenario: An imported or nested secret exists
+
+- **Given** an Infisical project contains an imported or nested secret outside the declared root set
+- **When** a Project Space delivery workflow loads its boundary
+- **Then** that extra secret is not exported to the job
+
+### SECRETS-004 — Declared deployment references
+
+The Project CLI MUST resolve only declared `infisical://` references or explicit process
+environment overrides and MUST fail closed when a required value cannot be resolved.
+
+#### Scenario: Required deployment value is unavailable
+
+- **Given** neither a process override nor an authorized Infisical value is available
+- **When** the validated deployment plan resolves its environment
+- **Then** deployment stops before a remote transaction starts
+
+### SECRETS-005 — Runtime retirement of 1Password references
+
+Project Space runtime credential consumers MUST accept process-owned environment
+references and MUST reject or disable persisted `op://` references without invoking the
+1Password CLI.
+
+#### Scenario: Legacy database row remains
+
+- **Given** a stored SSH route still contains a retired 1Password reference
+- **When** the migration or runtime loader inspects it
+- **Then** the route is disabled and no 1Password subprocess is started
+
+#### Scenario: No runtime SSH route exists
+
+- **Given** Production contains no private-network or access-route rows
+- **When** the migration is delivered
+- **Then** no SSH private key is added to Production merely for an unused contract
+
+### SECRETS-006 — User-owned GitHub access
+
+Production MUST NOT receive a broad static GitHub token for application requests and MUST
+use each signed-in user's Project Space OAuth connection for private GitHub operations.
+
+#### Scenario: Private GitHub operation is requested
+
+- **Given** a signed-in owner has connected GitHub to Project Space
+- **When** Project Space performs a private repository operation
+- **Then** it uses that user's stored OAuth connection instead of a global runtime token
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

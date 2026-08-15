@@ -49,14 +49,14 @@ export class SecureSshSession {
       if (!agentPid) {
         throw new Error('Could not start a private SSH agent.');
       }
-      const privateKey = await opRead(
+      const privateKey = environmentRead(
         binding.provisioning.identity.sshPrivateKeyRef
       );
       await command('ssh-add', ['-'], {
         env: { SSH_AUTH_SOCK: socket },
         input: privateKey
       });
-      const publicKey = await opRead(
+      const publicKey = environmentRead(
         binding.provisioning.identity.sshPublicKeyRef
       );
       const expectedKey = await command(
@@ -122,8 +122,13 @@ export class SecureSshSession {
   }
 }
 
-export async function opRead(reference: string) {
-  return command('op', ['read', reference]);
+export function environmentRead(reference: string) {
+  const match = /^env:\/\/([A-Z_][A-Z0-9_]{0,127})$/.exec(reference);
+  const value = match ? Bun.env[match[1]!] : undefined;
+  if (!value || Buffer.byteLength(value) > 64 * 1024) {
+    throw new Error('Provisioning credential is unavailable.');
+  }
+  return value;
 }
 
 async function command(

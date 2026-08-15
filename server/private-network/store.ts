@@ -263,7 +263,7 @@ function validateNetwork(input: SavePrivateNetworkInput) {
     throw new Error('The private network is invalid.');
   }
   if (input.credentialReference && !isCredentialReference(input.credentialReference)) {
-    throw new Error('credentialReference must be an opaque 1Password reference.');
+    throw new Error('credentialReference must name an injected environment variable.');
   }
   validateWindow(input.availability, input.lastVerifiedAt, input.verifiedUntil);
 }

@@ -3472,68 +3472,6 @@
         ]
       },
       {
-        "path": "project token",
-        "name": "token",
-        "usage": "token",
-        "short": "Manage the Project 1Password token",
-        "aliases": [],
-        "runnable": false,
-        "flags": [
-          {
-            "name": "help",
-            "shorthand": "h",
-            "type": "bool",
-            "description": "help for token",
-            "inherited": false
-          }
-        ],
-        "commands": [
-          {
-            "path": "project token create",
-            "name": "create",
-            "usage": "create",
-            "short": "Create the Project 1Password service account token",
-            "aliases": [],
-            "runnable": true,
-            "flags": [
-              {
-                "name": "dry-run",
-                "type": "bool",
-                "description": "show what would happen without creating a token",
-                "inherited": false
-              },
-              {
-                "name": "expires-in",
-                "type": "string",
-                "description": "create a temporary token with a 1Password expiry, for example 24h",
-                "inherited": false
-              },
-              {
-                "name": "help",
-                "shorthand": "h",
-                "type": "bool",
-                "description": "help for create",
-                "inherited": false
-              },
-              {
-                "name": "json",
-                "type": "bool",
-                "description": "print machine-readable output",
-                "inherited": false
-              },
-              {
-                "name": "yes",
-                "shorthand": "y",
-                "type": "bool",
-                "description": "create the token without prompting",
-                "inherited": false
-              }
-            ],
-            "commands": []
-          }
-        ]
-      },
-      {
         "path": "project validate",
         "name": "validate",
         "usage": "validate [directory|file]",

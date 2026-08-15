@@ -27,7 +27,7 @@ const route: AccessRouteRecord = {
   allowedGatewayIds: ['gateway-one'],
   availability: 'available',
   capabilities: ['project_cli', 'interactive_shell'],
-  credentialReference: 'op://Personal/SSH/private key',
+  credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
   enabled: true,
   freshnessSeconds: 60,
   hostKeySha256: `SHA256:${'A'.repeat(43)}`,

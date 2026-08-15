@@ -120,7 +120,7 @@ The runner uses a trusted Compose/ingress template and enforces:
 
 ### 4.4 Secret boundary
 
-Create a separate GitHub Actions `Preview` environment, Preview-only 1Password service account, SSH identity, and Tailscale tag. This is an infrastructure permission boundary, not a second GitHub product integration. Never reuse the GitHub Actions `Production` environment.
+Create a separate GitHub Actions `Preview` environment, a fixed Preview-only Infisical OIDC identity, SSH identity, and Tailscale tag. This is an infrastructure permission boundary, not a second GitHub product integration. Never reuse the GitHub Actions `Production` environment.
 
 PR runtime code must never receive:
 
@@ -478,7 +478,7 @@ Preview records are kept outside the durable environment array, so a healthy PR 
 7. **Infrastructure bootstrap**
    - add and verify Tailnet DNS routing for `*.projects.os-home.net`, while admitting only derived `pr-{positive integer}.projects.os-home.net` hosts at ingress;
    - provision trusted wildcard TLS for `*.projects.os-home.net` or an equivalently bounded certificate strategy;
-   - configure the existing Clerk instance for the exact Preview origins and create only the separate GitHub Actions environment, 1Password service account/items, SSH forced command/controller, and Tailscale ACL/tag;
+   - configure the existing Clerk instance for the exact Preview origins and create only the separate GitHub Actions environment, fixed Infisical OIDC identity/project, SSH forced command/controller, and Tailscale ACL/tag;
    - define a small maximum active count, global build concurrency, minimum free space, and TTL.
 
 8. **Verification and dogfooding**
@@ -506,7 +506,7 @@ Preview records are kept outside the durable environment array, so a healthy PR 
 - explain the CLI command and machine-readable result;
 - document the trust boundary and why PR-local deploy assets are ignored;
 - document Preview identity, limits, TTL, cleanup, Reaper, and manual destroy;
-- document external DNS/TLS, exact Clerk origin binding, the reused GitHub OAuth application, trusted gateway, Tailscale, SSH, 1Password, and GitHub Actions environment setup;
+- document external DNS/TLS, exact Clerk origin binding, the reused GitHub OAuth application, trusted gateway, Tailscale, SSH, Infisical, and GitHub Actions environment setup;
 - document exact recovery steps without exposing secret values.
 
 ## Finishing criteria

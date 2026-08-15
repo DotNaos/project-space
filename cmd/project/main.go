@@ -69,7 +69,6 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newTemplateCommand())
 	root.AddCommand(newHostCommand())
 	root.AddCommand(newEnvironmentCommand())
-	root.AddCommand(newTokenCommand())
 	root.AddCommand(newValidateCommand())
 	root.AddCommand(newWorktreeCommand())
 	root.AddCommand(newWorkspaceCommand())

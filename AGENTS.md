@@ -29,7 +29,7 @@
 - A merge instruction does not by itself authorize starting a separate manual deployment or release, but it must never be used as a reason to cancel deployment or release automation that the repository starts automatically after the merge.
 - The live Project Space URL is `https://projects.os-home.net`.
 - After deploying, verify the VPS state with `./bin/project deploy status --env prod --format json`, confirm the remote checkout commit under `/opt/platform/apps/project-space`, and open the live `projects.os-home.net` page in the browser.
-- If deployment secrets are needed, use the 1Password references in `deploy/deploy.yaml`; never paste secret values into chat, source files, or logs.
+- If deployment secrets are needed, use the Infisical references in `deploy/deploy.yaml`; never paste secret values into chat, source files, or logs. Fixed workload identities must be provisioned explicitly and must never be created by a workflow.
 - Do not treat a successful Vercel preview or production deployment as evidence that Project Space is live. Only the VPS deploy and `projects.os-home.net` verification count.
 
 - Use HeroUI React documentation from https://v3.heroui.com/react/llms.txt

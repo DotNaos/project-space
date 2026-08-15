@@ -33,7 +33,8 @@ installation, virtual-media, and DC-power commands are absent.
 
 Project Space stores non-secret desired settings and the exact owner,
 machine, device, topic, and provider-credential binding in
-`config/machine-power/<machine>.json`. Broker passwords remain in 1Password.
+`config/machine-power/<machine>.json`. Broker passwords remain in the dedicated
+Infisical VPS project and are injected only for the operator command that needs them.
 The checked-in ACL is generated from those bindings:
 
 ```text
@@ -43,18 +44,18 @@ bun run machine-power:mqtt-acl:check
 
 Adding a binding therefore generates exact ACL blocks for only that device;
 it never extends a shared wildcard credential. Add the corresponding distinct
-device and Project Space provider credentials to 1Password and the broker
+device and Project Space provider credentials to the Infisical VPS project and the broker
 password file before enabling the device.
 
 `update-password-client.sh` adds or rotates one exact device/provider identity
 through an interactive password prompt. The companion Expect wrapper accepts
 the password through a protected environment variable, suppresses terminal
-logging, and sends it only to the remote prompt. Use it through `op run`; never
+logging, and sends it only to the remote prompt. Use it through `infisical run`; never
 put the password in an argument, repository file, deployment log, or shell
 history. `remove-password-client.sh` revokes one managed identity through the
 same copy-update-replace flow. Both scripts reload the broker only after the
 new password file is in place. Remove the corresponding generated ACL block
-as well, and keep the revoked 1Password item until rollback is no longer
+as well, and keep the previous Infisical version until rollback is no longer
 needed.
 
 JetKVM 0.5.8 does not expose a supported headless API for applying MQTT
@@ -63,8 +64,8 @@ WebRTC session. Project Space therefore keeps a versioned, non-secret
 provisioning contract and applies it through the dedicated SSH key:
 
 ```text
-bun run jetkvm:provision --machine os-pc
-bun run jetkvm:provision --machine os-pc --apply
+infisical run --domain=https://eu.infisical.com --projectId=4c28bc69-18ff-4fef-9635-c7896bcd22bf --env=prod -- bun run jetkvm:provision --machine os-pc
+infisical run --domain=https://eu.infisical.com --projectId=4c28bc69-18ff-4fef-9635-c7896bcd22bf --env=prod -- bun run jetkvm:provision --machine os-pc --apply
 ```
 
 The command validates the device identity and pinned firmware first, follows
@@ -77,7 +78,7 @@ remains available. It never copies
 user-facing device credentials are not part of the provider or provisioner.
 
 A factory reset of the same JetKVM still needs the minimum supported local
-bootstrap: enable Developer Mode and add the 1Password-backed SSH public key.
+bootstrap: enable Developer Mode and add the Infisical-backed SSH public key.
 A replacement device additionally needs deliberate enrollment of its new
 identity pins and separate least-privilege MQTT identities before regenerating
 the ACL. After SSH is available, the stored command applies Tailscale and MQTT

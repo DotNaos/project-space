@@ -22,9 +22,9 @@ test('the stored provisioning plan contains references but no secrets', async ()
 
   assert.equal(
     binding?.provisioning.tailscale.oauthClientSecretRef,
-    'op://projects/jetkvm-provisioning-tailscale/password'
+    'env://JETKVM_PROVISIONING_TAILSCALE_CLIENT_SECRET'
   );
-  assert.match(source, /"sshPrivateKeyRef": "op:\/\//);
+  assert.match(source, /"sshPrivateKeyRef": "env:\/\//);
   assert.doesNotMatch(source, /tskey-|BEGIN OPENSSH PRIVATE KEY/);
 });
 

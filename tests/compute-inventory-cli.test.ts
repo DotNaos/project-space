@@ -190,14 +190,14 @@ describe('agent-safe compute inventory', () => {
       privateNetworkInventory: {
         networks: [{
           approvalState: 'approved', availability: 'available',
-          credentialReference: 'op://Personal/Tailscale/token', enabled: true,
+          credentialReference: 'env://PROJECT_SPACE_TAILSCALE_TOKEN', enabled: true,
           id: networkId, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
           name: 'Private tailnet', ownerUserId: 'owner-one', providerKind: 'tailscale',
           providerReference: 'raw-provider-node-id', verifiedUntil: '2026-08-11T10:05:00.000Z'
         }],
         routes: [{
           allowedGatewayIds: ['private-gateway-id'], availability: 'available',
-          capabilities: ['project_cli'], credentialReference: 'op://Personal/SSH/private key',
+          capabilities: ['project_cli'], credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
           enabled: true, freshnessSeconds: 60, hostKeySha256: `SHA256:${'A'.repeat(43)}`,
           id: '20000000-0000-4000-8000-000000000001',
           lastVerifiedAt: '2026-08-11T10:00:30.000Z', ownerUserId: 'owner-one',
@@ -240,7 +240,7 @@ describe('agent-safe compute inventory', () => {
     const networkId = 'network-for-exact-route-binding';
     const common = {
       allowedGatewayIds: ['gateway-one'], availability: 'available' as const,
-      credentialReference: 'op://Personal/SSH/private key',
+      credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
       enabled: true, freshnessSeconds: 60, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
       ownerUserId: 'owner-one', policyState: 'approved' as const,
       privateAddress: '100.64.0.10', requiresInteractiveApproval: false,
@@ -255,7 +255,7 @@ describe('agent-safe compute inventory', () => {
       checkedAt: '2026-08-11T10:01:00.000Z', connectors,
       privateNetworkInventory: { networks: [{
         approvalState: 'approved', availability: 'available', enabled: true,
-        credentialReference: 'op://Personal/Tailscale/token',
+        credentialReference: 'env://PROJECT_SPACE_TAILSCALE_TOKEN',
         id: networkId, lastVerifiedAt: '2026-08-11T10:00:30.000Z',
         name: 'Private network', ownerUserId: 'owner-one', providerKind: 'tailscale',
         providerReference: 'private-provider-reference',

@@ -59,7 +59,7 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 			}
 			if apis == projectrun.APIsModeExternal {
 				return fmt.Errorf(
-					"external APIs are reserved but secure 1Password service-account delivery is not configured yet",
+					"external APIs are reserved but the required Infisical project mapping is not configured yet",
 				)
 			}
 			manager, err := managerFactory()

@@ -177,7 +177,7 @@ func writeAdoptionTestTemplate(t *testing.T) string {
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, ".templateignore"), ".templateignore\ntemplate/**\n.slot.yaml\nbun.lock\n.env\n")
 	mustWriteFile(t, filepath.Join(root, "template", "manifest.yaml"), "name: project-template\nversion: 0.1.0\nmodules:\n  - modules/core.yaml\n")
-	mustWriteFile(t, filepath.Join(root, "template", "modules", "core.yaml"), "name: core.fullstack\ndescription: Core test module.\ndefault: true\nvalues:\n  project.slug:\n    type: string\n    required: true\nblockers:\n  - path: .env\n    reason: plaintext secrets must move to 1Password references\nowns:\n  - README.md\n  - package.json\n  - LICENSE\n")
+	mustWriteFile(t, filepath.Join(root, "template", "modules", "core.yaml"), "name: core.fullstack\ndescription: Core test module.\ndefault: true\nvalues:\n  project.slug:\n    type: string\n    required: true\nblockers:\n  - path: .env\n    reason: plaintext secrets must move to secret-manager references\nowns:\n  - README.md\n  - package.json\n  - LICENSE\n")
 	mustWriteFile(t, filepath.Join(root, ".slot.yaml"), "name: root\nallow:\n  - extras/**\n")
 	mustWriteFile(t, filepath.Join(root, "README.md.template"), "# {{ project.slug }}\n")
 	mustWriteFile(t, filepath.Join(root, "package.json.template"), "{\"name\":\"{{ project.slug }}\"}\n")

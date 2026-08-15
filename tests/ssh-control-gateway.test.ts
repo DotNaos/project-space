@@ -269,7 +269,7 @@ function inventory(): PrivateNetworkInventory {
     }],
     routes: [{
       allowedGatewayIds: ['gateway-1'], availability: 'available',
-      capabilities: ['project_cli'], credentialReference: 'op://Vault/Item/private-key',
+      capabilities: ['project_cli'], credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
       credentialPurpose: 'project_control_gateway_v1',
       enabled: true, freshnessSeconds: 300, hostKeySha256: `SHA256:${'A'.repeat(43)}`,
       id: routeId, lastVerifiedAt, ownerUserId: owner, policyState: 'approved',

@@ -246,7 +246,7 @@ terminal involved. Every mutation showed its plan first.
    for UI links.
 3. Deploy prompting policy fix (usability): never prompt for values coming
    from `deploy.yaml` or flags; prompt once for inferred values and offer to
-   persist the answer into `deploy.yaml`. Remove the hardcoded 1Password
+   persist the answer into `deploy.yaml`. Remove the hardcoded Infisical
    secret refs in [cmd/project/deploy.go:61](../cmd/project/deploy.go) — move
    them into `deploy.yaml` (template-owned defaults).
 4. Fleet status: `project deploy status --fleet --format json` — one SSH
@@ -263,7 +263,7 @@ same VPS; the frontend matrix shows both with live status; two consecutive
 ## Phase F — GitHub integration
 
 Issues/PR work lives in the **app** (server-side, using `gh` CLI via the
-existing command-runner or the REST API with the 1Password-backed token);
+existing command-runner or the REST API with the Infisical-injected token);
 conventions live in the **template**.
 
 **Tasks:**

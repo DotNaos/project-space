@@ -43,11 +43,11 @@ const binding: JetKvmMqttBinding = {
       enable_ha_discovery: false,
       enabled: true,
       expectedUsername: 'jetkvm-b46e1a936ac89a4e',
-      passwordRef: 'op://projects/jetkvm-os-pc-mqtt-client/password',
+      passwordRef: 'env://OS_PC_MQTT_PASSWORD',
       port: 8883,
       tls_insecure: false,
       use_tls: true,
-      usernameRef: 'op://projects/jetkvm-os-pc-mqtt-client/username'
+      usernameRef: 'env://OS_PC_MQTT_USERNAME'
     }
   },
   provisioning: {
@@ -59,14 +59,14 @@ const binding: JetKvmMqttBinding = {
       ethernetMac: '00:11:22:33:44:55',
       sshHostKeySha256:
         'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      sshPrivateKeyRef: 'op://test/jetkvm/private_key',
-      sshPublicKeyRef: 'op://test/jetkvm/public_key'
+      sshPrivateKeyRef: 'env://JETKVM_PROVISIONING_SSH_PRIVATE_KEY',
+      sshPublicKeyRef: 'env://JETKVM_PROVISIONING_SSH_PUBLIC_KEY'
     },
     schema: 'project-space.jetkvm-provisioning/v1',
     tailscale: {
       hostname: 'jetkvm-os-pc',
-      oauthClientIdRef: 'op://test/tailscale/username',
-      oauthClientSecretRef: 'op://test/tailscale/password',
+      oauthClientIdRef: 'env://JETKVM_PROVISIONING_TAILSCALE_CLIENT_ID',
+      oauthClientSecretRef: 'env://JETKVM_PROVISIONING_TAILSCALE_CLIENT_SECRET',
       packageBaseUrl: 'https://pkgs.tailscale.com/stable',
       tag: 'tag:jetkvm',
       version: '1.98.10'

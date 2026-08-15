@@ -17,7 +17,7 @@ import {
   type JetKvmObservation
 } from './jetkvm-provisioning-lib';
 import {
-  opRead,
+  environmentRead,
   SecureSshSession
 } from './jetkvm-provisioning-ssh';
 
@@ -48,10 +48,10 @@ const binding = selectJetKvmBinding(
 const address = options.address ?? binding.provisioning.bootstrapAddress;
 const session = await SecureSshSession.open(address, binding);
 try {
-  const mqttUsername = await opRead(
+  const mqttUsername = environmentRead(
     binding.provider.desiredJetKvmSettings.usernameRef
   );
-  const mqttPassword = await opRead(
+  const mqttPassword = environmentRead(
     binding.provider.desiredJetKvmSettings.passwordRef
   );
   const desiredMqtt = desiredMqttConfig(
@@ -243,8 +243,8 @@ unset TS_AUTH_KEY`,
 async function createOneUseAuthKey(
   tailscale: JetKvmMqttBinding['provisioning']['tailscale']
 ) {
-  let clientId = (await opRead(tailscale.oauthClientIdRef)).trim();
-  let clientSecret = (await opRead(tailscale.oauthClientSecretRef)).trim();
+  let clientId = environmentRead(tailscale.oauthClientIdRef).trim();
+  let clientSecret = environmentRead(tailscale.oauthClientSecretRef).trim();
   const tokenResponse = await fetch(
     'https://api.tailscale.com/api/v2/oauth/token',
     {

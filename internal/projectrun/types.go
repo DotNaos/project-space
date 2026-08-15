@@ -119,10 +119,11 @@ type RunResult struct {
 }
 
 type Command struct {
-	Argv       []string
-	Dir        string
-	Env        []string
-	InheritEnv bool
+	Argv              []string
+	Dir               string
+	Env               []string
+	InheritEnv        bool
+	SecretEnvironment map[string]string
 }
 
 type ProcessRef struct {

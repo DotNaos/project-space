@@ -14,7 +14,8 @@ non-cancelling concurrency lane named `project-space-production`:
 2. Run Bun tests, type checking, the production build, Go tests, Go vet, the Go
    build, and the exact-commit CLI dry run without production credentials.
 3. Enter the GitHub `Production` environment.
-4. Load only the required deployment credentials from 1Password and join
+4. Authenticate to Infisical with the fixed Production OIDC identity, load only
+   the Production project credentials, and join
    Tailscale as the ephemeral `tag:ci-project-space-deploy` identity.
 5. Run `project deploy --env prod --commit <sha> --release-version <version> --format json` over pinned SSH.
 6. Independently compare GitHub `main`, the VPS checkout, running build
@@ -72,19 +73,17 @@ Manual and automatic commands use the same lock; they cannot overlap.
 
 ## GitHub Production configuration
 
-The `Production` environment contains one GitHub secret:
-
-- `OP_SERVICE_ACCOUNT_TOKEN`: a deploy-only 1Password service account that can
-  read the required items in the `projects` vault.
-
-It also contains non-secret variables:
+The `Production` environment contains no long-lived secret-delivery token. The
+workflow requests a short-lived GitHub OIDC token and Infisical accepts it only
+for the fixed Project Space Production identity and exact environment subject.
+It contains these non-secret variables:
 
 - `PROJECT_SPACE_DEPLOY_IP`: the VPS Tailscale IP.
 - `PROJECT_SPACE_SSH_KNOWN_HOSTS`: the pinned SSH host-key line.
 
-1Password contains the deploy SSH key, the two Tailscale OAuth credential fields
-restricted to `tag:ci-project-space-deploy`, and the existing application
-deployment secrets.
+The delete-protected `project-space-production` Infisical project contains the
+deploy SSH key, the two Tailscale OAuth credential fields restricted to
+`tag:ci-project-space-deploy`, and the application deployment secrets.
 The tailnet policy permits that CI tag to reach only the VPS on TCP port 22.
 Do not print, upload, or add any resolved value to workflow summaries.
 

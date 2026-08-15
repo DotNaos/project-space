@@ -53,6 +53,6 @@ Run CLI commands from the relevant project or managed worktree when repository c
 
 - Keep read-only discovery separate from changes.
 - Do not start tasks, send messages, repair machines, update software, deploy, or pass confirmation flags unless the user's request authorizes the action.
-- Never print access tokens, connector credentials, deployment secrets, or 1Password values.
+- Never print access tokens, connector credentials, deployment secrets, or Infisical values.
 - If MCP and CLI disagree, report both observations and their scopes; do not silently choose the more convenient result.
 - Summarize what changed, identify the exact project, machine, task, worktree, or deployment involved, and state any verification that could not be completed.

@@ -1,0 +1,59 @@
+---
+title: Tasks
+description: Implementation and verification checklist for Project Space Infisical delivery.
+---
+
+## 1. Secret ownership boundaries
+
+- [x] 1.1 Move local Project CLI development to the signed-in Infisical session
+  - **Evidence:** The checked-in project configuration declares one named secret. Project
+    CLI performs one exact lookup with imports and recursion disabled, and the local path
+    was exercised without a persisted service token.
+- [x] 1.2 Separate Preview, Production, and release-signing workloads
+  - **Evidence:** Each protected GitHub environment uses its own fixed identity, project,
+    environment, and OIDC subject.
+- [x] 1.3 Narrow every GitHub secret export
+  - **Evidence:** All four delivery action calls explicitly use environment export, root
+    path, imported-secret exclusion, and non-recursive lookup, with parsed YAML tests.
+
+## 2. Runtime and credential retirement
+
+- [x] 2.1 Resolve deployment values through Infisical or process overrides
+  - **Evidence:** The Project CLI validates `infisical://` references and its focused Go
+    tests cover exact non-imported, non-recursive resolution, redacted failures, and
+    fail-closed missing values.
+- [x] 2.2 Disable stored 1Password runtime references
+  - **Evidence:** Migration 0054 disables legacy rows and the runtime environment resolver
+    replaces the removed 1Password subprocess adapter. A read-only Production check found
+    zero private-network rows and zero access-route rows, so no live route is disabled and
+    no unused SSH key needs to be provisioned.
+- [x] 2.3 Remove automatic Project token creation and global GitHub access
+  - **Evidence:** The token command and its tests are removed, Production declares no broad
+    GitHub token, and private operations use the connected user's OAuth session.
+- [x] 2.4 Prevent unattended Infisical credential creation
+  - **Evidence:** Repository scans and workflow tests find no identity, client-secret, or
+    token creation path; VPS authentication remains a separate operator action.
+
+## 3. Verification and operational evidence
+
+- [x] 3.1 Run focused and broad local checks
+  - **Evidence:** Focused secret and workflow suites, the complete Bun and Go suites,
+    type checks, web/docs/mobile builds, action lint, shell syntax, Rust, and macOS
+    packaging checks passed; six declared persistent integration tests were skipped. The
+    intermittent unchanged Workspace Runtime socket race test is tracked in #778; its
+    focused repetitions and a complete race-suite retry passed outside the parallel lane.
+- [x] 3.2 Prove the fixed GitHub identities without deploying
+  - **Evidence:** Trusted run 31894189550 on exact `main` commit
+    `5a5f6f730b584c110cc88cdd0332bef12c82fd23` passed Preview, Production, and
+    release-signing boundaries without printing values or starting a deployment.
+- [x] 3.3 Record the Production incident and recovery
+  - **Evidence:** Incident #772 records the two legacy overwrites and the locked recovery
+    of `v0.24.3`, after which Clerk probed HTTP 200 and existing sessions were accepted.
+- [x] 3.4 Review the complete ownership inventory and exact diff
+  - **Evidence:** `docs/infisical-secret-delivery.md` maps every Project Space consumer,
+    identity, migration, dormant runtime boundary, repository follow-up, and remaining
+    delivery gate.
+
+## 4. Deferred follow-ups
+
+None.

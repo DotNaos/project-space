@@ -115,7 +115,7 @@ func superviseRuntime(ctx context.Context, reader io.Reader, acknowledgements io
 		_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Error: err.Error()})
 		return err
 	}
-	cmd, err := prepareCommand(command)
+	cmd, err := prepareCommand(ctx, command)
 	if err != nil {
 		_ = writeRuntimeSupervisorAck(acknowledgements, runtimeSupervisorAck{Error: err.Error()})
 		return err

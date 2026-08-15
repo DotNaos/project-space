@@ -27,7 +27,7 @@ The repository currently targets a web-first fullstack MVP:
 
 - `project prepare`
 - `project serve`
-  Run the complete app with simulated provider APIs and isolated local data. This is the default development profile and needs no hosted database, provider account, API key, or 1Password secret.
+  Run the complete app with simulated provider APIs and isolated local data. This is the default development profile and needs no hosted database, provider account, API key, or external secret.
 - `project serve --apis external --data local`
   Reserved for real integrations with isolated local data. Startup currently fails closed until secure detached service-account delivery is available.
 - `project serve --apis external --data remote`
