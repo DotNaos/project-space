@@ -69,6 +69,25 @@ func TestCreateProjectEmitsOnlySelectedAppTargetsAndDevices(t *testing.T) {
 	}
 }
 
+func TestCreateProjectEmitsValidManifestForAllWebDevices(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "all-web-devices")
+	_, err := CreateProject(projectRoot, InitOptions{
+		TemplatePath: writeAppTargetTemplate(t),
+		Targets:      []AppTargetSelection{{Target: "web", Devices: []string{"desktop", "tablet", "mobile"}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(projectRoot, "app.manifest.json"))
+	if err != nil {
+		t.Fatalf("read app.manifest.json: %v", err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatalf("parse app.manifest.json: %v\n%s", err, body)
+	}
+}
+
 func TestCreateProjectRequiresExplicitSelectionForAppTemplate(t *testing.T) {
 	_, err := CreateProject(filepath.Join(t.TempDir(), "demo-app"), InitOptions{TemplatePath: writeAppTargetTemplate(t)})
 	if err == nil {
@@ -318,16 +337,22 @@ owns:
 {{#if app.devices.web.desktop}}
       "desktop": {}
 {{#if app.devices.web.tablet}}
+{{#if app.devices.web.desktop}}
       ,
 {{/if}}
-{{#if app.devices.web.mobile}}
-      ,
 {{/if}}
 {{/if}}
 {{#if app.devices.web.tablet}}
       "tablet": {}
 {{#if app.devices.web.mobile}}
       ,
+{{/if}}
+{{/if}}
+{{#if app.devices.web.mobile}}
+{{#if app.devices.web.desktop}}
+{{#unless app.devices.web.tablet}}
+      ,
+{{/unless}}
 {{/if}}
 {{/if}}
 {{#if app.devices.web.mobile}}

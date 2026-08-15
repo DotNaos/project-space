@@ -679,8 +679,9 @@ Fetched templates are cached under the user cache directory at
 
 Template files use `{{ ns.key }}` placeholders, such as `{{ project.slug }}`.
 
-Boolean template values can also guard complete lines or blocks. Directives
-must appear on their own line and may be nested:
+Boolean template values can also guard complete lines or blocks. `#if` keeps a
+block when a value is true; `#unless` keeps it when the value is false.
+Directives must appear on their own line and may be nested:
 
 ```text
 {{#if app.targets.web}}
@@ -708,6 +709,7 @@ project template update --dry-run
 project template update --dry-run --format tsv
 project template update --yes
 project template update --template-path <template-directory>
+project template update --target web:desktop,tablet,mobile --dry-run
 ```
 
 This updates a project from its template. It prints the plan first. Use
@@ -721,6 +723,11 @@ For changed template-owned files, the update uses a three-way merge:
   file plus both template sides are copied to `.conflicts/<update>/`.
 
 `--template-path` is only for testing an update against a specific local template checkout. Normal use reads the source from `.project/template.lock.yaml`.
+
+When a template splits or renames an installed module, the update requires an
+explicit `--target <target>:<device>[,<device>...]` selection. The selection is
+used to choose the replacement target modules; it is shown in the update plan
+and written to the lock only when the update is applied.
 
 ## Smoke Test A Template
 

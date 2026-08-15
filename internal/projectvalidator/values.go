@@ -95,6 +95,21 @@ func cloneTemplateValues(values TemplateValues) TemplateValues {
 	return cloned
 }
 
+func mergeTemplateValueMaps(target TemplateValues, source TemplateValues) {
+	for key, value := range source {
+		if nested, ok := stringMap(value); ok {
+			current, _ := stringMap(target[key])
+			if current == nil {
+				current = map[string]any{}
+			}
+			mergeTemplateValueMaps(current, TemplateValues(nested))
+			target[key] = current
+			continue
+		}
+		target[key] = cloneTemplateValue(value)
+	}
+}
+
 func cloneTemplateValue(value any) any {
 	switch typed := value.(type) {
 	case TemplateValues:

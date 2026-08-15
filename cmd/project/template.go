@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/DotNaos/project-space/internal/projectvalidator"
@@ -26,6 +27,7 @@ func newTemplateUpdateCommand() *cobra.Command {
 	options := projectvalidator.TemplateUpdateOptions{}
 	format := "pretty"
 	yes := false
+	targets := []string{}
 	cmd := &cobra.Command{
 		Use:               "update [directory]",
 		Short:             "Update a project from its template",
@@ -49,6 +51,11 @@ func newTemplateUpdateCommand() *cobra.Command {
 			if format == "tsv" && !options.DryRun && !yes {
 				return fmt.Errorf("use --dry-run or --yes with --format tsv")
 			}
+			selections, err := parseAppTargetSelections(targets)
+			if err != nil {
+				return err
+			}
+			options.Targets = selections
 			plan, err := projectvalidator.PlanTemplateUpdate(resolved, options)
 			if err != nil {
 				return err
@@ -83,6 +90,7 @@ func newTemplateUpdateCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "show the template update plan without writing changes")
 	cmd.Flags().StringVar(&format, "format", "pretty", "output format")
 	cmd.Flags().StringVar(&options.TemplatePath, "template-path", "", "template source path")
+	cmd.Flags().StringArrayVar(&targets, "target", nil, "app target and devices for legacy module migration (<target>:<device>[,<device>...])")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "apply the template update without prompting")
 	must(cmd.RegisterFlagCompletionFunc("format", fixedValuesCompletion("pretty", "tsv")))
 	must(cmd.RegisterFlagCompletionFunc("template-path", directoryCompletion))
@@ -98,6 +106,7 @@ func printTemplateUpdatePlan(cmd *cobra.Command, plan projectvalidator.TemplateU
 		fmt.Fprintf(cmd.OutOrStdout(), "PLAN\ttemplate_update\t%s\t%s\n", mode, plan.ProjectRoot)
 		fmt.Fprintf(cmd.OutOrStdout(), "FROM\ttemplate\t%s\t%s\n", plan.FromTemplate, plan.FromVersion)
 		fmt.Fprintf(cmd.OutOrStdout(), "TO\ttemplate\t%s\t%s\n", plan.ToTemplate, plan.ToVersion)
+		fmt.Fprintf(cmd.OutOrStdout(), "MODULES\tmodules\t%s\t%s\n", strings.Join(plan.FromModules, ","), strings.Join(plan.ToModules, ","))
 		fmt.Fprintf(cmd.OutOrStdout(), "SOURCE\tdir\t%s\t.\n", plan.SourceRoot)
 		fmt.Fprintf(cmd.OutOrStdout(), "CONFLICTS\tdir\t%s\t.\n", plan.ConflictFolder)
 		for _, value := range plan.Values {
@@ -130,6 +139,9 @@ func printTemplateUpdatePlan(cmd *cobra.Command, plan projectvalidator.TemplateU
 		fmt.Fprintf(cmd.OutOrStdout(), "Current checksum: %s\n", plan.FromChecksum)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Target checksum: %s\n", plan.ToChecksum)
+	if len(plan.FromModules) > 0 || len(plan.ToModules) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Modules: %s -> %s\n", strings.Join(plan.FromModules, ", "), strings.Join(plan.ToModules, ", "))
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Conflict folder: %s\n", plan.ConflictFolder)
 	mode := "apply"
 	if dryRun {
