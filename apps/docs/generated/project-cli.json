@@ -4344,6 +4344,12 @@
                 "inherited": false
               },
               {
+                "name": "include-open-prs",
+                "type": "bool",
+                "description": "also allow clean worktrees whose exact remote head is preserved by an open pull request",
+                "inherited": false
+              },
+              {
                 "name": "project",
                 "type": "string",
                 "description": "project ID, repository, or unique name",

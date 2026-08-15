@@ -20,9 +20,9 @@ func TestWorktreePurgePlanRequiresCleanManagedInactiveIntegratedEvidence(t *test
 	plan, err := PlanWorktreePurge(context.Background(), "github:1", "DotNaos/example", mainPath, target.ID, PurgeOptions{
 		Meter: fixedMeter(100),
 		Checks: []EvidenceCheck{
-			func(context.Context, PurgeCandidate) ([]Blocker, error) {
+			func(context.Context, PurgeCandidate) (EvidenceResult, error) {
 				called = true
-				return []Blocker{blocker("codex_thread_active", "The owning Codex task is not archived.")}, nil
+				return EvidenceResult{Blockers: []Blocker{blocker("codex_thread_active", "The owning Codex task is not archived.")}}, nil
 			},
 		},
 	})
@@ -43,8 +43,8 @@ func TestWorktreePurgePlanRunsExternalEvidenceAfterLocalGates(t *testing.T) {
 	target := auditTarget(t, mainPath, worktreePath)
 	plan, err := PlanWorktreePurge(context.Background(), "github:1", "DotNaos/example", mainPath, target.ID, PurgeOptions{
 		Meter: fixedMeter(100),
-		Checks: []EvidenceCheck{func(context.Context, PurgeCandidate) ([]Blocker, error) {
-			return []Blocker{blocker("codex_thread_active", "The owning Codex task is not archived.")}, nil
+		Checks: []EvidenceCheck{func(context.Context, PurgeCandidate) (EvidenceResult, error) {
+			return EvidenceResult{Blockers: []Blocker{blocker("codex_thread_active", "The owning Codex task is not archived.")}}, nil
 		}},
 	})
 	if err != nil {
@@ -115,8 +115,11 @@ func TestWorktreePurgeRemovesCheckoutButRetainsBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Verified || result.State != "purged" || !result.FreeSpaceMeasured {
+	if !result.Verified || result.State != "purged" || !result.FreeSpaceMeasured || len(result.Evidence) != 1 {
 		t.Fatalf("result = %#v", result)
+	}
+	if result.Evidence[0].RecoveryState != "merged" || result.Evidence[0].PullRequest != 42 {
+		t.Fatalf("evidence = %#v", result.Evidence)
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
 		t.Fatalf("worktree still exists: %v", err)
@@ -175,6 +178,11 @@ func fixedMeter(value int64) Meter {
 }
 
 func passingWorktreeChecks() []EvidenceCheck {
-	pass := func(context.Context, PurgeCandidate) ([]Blocker, error) { return nil, nil }
-	return []EvidenceCheck{pass, pass, pass}
+	pass := func(context.Context, PurgeCandidate) (EvidenceResult, error) { return EvidenceResult{}, nil }
+	github := func(context.Context, PurgeCandidate) (EvidenceResult, error) {
+		return EvidenceResult{Evidence: []Evidence{{
+			Code: "github_pr_recovery", PullRequest: 42, RecoveryState: "merged",
+		}}}, nil
+	}
+	return []EvidenceCheck{pass, pass, github}
 }
