@@ -12,7 +12,7 @@ import (
 func TestWorktreePurgeDefaultsToDryRunAndPrintsBlockers(t *testing.T) {
 	local := t.TempDir()
 	dependencies := worktreePurgeDependencies{
-		Checks:      func(context.Context) ([]projectstorage.EvidenceCheck, error) { return nil, nil },
+		Checks:      func(context.Context, worktreePurgePolicy) ([]projectstorage.EvidenceCheck, error) { return nil, nil },
 		LoadCatalog: catalogLoader(testProjectCatalog(local)),
 		Plan: func(context.Context, string, string, string, string, projectstorage.PurgeOptions) (projectstorage.PurgePlan, error) {
 			return projectstorage.PurgePlan{
@@ -39,7 +39,7 @@ func TestWorktreePurgeApplyRequiresExpectedHeadAndReturnsVerifiedResult(t *testi
 	local := t.TempDir()
 	called := false
 	dependencies := worktreePurgeDependencies{
-		Checks:      func(context.Context) ([]projectstorage.EvidenceCheck, error) { return nil, nil },
+		Checks:      func(context.Context, worktreePurgePolicy) ([]projectstorage.EvidenceCheck, error) { return nil, nil },
 		LoadCatalog: catalogLoader(testProjectCatalog(local)),
 		Plan:        projectstorage.PlanWorktreePurge,
 		Purge: func(_ context.Context, _, _, _, id, head string, _ projectstorage.PurgeOptions) (projectstorage.PurgeResult, error) {
@@ -68,6 +68,43 @@ func TestWorktreePurgeApplyRequiresExpectedHeadAndReturnsVerifiedResult(t *testi
 	}
 }
 
+func TestWorktreePurgeOpenPullRequestsRequireExplicitPolicyFlag(t *testing.T) {
+	local := t.TempDir()
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "default merged only", args: []string{"--project", "project-space", "--id", "wt_1234567890abcdef12345678"}},
+		{name: "explicit open PR opt in", args: []string{"--project", "project-space", "--id", "wt_1234567890abcdef12345678", "--include-open-prs"}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			seen := false
+			dependencies := worktreePurgeDependencies{
+				Checks: func(_ context.Context, policy worktreePurgePolicy) ([]projectstorage.EvidenceCheck, error) {
+					seen = policy.IncludeOpenPRs
+					return nil, nil
+				},
+				LoadCatalog: catalogLoader(testProjectCatalog(local)),
+				Plan: func(context.Context, string, string, string, string, projectstorage.PurgeOptions) (projectstorage.PurgePlan, error) {
+					return projectstorage.PurgePlan{
+						Blockers: []projectstorage.Blocker{{Code: "pull_request_not_merged", Message: "blocked"}},
+						Candidate: &projectstorage.PurgeCandidate{
+							Branch: "issue-1", WorktreeID: "wt_1234567890abcdef12345678",
+						},
+						SchemaVersion: 1,
+					}, nil
+				},
+			}
+			executeProjectsFeatureCommand(t, newWorktreePurgeCommandWithDependencies(dependencies), test.args...)
+			if seen != test.want {
+				t.Fatalf("IncludeOpenPRs = %v, want %v", seen, test.want)
+			}
+		})
+	}
+}
+
 func TestPathContainsRecognizesNestedTaskCwd(t *testing.T) {
 	root := t.TempDir()
 	if !pathContains(root, root+"/src") || pathContains(root, root+"-other") {
@@ -93,8 +130,11 @@ func TestWorktreeBatchApplyPurgesOnlyInitiallySafeCandidatesAndRechecks(t *testi
 		SchemaVersion: 1,
 	}
 	dependencies := worktreePurgeDependencies{
-		Checks: func(context.Context) ([]projectstorage.EvidenceCheck, error) {
+		Checks: func(_ context.Context, policy worktreePurgePolicy) ([]projectstorage.EvidenceCheck, error) {
 			checksCalls++
+			if !policy.IncludeOpenPRs {
+				t.Fatal("batch apply dropped the open pull request opt-in during a fresh safety check")
+			}
 			return nil, nil
 		},
 		LoadCatalog: catalogLoader(testProjectCatalog(local)),
@@ -108,7 +148,7 @@ func TestWorktreeBatchApplyPurgesOnlyInitiallySafeCandidatesAndRechecks(t *testi
 	}
 	output := executeProjectsFeatureCommand(
 		t, newWorktreePurgeCommandWithDependencies(dependencies),
-		"--project", "project-space", "--all-safe", "--apply", "--format", "json",
+		"--project", "project-space", "--all-safe", "--include-open-prs", "--apply", "--format", "json",
 	)
 	result := worktreeBatchResult{}
 	if err := json.Unmarshal([]byte(output), &result); err != nil {

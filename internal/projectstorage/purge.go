@@ -23,6 +23,19 @@ type Blocker struct {
 	Message string `json:"message"`
 }
 
+type Evidence struct {
+	Code          string `json:"code"`
+	Message       string `json:"message"`
+	PullRequest   int    `json:"pullRequest,omitempty"`
+	RecoveryState string `json:"recoveryState,omitempty"`
+	URL           string `json:"url,omitempty"`
+}
+
+type EvidenceResult struct {
+	Blockers []Blocker
+	Evidence []Evidence
+}
+
 type PurgeCandidate struct {
 	Branch        string `json:"branch"`
 	Bytes         int64  `json:"bytes"`
@@ -38,25 +51,27 @@ type PurgePlan struct {
 	Blockers      []Blocker       `json:"blockers"`
 	Candidate     *PurgeCandidate `json:"candidate,omitempty"`
 	CheckedAt     string          `json:"checkedAt"`
+	Evidence      []Evidence      `json:"evidence,omitempty"`
 	Purgeable     bool            `json:"purgeable"`
 	SchemaVersion int             `json:"schemaVersion"`
 }
 
 type PurgeResult struct {
-	CheckedAt            string `json:"checkedAt"`
-	FreeSpaceDeltaBytes  int64  `json:"freeSpaceDeltaBytes,omitempty"`
-	FreeSpaceError       string `json:"freeSpaceError,omitempty"`
-	FreeSpaceMeasured    bool   `json:"freeSpaceMeasured"`
-	HeadSHA              string `json:"headSha"`
-	MeasuredBytesRemoved int64  `json:"measuredBytesRemoved"`
-	Path                 string `json:"path"`
-	SchemaVersion        int    `json:"schemaVersion"`
-	State                string `json:"state"`
-	Verified             bool   `json:"verified"`
-	WorktreeID           string `json:"worktreeId"`
+	CheckedAt            string     `json:"checkedAt"`
+	FreeSpaceDeltaBytes  int64      `json:"freeSpaceDeltaBytes,omitempty"`
+	FreeSpaceError       string     `json:"freeSpaceError,omitempty"`
+	FreeSpaceMeasured    bool       `json:"freeSpaceMeasured"`
+	HeadSHA              string     `json:"headSha"`
+	MeasuredBytesRemoved int64      `json:"measuredBytesRemoved"`
+	Path                 string     `json:"path"`
+	Evidence             []Evidence `json:"evidence,omitempty"`
+	SchemaVersion        int        `json:"schemaVersion"`
+	State                string     `json:"state"`
+	Verified             bool       `json:"verified"`
+	WorktreeID           string     `json:"worktreeId"`
 }
 
-type EvidenceCheck func(context.Context, PurgeCandidate) ([]Blocker, error)
+type EvidenceCheck func(context.Context, PurgeCandidate) (EvidenceResult, error)
 
 type PurgeOptions struct {
 	Checks []EvidenceCheck
@@ -139,12 +154,13 @@ func planWorktreeEntry(
 			if check == nil || plan.Candidate == nil {
 				continue
 			}
-			additional, checkErr := check(ctx, *plan.Candidate)
+			result, checkErr := check(ctx, *plan.Candidate)
 			if checkErr != nil {
 				plan.Blockers = append(plan.Blockers, blocker("evidence_unavailable", checkErr.Error()))
 				continue
 			}
-			plan.Blockers = append(plan.Blockers, additional...)
+			plan.Blockers = append(plan.Blockers, result.Blockers...)
+			plan.Evidence = append(plan.Evidence, result.Evidence...)
 		}
 	}
 	plan.Purgeable = len(plan.Blockers) == 0
@@ -209,7 +225,7 @@ func PurgeWorktree(
 	}
 	result := PurgeResult{
 		CheckedAt: plan.CheckedAt, HeadSHA: expectedHead,
-		MeasuredBytesRemoved: plan.Candidate.Bytes, Path: plan.Candidate.Path,
+		MeasuredBytesRemoved: plan.Candidate.Bytes, Path: plan.Candidate.Path, Evidence: plan.Evidence,
 		SchemaVersion: 1, State: "purged", Verified: true, WorktreeID: targetID,
 	}
 	freeAfter, freeAfterErr := diskFreeBytes(filepath.Dir(plan.Candidate.Path))

@@ -20,12 +20,12 @@ afterEach(() => {
 });
 
 describe('documentation change-spec validation', () => {
-  test('validates the checked-in current requirements, template, and representative change', () => {
+  test('validates the checked-in current requirements, templates, and completed changes', () => {
     const report = validateRepository();
 
     expect(report.diagnostics).toEqual([]);
     expect(report.requirements).toBe(5);
-    expect(report.changes).toBe(2);
+    expect(report.changes).toBe(3);
     expect(report.templates).toBe(1);
   });
 

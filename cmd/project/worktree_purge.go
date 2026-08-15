@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/DotNaos/project-space/internal/projectstorage"
 	"github.com/spf13/cobra"
 )
 
+type worktreePurgePolicy struct {
+	IncludeOpenPRs bool
+}
+
 type worktreePurgeDependencies struct {
-	Checks        func(context.Context) ([]projectstorage.EvidenceCheck, error)
+	Checks        func(context.Context, worktreePurgePolicy) ([]projectstorage.EvidenceCheck, error)
 	DiscoverLocal localProjectDiscovery
 	LoadCatalog   projectCatalogLoader
 	Plan          func(context.Context, string, string, string, string, projectstorage.PurgeOptions) (projectstorage.PurgePlan, error)
@@ -25,9 +26,9 @@ type worktreePurgeDependencies struct {
 
 func defaultWorktreePurgeDependencies() worktreePurgeDependencies {
 	return worktreePurgeDependencies{
-		Checks: func(ctx context.Context) ([]projectstorage.EvidenceCheck, error) {
+		Checks: func(ctx context.Context, policy worktreePurgePolicy) ([]projectstorage.EvidenceCheck, error) {
 			return []projectstorage.EvidenceCheck{
-				codexWorktreeEvidence(), processWorktreeEvidence(), integrationWorktreeEvidence(),
+				codexWorktreeEvidence(), processWorktreeEvidence(), integrationWorktreeEvidence(policy),
 			}, nil
 		},
 		DiscoverLocal: discoverLocalProjectPaths,
@@ -60,7 +61,7 @@ func newWorktreePurgeCommand() *cobra.Command {
 }
 
 func newWorktreePurgeCommandWithDependencies(dependencies worktreePurgeDependencies) *cobra.Command {
-	apply, dryRun, allSafe := false, false, false
+	apply, dryRun, allSafe, includeOpenPRs := false, false, false, false
 	selector, targetID, expectedHead, format := "", "", "", "text"
 	command := &cobra.Command{
 		Use:   "purge",
@@ -85,10 +86,11 @@ func newWorktreePurgeCommandWithDependencies(dependencies worktreePurgeDependenc
 			if err != nil {
 				return err
 			}
-			checks, err := dependencies.Checks(command.Context())
+			policy := worktreePurgePolicy{IncludeOpenPRs: includeOpenPRs}
+			checks, err := dependencies.Checks(command.Context(), policy)
 			if err != nil {
-				checks = []projectstorage.EvidenceCheck{func(context.Context, projectstorage.PurgeCandidate) ([]projectstorage.Blocker, error) {
-					return nil, err
+				checks = []projectstorage.EvidenceCheck{func(context.Context, projectstorage.PurgeCandidate) (projectstorage.EvidenceResult, error) {
+					return projectstorage.EvidenceResult{}, err
 				}}
 			}
 			options := projectstorage.PurgeOptions{Checks: checks}
@@ -103,7 +105,7 @@ func newWorktreePurgeCommandWithDependencies(dependencies worktreePurgeDependenc
 					}
 					return writeWorktreeBatchPlan(command, batch)
 				}
-				result := applySafeWorktreeBatch(command.Context(), dependencies, project.ID, project.Repository, projectPath, batch)
+				result := applySafeWorktreeBatch(command.Context(), dependencies, project.ID, project.Repository, projectPath, batch, policy)
 				if format == "json" {
 					return writeIndentedJSON(command, result)
 				}
@@ -130,8 +132,9 @@ func newWorktreePurgeCommandWithDependencies(dependencies worktreePurgeDependenc
 				return writeIndentedJSON(command, result)
 			}
 			_, err = fmt.Fprintf(
-				command.OutOrStdout(), "Purged %s (%s measured); retained branch and verified removal. %s\n",
-				result.Path, humanBytes(result.MeasuredBytesRemoved), freeSpaceResult(result.FreeSpaceMeasured, result.FreeSpaceDeltaBytes),
+				command.OutOrStdout(), "Purged %s (%s measured; %s); retained branch and verified removal. %s\n",
+				result.Path, humanBytes(result.MeasuredBytesRemoved), worktreeRecoveryLabel(result.Evidence),
+				freeSpaceResult(result.FreeSpaceMeasured, result.FreeSpaceDeltaBytes),
 			)
 			return err
 		},
@@ -141,6 +144,7 @@ func newWorktreePurgeCommandWithDependencies(dependencies worktreePurgeDependenc
 	command.Flags().StringVar(&expectedHead, "expect-head", "", "exact full reviewed worktree commit required for apply")
 	command.Flags().BoolVar(&apply, "apply", false, "perform the purge after a fresh safety check")
 	command.Flags().BoolVar(&allSafe, "all-safe", false, "inspect every linked worktree and act only on proven-safe candidates")
+	command.Flags().BoolVar(&includeOpenPRs, "include-open-prs", false, "also allow clean worktrees whose exact remote head is preserved by an open pull request")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "explicitly request the default read-only plan")
 	command.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	_ = command.MarkFlagRequired("project")
@@ -152,6 +156,7 @@ func applySafeWorktreeBatch(
 	dependencies worktreePurgeDependencies,
 	projectID, repository, projectPath string,
 	batch projectstorage.PurgeBatchPlan,
+	policy worktreePurgePolicy,
 ) worktreeBatchResult {
 	result := worktreeBatchResult{Items: make([]worktreeBatchItem, 0, len(batch.Plans)), SchemaVersion: 1}
 	allFreeSpaceMeasured := true
@@ -163,7 +168,7 @@ func applySafeWorktreeBatch(
 			result.Items = append(result.Items, item)
 			continue
 		}
-		checks, err := dependencies.Checks(ctx)
+		checks, err := dependencies.Checks(ctx, policy)
 		if err != nil {
 			item.Error = "fresh safety evidence is unavailable: " + err.Error()
 			result.SkippedCount++
@@ -208,7 +213,10 @@ func writeWorktreeBatchPlan(command *cobra.Command, batch projectstorage.PurgeBa
 func writeWorktreeBatchResult(command *cobra.Command, result worktreeBatchResult) error {
 	for _, item := range result.Items {
 		if item.State == "purged" {
-			if _, err := fmt.Fprintf(command.OutOrStdout(), "PURGED  %s  %s\n", item.Candidate.WorktreeID, item.Candidate.Path); err != nil {
+			if _, err := fmt.Fprintf(
+				command.OutOrStdout(), "PURGED  %s  %s  %s\n",
+				item.Candidate.WorktreeID, item.Candidate.Path, worktreeRecoveryLabel(item.Result.Evidence),
+			); err != nil {
 				return err
 			}
 			continue
@@ -254,9 +262,10 @@ func writeWorktreePurgePlan(command *cobra.Command, plan projectstorage.PurgePla
 		return errors.New("worktree purge plan has no candidate")
 	}
 	if plan.Purgeable {
+		recovery := worktreeRecoveryLabel(plan.Evidence)
 		_, err := fmt.Fprintf(
-			command.OutOrStdout(), "PURGEABLE  %s  %s  %s\nApply with --expect-head %s --apply\n",
-			plan.Candidate.WorktreeID, plan.Candidate.Branch, humanBytes(plan.Candidate.Bytes), plan.Candidate.HeadSHA,
+			command.OutOrStdout(), "PURGEABLE  %s  %s  %s  %s\nApply with --expect-head %s --apply\n",
+			plan.Candidate.WorktreeID, plan.Candidate.Branch, humanBytes(plan.Candidate.Bytes), recovery, plan.Candidate.HeadSHA,
 		)
 		return err
 	}
@@ -271,154 +280,14 @@ func writeWorktreePurgePlan(command *cobra.Command, plan projectstorage.PurgePla
 	return nil
 }
 
-func codexWorktreeEvidence() projectstorage.EvidenceCheck {
-	var inventory []localCodexThread
-	var inventoryErr error
-	once := sync.Once{}
-	return func(ctx context.Context, candidate projectstorage.PurgeCandidate) ([]projectstorage.Blocker, error) {
-		once.Do(func() {
-			inventory, inventoryErr = listLocalCodexThreads(ctx)
-		})
-		if inventoryErr != nil {
-			return nil, fmt.Errorf("list Codex tasks: %w", inventoryErr)
+func worktreeRecoveryLabel(evidence []projectstorage.Evidence) string {
+	for _, item := range evidence {
+		if item.RecoveryState == "merged" {
+			return fmt.Sprintf("merged PR #%d", item.PullRequest)
 		}
-		blockers := make([]projectstorage.Blocker, 0)
-		for _, session := range inventory {
-			if session.ID == candidate.OwnerThreadID || pathContains(candidate.Path, session.CWD) {
-				blockers = append(blockers, projectstorage.Blocker{
-					Code: "codex_thread_unarchived", Message: "Codex task " + session.ID + " still uses this worktree.",
-				})
-			}
-		}
-		return blockers, nil
-	}
-}
-
-func processWorktreeEvidence() projectstorage.EvidenceCheck {
-	once := sync.Once{}
-	paths := []string{}
-	var inventoryErr error
-	return func(ctx context.Context, candidate projectstorage.PurgeCandidate) ([]projectstorage.Blocker, error) {
-		once.Do(func() { paths, inventoryErr = openProcessPaths(ctx) })
-		return processPathEvidence(paths, inventoryErr, candidate.Path, "worktree")
-	}
-}
-
-func openProcessPaths(ctx context.Context) ([]string, error) {
-	command := exec.CommandContext(ctx, "lsof", "-Fn")
-	output, err := command.Output()
-	if err != nil {
-		return nil, fmt.Errorf("inspect process file usage: %w", err)
-	}
-	paths := make([]string, 0)
-	for _, line := range strings.Split(string(output), "\n") {
-		if strings.HasPrefix(line, "n") {
-			paths = append(paths, strings.TrimPrefix(line, "n"))
+		if item.RecoveryState == "open-pr-backed" {
+			return fmt.Sprintf("open PR #%d", item.PullRequest)
 		}
 	}
-	return paths, nil
-}
-
-func processPathEvidence(paths []string, inventoryErr error, path, label string) ([]projectstorage.Blocker, error) {
-	if inventoryErr != nil {
-		return nil, inventoryErr
-	}
-	for _, openPath := range paths {
-		if pathContains(path, openPath) {
-			return []projectstorage.Blocker{{Code: "process_active", Message: "A running process has a working directory or open file inside this " + label + "."}}, nil
-		}
-	}
-	return nil, nil
-}
-
-type pullRequestRecord struct {
-	HeadRefName string  `json:"headRefName"`
-	HeadRefOID  string  `json:"headRefOid"`
-	IsDraft     bool    `json:"isDraft"`
-	MergedAt    *string `json:"mergedAt"`
-	Number      int     `json:"number"`
-	State       string  `json:"state"`
-	URL         string  `json:"url"`
-}
-
-func integrationWorktreeEvidence() projectstorage.EvidenceCheck {
-	refreshOnce, pullRequestsOnce := sync.Once{}, sync.Once{}
-	defaultRef := ""
-	var refreshErr, pullRequestsErr error
-	records := []pullRequestRecord{}
-	return func(ctx context.Context, candidate projectstorage.PurgeCandidate) ([]projectstorage.Blocker, error) {
-		refreshOnce.Do(func() {
-			if _, err := commandOutput(ctx, candidate.Path, "git", "fetch", "--prune", "origin"); err != nil {
-				refreshErr = fmt.Errorf("refresh origin before integration check: %w", err)
-				return
-			}
-			resolved, err := commandOutput(ctx, candidate.Path, "git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-			if err != nil {
-				refreshErr = fmt.Errorf("resolve origin default branch: %w", err)
-				return
-			}
-			defaultRef = strings.TrimSpace(resolved)
-		})
-		if refreshErr != nil {
-			return nil, refreshErr
-		}
-		ancestor := exec.CommandContext(ctx, "git", "-C", candidate.Path, "merge-base", "--is-ancestor", candidate.HeadSHA, defaultRef)
-		if ancestor.Run() == nil {
-			return nil, nil
-		}
-		pullRequestsOnce.Do(func() {
-			output, err := commandOutput(
-				ctx, candidate.Path, "gh", "pr", "list", "--repo", candidate.Repository,
-				"--state", "all", "--limit", "1000",
-				"--json", "number,state,isDraft,mergedAt,headRefName,headRefOid,url",
-			)
-			if err != nil {
-				pullRequestsErr = fmt.Errorf("load pull request evidence: %w", err)
-				return
-			}
-			if json.Unmarshal([]byte(output), &records) != nil {
-				pullRequestsErr = errors.New("load pull request evidence: invalid GitHub response")
-			}
-		})
-		if pullRequestsErr != nil {
-			return nil, pullRequestsErr
-		}
-		for _, record := range records {
-			if record.HeadRefName != candidate.Branch || record.HeadRefOID != candidate.HeadSHA {
-				continue
-			}
-			if record.State == "MERGED" && record.MergedAt != nil && !record.IsDraft {
-				return nil, nil
-			}
-			return []projectstorage.Blocker{{Code: "pull_request_not_merged", Message: fmt.Sprintf("Pull request #%d for the exact head is not merged.", record.Number)}}, nil
-		}
-		return []projectstorage.Blocker{{Code: "pull_request_not_merged", Message: "No merged pull request proves the current unique worktree head."}}, nil
-	}
-}
-
-func commandOutput(ctx context.Context, directory, name string, args ...string) (string, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Dir = directory
-	output, err := command.CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			message = err.Error()
-		}
-		return "", errors.New(message)
-	}
-	return string(output), nil
-}
-
-func pathContains(parent, child string) bool {
-	if strings.TrimSpace(child) == "" {
-		return false
-	}
-	parent, parentErr := filepath.Abs(filepath.Clean(parent))
-	child, childErr := filepath.Abs(filepath.Clean(child))
-	if parentErr != nil || childErr != nil {
-		return false
-	}
-	relative, err := filepath.Rel(parent, child)
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+	return "recovery proof unavailable"
 }

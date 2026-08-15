@@ -1,0 +1,44 @@
+---
+title: Proposal
+description: Reclaim local worktree storage while preserving recoverable open pull-request work.
+---
+
+Change status: **Complete**
+
+Change kind: **Feature**
+
+Issue: **[#765](https://github.com/DotNaos/project-space/issues/765)**
+Requirements: **Required**
+
+## Summary
+
+Add an explicit `--include-open-prs` mode to `project worktree purge`. It allows a clean,
+unused local worktree to be removed before its pull request merges when GitHub and the
+repository's remote branch preserve the exact worktree commit.
+
+## Problem
+
+The default purge policy protects unfinished pull requests, so large but safely published
+worktrees remain on disk until merge. Developers need a deliberate way to reclaim that
+space without weakening the protections around unpublished changes or active Codex work.
+
+## Scope
+
+- Add an opt-in mode for clean worktrees backed by an exact open pull request.
+- Require the exact local head to exist on the same repository's remote branch.
+- Retain the existing cleanliness, Codex-task, process, linked-worktree, and apply-time checks.
+- Report whether recovery evidence is a merged or open pull request in text and JSON output.
+- Require exact merged-pull-request evidence in the default mode.
+
+## Out of scope
+
+- Purging dirty, unpublished, fork-backed, or closed-unmerged worktrees.
+- Deleting branches or GitHub pull requests.
+- Changing main-checkout deletion policy or project-level checkout cleanup.
+- Adding a graphical storage interface.
+
+## Delivery
+
+This is a backward-compatible Project CLI feature. The default remains fail closed and
+only the explicit flag widens eligibility. It requires no data migration or production
+service deployment.
