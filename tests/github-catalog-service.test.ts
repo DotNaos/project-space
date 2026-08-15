@@ -80,6 +80,34 @@ describe('GitHubCatalogService', () => {
     expect(result.cache?.state).toBe('miss');
   });
 
+  test('checks the saved connection before serving a fresh connected cache', async () => {
+    const store = new MemoryStore();
+    await store.write({ catalog: catalog('saved'), scope: 'default', updatedAt: new Date().toISOString(), userId: 'a' });
+    let refreshCalls = 0;
+    const service = new GitHubCatalogService({
+      refresh: async () => {
+        refreshCalls += 1;
+        return { catalog: catalog('fresh') };
+      },
+      store,
+      userId: 'a',
+      validateCachedConnection: async () => ({
+        checkedAt: new Date().toISOString(),
+        message: 'Reconnect GitHub to continue.',
+        reconnectRequired: true,
+        repositories: [],
+        status: 'auth-required'
+      })
+    });
+
+    const result = await service.get();
+    expect(result.status).toBe('auth-required');
+    expect(result.reconnectRequired).toBe(true);
+    expect(result.cache?.state).toBe('miss');
+    expect(store.records.size).toBe(0);
+    expect(refreshCalls).toBe(0);
+  });
+
   test('stale cache returns immediately, refreshes in background, and preserves last-known-good on failure', async () => {
     const store = new MemoryStore();
     await store.write({ catalog: catalog('saved'), scope: 'default', updatedAt: new Date(0).toISOString(), userId: 'a' });

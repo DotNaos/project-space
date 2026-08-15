@@ -15,7 +15,7 @@ description: Implementation and verification checklist for GitHub token recovery
 ## 2. Honest application state
 
 - [x] 2.1 Remove stale connected catalog data after authentication loss
-  - **Evidence:** The catalog service invalidates the exact user and scope and returns reconnect-required even when invalidation fails.
+  - **Evidence:** The catalog service validates the local saved connection before serving even a fresh cache, invalidates the exact user and scope, and returns reconnect-required even when invalidation fails.
 - [x] 2.2 Present an explicit reconnect action
   - **Evidence:** The shared catalog contract carries reconnect-required and the presentation model renders a reconnect title and action.
 
@@ -32,7 +32,7 @@ description: Implementation and verification checklist for GitHub token recovery
 ## 4. Verification
 
 - [x] 4.1 Run focused storage, cache, service, interface, and build tests
-  - **Evidence:** Forty focused tests pass, including the failing-cache-invalidation edge case.
+  - **Evidence:** Forty-four focused tests pass, including fresh-cache validation and the failing-cache-invalidation edge case.
 - [x] 4.2 Run broad repository validation
   - **Evidence:** TypeScript checking and 2,895 repository tests pass; six environment-dependent integrations are skipped by their existing gates.
 - [x] 4.3 Review the exact diff independently

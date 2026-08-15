@@ -38,6 +38,12 @@ reconnection when none of the bounded legacy sources can decrypt it.
 Project Space MUST NOT show stale connected GitHub catalog data after an authentication
 failure establishes that the saved connection must be replaced.
 
+#### Scenario: A fresh catalog outlives its saved connection
+
+- **Given** a recently cached connected catalog and an unreadable saved token
+- **When** Project Space loads the catalog again
+- **Then** it validates the local saved connection before returning the cached connected state
+
 #### Scenario: Cached catalog invalidation fails
 
 - **Given** a cached connected catalog and an unreadable saved token

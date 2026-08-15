@@ -52,6 +52,7 @@ always use the dedicated key when it is configured.
 4. Treat migration writes as best-effort after successful decryption; a temporary write failure must not discard a usable connection.
 5. Treat cache deletion as best-effort for availability, but never let a deletion failure restore stale connected data in the current response.
 6. Carry an explicit reconnect-required flag to the interface instead of inferring the action from error text.
+7. Validate the local encrypted connection before serving a cached connected catalog; this adds no GitHub network request.
 
 ## Risks and mitigations
 

@@ -15,6 +15,7 @@ interface GitHubCatalogServiceOptions {
   scope?: string;
   store: GitHubCatalogCacheStore;
   userId: string;
+  validateCachedConnection?: () => Promise<GitHubCatalogResult | null>;
 }
 
 const refreshes = new Map<string, Promise<GitHubCatalogResult>>();
@@ -97,6 +98,20 @@ export class GitHubCatalogService {
     const cacheStartedAt = performance.now();
     const snapshot = await this.options.store.read(this.options.userId, this.scope);
     const cacheReadMs = performance.now() - cacheStartedAt;
+    if (snapshot && !forceRefresh && this.options.validateCachedConnection) {
+      const connectionFailure = await this.options.validateCachedConnection();
+      if (connectionFailure) {
+        await this.options.store.invalidate(
+          this.options.userId,
+          this.scope
+        ).catch(() => undefined);
+        return {
+          ...connectionFailure,
+          cache: { state: 'miss' as const },
+          timings: { cacheReadMs }
+        };
+      }
+    }
     if (!snapshot || forceRefresh) return this.refresh(snapshot);
     const age = this.now() - new Date(snapshot.updatedAt).getTime();
     if (age <= this.freshForMs) return { ...this.decorate(snapshot, 'fresh'), timings: { cacheReadMs } };

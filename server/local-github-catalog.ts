@@ -174,6 +174,20 @@ function createEmptyCatalog(
   };
 }
 
+function createGitHubConnectionRequiredCatalog(defaultMessage: string) {
+  const clientConfigured = Boolean(getGitHubClientId());
+  const connection = githubConnectionRequired(defaultMessage);
+  return {
+    ...createEmptyCatalog(
+      clientConfigured ? 'auth-required' : 'not-configured',
+      clientConfigured ? connection.message : githubOAuthClientIdMissingMessage
+    ),
+    ...(clientConfigured && connection.reconnectRequired
+      ? { reconnectRequired: true }
+      : {})
+  } satisfies GitHubCatalogResult;
+}
+
 function readStoredToken(): StoredGitHubToken | null {
   if (!existsSync(githubTokenFile)) {
     return null;
@@ -409,20 +423,10 @@ async function refreshGitHubCatalog(etag?: string, signal?: AbortSignal) {
   const tokenLookupMs = performance.now() - tokenStartedAt;
 
   if (!auth) {
-    const connection = githubConnectionRequired(
-      'Connect GitHub to load the remote project catalog.'
-    );
-    const clientConfigured = Boolean(getGitHubClientId());
     return {
-      catalog: {
-        ...createEmptyCatalog(
-          clientConfigured ? 'auth-required' : 'not-configured',
-          clientConfigured ? connection.message : githubOAuthClientIdMissingMessage
-        ),
-        ...(clientConfigured && connection.reconnectRequired
-          ? { reconnectRequired: true }
-          : {})
-      },
+      catalog: createGitHubConnectionRequiredCatalog(
+        'Connect GitHub to load the remote project catalog.'
+      ),
       timings: { tokenLookupMs, totalMs: performance.now() - startedAt }
     };
   }
@@ -482,7 +486,19 @@ export async function getGitHubCatalog(options: { forceRefresh?: boolean } = {})
     markRefreshing: (userId: string, scope: string, attemptedAt: string) => bounded(postgresStore.markRefreshing(userId, scope, attemptedAt), catalogDatabaseTimeoutMs, 'Catalog cache update timed out.'),
     markFailed: (userId: string, scope: string, message: string, attemptedAt: string) => bounded(postgresStore.markFailed(userId, scope, message, attemptedAt), catalogDatabaseTimeoutMs, 'Catalog cache update timed out.')
   };
-  const service = new GitHubCatalogService({ refresh: refreshGitHubCatalogWithDeadline, store, userId: session.userId });
+  const service = new GitHubCatalogService({
+    refresh: refreshGitHubCatalogWithDeadline,
+    store,
+    userId: session.userId,
+    validateCachedConnection: async () => {
+      const auth = await resolveToken();
+      return auth
+        ? null
+        : createGitHubConnectionRequiredCatalog(
+            'Connect GitHub to load the remote project catalog.'
+          );
+    }
+  });
   const result = await service.get(options.forceRefresh);
   const timing = getGitHubCatalogRequestTiming();
   const sanitized = { ...result, timings: { ...result.timings, authMs: timing?.authMs, totalMs: timing ? performance.now() - timing.requestStartedAt : performance.now() - requestStartedAt } };
