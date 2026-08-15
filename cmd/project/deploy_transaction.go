@@ -58,6 +58,7 @@ func (e deployStateError) Unwrap() error { return e.Err }
 
 var resolveDeployRemoteHead = gitRemoteBranchHead
 var executeDeployRemoteTransaction = runDeployRemoteTransaction
+var validateDeployClerkCredential = validateClerkDeployCredential
 
 func deployProjectToVPS(cmd *cobra.Command, projectRoot string, options deployOptions) (deployProject, error) {
 	project, plannedOptions, err := resolveDeployProject(cmd, projectRoot, options, false)
@@ -119,6 +120,9 @@ func deployProjectToVPS(cmd *cobra.Command, projectRoot string, options deployOp
 	runtimeProject.Evidence = project.Evidence
 	runtimeProject.Steps = project.Steps
 	runtimeOptions.Commit = requested
+	if err := validateDeployClerkCredential(runtimeOptions); err != nil {
+		return failDeployProject(runtimeProject, "failed_before_deploy", err)
+	}
 
 	output, remoteErr := executeDeployRemoteTransaction(runtimeOptions.Host, deployTransactionScript(runtimeProject, runtimeOptions))
 	if remoteErr != nil {

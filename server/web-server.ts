@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { createLocalProjectSpaceBackend } from './local-project-space-backend';
 import { createConfiguredMachineConnectionRuntime } from './machine-connection-runtime';
 import { createProjectSpaceServer } from './project-space-http';
+import { probeClerkBackendReadiness } from './clerk-backend-readiness';
 import { connectorRuntimeRecord } from './connector-build-info';
 import {
   initializeOpenTelemetry,
@@ -65,7 +66,12 @@ const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
 const staticRoot = resolve(process.cwd(), 'dist/renderer');
 const backend = createLocalProjectSpaceBackend();
 const machineConnectionRuntime = await createConfiguredMachineConnectionRuntime();
+const authReadiness = await probeClerkBackendReadiness();
+if (!authReadiness.ready) {
+  logger.error('auth.clerk.readiness.failed', { code: authReadiness.code });
+}
 const server = await createProjectSpaceServer({
+  authReadiness,
   backend,
   host,
   machineConnectionRuntime: machineConnectionRuntime ?? undefined,

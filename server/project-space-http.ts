@@ -87,8 +87,10 @@ import {
 import { PostgresCanonicalRuntimeControlOperationStore } from './canonical-runtime-control/postgres-operation-store';
 import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
 import { createConfiguredTailscaleInventoryHandler } from './tailscale-inventory/configured-runtime';
+import type { ClerkBackendReadiness } from './clerk-backend-readiness';
 
 export interface ProjectSpaceHttpOptions {
+  authReadiness?: ClerkBackendReadiness;
   backend?: ProjectSpaceBackend;
   codexSessions?: CodexSessionsHttpHandler;
   canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
@@ -291,6 +293,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   );
   const handleApiRequest = projectChatRuntime.then((runtime) =>
     createProjectSpaceApiHandler(backend, {
+      authReadiness: options.authReadiness,
       canonicalRuntimeControl,
       codexAuthorization,
       codexSessions,
