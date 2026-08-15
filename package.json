@@ -24,6 +24,7 @@
     "docs:release:pr": "bun scripts/validate-release-pr.ts",
     "docs:cli:check": "bun scripts/generate-cli-docs.ts --check",
     "docs:cli:generate": "bun scripts/generate-cli-docs.ts",
+    "docs:specs:check": "bun scripts/validate-docs-specs.ts",
     "machine-power:mqtt-acl:check": "bun scripts/generate-machine-power-mqtt-acl.ts --check",
     "machine-power:mqtt-acl:generate": "bun scripts/generate-machine-power-mqtt-acl.ts",
     "machine-power:mqtt-isolation:test": "bun scripts/test-machine-power-mqtt-isolation.ts",

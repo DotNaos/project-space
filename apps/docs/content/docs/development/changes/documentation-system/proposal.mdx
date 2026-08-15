@@ -1,0 +1,45 @@
+---
+title: Proposal
+description: Make deployed Project Space docs the complete validated product and developer knowledge base.
+---
+
+Change status: **Complete**
+
+Change kind: **Feature**
+
+Issue: **[#764](https://github.com/DotNaos/project-space/issues/764)**
+Requirements: **Required**
+
+## Summary
+
+Publish current requirements, architecture, design decisions, development, operations,
+reference, and release material in one deployed docs structure. Add a lightweight
+change-spec workflow and deterministic validation so future behavior changes reconcile
+their requirements, design, task completion, evidence, and follow-up work.
+
+## Problem
+
+The deployed docs cover setup, CLI, tools, and releases but do not provide a complete
+developer model of the system. Requirements and architecture are scattered, change
+checklists are inconsistent, and CI cannot detect several important documentation drift
+states.
+
+## Scope
+
+- Establish the deployed documentation information architecture.
+- Publish current documentation-system requirements, architecture, and ADRs.
+- Define proposal, requirement delta, design, hierarchical task, blocker, follow-up, and verification conventions.
+- Add templates, a representative deployed change, deterministic validation, tests, and CI integration.
+- Render architecture diagrams in the deployed docs.
+
+## Out of scope
+
+- Rewriting every legacy architecture document in the first change.
+- Replacing GitHub Issues, pull requests, or the existing release workflow.
+- Installing OpenSpec or Kiro agent commands.
+- Claiming structural checks prove semantic implementation correctness.
+
+## Delivery
+
+The change is delivered through the docs application and repository CI. It requires no
+new CLI, connector, installer, or machine-tool release.

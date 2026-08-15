@@ -1,0 +1,34 @@
+---
+title: Product and requirements
+description: The current behavior Project Space promises and the rules for keeping it aligned with implementation.
+---
+
+Requirements are the durable statement of what Project Space guarantees. They describe
+observable behavior and constraints, not implementation details.
+
+## Requirement format
+
+Every requirement has a stable identifier, normative behavior, and at least one testable
+scenario:
+
+```md
+### DOCS-001 — Canonical deployed documentation
+
+Project Space MUST publish current requirements in the deployed documentation.
+
+#### Scenario: A shipped feature changes behavior
+
+- **Given** a pull request changes observable behavior
+- **When** the pull request is completed
+- **Then** the affected current requirements describe the delivered behavior
+```
+
+## Truth states
+
+- **Current** describes behavior supported by the current source revision.
+- **Proposed** appears only inside an active change specification.
+- **Blocked** is proposed work waiting for an explicit prerequisite.
+- **Superseded** remains historical context and is not a current guarantee.
+
+A proposal must never be presented as current product behavior merely because it exists
+in the deployed docs.

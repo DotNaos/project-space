@@ -1,0 +1,95 @@
+---
+title: Documentation workflow
+description: Keep current requirements, architecture, decisions, implementation tasks, and evidence aligned with every change.
+---
+
+Documentation is part of the implementation contract. A feature is not complete when its
+code and current requirements describe different behavior.
+
+## 1. Decide what the change affects
+
+| Change | Required documentation |
+| --- | --- |
+| New or changed observable behavior | Proposal, requirement delta, design, tasks, verification, and current docs |
+| Bug fix that changes the supported contract | Changed requirement scenario, tasks, verification, and affected current docs |
+| Architecture or security boundary | Design plus a new or updated ADR and architecture page |
+| Internal refactor with no behavior change | Explicit `Requirements: Not applicable` rationale in the proposal |
+| Operational change | Operations page, tasks, verification, and architecture/ADR when boundaries change |
+| Generated interface change | Generator source, generated artifact, freshness check, and relevant reference page |
+| Documentation-only correction | Direct docs change; use a change specification only when scope or design needs reconciliation |
+
+## 2. Create the change artifacts
+
+Copy the templates from `apps/docs/content/change-template` into a named directory under
+`apps/docs/content/docs/development/changes`. Keep the five artifacts together:
+
+```text
+changes/<change-name>/
+├── proposal.mdx
+├── requirements.mdx
+├── design.mdx
+├── tasks.mdx
+└── verification.mdx
+```
+
+## 3. Write requirements before implementation
+
+Requirement deltas use `ADDED`, `CHANGED`, and `REMOVED` sections. Each requirement states
+observable behavior and includes Given/When/Then scenarios. Implementation detail belongs
+in `design.mdx`.
+
+## 4. Use a readable task tree
+
+Important sections and tasks receive light decimal numbering. Small subtasks stay ordinary
+nested checkboxes:
+
+```md
+## 2. Device assignment
+
+- [ ] 2.1 Migrate existing devices
+  - [x] Define the migration strategy
+    - **Evidence:** Reviewed migration design
+  - [ ] Implement the backfill
+    - **Status:** Blocked
+    - **Reason:** Provider records do not expose a stable account assignment
+    - **Blocked by:** #812
+    - **Unblocked when:** Provider devices contain a stable account assignment
+```
+
+A checked parent is valid only when every required descendant is checked. Completed leaf
+tasks require an `Evidence` entry.
+
+## 5. Handle blockers without losing scope
+
+A blocked task remains incomplete. Record its reason, prerequisite, and exact return
+condition. If the current pull request waits, no scope changes are needed.
+
+If the pull request ships a smaller result:
+
+1. Narrow the current requirement delta and design.
+2. Move the missing acceptance criteria to an existing or new continuation issue.
+3. Link that issue from `Deferred follow-ups`.
+4. Ensure current product docs do not claim the missing behavior shipped.
+
+```md
+## 6. Deferred follow-ups
+
+- [ ] Implement the provider backfill
+  - **Issue:** #813
+  - **Reason:** The current change ships without provider migration support
+  - **Acceptance criteria:** The missing migration scenarios are copied to #813
+```
+
+## 6. Reconcile before review
+
+Update `verification.mdx` with reproducible evidence and complete every reconciliation
+item. Then run:
+
+```sh
+bun run docs:specs:check
+bun run docs:typecheck
+bun run docs:build
+```
+
+The validator checks structure and declared reconciliation. It does not replace tests or
+human review of whether the implementation truly satisfies each requirement.

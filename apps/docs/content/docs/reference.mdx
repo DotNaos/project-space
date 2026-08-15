@@ -1,13 +1,23 @@
 ---
 title: Reference
-description: Exact lookup material for commands, config, and output formats.
+description: Exact generated and maintained contracts for commands, APIs, MCP tools, configuration, and output formats.
 ---
 
-## Commands
+Reference pages state exact interfaces. They should be generated from code where practical;
+curated guidance belongs in Getting Started, Development, or Operations.
 
-The detailed command reference lives under [CLI](/docs/cli).
+## Command-line interface
 
-## Config Files
+The [CLI reference](/docs/cli) is generated from the real Cobra command tree and checked
+for drift in CI.
+
+## APIs and tools
+
+- [HTTP API](/docs/api)
+- [Project MCP](/docs/project-mcp)
+- [Templates](/docs/templates)
+
+## Configuration files
 
 Common Project files:
 
@@ -17,7 +27,7 @@ Common Project files:
 deploy/deploy.yaml
 ```
 
-## Output Formats
+## Output formats
 
 Use `--format tsv` for agent-friendly command output where supported:
 

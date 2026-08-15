@@ -1,0 +1,37 @@
+---
+title: "ADR-0002: Changes use lightweight specification artifacts"
+description: Combine durable requirement deltas with readable hierarchical implementation checklists.
+---
+
+Status: **Accepted**
+Date: **2026-08-15**
+
+## Context
+
+Requirements must follow behavior changes, while issues and pull requests also need a
+clear implementation checklist. OpenSpec provides useful current-spec and delta concepts;
+Kiro provides useful requirement, design, and task reconciliation. Adopting either tool
+wholesale would add commands and formats that do not match the existing Project Space
+delivery workflow.
+
+## Decision
+
+Each substantive behavior change uses five lightweight Markdown artifacts: proposal,
+requirement delta, design, hierarchical tasks, and verification. Important sections and
+tasks use modest decimal numbering. Small subtasks remain ordinary nested checkboxes.
+
+Blocked work records its prerequisite and return condition. Work moved out of the current
+scope requires a concrete continuation issue and corresponding requirement/design change.
+
+## Consequences
+
+- Requirements, design, implementation, and evidence remain reviewable together.
+- Task lists stay readable and can contain nested subtasks without global task identifiers.
+- Structural validation can reject missing fields and inconsistent completion states.
+- Semantic correctness still depends on tests, evidence, and review.
+
+## Alternatives considered
+
+- Full OpenSpec adoption was rejected because its agent installation and exact archive flow do not fit the repository delivery gate.
+- Full Kiro adoption was rejected because a second requirement notation and broader generated workflow are unnecessary.
+- Flat issue checklists were rejected because they hide dependencies and partial completion.
