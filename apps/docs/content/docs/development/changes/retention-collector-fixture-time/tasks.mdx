@@ -1,0 +1,27 @@
+---
+title: Tasks
+description: Implementation and verification checklist for deterministic retention collector fixtures.
+---
+
+## 1. Deterministic fixture evidence
+
+- [x] 1.1 Normalize retained archive mtimes relative to a fixed collector clock
+  - **Evidence:** The collector test helper assigns every temporary retained archive a
+    fixed time one hour before the fixed inspection time.
+- [x] 1.2 Preserve production safety behavior
+  - **Evidence:** The implementation diff changes no production source file; replacement,
+    hardlink, crash-recovery, and fail-closed tests continue through the production paths.
+
+## 2. Verification
+
+- [x] 2.1 Repeat the focused race-enabled collector suite
+  - **Evidence:** All retention collector tests pass for 20 consecutive race-enabled runs,
+    including replacement and prepared, claimed, deleted, and rename cutpoints.
+- [x] 2.2 Run repository quality gates
+  - **Evidence:** Broad Go race tests, Go vet, TypeScript tests, web builds, changelog
+    validation, documentation checks, and secret non-exposure checks are recorded on the
+    exact pull request revision.
+
+## 3. Deferred follow-ups
+
+None.

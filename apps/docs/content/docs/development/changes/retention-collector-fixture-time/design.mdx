@@ -1,0 +1,50 @@
+---
+title: Design
+description: Deterministic time evidence for retention collector tests.
+---
+
+## Context
+
+Runtime lifecycle fixtures already use a fixed manager clock, and retention collector
+tests historically used a fixed later collector clock. Retained archive directory mtimes
+come from the host filesystem, so that last piece of age evidence could move beyond the
+fixed collector time.
+
+## Goals and non-goals
+
+The goal is to make every collector test begin with archive age evidence that is stable
+across dates and machines. The change does not alter production retention code or relax
+any ownership, identity, replacement, recovery, or deletion boundary.
+
+## Architecture
+
+The collector test helper reads the temporary retained-generation namespace, assigns each
+fixture archive a time one hour before the fixed collector clock, and then constructs the
+collector normally. Tests continue through the same production scan and reclaim paths.
+
+## Decisions
+
+- Normalize only retained archive directory mtimes because that is the filesystem time
+  used by the minimum-age decision.
+- Keep the one-hour separation far above filesystem timestamp precision while retaining
+  the existing one-nanosecond test minimum age.
+- Keep production source files unchanged so identity and fail-closed behavior remain
+  exercised exactly as before.
+
+## Risks and mitigations
+
+- **Fixture setup could hide replacement checks:** replacement and cutpoint mutations
+  still happen after eligibility scanning, and inode/tree proof checks remain unchanged.
+- **Host timestamp precision could collapse the age boundary:** the fixture uses a full
+  hour of separation instead of relying on nanosecond persistence.
+
+## Migration and rollout
+
+No data or runtime migration is needed. The change affects temporary test directories
+only and can be reverted independently.
+
+## Validation
+
+Run the full retention collector suite repeatedly under the race detector, the complete
+Go race and vet lanes, repository tests and builds, documentation validation, exact-diff
+review, and changed-file secret checks.
