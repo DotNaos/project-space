@@ -86,6 +86,7 @@ import type {
   TailscaleInventoryResult,
   TailscaleProviderConnectionResult
 } from '@/shared/tailscale-inventory-api';
+import type { CodexHostInventoryResult } from '@/shared/codex-host-inventory-api';
 import type {
   LegacyConnectorCleanupSnapshot,
   LegacyConnectorRemovalResult,
@@ -199,6 +200,10 @@ export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements 
 
   getTailscaleInventory(refresh = false): Promise<TailscaleInventoryResult> {
     return this.request(`/api/compute/tailscale/devices${refresh ? '?refresh=1' : ''}`);
+  }
+
+  getCodexHostInventory(): Promise<CodexHostInventoryResult> {
+    return this.request('/api/codex/hosts');
   }
 
   getTailscaleProviderConnection(): Promise<TailscaleProviderConnectionResult> {

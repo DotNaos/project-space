@@ -6,6 +6,7 @@ import { hasDedicatedGitHubOAuthTokenEncryptionKey } from './github-oauth-token-
 import { createProjectSpaceServer } from './project-space-http';
 import { probeClerkBackendReadiness } from './clerk-backend-readiness';
 import { connectorRuntimeRecord } from './connector-build-info';
+import { createLocalDevelopmentCodexSessionsRuntime } from './codex-sessions/local-development-runtime';
 import {
   initializeOpenTelemetry,
   installProcessErrorHandlers,
@@ -40,6 +41,8 @@ Environment:
   PROJECT_SPACE_TOKEN_ENCRYPTION_KEY  Independent key for stored GitHub OAuth tokens.
   PROJECT_SPACE_AUTH_DISABLED=1  Disable login protection for trusted local debugging only.
   PROJECT_SPACE_LOG_LEVEL  Structured log level: debug, info, warn, error, or fatal.
+  PROJECT_SPACE_LOCAL_CODEX_MACHINE_ID  Development-only machine id for the local Codex app-server.
+  PROJECT_SPACE_LOCAL_CODEX_MACHINE_NAME  Optional display name for that local Codex machine.
   OTEL_EXPORTER_OTLP_ENDPOINT  Optional OTLP collector base URL for traces and metrics.
 
 After starting Project Space, open:
@@ -78,6 +81,16 @@ const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
 const staticRoot = resolve(process.cwd(), 'dist/renderer');
 const backend = createLocalProjectSpaceBackend();
 const machineConnectionRuntime = await createConfiguredMachineConnectionRuntime();
+const localCodexMachineId = process.env.PROJECT_SPACE_LOCAL_CODEX_MACHINE_ID?.trim();
+if (localCodexMachineId && process.env.PROJECT_DEPLOY_ENVIRONMENT === 'prod') {
+  throw new Error('PROJECT_SPACE_LOCAL_CODEX_MACHINE_ID is disabled in production.');
+}
+const localCodex = localCodexMachineId
+  ? await createLocalDevelopmentCodexSessionsRuntime({
+      machineId: localCodexMachineId,
+      machineName: process.env.PROJECT_SPACE_LOCAL_CODEX_MACHINE_NAME?.trim() || 'Local Codex'
+    })
+  : undefined;
 const authReadiness = await probeClerkBackendReadiness();
 if (!authReadiness.ready) {
   logger.error('auth.clerk.readiness.failed', { code: authReadiness.code });
@@ -85,6 +98,7 @@ if (!authReadiness.ready) {
 const server = await createProjectSpaceServer({
   authReadiness,
   backend,
+  codexSessions: localCodex?.handleRequest,
   host,
   machineConnectionRuntime: machineConnectionRuntime ?? undefined,
   logger,
@@ -99,6 +113,7 @@ async function shutdown() {
   let exitCode = 0;
   try {
     await server.close();
+    await localCodex?.close();
   } catch (error) {
     exitCode = 1;
     logger.error('server.shutdown.failed', {}, error);

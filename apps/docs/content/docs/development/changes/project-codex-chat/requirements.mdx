@@ -1,0 +1,58 @@
+---
+title: Requirement delta
+description: User-facing requirements for the host-grouped Codex Chat page.
+---
+
+## ADDED Requirements
+
+### CHAT-001 — Real Codex conversation
+
+The Chat page MUST render the selected Codex task using the canonical conversation,
+approval, input, activity, and continuation behavior.
+
+#### Scenario: Open a task
+
+- **Given** an online machine exposes a real Codex task
+- **When** the user selects that task
+- **Then** its actual conversation and live task controls appear in the center
+
+### CHAT-002 — Online Tailscale host boundary
+
+The Chat page MUST load Codex sessions only for machines matched to fresh, current, online
+deployment-owned Tailscale observations.
+
+#### Scenario: A machine is offline
+
+- **Given** a known Codex machine has an offline or stale Tailscale observation
+- **When** the host inventory is refreshed
+- **Then** that machine and its tasks are absent from the Chat interface
+
+### CHAT-003 — Grouped compact task navigation
+
+The task list MUST group sessions by machine and MUST show at most four tasks per collapsed
+machine section, with an accessible control to reveal or hide the remainder.
+
+#### Scenario: A machine has more than four tasks
+
+- **Given** an online machine has six tasks
+- **When** its section is collapsed
+- **Then** four tasks and a control for the two hidden tasks are visible
+
+### CHAT-004 — Explicit machine and worktree selection
+
+The Chat page MUST keep machine and worktree selection available and MUST keep the visible
+composer disabled until a valid task can be selected from both values.
+
+#### Scenario: No selection yet
+
+- **Given** the Chat page has opened
+- **When** no machine and worktree have been selected
+- **Then** the composer is visible but cannot submit a message
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.
