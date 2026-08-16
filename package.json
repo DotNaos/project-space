@@ -47,7 +47,7 @@
     "@clerk/backend": "^3.9.0",
     "@clerk/react": "^6.11.3",
     "@dotnaos/react-ui": "^0.0.2",
-    "@dotnaos/ui": "0.0.12",
+    "@dotnaos/ui": "0.0.13",
     "@heroui/react": "3.0.4",
     "@heroui/styles": "3.0.4",
     "@modelcontextprotocol/sdk": "^1.30.0",
