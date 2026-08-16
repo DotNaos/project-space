@@ -1,0 +1,43 @@
+---
+title: Design
+description: Restore the standard CA trust store in web runtime images.
+---
+
+## Context
+
+The trusted Preview CLI uses Go's HTTPS client to call GitHub. Its image runtime must
+contain the public CA bundle even though the build stage has a full Debian toolchain.
+
+## Goals and non-goals
+
+The goal is to make outbound GitHub HTTPS verification work in both production and
+Preview web runtimes. The change must not bypass certificate validation or add a custom
+certificate authority.
+
+## Architecture
+
+Both web runtime stages install the distribution-provided `ca-certificates` package
+alongside the existing Git and SSH runtime dependencies. The Go CLI and Node server then
+use the same system trust store without source-level TLS overrides.
+
+## Decisions
+
+- Fix the image contract rather than weakening the HTTP client.
+- Keep production and Preview web images symmetric because both can execute trusted
+  server-side GitHub operations.
+
+## Risks and mitigations
+
+- **The remote image may not yet be rebuilt:** the PR must pass the exact-image build and
+  deployment workflow before the live error can be declared resolved.
+- **A different network trust problem may remain:** the existing error is preserved as a
+  safe operational message and remains tracked in #588.
+
+## Migration and rollout
+
+No data migration is needed. Rebuild and restart the affected web image(s).
+
+## Validation
+
+Run the Dockerfile contract tests, TypeScript checks, documentation validation, exact
+diff checks, and the protected Preview workflow.

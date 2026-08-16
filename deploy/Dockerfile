@@ -56,7 +56,7 @@ WORKDIR /workspace
 ARG PROJECT_SPACE_BUILD_COMMIT=unknown
 LABEL org.opencontainers.image.revision=$PROJECT_SPACE_BUILD_COMMIT
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git openssh-client \
+  && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
   && git config --system --add safe.directory /workspace/backend-repo \
   && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production

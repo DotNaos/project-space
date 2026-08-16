@@ -1,0 +1,18 @@
+---
+title: Tasks
+description: Implementation checklist for Preview GitHub TLS trust.
+---
+
+## 1. Runtime image
+
+- [x] Install `ca-certificates` in the production web runtime.
+  - **Evidence:** `deploy/Dockerfile` installs the package with Git and the SSH client.
+- [x] Install `ca-certificates` in the Preview web runtime.
+  - **Evidence:** `deploy/preview.web.Dockerfile` installs the package with Git and the SSH client.
+
+## 2. Verification
+
+- [x] Add a regression test covering both runtime Dockerfiles.
+  - **Evidence:** `tests/build-project.test.ts` checks both image contracts.
+- [x] Run focused tests, TypeScript checks, and diff hygiene.
+  - **Evidence:** 18 focused tests passed; `bun run check` and `git diff --check` passed.

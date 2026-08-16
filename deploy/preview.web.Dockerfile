@@ -35,7 +35,7 @@ ARG PROJECT_SPACE_BUILD_COMMIT
 LABEL org.opencontainers.image.revision=$PROJECT_SPACE_BUILD_COMMIT
 LABEL com.dotnaos.project-space.preview=true
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git openssh-client \
+  && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 ENV PROJECT_SPACE_HOST=0.0.0.0
