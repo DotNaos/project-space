@@ -1,0 +1,71 @@
+---
+title: Requirement delta
+description: Safety and durability requirements for legacy Connector cleanup.
+---
+
+## ADDED Requirements
+
+### CONNECTOR-CLEANUP-001 — Exact owner-scoped removal
+
+Project Space MUST limit cleanup to an exact legacy Connector record owned by the
+authenticated human and MUST reject stale or changed record fingerprints.
+
+#### Scenario: A record changes before removal
+
+- **Given** the owner reviewed a legacy record at one fingerprint
+- **When** its current identity no longer matches that fingerprint
+- **Then** removal returns a conflict and changes no record
+
+### CONNECTOR-CLEANUP-002 — Active dependencies block cleanup
+
+Project Space MUST NOT remove a legacy projection while an active credential, Host
+mapping, execution route, runtime, operation, Codex session, or development server still
+depends on it.
+
+#### Scenario: A credential remains active
+
+- **Given** a legacy Connector record has a non-expired, non-revoked credential
+- **When** the owner reviews or requests removal
+- **Then** the record is blocked and the credential remains unchanged
+
+### CONNECTOR-CLEANUP-003 — Canonical and external resources are preserved
+
+Cleanup MUST NOT delete or modify Tailscale devices, physical machines, provider
+resources, deployment targets, credentials, Hosts, canonical Environments, or remote
+machines.
+
+#### Scenario: A canonical replacement exists
+
+- **Given** a legacy record shares an Environment identity with Tailscale or a provider
+- **When** the legacy record is removed
+- **Then** the canonical Environment remains visible and unchanged
+
+### CONNECTOR-CLEANUP-004 — Removed records stay removed
+
+Project Space MUST persist an immutable removal receipt and MUST prevent both repository
+reconciliation and database triggers from recreating the removed legacy projection.
+
+#### Scenario: Inventory refresh runs after removal
+
+- **Given** an eligible legacy record has a removal receipt
+- **When** Connector inventory or membership reconciliation runs again
+- **Then** the legacy projection remains absent while historical membership remains
+
+### CONNECTOR-CLEANUP-005 — Empty platforms stay out of Compute
+
+Compute MUST hide a platform group when it contains no visible Environment, even if
+preserved physical Host records still belong to that platform.
+
+#### Scenario: Cleanup leaves only physical Hosts
+
+- **Given** legacy local Environments have been removed from Compute while their Hosts remain preserved
+- **When** the owner opens Compute
+- **Then** the empty local platform and its Host-only rows are absent while populated provider platforms remain visible
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

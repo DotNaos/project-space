@@ -86,6 +86,11 @@ import type {
   TailscaleInventoryResult,
   TailscaleProviderConnectionResult
 } from '@/shared/tailscale-inventory-api';
+import type {
+  LegacyConnectorCleanupSnapshot,
+  LegacyConnectorRemovalResult,
+  LegacyConnectorRemovalTarget
+} from '@/shared/legacy-connector-cleanup-api';
 import {
   refreshProjectSpaceAuthToken,
   setProjectSpaceAuthToken
@@ -174,6 +179,21 @@ export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements 
       headers: {
         Accept: 'application/vnd.project-space.compute-inventory+json; version=3'
       }
+    });
+  }
+
+  getLegacyConnectorCleanup(): Promise<LegacyConnectorCleanupSnapshot> {
+    return this.request('/api/compute/legacy-connectors');
+  }
+
+  removeLegacyConnectors(
+    records: readonly LegacyConnectorRemovalTarget[],
+    requestId: string
+  ): Promise<LegacyConnectorRemovalResult> {
+    return this.request('/api/compute/legacy-connectors/removals', {
+      body: JSON.stringify({ records }),
+      headers: { 'Idempotency-Key': requestId },
+      method: 'POST'
     });
   }
 

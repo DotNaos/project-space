@@ -101,6 +101,15 @@ describe('canonical compute inventory presentation', () => {
     expect(sections[0]!.hostCount).toBe(0);
   });
 
+  test('hides platforms that only contain unassigned Hosts', () => {
+    const sections = computePlatformSections(inventory({
+      hosts: [host('host-a', 'local')]
+    }));
+
+    expect(sections).toEqual([]);
+    expect(computeInventoryCounts(sections)).toEqual({ environments: 0, hosts: 0, workspaces: 0 });
+  });
+
   test('renders local Hosts separately from environment status', () => {
     const instances = [
       environment({ alias: 'windows-01', hostId: 'host-a', kind: 'native_windows', resourceMode: 'exclusive' }),

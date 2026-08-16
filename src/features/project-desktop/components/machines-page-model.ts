@@ -298,7 +298,7 @@ export function computePlatformSections(inventory: ProjectCliComputeInventory) {
       rows,
       workspaceCount: platformInstances.reduce((sum, instance) => sum + instance.workspaces.length, 0)
     } satisfies ComputePlatformSection;
-  }).filter((section) => section.rows.length > 0);
+  }).filter((section) => section.environmentCount > 0);
 }
 
 export function filterComputePlatformSections(

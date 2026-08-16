@@ -54,8 +54,20 @@ mock.module('@heroui/react', () => {
     Dialog: element('div'), Footer: element('div'), Header: element('div'),
     Heading: element('h2'), Icon: element('div'), CloseTrigger: element('button')
   });
+  const AlertDialog = Object.assign(({ children, isOpen }: { children?: ReactNode; isOpen?: boolean }) => (
+    isOpen ? createElement('div', undefined, children) : null
+  ), {
+    Backdrop: element('div'), Body: element('div'), Container: element('div'),
+    Dialog: element('div'), Footer: element('div'), Header: element('div'),
+    Heading: element('h2'), Icon: element('div')
+  });
+  const Checkbox = Object.assign(element('label'), {
+    Content: element('span'), Control: element('span'), Indicator: element('span')
+  });
   return {
+    AlertDialog,
     Button: element('button'),
+    Checkbox,
     Input: element('input'),
     Label: element('label'),
     Modal,
@@ -135,6 +147,14 @@ describe('machines page canonical inventory UI', () => {
     const html = renderToStaticMarkup(createElement(MachinesPage, {
       ...baseProps,
       computeInventory: inventory({
+        environmentInstances: [{
+          ...codespace('dev-environment'),
+          environmentDefinitionId: 'definition-linux',
+          hostId: 'host-dev',
+          hostResolution: 'manual' as const,
+          kind: 'native_linux' as const,
+          platformId: 'local'
+        }],
         hosts: [{
           alias: 'dev-host',
           capabilities: {
@@ -162,6 +182,32 @@ describe('machines page canonical inventory UI', () => {
     expect(html).toContain('Wake-on-LAN Unknown');
     expect(html).toContain('JetKVM');
     expect(html).not.toContain('Connector');
+  });
+
+  test('hides Local and self-hosted when it only contains Hosts', () => {
+    const html = renderToStaticMarkup(createElement(MachinesPage, {
+      ...baseProps,
+      computeInventory: inventory({
+        environmentInstances: [codespace('provider-environment')],
+        hosts: [{
+          alias: 'os-macbook',
+          capabilities: { console: [], power: [], state: 'unknown' as const },
+          id: 'host-macbook',
+          name: 'os-macbook',
+          platformId: 'local'
+        }],
+        platforms: [
+          { alias: 'local', id: 'local', kind: 'local', name: 'Local & self-hosted' },
+          { alias: 'github-codespaces', id: 'codespaces', kind: 'github_codespaces', name: 'GitHub Codespaces' }
+        ]
+      })
+    }));
+
+    expect(html).toContain('GitHub Codespaces');
+    expect(html).toContain('provider-environment');
+    expect(html).not.toContain('Local &amp; self-hosted');
+    expect(html).not.toContain('os-macbook');
+    expect(html).toContain('0 Hosts · 1 Environment');
   });
 
   test('renders Workspace Runtime names and keeps unavailable access separate', () => {
