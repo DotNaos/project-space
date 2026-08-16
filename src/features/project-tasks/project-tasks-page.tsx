@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react';
 import { Button, Tooltip } from '@heroui/react';
 import {
+  ChevronRight,
   CircleDashed,
   CircleDot,
   CircleX,
   GitBranch,
   GitMerge,
   GitPullRequest,
+  List,
   ListFilter,
   Plus,
   Search,
   type LucideIcon
 } from 'lucide-react';
+import { buildProjectTaskTree, type ProjectTaskTreeNode } from './project-task-tree';
 import type { ProjectTaskState, ProjectTaskViewModel } from './task-view-model';
 
 type TaskFilter = 'all' | ProjectTaskState;
@@ -87,7 +90,6 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
   const pullRequest = task.pullRequest;
   const merged = pullRequest?.state === 'merged';
   const PullRequestIcon = merged ? GitMerge : GitPullRequest;
-  const parentIssue = task.issue.parentIssue;
   const subIssueProgress = task.issue.subIssueProgress;
   return (
     <button
@@ -101,11 +103,6 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
         <StatusIcon task={task} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-current/85 group-hover:text-current">{task.issue.title}</span>
-          {parentIssue ? (
-            <span className="mt-0.5 block truncate text-[10px] text-current/35">
-              Sub-issue of #{parentIssue.number}
-            </span>
-          ) : null}
         </span>
         {subIssueProgress ? (
           <span
@@ -145,6 +142,48 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
   );
 }
 
+function TaskTreeNodeRow({ node, onOpen }: { node: ProjectTaskTreeNode; onOpen(number: number): void }) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <li aria-expanded={hasChildren ? expanded : undefined} role="treeitem">
+      <div className="flex min-w-0 items-start">
+        {hasChildren ? (
+          <button
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} sub-issues for #${node.task.issue.number}`}
+            className="mt-2 flex size-7 shrink-0 items-center justify-center rounded-md text-current/35 transition hover:bg-current/[.05] hover:text-current/70"
+            onClick={() => setExpanded((current) => !current)}
+            type="button"
+          >
+            <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+          </button>
+        ) : (
+          <span aria-hidden="true" className="size-7 shrink-0" />
+        )}
+        <TaskRow onOpen={() => onOpen(node.task.issue.number)} task={node.task} />
+      </div>
+      {hasChildren && expanded ? (
+        <ul className="ml-3 border-l border-current/[.1] pl-3" role="group">
+          {node.children.map((child) => (
+            <TaskTreeNodeRow key={child.task.issue.number} node={child} onOpen={onOpen} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function TaskTree({ nodes, onOpen }: { nodes: ProjectTaskTreeNode[]; onOpen(number: number): void }) {
+  return (
+    <ul aria-label="Task tree" className="space-y-0.5" role="tree">
+      {nodes.map((node) => (
+        <TaskTreeNodeRow key={node.task.issue.number} node={node} onOpen={onOpen} />
+      ))}
+    </ul>
+  );
+}
+
 function TaskSearch({ onChange, value }: { onChange(value: string): void; value: string }) {
   return (
     <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full bg-current/[.045] px-3 @lg:h-9">
@@ -179,11 +218,13 @@ export function ProjectTasksPage({
 }) {
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [query, setQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
   const visible = useMemo(() => tasks.filter((task) => {
     if (filter !== 'all' && task.state !== filter) return false;
     const haystack = `${task.issue.number} ${task.issue.title} ${task.issue.labels.join(' ')} ${task.branch?.name ?? ''} ${task.issue.parentIssue?.number ?? ''} ${task.issue.parentIssue?.title ?? ''}`.toLowerCase();
     return haystack.includes(query.trim().toLowerCase());
   }), [filter, query, tasks]);
+  const tree = useMemo(() => buildProjectTaskTree(visible), [visible]);
 
   return (
     <section className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 pb-5 pt-2 @md:px-8 @3xl:px-10 @5xl:px-12 @5xl:pt-7">
@@ -196,24 +237,48 @@ export function ProjectTasksPage({
 
       <div className="flex shrink-0 flex-col gap-3 border-b border-current/[.08] py-3 @lg:py-4">
         <div className="hidden min-w-0 w-full @lg:block"><TaskSearch onChange={setQuery} value={query} /></div>
-        <div className="flex w-full min-w-0 items-center gap-px overflow-x-auto pe-1 [scrollbar-width:none] @lg:gap-1">
-          {filters.map((item) => {
-            const Icon = item.icon;
-            const selected = filter === item.id;
+        <div className="flex w-full min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-px overflow-x-auto pe-1 [scrollbar-width:none] @lg:gap-1">
+            {filters.map((item) => {
+              const Icon = item.icon;
+              const selected = filter === item.id;
 
-            return (
-              <button
-                aria-pressed={selected}
-                className={`flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 text-[8px] font-medium transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:gap-1.5 @lg:px-4 @lg:text-xs ${selected ? item.activeClassName : 'text-current/45 hover:bg-current/[.04] hover:text-current/75'}`}
-                key={item.id}
-                onClick={() => setFilter(item.id)}
-                type="button"
-              >
-                <Icon aria-hidden="true" className={`size-3 shrink-0 @lg:size-3.5 ${item.iconClassName}`} />
-                {item.label}
-              </button>
-            );
-          })}
+              return (
+                <button
+                  aria-pressed={selected}
+                  className={`flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 text-[8px] font-medium transition-[background-color,color,scale] active:scale-[.96] @lg:h-9 @lg:gap-1.5 @lg:px-4 @lg:text-xs ${selected ? item.activeClassName : 'text-current/45 hover:bg-current/[.04] hover:text-current/75'}`}
+                  key={item.id}
+                  onClick={() => setFilter(item.id)}
+                  type="button"
+                >
+                  <Icon aria-hidden="true" className={`size-3 shrink-0 @lg:size-3.5 ${item.iconClassName}`} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <div aria-label="Task view" className="flex shrink-0 items-center rounded-lg bg-current/[.045] p-0.5">
+            <button
+              aria-label="List view"
+              aria-pressed={viewMode === 'list'}
+              className={`flex h-8 items-center gap-1 rounded-md px-2 text-[10px] transition-colors @lg:h-8 @lg:px-2.5 @lg:text-xs ${viewMode === 'list' ? 'bg-current/[.1] text-current/85' : 'text-current/40 hover:text-current/70'}`}
+              onClick={() => setViewMode('list')}
+              type="button"
+            >
+              <List aria-hidden="true" className="size-3.5" />
+              <span className={viewMode === 'list' ? 'inline' : 'hidden @lg:inline'}>List</span>
+            </button>
+            <button
+              aria-label="Tree view"
+              aria-pressed={viewMode === 'tree'}
+              className={`flex h-8 items-center gap-1 rounded-md px-2 text-[10px] transition-colors @lg:h-8 @lg:px-2.5 @lg:text-xs ${viewMode === 'tree' ? 'bg-current/[.1] text-current/85' : 'text-current/40 hover:text-current/70'}`}
+              onClick={() => setViewMode('tree')}
+              type="button"
+            >
+              <GitBranch aria-hidden="true" className="size-3.5" />
+              <span className={viewMode === 'tree' ? 'inline' : 'hidden @lg:inline'}>Tree</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -224,7 +289,9 @@ export function ProjectTasksPage({
             <p>{error}</p><Button size="sm" variant="ghost" onPress={onRetry}>Retry</Button>
           </div>
         ) : null}
-        {filter === 'all' ? sections.map((section) => {
+        {viewMode === 'tree' ? (
+          tree.length > 0 ? <TaskTree nodes={tree} onOpen={onOpenTask} /> : null
+        ) : filter === 'all' ? sections.map((section) => {
           const rows = visible.filter((task) => task.state === section.id);
           if (rows.length === 0) return null;
           return (

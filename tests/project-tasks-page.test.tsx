@@ -47,7 +47,7 @@ const task: ProjectTaskViewModel = {
 };
 
 describe('project tasks page', () => {
-  test('shows native parent and sub-issue progress metadata', () => {
+  test('keeps parent context in the tree mode control and shows sub-issue progress in list mode', () => {
     const html = renderToStaticMarkup(
       <ProjectTasksPage
         isLoading={false}
@@ -59,8 +59,9 @@ describe('project tasks page', () => {
       />
     );
 
-    expect(html).toContain('Sub-issue of #721');
+    expect(html).not.toContain('Sub-issue of #721');
     expect(html).toContain('Sub-issues 2 of 6 complete');
     expect(html).toContain('2/6');
+    expect(html).toContain('aria-label="Tree view"');
   });
 });
