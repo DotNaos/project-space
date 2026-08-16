@@ -16,12 +16,16 @@ import {
 } from 'lucide-react';
 import type {
   GitHubIssueCommentRecord,
-  GitHubSubIssueProgress
+  GitHubSubIssueProgress,
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
 import { IssueLabelChip } from '@/features/project-desktop/components/issue-visuals';
 import { useRuntimeBinding } from '@/features/project-desktop/components/runtime-binding-context';
+import type { CodexThreadOrigin } from '@/features/codex-sessions/codex-sessions-types';
 import { ProjectTaskDetailTabs } from './project-task-detail-tabs';
+import { ProjectTaskPipelinePanel } from './project-task-pipeline-panel';
+import { ProjectTaskRunnerPanel } from './project-task-runner-panel';
 import { ProjectTaskListItem } from './project-task-list-item';
 import { pullRequestChipPresentation } from './project-task-presentation';
 import type { ProjectTaskViewModel } from './task-view-model';
@@ -32,23 +36,6 @@ function taskStateLabel(task: ProjectTaskViewModel) {
   if (task.state === 'review') return 'Review';
   if (task.state === 'active') return 'Active';
   return 'Backlog';
-}
-
-function WorkspaceRuntimeNotice() {
-  return (
-    <section className="grid gap-3 rounded-xl border border-current/[.08] bg-current/[.025] p-5">
-      <div>
-        <h2 className="text-sm font-semibold text-current/85">Workspace Runtime</h2>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-current/55">
-          Task execution and pipeline actions are available through the canonical Compute view.
-          Open Compute to inspect the available runtime before continuing.
-        </p>
-      </div>
-      <a className="inline-flex w-fit" href="/settings">
-        <Button size="sm" variant="secondary">Open Compute</Button>
-      </a>
-    </section>
-  );
 }
 
 function TaskStateChipIcon({ task }: { task: ProjectTaskViewModel }) {
@@ -166,7 +153,9 @@ export function ProjectTaskDetail({
   isLoadingComments,
   onBack,
   onNewCodexTask,
+  onOpenCodex,
   onOpenTask,
+  project,
   repositoryFullName,
   subIssues,
   task
@@ -176,7 +165,9 @@ export function ProjectTaskDetail({
   isLoadingComments: boolean;
   onBack(): void;
   onNewCodexTask(): void;
+  onOpenCodex(origin: CodexThreadOrigin): void;
   onOpenTask(issueNumber: number): void;
+  project: ProjectSpaceRecord;
   repositoryFullName?: string;
   subIssues: ProjectTaskViewModel[];
   task: ProjectTaskViewModel;
@@ -304,11 +295,23 @@ export function ProjectTaskDetail({
           </div>
         )}
         pipeline={(
-          <WorkspaceRuntimeNotice />
+          <ProjectTaskPipelinePanel
+            health={task.health}
+            issueNumber={task.issue.number}
+            pipeline={task.pipeline}
+            projectId={project.id}
+            pullRequest={task.pullRequest}
+            repositoryFullName={repositoryFullName}
+          />
         )}
         resetKey={task.issue.number}
         runner={(
-          <div className="py-5"><WorkspaceRuntimeNotice /></div>
+          <ProjectTaskRunnerPanel
+            issueNumber={task.issue.number}
+            onNewTask={onNewCodexTask}
+            onOpenTask={onOpenCodex}
+            project={project}
+          />
         )}
       />
     </section>

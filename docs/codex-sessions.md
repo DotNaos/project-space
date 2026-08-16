@@ -25,6 +25,9 @@ thread IDs and live state.
   chooses an online Codex machine and a ready worktree for the current project. The issue entry
   point keeps the issue number visible as context, while the exact worktree path remains the task's
   execution boundary.
+- An issue's Runner tab lists only Codex tasks whose verified project scope and issue identity match
+  that issue. Its Pipeline tab shows the linked GitHub workflow run, pull request, and Preview status
+  directly; neither tab redirects through the broader Compute inventory.
 - Task rows use the task name as their only primary text. Issue and pull-request references are
   separate metadata, and active work uses a spinner instead of a static “Running” status.
 - Opening history is read-only. It uses `thread/read` and never resumes or subscribes to the task.

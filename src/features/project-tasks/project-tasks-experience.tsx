@@ -119,7 +119,9 @@ export function ProjectTasksExperience({
           isLoadingComments={commentsLoadingFor === selectedTask.issue.number}
           onBack={onShowTasks}
           onNewCodexTask={() => setCodexDialogOpen(true)}
+          onOpenCodex={onOpenCodex}
           onOpenTask={(issueNumber) => onOpenTask(issueNumber)}
+          project={project}
           repositoryFullName={repository?.fullName}
           subIssues={selectedSubTasks}
           task={selectedTask}
