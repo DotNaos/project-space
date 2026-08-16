@@ -51,6 +51,17 @@ reconciliation and database triggers from recreating the removed legacy projecti
 - **When** Connector inventory or membership reconciliation runs again
 - **Then** the legacy projection remains absent while historical membership remains
 
+### CONNECTOR-CLEANUP-005 — Empty platforms stay out of Compute
+
+Compute MUST hide a platform group when it contains no visible Environment, even if
+preserved physical Host records still belong to that platform.
+
+#### Scenario: Cleanup leaves only physical Hosts
+
+- **Given** legacy local Environments have been removed from Compute while their Hosts remain preserved
+- **When** the owner opens Compute
+- **Then** the empty local platform and its Host-only rows are absent while populated provider platforms remain visible
+
 ## CHANGED Requirements
 
 None.

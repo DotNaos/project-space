@@ -40,6 +40,7 @@ same receipt before writing.
 4. Require an authenticated human session and derive ownership on the server.
 5. Expose blocker categories and counts, never credentials or raw remote output.
 6. Keep the cleanup review separate from both canonical Compute inventory and Tailnet classification.
+7. Render only platform sections with at least one visible Environment; retained Host data stays intact.
 
 ## Risks and mitigations
 
@@ -61,5 +62,6 @@ records may receive receipts.
 - Test authorization, strict request parsing, fingerprints, blockers, retries, and partial results.
 - Apply every migration on real PostgreSQL and prove the trigger cannot recreate a removed row.
 - Test canonical provider and Tailscale preservation in repository inventory.
+- Test that Host-only platforms are absent while populated provider platforms remain visible.
 - Dogfood desktop and mobile review, cancellation, removal refresh, and blocked states.
 - Run the canonical repository preflight on the exact committed revision.
