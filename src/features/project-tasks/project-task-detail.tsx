@@ -90,8 +90,9 @@ function SubTaskProgressIndicator({ progress }: { progress: GitHubSubIssueProgre
   );
 }
 
-function SubIssueList({ onOpenTask, subIssues }: {
+function SubIssueList({ onOpenTask, subIssueProgress, subIssues }: {
   onOpenTask(issueNumber: number): void;
+  subIssueProgress?: GitHubSubIssueProgress;
   subIssues: ProjectTaskViewModel[];
 }) {
   if (subIssues.length === 0) return null;
@@ -99,12 +100,13 @@ function SubIssueList({ onOpenTask, subIssues }: {
   return (
     <section className="mt-7 border-t border-current/[.08] pt-5">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-current/85">Sub-tasks</h2>
+        <h2 className="text-sm font-semibold text-current/85">Sub-tasks</h2>
+        <div className="flex items-center gap-2">
+          {subIssueProgress ? <SubTaskProgressIndicator progress={subIssueProgress} /> : null}
+          <span className="rounded-full bg-current/[.05] px-2.5 py-1 text-xs tabular-nums text-current/50">
+            {subIssues.length}
+          </span>
         </div>
-        <span className="rounded-full bg-current/[.05] px-2.5 py-1 text-xs tabular-nums text-current/50">
-          {subIssues.length}
-        </span>
       </div>
       <ul aria-label="Sub-tasks" className="mt-3">
         {subIssues.map((subIssue) => (
@@ -264,22 +266,17 @@ export function ProjectTaskDetail({
             </button>
           ) : null}
         </div>
-        {parentIssue || subIssueProgress ? (
+        {parentIssue ? (
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-current/50">
-            {parentIssue ? (
-              <span className="rounded-full bg-current/[.05] px-2.5 py-1">
-                Sub-task of #{parentIssue.number}
-              </span>
-            ) : null}
-            {subIssueProgress ? (
-              <SubTaskProgressIndicator progress={subIssueProgress} />
-            ) : null}
+            <span className="rounded-full bg-current/[.05] px-2.5 py-1">
+              Sub-task of #{parentIssue.number}
+            </span>
           </div>
         ) : null}
         {task.workflowMessage ? (
           <p className="mt-4 text-sm leading-6 text-amber-300">{task.workflowMessage}</p>
         ) : null}
-        <SubIssueList onOpenTask={onOpenTask} subIssues={subIssues} />
+        <SubIssueList onOpenTask={onOpenTask} subIssueProgress={subIssueProgress} subIssues={subIssues} />
       </header>
 
       <ProjectTaskDetailTabs
