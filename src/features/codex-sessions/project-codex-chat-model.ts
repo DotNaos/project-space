@@ -1,6 +1,14 @@
-import type { ChatThreadSection } from '@dotnaos/ui/chat';
+import type { ChatThreadData } from '@dotnaos/ui/chat';
 import type { CodexHostInventoryItem } from '@/shared/codex-host-inventory-api';
 import type { CodexSession, CodexThreadOrigin } from './codex-sessions-types';
+
+export interface CodexChatThreadSection {
+  collapsedCount?: number;
+  heading: string;
+  id: string;
+  meta?: string;
+  threads: readonly ChatThreadData[];
+}
 
 export function codexChatThreadId(origin: CodexThreadOrigin) {
   return JSON.stringify([origin.machineId, origin.threadId]);
@@ -23,7 +31,7 @@ export function buildCodexChatThreadSections(
   hosts: readonly CodexHostInventoryItem[],
   sessions: readonly CodexSession[],
   selectedOrigin?: CodexThreadOrigin
-): ChatThreadSection[] {
+): CodexChatThreadSection[] {
   const onlineHostIds = new Set(hosts.map((host) => host.machineId));
   const sessionsByHost = new Map<string, CodexSession[]>();
   for (const session of sessions) {

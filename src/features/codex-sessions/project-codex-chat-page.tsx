@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  type ComponentProps,
+  type ComponentType,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react';
 import { Button, Drawer } from '@heroui/react';
 import { Chat, ChatSidebar, type ChatThreadData } from '@dotnaos/ui/chat';
 import { Menu, X } from 'lucide-react';
@@ -10,12 +19,22 @@ import type { CodexSessionsController } from './codex-sessions-controller';
 import type { CodexThreadOrigin } from './codex-sessions-types';
 import {
   buildCodexChatThreadSections,
+  type CodexChatThreadSection,
   parseCodexChatThreadId
 } from './project-codex-chat-model';
 import { codexAgentIdentity } from './codex-agent-identity';
 
 const hostRefreshIntervalMs = 30_000;
 const sessionRefreshIntervalMs = 5_000;
+
+type CompatibleChatSidebarProps = ComponentProps<typeof ChatSidebar> & {
+  threadSections?: readonly CodexChatThreadSection[];
+};
+
+// The published package accepts a flat `threads` list. The linked UI worktree
+// additionally understands grouped sections. Supplying both keeps CI and the
+// review surface useful until the UI-library release lands.
+const CompatibleChatSidebar = ChatSidebar as ComponentType<CompatibleChatSidebarProps>;
 
 export function ProjectCodexChatPage({
   controller,
@@ -139,8 +158,9 @@ export function ProjectCodexChatPage({
 
   const sidebar = (
     <div className="h-full min-h-0 [&>aside]:h-full [&>aside]:border-l [&>aside]:border-r-0">
-      <ChatSidebar
+      <CompatibleChatSidebar
         onThreadSelect={selectThread}
+        threads={sections.flatMap((section) => section.threads)}
         threadSections={sections}
         title="Codex tasks"
       />
