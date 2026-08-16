@@ -138,19 +138,23 @@ export class ProjectSpaceHttpClient {
     if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0) {
       throw new Error('Preview pull request number is invalid.');
     }
-    const token = await refreshProjectSpaceAuthToken();
     const previewOrigin = typeof window !== 'undefined' && window.location.hostname.endsWith('.localhost')
       ? window.location.origin
       : `https://pr-${pullRequestNumber}.projects.os-home.net`;
-    const response = await fetch(`${previewOrigin}/api/pull-request-preview-access`, {
-      credentials: 'include',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        Origin: 'https://pr.projects.os-home.net'
-      },
-      method: 'POST',
-      redirect: 'error'
-    });
+    const requestAccess = async (skipCache = false) => {
+      const token = await refreshProjectSpaceAuthToken({ skipCache });
+      return fetch(`${previewOrigin}/api/pull-request-preview-access`, {
+        credentials: 'include',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Origin: 'https://pr.projects.os-home.net'
+        },
+        method: 'POST',
+        redirect: 'error'
+      });
+    };
+    let response = await requestAccess();
+    if (response.status === 401) response = await requestAccess(true);
     if (!response.ok) throw new Error(`Preview access was not granted (${response.status}).`);
   }
 }

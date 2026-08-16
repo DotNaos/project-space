@@ -1,7 +1,7 @@
 const authTokenStorageKey = 'project-space.session-token';
 
 let projectSpaceAuthToken = '';
-let projectSpaceAuthTokenProvider: (() => Promise<string | null>) | null = null;
+let projectSpaceAuthTokenProvider: ((options?: { skipCache?: boolean }) => Promise<string | null>) | null = null;
 let projectSpaceAuthTokenProviderGeneration = 0;
 let projectSpaceAuthTokenRefresh: {
   generation: number;
@@ -13,7 +13,7 @@ export function getProjectSpaceAuthToken() {
 }
 
 export function setProjectSpaceAuthTokenProvider(
-  provider: (() => Promise<string | null>) | null
+  provider: ((options?: { skipCache?: boolean }) => Promise<string | null>) | null
 ) {
   projectSpaceAuthTokenProvider = provider;
   projectSpaceAuthTokenProviderGeneration += 1;
@@ -36,18 +36,18 @@ export function setProjectSpaceAuthToken(token: string) {
   window.localStorage.removeItem(authTokenStorageKey);
 }
 
-export async function refreshProjectSpaceAuthToken(): Promise<string> {
+export async function refreshProjectSpaceAuthToken(options: { skipCache?: boolean } = {}): Promise<string> {
   const provider = projectSpaceAuthTokenProvider;
   if (!provider) {
     return projectSpaceAuthToken;
   }
 
   const generation = projectSpaceAuthTokenProviderGeneration;
-  const refresh = projectSpaceAuthTokenRefresh?.generation === generation
+  const refresh = !options.skipCache && projectSpaceAuthTokenRefresh?.generation === generation
     ? projectSpaceAuthTokenRefresh
     : {
         generation,
-        promise: provider().then((token) => token ?? '')
+        promise: provider(options).then((token) => token ?? '')
       };
   projectSpaceAuthTokenRefresh = refresh;
 
