@@ -27,6 +27,19 @@ same commands from local preflight and applicable CI lanes.
 - **When** a developer runs its documented shared check locally
 - **Then** the same repository-owned command and working-directory contract are used
 
+### DEV-CHECKS-003 — Explicit local preflight profiles
+
+Project Space MUST provide a fast changed-path-selected local preflight and an optional
+full preflight that runs all locally reproducible Fast CI lanes plus applicable local
+release-quality checks. Both profiles MUST report protected or foreign-platform gates
+that remain remote-only.
+
+#### Scenario: Choose the local feedback depth
+
+- **Given** a developer has a clean committed revision
+- **When** the developer runs the fast or full preflight command
+- **Then** the report identifies the requested profile, the exact revision, the executed local lanes, and the remaining remote-only gates
+
 ## CHANGED Requirements
 
 None.

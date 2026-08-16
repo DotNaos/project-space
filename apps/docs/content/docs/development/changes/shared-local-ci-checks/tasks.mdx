@@ -9,6 +9,8 @@ description: Implementation and verification checklist for shared quality checks
   - **Evidence:** CI check IDs resolve their command, arguments, and working directory in one module.
 - [x] 1.2 Route local preflight and applicable workflows through the registry
   - **Evidence:** Preflight, pull-request CI, release quality, and production validation invoke `ci:check` IDs.
+- [x] 1.3 Separate fast and full local preflight profiles
+  - **Evidence:** The default profile stays changed-path selected while `ci:preflight:full` selects all local Fast CI lanes plus applicable release-quality checks.
 
 ## 2. Fast staged feedback
 
@@ -24,7 +26,7 @@ description: Implementation and verification checklist for shared quality checks
 - [x] 3.2 Validate and dogfood Lefthook in an isolated repository
   - **Evidence:** A fresh Bun install created the hook; it accepted a valid commit and rejected staged trailing whitespace in under one second.
 - [x] 3.3 Run full local preflight and exact pull-request CI
-  - **Evidence:** All 23 local preflight lanes pass; PR #793 passes Fast CI, Windows CLI compatibility, and exact-head Preview artifact creation.
+  - **Evidence:** All 24 local full-preflight lanes pass; PR #793 passes Fast CI, Windows CLI compatibility, and exact-head Preview artifact creation.
 
 ## 4. Deferred follow-ups
 

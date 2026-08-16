@@ -6,8 +6,10 @@ description: Shared quality-check registry and staged hook boundary.
 ## Context
 
 The repository already has a selective local preflight, but both that script and several
-workflows embed their own command lists. Git linked worktrees share a hook directory,
-while the hook executes from the current worktree and reads its current configuration.
+workflows embed their own command lists. The local runner also needs to distinguish a
+short feedback loop from an explicit, comprehensive local review. Git linked worktrees
+share a hook directory, while the hook executes from the current worktree and reads its
+current configuration.
 
 ## Goals and non-goals
 
@@ -21,7 +23,8 @@ operations are not simulated locally.
 flowchart LR
     Index[Staged Git index] --> Hook[Lefthook pre-commit]
     Hook --> Registry[Shared quality checks]
-    Local[Local CI preflight] --> Registry
+    Fast[Fast changed-path preflight] --> Registry
+    Full[Full local preflight] --> Registry
     CI[GitHub Actions] --> Registry
     Registry --> Evidence[Consistent command results]
 ```
@@ -29,6 +32,8 @@ flowchart LR
 ## Decisions
 
 - The quality registry owns command arguments and working directories.
+- The default preflight selects changed-path extras; the optional full profile selects all locally reproducible Fast CI lanes plus applicable local release-quality checks.
+- GitHub release policy remains independent and is included in the local report rather than silently expanding the fast profile.
 - The pre-commit profile runs only diff hygiene, package-manager policy, and docs specs.
 - Staged validators read blobs from the Git index so unstaged edits cannot hide or cause failures.
 - Change-spec coverage compares the pull-request merge base with the planned index snapshot.

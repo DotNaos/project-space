@@ -14,7 +14,8 @@ Requirements: **Required**
 
 Install Lefthook with the Bun dependencies, run cheap repository checks against the
 exact staged commit, and route local preflight and CI quality lanes through the same
-named command registry.
+named command registry. Keep fast local feedback distinct from an optional comprehensive
+pass over local CI and release checks.
 
 ## Problem
 
@@ -28,6 +29,7 @@ unstaged edits.
 - Install and configure Lefthook for fast pre-commit checks.
 - Validate staged diff hygiene, package-manager policy, and documentation coverage.
 - Centralize locally reproducible CI commands and use them from workflows and preflight.
+- Provide explicit fast and full local preflight profiles.
 - Document the local commands, bypass boundary, and protected remote-only checks.
 
 ## Out of scope
