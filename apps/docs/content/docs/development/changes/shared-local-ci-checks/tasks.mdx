@@ -23,7 +23,8 @@ description: Implementation and verification checklist for shared quality checks
   - **Evidence:** 78 focused contract tests pass, including inverse staged-versus-working-tree cases and merge-base-to-index documentation coverage.
 - [x] 3.2 Validate and dogfood Lefthook in an isolated repository
   - **Evidence:** A fresh Bun install created the hook; it accepted a valid commit and rejected staged trailing whitespace in under one second.
-- [ ] 3.3 Run full local preflight and exact pull-request CI
+- [x] 3.3 Run full local preflight and exact pull-request CI
+  - **Evidence:** All 23 local preflight lanes pass; PR #793 passes Fast CI, Windows CLI compatibility, and exact-head Preview artifact creation.
 
 ## 4. Deferred follow-ups
 

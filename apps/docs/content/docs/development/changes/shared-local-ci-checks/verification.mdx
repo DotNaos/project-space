@@ -3,7 +3,7 @@ title: Verification
 description: Requirement evidence for shared local and CI checks.
 ---
 
-Verification status: **Incomplete**
+Verification status: **Complete**
 
 ## Requirement evidence
 
@@ -16,13 +16,14 @@ Verification status: **Incomplete**
 
 - [x] Current requirements describe only delivered behavior
 - [x] Architecture and design decisions match the implementation
-- [ ] Every required task and subtask is complete
+- [x] Every required task and subtask is complete
 - [x] Focused tests and repository validation pass
-  - **Evidence:** 78 focused tests and the 2,950-test repository suite pass; TypeScript and package-manager checks are green.
+  - **Evidence:** Focused contracts and the 2,955-test repository suite pass; TypeScript and package-manager checks are green.
 - [x] Deployed documentation type-checks and builds
-  - **Evidence:** Documentation dependency installation, type-check, and production build pass with 240 static pages generated.
+  - **Evidence:** Documentation dependency installation, type-check, and production build pass with 255 static pages generated.
 - [x] Realistic hook and partial-commit paths are dogfooded
   - **Evidence:** Fresh-install commit dogfood and inverse partial-staging fixtures pass.
-- [ ] Issue #790 and pull-request commitments are implemented or linked to a continuation issue
+- [x] Issue #790 and pull-request commitments are implemented or linked to a continuation issue
+  - **Evidence:** PR #793 implements the issue without deferred required work.
 
 Structural validation does not replace tests or semantic review.
