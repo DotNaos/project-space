@@ -58,8 +58,6 @@ describe('shared local and CI quality checks', () => {
       'go',
       'test',
       '-race',
-      '-p',
-      '1',
       './...',
     ]);
     expect(sharedCheckCommand('go-race')).toEqual([

@@ -98,7 +98,7 @@ export function resolveQualityCheck(
       command: ['bun', 'run', 'docs:cli:check'],
     },
     'go-race': {
-      command: ['go', 'test', '-race', '-p', '1', './...'],
+      command: ['go', 'test', '-race', './...'],
     },
     'go-test': {
       command: ['go', 'test', './...'],
