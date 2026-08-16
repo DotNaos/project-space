@@ -1,0 +1,42 @@
+---
+title: Tasks
+description: Implementation and verification checklist for deployment-owned Tailscale inventory.
+---
+
+## 1. Deployment ownership and membership
+
+- [x] 1.1 Move OAuth credentials to deployment configuration
+  - **Evidence:** The backend reads only the two fixed runtime names, and Infisical Production has both values with a successful token and device-list check.
+- [x] 1.2 Share Tailscale state without sharing Connector associations
+  - **Evidence:** One fixed scope owns observations, classifications, and projections; Compute reads add only that scope while Connector queries retain the requesting user.
+- [x] 1.3 Enforce Production membership
+  - **Evidence:** Production denies an empty or mismatched allowlist, and the deploy workflow requires the Infisical membership value before SSH.
+
+## 2. Credential and provider safety
+
+- [x] 2.1 Remove browser and database connection lifecycle
+  - **Evidence:** The connection surface is GET-only, the UI has no credential controls, and active per-user vault/service/store modules are removed.
+- [x] 2.2 Retire stored credential envelopes
+  - **Evidence:** Migration 0056 revokes legacy rows, nulls every credential field, increments revision, and records a safe migration actor.
+- [x] 2.3 Use current fresh Tailscale evidence
+  - **Evidence:** Tests cover `connectedToControl`, the legacy fallback, exact addresses, provider failures, and all-invalid response denial.
+
+## 3. Delivery and verification
+
+- [x] 3.1 Remove host Tailscale from normal inventory startup
+  - **Evidence:** Default Compose resolves only database, docs, and web; the socket sidecar exists only in the named legacy profile.
+- [x] 3.2 Document the single-tenant multi-user boundary
+  - **Evidence:** README and canonical ownership, Tailscale, Production, and Infisical docs state one ownership domain per deployment and explicit membership.
+- [x] 3.3 Run local verification and security review
+  - **Evidence:** Focused tests, TypeScript, docs validation, Compose inspection, and independent security review pass; the complete preflight passed 2,939 tests with six declared skips apart from the now-added change-spec gate.
+
+## 4. Deferred follow-ups
+
+- [ ] 4.1 Complete wider infrastructure ownership migration
+  - **Issue:** #786
+  - **Reason:** Historical user-owned infrastructure and downstream operation stores require separate conflict, rollback, and authorization design.
+  - **Acceptance criteria:** Shared infrastructure resources remain operable by authorized members while user-owned provider data stays isolated and historical rows are reconciled explicitly.
+- [ ] 4.2 Implement an authorized Tailscale data plane
+  - **Issue:** #733
+  - **Reason:** OAuth inventory provides no tailnet route or remote-operation authority.
+  - **Acceptance criteria:** Bounded network operations use isolated repository-managed state, explicit routes, actor authorization, cleanup, and no arbitrary browser relay.

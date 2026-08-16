@@ -26,16 +26,10 @@ import type {
 } from './database/models';
 import { ProjectSpaceDatabaseRepository } from './database/repository';
 import { PostgresPrivateNetworkStore, type PrivateNetworkStore } from './private-network/store';
+import { tailscaleDeploymentInventoryScope } from './tailscale-inventory/deployment-scope';
 import {
   PostgresTailscaleInventoryStore
 } from './tailscale-inventory/store';
-import {
-  createProviderCredentialVault,
-  ProviderCredentialVaultError
-} from './tailscale-provider-connection/credential-vault';
-import {
-  PostgresTailscaleProviderConnectionStore
-} from './tailscale-provider-connection/store';
 
 export type {
   CreateDevServerSessionInput,
@@ -63,7 +57,6 @@ let projectChatRepository: PostgresProjectChatRepository | null = null;
 let roadmapPlanStore: RoadmapPlanStore | null = null;
 let privateNetworkStore: PrivateNetworkStore | null = null;
 let tailscaleInventoryStore: PostgresTailscaleInventoryStore | null = null;
-let tailscaleProviderConnectionStore: PostgresTailscaleProviderConnectionStore | null = null;
 let schemaReady: Promise<void> | null = null;
 const githubOAuthReconnectRequired = new Set<string>();
 
@@ -243,29 +236,6 @@ export async function getTailscaleInventoryStore() {
   return tailscaleInventoryStore;
 }
 
-export async function getTailscaleProviderConnectionStore() {
-  const databasePool = getPool();
-  if (!databasePool) return null;
-  await ensureDatabaseSchema();
-  if (!tailscaleProviderConnectionStore) {
-    let vault: ReturnType<typeof createProviderCredentialVault> | {
-      decrypt(): never; encrypt(): never;
-    };
-    try {
-      vault = createProviderCredentialVault(process.env);
-    } catch {
-      vault = {
-        decrypt() { throw new ProviderCredentialVaultError(); },
-        encrypt() { throw new ProviderCredentialVaultError(); }
-      };
-    }
-    tailscaleProviderConnectionStore = new PostgresTailscaleProviderConnectionStore(
-      createPoolQueryClient(databasePool), vault
-    );
-  }
-  return tailscaleProviderConnectionStore;
-}
-
 export async function readGitHubOAuthToken(
   userId: string
 ): Promise<StoredGitHubOAuthToken | null> {
@@ -378,7 +348,9 @@ export async function deleteDevServerSession(input: DevServerSessionKey) {
 }
 
 export async function listComputeInventory(userId: string) {
-  return (await getDatabaseRepository()).listComputeInventory(userId);
+  return (await getDatabaseRepository()).listComputeInventory(userId, {
+    additionalOwnerUserIds: [tailscaleDeploymentInventoryScope]
+  });
 }
 
 export async function reconcileConnectorComputeInventory(

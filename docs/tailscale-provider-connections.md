@@ -1,8 +1,12 @@
 # Tailscale provider connections
 
-Project Space supports account-scoped Tailscale inventory through a Tailscale OAuth client.
-This is a control-plane connection: it can read the devices that belong to one tailnet, but it
-does not join the Project Space server to that tailnet.
+Project Space supports deployment-owned Tailscale inventory through one Tailscale OAuth client.
+Each Project Space deployment represents one individual or organization infrastructure domain;
+the OAuth client belongs to that deployment's tailnet, not to an application user. This is a
+control-plane connection: it can read the devices that belong to that tailnet, but it does not
+join the Project Space server to the tailnet.
+
+See [Single-tenant deployment ownership](single-tenant-deployment.md) for the overall boundary.
 
 ## Supported connection model
 
@@ -24,49 +28,51 @@ Official contract references:
 
 ```mermaid
 flowchart LR
-  Browser[Authenticated Project Space account]
-  API[Owner-derived connection API]
-  Store[(Encrypted account connection)]
+  User[Authenticated deployment user]
+  API[Authorized Project Space operation]
+  Config[Deployment secret injection]
   Token[Tailscale one-hour access token]
   Devices[Tailnet device API]
-  Inventory[(Owner-scoped inventory)]
+  Inventory[(Deployment inventory)]
   Legacy[Temporary VPS-local status adapter]
 
-  Browser --> API
-  API --> Store
-  Store --> Token --> Devices --> Inventory
-  API -. configured legacy owner only .-> Legacy --> Inventory
+  User --> API
+  Config --> Token --> Devices --> Inventory
+  API --> Inventory
+  API -. temporary deployment source only .-> Legacy --> Inventory
 ```
 
-The authenticated Clerk subject supplies the owner ID. Browser input cannot select another owner,
-connection, tailnet, source, or stored inventory scope. Refresh work and its short coalescing cache
-are keyed by owner, so one account's response cannot be reconciled into another account.
+Only a member admitted by the deployment's explicit production allowlist can access this surface.
+A valid identity-provider session alone is insufficient. Browser input cannot select another
+tailnet, credential, or inventory source, and no application user receives the OAuth secret.
+Separate organizations use separate Project Space deployments rather than sharing a cross-tenant
+connection store.
 
-The first version supports one active Tailscale connection per Project Space account. Project Space
-does not yet have a durable organization membership and role model, so it does not pretend that a
-personal connection is organization-owned. A revoked connection keeps only safe status/audit
-metadata; its encrypted client ID and secret are cleared.
+All admitted users read and classify one deployment-scoped Tailscale inventory. The persistence
+key is a fixed internal deployment scope rather than a Clerk user ID; audit records still retain
+the real person who changed a classification.
 
 ## Credential lifecycle
 
-- The browser submits a client ID and secret once over the authenticated HTTPS connection.
-- Project Space requests only `devices:core:read` and verifies a fresh device-list response before
-  saving the connection.
-- Both values are stored in one AES-256-GCM envelope using the dedicated deployment key
-  `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64` and the explicit
-  `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID`.
-- There is no fallback to the Clerk secret, database URL, source code, or a browser-readable value.
+- The deployment supplies `TAILSCALE_OAUTH_CLIENT_ID` and
+  `TAILSCALE_OAUTH_CLIENT_SECRET` to the trusted backend through its secret-delivery path.
+- The OAuth client requests only `devices:core:read`; Project Space verifies a fresh device-list
+  response before reporting the provider as available.
+- Production resolves the two names from its dedicated Infisical Production project during the
+  approved deployment transaction. Their values are written only to the protected VPS runtime
+  environment and are not available to the browser or normal application storage.
+- There is no fallback to the Clerk secret, database URL, source code, browser input, or another
+  user's credential.
+- The retirement migration revokes legacy per-user connection rows and clears their encrypted
+  credential fields. It retains only non-secret audit and lifecycle metadata.
 - API access tokens last one hour according to Tailscale and remain in process memory only. Project
   Space does not persist or return them.
-- Disconnecting in Project Space immediately removes the encrypted credential material and blocks
-  further refresh/classification. A tailnet administrator should also revoke the OAuth client in
-  Tailscale so any still-valid access token is revoked at the provider.
-- Rotation means creating a replacement OAuth client, verifying and saving it, then revoking the old
-  client in Tailscale. Tailscale does not document in-place client-secret rotation.
+- Rotation means adding a replacement value in the deployment secret manager, deploying it,
+  verifying fresh inventory, then revoking the old OAuth client in Tailscale. Tailscale does not
+  document in-place client-secret rotation.
 
-Provider errors are reduced to stable categories. Plaintext credential values exist only while a
-request is being verified or an encrypted connection is being used; they are never persisted
-outside the encrypted envelope or returned. Raw Tailscale response bodies, access tokens, device
+Provider errors are reduced to stable categories. Plaintext credential values exist only in the
+trusted server process and are never returned. Raw Tailscale response bodies, access tokens, device
 payloads, and network errors are never persisted or returned.
 
 ## Inventory truth
@@ -76,32 +82,15 @@ Stable Tailscale device IDs reconcile records. Only validated exact Tailscale IP
 are stored; MagicDNS is optional. Online and `lastSeen` evidence come from the API response and are
 treated as unknown when the provider is unavailable, revoked, or no longer sufficiently scoped.
 
-The temporary `temporary_vps_local_status` adapter remains for the single production owner until
-the replacement is proven. Its identity is visible in the response and UI. It is selected only for
-that configured owner when no provider connection record exists; an unrelated or revoked account
-never falls back to it.
+The temporary `temporary_vps_local_status` adapter remains only for the current production
+deployment until the replacement is proven. Its identity is visible in the response and UI. It is
+selected only for the deployment's configured legacy owner when OAuth is absent and can never be
+selected by browser input.
 
-A clean deployment that uses only account-owned OAuth inventory can omit the host socket and legacy
-sidecar with the repository-managed Compose overlay:
-
-```sh
-docker compose -f deploy/compose.yml -f deploy/compose.tailscale-oauth.yml up -d --build
-```
-
-The current production deployment intentionally continues to use the base Compose file until its
-replacement connection and migration are verified.
-
-Before enabling connections in production, the protected GitHub `Production` environment must
-contain `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64` as a generated 32-byte Base64 key
-and `PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID` as its non-secret identifier. The
-approved deployment job passes those values to the Project CLI, which stores them only in the
-protected VPS runtime environment. The application fails closed when either field is absent or
-invalid, and the production deployment stops before contacting the VPS when either GitHub secret
-is missing. Neither field is needed for the temporary VPS-local adapter.
-
-The named 1Password references in `deploy/deploy.yaml` remain a manual transition fallback until
-the planned Infisical migration. The normal GitHub production deployment overrides those two
-references with the protected environment secrets and does not resolve them through 1Password.
+The production deployment does not require Tailscale to be installed or authenticated on the host
+for inventory. The temporary host-local adapter remains only until the deployment OAuth path has
+replacement proof. See [Production deployment](production-deployment.md) for the Infisical runtime
+contract.
 
 ## Data plane is separate
 

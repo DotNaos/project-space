@@ -35,6 +35,7 @@ export interface TailscaleInventoryStore {
 
 export function createTailscaleInventoryService(options: {
   clock?: () => number;
+  inventoryScope?: string;
   minimumRefreshIntervalMs?: number;
   now?: () => Date;
   source: TailscaleInventorySource;
@@ -43,6 +44,7 @@ export function createTailscaleInventoryService(options: {
   const now = options.now ?? (() => new Date());
   const clock = options.clock ?? (() => Date.now());
   const minimumRefreshIntervalMs = options.minimumRefreshIntervalMs ?? 2_000;
+  const inventoryScope = (ownerUserId: string) => options.inventoryScope ?? ownerUserId;
   const refreshInFlight = new Map<string, ReturnType<TailscaleInventorySource['observe']>>();
   const cachedRefresh = new Map<string, {
     completedAt: number;
@@ -68,19 +70,23 @@ export function createTailscaleInventoryService(options: {
 
   return {
     async list(ownerUserId: string, refresh = false): Promise<TailscaleInventoryResult> {
+      const storageScope = inventoryScope(ownerUserId);
       let descriptor = await options.source.describe?.(ownerUserId) ?? {
-        connectionState: 'not_connected' as const,
+        connectionState: 'not_configured' as const,
         source: 'not_connected' as const
       };
       let refreshState: TailscaleInventoryResult['provider']['refreshState'] = 'not_checked';
       let reasonCode: string | undefined;
       let errorCount: number | undefined;
       if (refresh) {
-        const cacheKey = [ownerUserId, descriptor.source, descriptor.connectionId ?? '',
+        const cacheKey = [storageScope, descriptor.source, descriptor.connectionId ?? '',
           descriptor.revision ?? 0].join('\u0000');
         const observed = await observe(ownerUserId, cacheKey);
         if (observed.available) {
-          await options.store.reconcile(ownerUserId, {
+          if (descriptor.source === 'tailscale_oauth_api') {
+            descriptor = { ...descriptor, connectionState: 'connected' };
+          }
+          await options.store.reconcile(storageScope, {
             complete: true, kind: 'snapshot', snapshot: observed.snapshot
           });
           if (observed.snapshot.deviceErrors.length > 0) {
@@ -90,20 +96,27 @@ export function createTailscaleInventoryService(options: {
           }
         } else {
           refreshState = 'unavailable'; reasonCode = observed.error.code;
-          if (observed.error.code === 'connection_missing' ||
-            observed.error.code === 'credentials_invalid' ||
-            observed.error.code === 'scope_insufficient') {
-            descriptor = { ...descriptor, connectionState: 'reauthorization_required' };
+          if (descriptor.source === 'tailscale_oauth_api') {
+            descriptor = {
+              ...descriptor,
+              connectionState: observed.error.code === 'credentials_invalid'
+                ? 'authentication_error'
+                : observed.error.code === 'scope_insufficient'
+                  ? 'scope_insufficient'
+                  : 'unavailable'
+            };
           }
-          await options.store.reconcile(ownerUserId, {
+          await options.store.reconcile(storageScope, {
             kind: 'provider-failure', observedAt: now().toISOString()
           });
         }
       }
       return {
-        devices: (await options.store.list(ownerUserId)).map((device) =>
+        devices: (!['configured', 'connected', 'legacy'].includes(descriptor.connectionState) ||
+          (descriptor.source === 'tailscale_oauth_api' && refreshState === 'unavailable')
+          ? [] : await options.store.list(storageScope)).map((device) =>
           toPublicDevice(device, refreshState === 'unavailable' ||
-            !['connected', 'legacy'].includes(descriptor.connectionState))
+            !['configured', 'connected', 'legacy'].includes(descriptor.connectionState))
         ),
         provider: {
           ...(descriptor.connectionId ? { connectionId: descriptor.connectionId } : {}),
@@ -124,7 +137,7 @@ export function createTailscaleInventoryService(options: {
         throw new TailscaleInventoryServiceError('machine-forbidden', 'Only a person may classify Tailscale devices.');
       }
       const descriptor = await options.source.describe?.(actor.ownerUserId);
-      if (descriptor && !['connected', 'legacy'].includes(descriptor.connectionState)) {
+      if (descriptor && !['configured', 'connected', 'legacy'].includes(descriptor.connectionState)) {
         throw new TailscaleInventoryServiceError(
           'connection-unavailable',
           'A Tailscale provider connection is required before devices can be classified.'
@@ -133,7 +146,8 @@ export function createTailscaleInventoryService(options: {
       try {
         return await options.store.setClassification({
           actorId: actor.actorId, classification: request.classification, deviceId,
-          expectedRevision: request.expectedRevision, ownerUserId: actor.ownerUserId
+          expectedRevision: request.expectedRevision,
+          ownerUserId: inventoryScope(actor.ownerUserId)
         });
       } catch (error) {
         if (error instanceof UnknownTailscaleDevice) {

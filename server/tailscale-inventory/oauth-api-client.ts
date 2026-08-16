@@ -151,6 +151,9 @@ export function decodeApiDevices(
     identities.add(decoded.device.id);
     devices.push(decoded.device);
   }
+  if (root.devices.length > 0 && devices.length === 0) {
+    throw new Error('Tailscale API returned no valid devices.');
+  }
   return {
     backendState: 'running',
     deviceErrors,
@@ -169,7 +172,10 @@ function decodeApiDevice(value: unknown):
   | { ok: false; code: TailscaleDeviceDecodeError['code'] } {
   if (!isRecord(value)) return { ok: false, code: 'invalid_device' };
   const id = safeIdentifier(value.id);
-  if (!id || typeof value.online !== 'boolean') return { ok: false, code: 'invalid_device' };
+  const connectedToControl = typeof value.connectedToControl === 'boolean'
+    ? value.connectedToControl
+    : typeof value.online === 'boolean' ? value.online : undefined;
+  if (!id || connectedToControl === undefined) return { ok: false, code: 'invalid_device' };
   if (!Array.isArray(value.addresses)) return { ok: false, code: 'invalid_network_address' };
   const addresses = [...new Set(value.addresses.filter(isTailscaleAddress))].sort();
   if (addresses.length === 0) return { ok: false, code: 'invalid_network_address' };
@@ -182,7 +188,7 @@ function decodeApiDevice(value: unknown):
       ...(safeLabel(value.name) ?? safeLabel(value.hostname)
         ? { observedName: safeLabel(value.name) ?? safeLabel(value.hostname) }
         : {}),
-      online: value.online,
+      online: connectedToControl,
       ...(safeToken(value.os) ? { os: safeToken(value.os) } : {}),
       tags: safeTags(value.tags)
     }

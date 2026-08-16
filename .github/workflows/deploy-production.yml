@@ -250,13 +250,14 @@ jobs:
           include-imports: false
           recursive: false
 
-      - name: Require provider credential encryption secrets
+      - name: Require deployment infrastructure secrets
         shell: bash
         run: |
           set -euo pipefail
           for required_secret in \
-            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64 \
-            PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID
+            PROJECT_SPACE_ALLOWED_EMAILS \
+            TAILSCALE_OAUTH_CLIENT_ID \
+            TAILSCALE_OAUTH_CLIENT_SECRET
           do
             if [[ -z "${!required_secret:-}" ]]; then
               echo "::error::Infisical Production secret ${required_secret} is required."

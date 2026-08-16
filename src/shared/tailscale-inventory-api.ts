@@ -14,7 +14,14 @@ export type TailscaleInventorySourceKind =
   | 'local_tailscale_command'
   | 'not_connected';
 export type TailscaleProviderConnectionState =
-  | 'connected' | 'legacy' | 'not_connected' | 'reauthorization_required';
+  | 'authentication_error'
+  | 'configured'
+  | 'configuration_error'
+  | 'connected'
+  | 'legacy'
+  | 'not_configured'
+  | 'scope_insufficient'
+  | 'unavailable';
 
 export interface TailscaleInventoryDevice {
   addresses: string[];
@@ -46,18 +53,9 @@ export interface TailscaleInventoryResult {
 }
 
 export interface TailscaleProviderConnectionResult {
-  connectionId?: string;
-  connectedAt?: string;
   connectionState: TailscaleProviderConnectionState;
   requiredScope: 'devices:core:read';
   source: TailscaleInventorySourceKind;
-  verifiedAt?: string;
-}
-
-/** Credentials are accepted only on connect and never returned by the server. */
-export interface TailscaleProviderConnectionRequest {
-  clientId: string;
-  clientSecret: string;
 }
 
 export interface TailscaleClassificationRequest {

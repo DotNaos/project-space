@@ -1,22 +1,17 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { createElement, type ElementType, type ReactNode } from 'react';
 
-type Connection = {
-  connectionState: 'connected' | 'legacy' | 'not_connected' | 'reauthorization_required';
-  requiredScope: 'devices:core:read';
-  source: 'tailscale_oauth_api' | 'temporary_vps_local_status' | 'not_connected';
-  verifiedAt?: string;
-};
+type Source = 'tailscale_oauth_api' | 'temporary_vps_local_status' | 'not_connected';
+type State =
+  | 'authentication_error' | 'configured' | 'configuration_error' | 'connected'
+  | 'legacy' | 'not_configured' | 'scope_insufficient' | 'unavailable';
 
 type Client = {
-  connectTailscaleProvider(request: { clientId: string; clientSecret: string }): Promise<Connection>;
-  getTailscaleInventory(refresh?: boolean): Promise<{
+  getTailscaleInventory(): Promise<{
     devices: never[];
-    provider: { refreshState: 'available' | 'not_checked'; source: Connection['source'] };
+    provider: { connectionState: State; refreshState: 'available' | 'unavailable'; source: Source };
     schemaVersion: 1;
   }>;
-  getTailscaleProviderConnection(): Promise<Connection>;
-  revokeTailscaleProviderConnection(): Promise<Connection>;
   setTailscaleDeviceClassification(): Promise<{ classification: 'unclassified'; id: string; revision: number }>;
 };
 
@@ -52,10 +47,7 @@ mock.module('react/jsx-dev-runtime', () => ({ Fragment: Symbol.for('react.fragme
 
 mock.module('@/api/project-space-client', () => ({
   projectSpaceClient: {
-    connectTailscaleProvider: (request: { clientId: string; clientSecret: string }) => client.connectTailscaleProvider(request),
-    getTailscaleInventory: (refresh?: boolean) => client.getTailscaleInventory(refresh),
-    getTailscaleProviderConnection: () => client.getTailscaleProviderConnection(),
-    revokeTailscaleProviderConnection: () => client.revokeTailscaleProviderConnection(),
+    getTailscaleInventory: () => client.getTailscaleInventory(),
     setTailscaleDeviceClassification: () => client.setTailscaleDeviceClassification()
   }
 }));
@@ -88,15 +80,9 @@ mock.module('@heroui/react', () => {
     Container: element('div'), Dialog: element('div'), Footer: element('div'),
     Header: element('div'), Heading: element('h2')
   });
-  return {
-    Button: element('button'), Input: element('input'),
-    Label: element('label'), Modal, TextField: element('div')
-  };
+  return { Button: element('button'), Modal };
 });
-mock.module('lucide-react', () => ({
-  Network: () => null,
-  RefreshCw: () => null
-}));
+mock.module('lucide-react', () => ({ Network: () => null, RefreshCw: () => null }));
 
 const { TailscaleDeviceClassification } = await import('../src/features/project-desktop/components/tailscale-device-classification');
 
@@ -139,18 +125,37 @@ function open() {
   render();
 }
 
-function inventory(source: Connection['source']) {
-  return { devices: [], provider: { refreshState: 'available' as const, source }, schemaVersion: 1 as const };
+function inventory(connectionState: State, source: Source = 'tailscale_oauth_api') {
+  return {
+    devices: [],
+    provider: { connectionState, refreshState: 'available' as const, source },
+    schemaVersion: 1 as const
+  };
 }
 
-describe('Tailscale provider connection UI', () => {
-  test('labels the temporary source without presenting it as an OAuth connection', async () => {
+describe('Tailscale deployment connection UI', () => {
+  test('shows deployment-owned configuration without credential or lifecycle controls', async () => {
     resetHooks();
     client = {
-      connectTailscaleProvider: async () => { throw new Error('not used'); },
-      getTailscaleInventory: async () => inventory('temporary_vps_local_status'),
-      getTailscaleProviderConnection: async () => ({ connectionState: 'legacy', requiredScope: 'devices:core:read', source: 'temporary_vps_local_status' }),
-      revokeTailscaleProviderConnection: async () => { throw new Error('not used'); },
+      getTailscaleInventory: async () => inventory('configured'),
+      setTailscaleDeviceClassification: async () => ({ classification: 'unclassified', id: 'device', revision: 0 })
+    };
+
+    open();
+    await settle();
+    const output = text(render());
+    const renderedNodes = nodes(render());
+
+    expect(output).toContain('Tailscale is configured for this deployment');
+    expect(output).toContain('Refresh devices to verify the deployment credential and load current Tailnet evidence.');
+    expect(output).not.toMatch(/Client ID|Client secret|Connect Tailscale API|Disconnect/);
+    expect(renderedNodes.some((node) => node.type === 'input' || typeof node.props.onSubmit === 'function')).toBe(false);
+  });
+
+  test('labels the temporary source without presenting it as an account connection', async () => {
+    resetHooks();
+    client = {
+      getTailscaleInventory: async () => inventory('legacy', 'temporary_vps_local_status'),
       setTailscaleDeviceClassification: async () => ({ classification: 'unclassified', id: 'device', revision: 0 })
     };
 
@@ -159,76 +164,30 @@ describe('Tailscale provider connection UI', () => {
     const output = text(render());
 
     expect(output).toContain('Temporary VPS local Tailscale');
-    expect(output).toContain('not a Tailscale API connection for this account');
-    expect(output).toContain('Connect this account’s Tailscale API');
-    expect(output).toContain('devices:core:read');
-    expect(output).not.toContain('Connected to Tailscale API');
-    expect(output).not.toContain('Disconnect');
+    expect(output).toContain('temporary server-local source remains active');
+    expect(output).not.toMatch(/Client ID|Client secret|Connect Tailscale API|Disconnect/);
   });
 
-  test('submits account credentials once and removes the secret field after a successful connection', async () => {
-    resetHooks();
-    const requests: Array<{ clientId: string; clientSecret: string }> = [];
-    client = {
-      connectTailscaleProvider: async (request) => {
-        requests.push(request);
-        return { connectionState: 'connected', requiredScope: 'devices:core:read', source: 'tailscale_oauth_api', verifiedAt: '2026-08-14T12:00:00.000Z' };
-      },
-      getTailscaleInventory: async () => inventory('tailscale_oauth_api'),
-      getTailscaleProviderConnection: async () => ({ connectionState: 'not_connected', requiredScope: 'devices:core:read', source: 'not_connected' }),
-      revokeTailscaleProviderConnection: async () => ({ connectionState: 'not_connected', requiredScope: 'devices:core:read', source: 'not_connected' }),
-      setTailscaleDeviceClassification: async () => ({ classification: 'unclassified', id: 'device', revision: 0 })
-    };
+  test('sanitizes every deployment credential failure state', async () => {
+    for (const stateValue of ['configuration_error', 'authentication_error', 'scope_insufficient', 'unavailable'] as const) {
+      resetHooks();
+      client = {
+        getTailscaleInventory: async () => inventory(stateValue),
+        setTailscaleDeviceClassification: async () => ({ classification: 'unclassified', id: 'device', revision: 0 })
+      };
 
-    open();
-    await settle();
-    const fields = nodes(render()).filter((node) => typeof node.props.onChange === 'function');
-    (fields[0]?.props.onChange as (value: string) => void)('client-id-test');
-    (fields[1]?.props.onChange as (value: string) => void)('not-a-real-secret');
-    const form = nodes(render()).find((node) => typeof node.props.onSubmit === 'function');
-    (form?.props.onSubmit as (event: { preventDefault(): void }) => void)({ preventDefault() {} });
-    await settle();
-    const output = text(render());
-
-    expect(requests).toEqual([{ clientId: 'client-id-test', clientSecret: 'not-a-real-secret' }]);
-    expect(output).toContain('Connected to Tailscale API');
-    expect(output).not.toContain('Client secret');
-    expect(output).not.toContain('not-a-real-secret');
+      open();
+      await settle();
+      const output = text(render());
+      expect(output).toMatch(/Tailscale credential could not be used|Tailscale is temporarily unavailable|devices:core:read/);
+      expect(output).not.toMatch(/Client ID|Client secret|Connect Tailscale API|Disconnect|token=|secret=/i);
+    }
   });
 
-  test('disconnect calls the local connection endpoint and explains its revocation boundary', async () => {
-    resetHooks();
-    let disconnects = 0;
-    client = {
-      connectTailscaleProvider: async () => { throw new Error('not used'); },
-      getTailscaleInventory: async () => inventory('tailscale_oauth_api'),
-      getTailscaleProviderConnection: async () => ({ connectionState: 'connected', requiredScope: 'devices:core:read', source: 'tailscale_oauth_api' }),
-      revokeTailscaleProviderConnection: async () => {
-        disconnects += 1;
-        return { connectionState: 'not_connected', requiredScope: 'devices:core:read', source: 'not_connected' };
-      },
-      setTailscaleDeviceClassification: async () => ({ classification: 'unclassified', id: 'device', revision: 0 })
-    };
-
-    open();
-    await settle();
-    const connected = render();
-    expect(text(connected)).toContain('It does not revoke the Tailscale OAuth client');
-    const disconnect = nodes(connected).find((node) => typeof node.props.onPress === 'function'
-      && text(node.props.children) === 'Disconnect');
-    (disconnect?.props.onPress as (() => void))();
-    await settle();
-
-    expect(disconnects).toBe(1);
-  });
-
-  test('shows a generic error without exposing a provider response', async () => {
+  test('shows a generic inventory error without exposing an upstream response', async () => {
     resetHooks();
     client = {
-      connectTailscaleProvider: async () => { throw new Error('not used'); },
       getTailscaleInventory: async () => { throw new Error('upstream token=never-display'); },
-      getTailscaleProviderConnection: async () => { throw new Error('upstream token=never-display'); },
-      revokeTailscaleProviderConnection: async () => { throw new Error('not used'); },
       setTailscaleDeviceClassification: async () => ({ classification: 'unclassified', id: 'device', revision: 0 })
     };
 
@@ -236,7 +195,7 @@ describe('Tailscale provider connection UI', () => {
     await settle();
     const output = text(render());
 
-    expect(output).toContain('The saved Tailscale connection could not be checked. Try again later.');
+    expect(output).toContain('Tailnet inventory could not be loaded.');
     expect(output).not.toContain('upstream token=never-display');
   });
 });

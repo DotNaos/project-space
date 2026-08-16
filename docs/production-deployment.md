@@ -82,17 +82,25 @@ It contains these non-secret variables:
 - `PROJECT_SPACE_SSH_KNOWN_HOSTS`: the pinned SSH host-key line.
 
 The delete-protected `project-space-production` Infisical project contains the
-deploy SSH key, the two Tailscale OAuth credential fields restricted to
-`tag:ci-project-space-deploy`, the application deployment secrets, and the two
-provider-credential encryption values. The encryption key is a 32-byte Base64
-value; its separate key ID is stored with encrypted account-owned credentials
-for explicit version checks.
+deploy SSH key, the Tailscale credentials used by the deploy job, the application
+deployment secrets, and the deployment-owned Tailscale inventory contract:
+
+- `PROJECT_SPACE_ALLOWED_EMAILS`
+- `TAILSCALE_OAUTH_CLIENT_ID`
+- `TAILSCALE_OAUTH_CLIENT_SECRET`
+
+The allowlist is the required production membership boundary and fails closed
+when empty. The inventory client is scoped to the deployment's one tailnet and is never a
+per-user setting. The Tailscale values are long-lived infrastructure secrets;
+Infisical injects them only for the trusted deployment and VPS runtime path.
+They must never be copied into GitHub Actions secrets, repository files, command
+arguments, logs, or browser-visible configuration.
 
 Only the protected deployment job receives these values. The Project CLI sends
 the fixed deployment script over pinned SSH and writes the VPS runtime `.env`
-atomically with mode `0600`. Deployment stops before contacting the VPS when
-either provider-encryption value is missing. The VPS does not authenticate to
-GitHub or Infisical to read these values itself.
+atomically with mode `0600`. Deployment stops before contacting the VPS when a
+required runtime secret is missing. The VPS does not authenticate to GitHub or
+Infisical to read these values itself.
 The tailnet policy permits that CI tag to reach only the VPS on TCP port 22.
 Do not print, upload, or add any resolved value to workflow summaries.
 

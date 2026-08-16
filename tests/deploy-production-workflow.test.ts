@@ -132,20 +132,21 @@ describe('production deployment workflow contract', () => {
     expect(workflow).toContain('tag:ci-project-space-deploy');
   });
 
-  test('requires provider credential encryption secrets from protected Infisical delivery', async () => {
+  test('requires deployment-owned Tailscale credentials from protected Infisical delivery', async () => {
     const workflow = await readFile(workflowPath, 'utf8');
     const validateJob = workflow.slice(workflow.indexOf('  validate:'), workflow.indexOf('  deploy:'));
     const providerSecretCheck = workflow.slice(
-      workflow.indexOf('      - name: Require provider credential encryption secrets'),
+      workflow.indexOf('      - name: Require deployment infrastructure secrets'),
       workflow.indexOf('      - name: Configure pinned SSH identity')
     );
     const secretNames = [
-      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64',
-      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID'
+      'PROJECT_SPACE_ALLOWED_EMAILS',
+      'TAILSCALE_OAUTH_CLIENT_ID',
+      'TAILSCALE_OAUTH_CLIENT_SECRET'
     ] as const;
 
     expect(workflow).toContain('environment:\n      name: Production');
-    expect(workflow.indexOf('Require provider credential encryption secrets')).toBeLessThan(
+    expect(workflow.indexOf('Require deployment infrastructure secrets')).toBeLessThan(
       workflow.indexOf('Configure pinned SSH identity')
     );
     for (const secretName of secretNames) {
@@ -154,6 +155,7 @@ describe('production deployment workflow contract', () => {
       expect(workflow).not.toContain(`secrets.${secretName}`);
       expect(workflow).not.toContain(`steps.deploy-secrets.outputs.${secretName}`);
     }
+    expect(workflow).not.toContain('PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY');
     expect(providerSecretCheck).toContain('if [[ -z "${!required_secret:-}" ]]');
     expect(providerSecretCheck).toContain(
       'echo "::error::Infisical Production secret ${required_secret} is required."'
@@ -190,14 +192,15 @@ describe('production deployment workflow contract', () => {
     for (const name of [
       'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_PASSWORD',
       'PROJECT_SPACE_MACHINE_POWER_MQTT_JETKVM_B46E1A936AC89A4E_USERNAME',
-      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_B64',
-      'PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID',
+      'TAILSCALE_OAUTH_CLIENT_ID',
+      'TAILSCALE_OAUTH_CLIENT_SECRET',
       'PROJECT_SPACE_TOKEN_ENCRYPTION_KEY'
     ]) {
       expect(deploy).toContain(
         `${name}: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/${name}`
       );
     }
+    expect(deploy).not.toContain('PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY');
     expect(deploy).not.toContain('PROJECT_GITHUB_TOKEN');
     expect(deploy).not.toMatch(/^\s+GITHUB_TOKEN:/m);
     expect(workflow).not.toContain('GITHUB_TOKEN: ${{ env.PROJECT_GITHUB_TOKEN }}');

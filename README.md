@@ -2,6 +2,12 @@
 
 `project-space` is a desktop-first project workspace, not a file explorer IDE. One project fills one screen. The left side of the app is a workflow explorer for project structure, and the app later launches external tools like IDE, terminal, git, and dev server from task or worktree context.
 
+Each Project Space deployment is a single tenant for one person or organization
+and may have multiple users within that same ownership domain. It is not a
+shared multi-tenant SaaS: another organization uses a separate deployment,
+database, and infrastructure-secret boundary. Production admits only the
+explicitly configured member allowlist; an unrelated valid sign-in is denied.
+
 The repository currently targets a web-first fullstack MVP:
 
 - React + TypeScript + Vite frontend
@@ -68,6 +74,10 @@ machine should deliberately avoid Tailscale publication.
 
 ## Documentation
 
+- [Single-tenant deployment ownership](docs/single-tenant-deployment.md)
+- [Tailscale provider connections](docs/tailscale-provider-connections.md)
+- [Production deployment](docs/production-deployment.md)
+- [Infisical secret delivery](docs/infisical-secret-delivery.md)
 - [Hosted Project documentation](https://projects.os-home.net/docs)
 - [Project Space Codex plugin](docs/codex-plugin.md)
 - [Generated CLI command reference](apps/docs/content/docs/cli/index.mdx)

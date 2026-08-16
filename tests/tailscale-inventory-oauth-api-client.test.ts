@@ -65,6 +65,30 @@ describe('Tailscale OAuth API inventory client', () => {
     expect(JSON.stringify(result)).not.toContain(credentials.clientSecret);
   });
 
+  test('decodes the current Devices API connectivity field', async () => {
+    const result = await api(async (url) => url === tailscaleOAuthTokenUrl
+      ? json(token())
+      : json({ devices: [device({ connectedToControl: false })] })
+    ).observe(credentials);
+
+    expect(result).toMatchObject({
+      available: true,
+      snapshot: { devices: [{ id: 'device-exact-id', online: false }] }
+    });
+  });
+
+  test('retains the legacy online field as a compatibility fallback', async () => {
+    const result = await api(async (url) => url === tailscaleOAuthTokenUrl
+      ? json(token())
+      : json({ devices: [device({ connectedToControl: undefined, online: false })] })
+    ).observe(credentials);
+
+    expect(result).toMatchObject({
+      available: true,
+      snapshot: { devices: [{ id: 'device-exact-id', online: false }] }
+    });
+  });
+
   test('keeps malformed and duplicate peers partial while retaining exact valid devices', async () => {
     const result = await api(async (url) => url === tailscaleOAuthTokenUrl
       ? json(token())
@@ -100,6 +124,18 @@ describe('Tailscale OAuth API inventory client', () => {
       available: false, error: { code: 'invalid_api_response', source: 'api' }
     });
     expect(JSON.stringify(result)).not.toContain('raw-api-payload');
+  });
+
+  test('fails closed when a nonempty device response has no valid devices', async () => {
+    const result = await api(async (url) => url === tailscaleOAuthTokenUrl
+      ? json(token())
+      : json({ devices: [{ id: 'invalid-device', addresses: ['192.0.2.44'] }] })
+    ).observe(credentials);
+
+    expect(result).toEqual({
+      available: false, error: { code: 'invalid_api_response', source: 'api' }
+    });
+    expect(JSON.stringify(result)).not.toContain('invalid-device');
   });
 
   test.each([
@@ -226,7 +262,7 @@ function token(overrides: Record<string, unknown> = {}) {
 function device(overrides: Record<string, unknown> = {}) {
   return {
     addresses: ['100.101.0.2', 'fd7a:115c:a1e0::2'], id: 'device-exact-id',
-    lastSeen: '2026-08-14T09:59:00Z', name: 'exact-device-name', online: true, os: 'linux',
+    connectedToControl: true, lastSeen: '2026-08-14T09:59:00Z', name: 'exact-device-name', os: 'linux',
     tags: ['tag:developer'], ...overrides
   };
 }

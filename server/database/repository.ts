@@ -245,33 +245,40 @@ export class ProjectSpaceDatabaseRepository {
     private readonly createId: () => string = randomUUID
   ) {}
 
-  async listComputeInventory(userId: string): Promise<ComputeInventorySnapshot> {
+  async listComputeInventory(
+    userId: string,
+    options: { additionalOwnerUserIds?: readonly string[] } = {}
+  ): Promise<ComputeInventorySnapshot> {
     const ownerUserId = requireValue(userId, 'userId');
+    const visibleOwnerUserIds = [...new Set([
+      ownerUserId,
+      ...(options.additionalOwnerUserIds ?? []).map((value) => requireValue(value, 'ownerUserId'))
+    ])];
     const [definitionResult, platformResult, hostResult, environmentResult, connectorResult] = await Promise.all([
       this.client.query<EnvironmentDefinitionRow>(
         `select id, slug, name, kind, operating_system_family, supported_architectures,
                 bootstrap_strategy, ownership
            from compute_environment_definitions
-          where owner_user_id = $1 order by lower(name), id`,
-        [ownerUserId]
+          where owner_user_id = any($1::text[]) order by lower(name), id`,
+        [visibleOwnerUserIds]
       ),
       this.client.query<ComputePlatformRow>(
         `select id, kind, name from compute_platforms
-          where owner_user_id = $1 order by lower(name), id`,
-        [ownerUserId]
+          where owner_user_id = any($1::text[]) order by lower(name), id`,
+        [visibleOwnerUserIds]
       ),
       this.client.query<ComputeHostRow>(
         `select id, platform_id, identity_version, identity_key, name, resources
-           from compute_hosts where owner_user_id = $1 order by lower(name), id`,
-        [ownerUserId]
+           from compute_hosts where owner_user_id = any($1::text[]) order by lower(name), id`,
+        [visibleOwnerUserIds]
       ),
       this.client.query<ComputeEnvironmentRow>(
         `select id, environment_definition_id, platform_id, host_id,
                 parent_environment_id, identity_version,
                 identity_key, identity_resolution, kind, name, host_resolution, host_evidence,
                 resource_mode, resources
-           from compute_environments where owner_user_id = $1 order by lower(name), id`,
-        [ownerUserId]
+           from compute_environments where owner_user_id = any($1::text[]) order by lower(name), id`,
+        [visibleOwnerUserIds]
       ),
       this.client.query<ConnectorEnvironmentRow>(
         `select connector_id, environment_id, associated_at
