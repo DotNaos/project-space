@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { ProjectTaskViewModel } from '../src/features/project-tasks/task-view-model';
-import { buildProjectTaskTree } from '../src/features/project-tasks/project-task-tree';
+import { buildProjectTaskTree, collectProjectTaskDescendants } from '../src/features/project-tasks/project-task-tree';
 
 function task(number: number, parentNumber?: number): ProjectTaskViewModel {
   return {
@@ -35,5 +35,17 @@ describe('project task tree', () => {
     const numbers = tree.flatMap((node) => [node.task.issue.number, ...node.children.map((child) => child.task.issue.number)]);
 
     expect(numbers.sort()).toEqual([1, 2]);
+  });
+
+  test('collects all descendants in display order for an issue detail', () => {
+    const descendants = collectProjectTaskDescendants([
+      task(4, 2),
+      task(2, 1),
+      task(5, 3),
+      task(1),
+      task(3, 1)
+    ], 1);
+
+    expect(descendants.map((item) => item.issue.number)).toEqual([2, 4, 3, 5]);
   });
 });

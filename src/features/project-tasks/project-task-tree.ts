@@ -43,6 +43,25 @@ export function buildProjectTaskTree(
     .map(buildNode);
 }
 
+export function collectProjectTaskDescendants(
+  tasks: readonly ProjectTaskViewModel[],
+  parentIssueNumber: number
+): ProjectTaskViewModel[] {
+  const flatten = (nodes: readonly ProjectTaskTreeNode[]): ProjectTaskViewModel[] =>
+    nodes.flatMap((node) => [node.task, ...flatten(node.children)]);
+
+  const find = (nodes: readonly ProjectTaskTreeNode[]): ProjectTaskTreeNode | undefined => {
+    for (const node of nodes) {
+      if (node.task.issue.number === parentIssueNumber) return node;
+      const match = find(node.children);
+      if (match) return match;
+    }
+    return undefined;
+  };
+
+  return flatten(find(buildProjectTaskTree(tasks))?.children ?? []);
+}
+
 function createsCycle(
   childNumber: number,
   parentNumber: number,

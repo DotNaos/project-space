@@ -124,7 +124,7 @@ export function createLocalSimulationSeed(rootPath: string, now = new Date()): L
         labels: ['compute'],
         number: 620,
         parentIssue: { number: 618, title: 'Harden provider connection lifecycle', url: issueUrl },
-        state: 'open',
+        state: 'closed',
         title: 'Add provider health states',
         updatedAt: checkedAt,
         url: ''
@@ -137,17 +137,6 @@ export function createLocalSimulationSeed(rootPath: string, now = new Date()): L
         parentIssue: { number: 618, title: 'Harden provider connection lifecycle', url: issueUrl },
         state: 'open',
         title: 'Add connection recovery actions',
-        updatedAt: checkedAt,
-        url: ''
-      }, {
-        author: 'local-developer',
-        body: 'Verify that the generated developer documentation is complete.',
-        id: 622,
-        labels: ['documentation'],
-        number: 622,
-        parentIssue: { number: 619, title: 'Document the local runtime', url: issueUrl },
-        state: 'closed',
-        title: 'Verify generated developer documentation',
         updatedAt: checkedAt,
         url: ''
       }, {
@@ -206,7 +195,7 @@ export function createLocalSimulationSeed(rootPath: string, now = new Date()): L
         isDraft: false,
         linkedIssueNumbers: [620],
         number: 704,
-        state: 'open',
+        state: 'merged',
         title: 'Add provider health states',
         updatedAt: checkedAt,
         url: pullRequestUrl
