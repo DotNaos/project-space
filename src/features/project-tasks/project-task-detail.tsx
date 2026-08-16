@@ -14,12 +14,14 @@ import {
   Send
 } from 'lucide-react';
 import type {
-  GitHubIssueCommentRecord
+  GitHubIssueCommentRecord,
+  GitHubSubIssueProgress
 } from '@/shared/project-space-api';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
 import { IssueLabelChip } from '@/features/project-desktop/components/issue-visuals';
 import { useRuntimeBinding } from '@/features/project-desktop/components/runtime-binding-context';
 import { ProjectTaskDetailTabs } from './project-task-detail-tabs';
+import { ProjectTaskListItem } from './project-task-list-item';
 import { pullRequestChipPresentation } from './project-task-presentation';
 import type { ProjectTaskViewModel } from './task-view-model';
 
@@ -71,6 +73,52 @@ function taskStateChip(task: ProjectTaskViewModel): {
   return { className: '!bg-neutral-600', color: 'default' };
 }
 
+function SubTaskProgressIndicator({ progress }: { progress: GitHubSubIssueProgress }) {
+  return (
+    <span
+      aria-label={`Sub-tasks ${progress.completed} of ${progress.total} complete`}
+      className="flex shrink-0 items-center gap-2 rounded-full bg-current/[.05] px-2.5 py-1 text-xs tabular-nums text-current/55"
+    >
+      <span aria-hidden="true" className="h-1.5 w-16 overflow-hidden rounded-full bg-current/[.1]">
+        <span
+          className="block h-full rounded-full bg-current/55"
+          style={{ width: `${progress.percentCompleted}%` }}
+        />
+      </span>
+      {progress.completed}/{progress.total} complete
+    </span>
+  );
+}
+
+function SubIssueList({ onOpenTask, subIssueProgress, subIssues }: {
+  onOpenTask(issueNumber: number): void;
+  subIssueProgress?: GitHubSubIssueProgress;
+  subIssues: ProjectTaskViewModel[];
+}) {
+  if (subIssues.length === 0) return null;
+
+  return (
+    <section className="mt-7 border-t border-current/[.08] pt-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-current/85">Sub-tasks</h2>
+        <div className="flex items-center gap-2">
+          {subIssueProgress ? <SubTaskProgressIndicator progress={subIssueProgress} /> : null}
+          <span className="rounded-full bg-current/[.05] px-2.5 py-1 text-xs tabular-nums text-current/50">
+            {subIssues.length}
+          </span>
+        </div>
+      </div>
+      <ul aria-label="Sub-tasks" className="mt-3">
+        {subIssues.map((subIssue) => (
+          <li key={subIssue.issue.number}>
+            <ProjectTaskListItem onOpen={() => onOpenTask(subIssue.issue.number)} task={subIssue} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function CommentTimeline({ comments, repositoryFullName }: {
   comments: GitHubIssueCommentRecord[];
   repositoryFullName?: string;
@@ -116,14 +164,18 @@ export function ProjectTaskDetail({
   comments,
   isLoadingComments,
   onBack,
+  onOpenTask,
   repositoryFullName,
+  subIssues,
   task
 }: {
   addComment(body: string): Promise<void>;
   comments: GitHubIssueCommentRecord[];
   isLoadingComments: boolean;
   onBack(): void;
+  onOpenTask(issueNumber: number): void;
   repositoryFullName?: string;
+  subIssues: ProjectTaskViewModel[];
   task: ProjectTaskViewModel;
 }) {
   const runtime = useRuntimeBinding();
@@ -135,6 +187,8 @@ export function ProjectTaskDetail({
   const hasLongDescription = (task.issue.body?.length ?? 0) > 420;
   const stateChip = taskStateChip(task);
   const pullRequestChip = pullRequest ? pullRequestChipPresentation(pullRequest) : undefined;
+  const parentIssue = task.issue.parentIssue;
+  const subIssueProgress = task.issue.subIssueProgress;
 
   async function submitComment() {
     if (!commentBody.trim() || isPosting) return;
@@ -212,9 +266,17 @@ export function ProjectTaskDetail({
             </button>
           ) : null}
         </div>
+        {parentIssue ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-current/50">
+            <span className="rounded-full bg-current/[.05] px-2.5 py-1">
+              Sub-task of #{parentIssue.number}
+            </span>
+          </div>
+        ) : null}
         {task.workflowMessage ? (
           <p className="mt-4 text-sm leading-6 text-amber-300">{task.workflowMessage}</p>
         ) : null}
+        <SubIssueList onOpenTask={onOpenTask} subIssueProgress={subIssueProgress} subIssues={subIssues} />
       </header>
 
       <ProjectTaskDetailTabs

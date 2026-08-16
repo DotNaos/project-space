@@ -65,7 +65,7 @@ function ClerkPreviewAccessGate({ target }: { target: PreviewAccessGateTarget })
     grantKey.current = key;
     let active = true;
     setError('');
-    setProjectSpaceAuthTokenProvider(() => getToken());
+    setProjectSpaceAuthTokenProvider((options) => getToken(options?.skipCache ? { skipCache: true } : undefined));
     const grant = target.surface === 'prototype'
       ? establishPrototypeAccess(
           target.targetUrl,

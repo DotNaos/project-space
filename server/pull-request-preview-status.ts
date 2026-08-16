@@ -187,11 +187,13 @@ export function sanitizePullRequestPreview(
   const rawRunningSha = raw.runningSha ?? raw.deployedSha ?? raw.runtimeSha;
   const requestedSha = sha(rawRequestedSha);
   const runningSha = sha(rawRunningSha);
+  const hasRequestedSha = hasNonBlankValue(rawRequestedSha);
+  const hasRunningSha = hasNonBlankValue(rawRunningSha);
   if (
     state === 'unknown' ||
     (state !== 'removed' && !requestedSha) ||
-    (rawRequestedSha !== undefined && !requestedSha) ||
-    (rawRunningSha !== undefined && !runningSha)
+    (hasRequestedSha && !requestedSha) ||
+    (hasRunningSha && !runningSha)
   ) {
     return undefined;
   }
@@ -238,6 +240,10 @@ export function sanitizePullRequestPreview(
     updatedAt: timestamp(raw.updatedAt ?? raw.lastTransitionAt),
     verifiedAt: timestamp(raw.verifiedAt)
   };
+}
+
+function hasNonBlankValue(value: unknown) {
+  return value !== undefined && value !== null && !(typeof value === 'string' && value.trim() === '');
 }
 
 export function correlatePullRequestPreviews(

@@ -54,13 +54,17 @@ export async function establishPrototypeAccess(
   const endpoint = new URL(endpointValue);
   endpoint.searchParams.set('change', changeId);
   endpoint.searchParams.set('surface', surface);
-  const token = await refreshProjectSpaceAuthToken();
-  if (!token) throw new Error('Sign in before opening this prototype.');
-  const response = await fetch(endpoint, {
-    credentials: 'include',
-    headers: { Authorization: `Bearer ${token}` },
-    method: 'POST',
-    redirect: 'error'
-  });
+  const requestAccess = async (skipCache = false) => {
+    const token = await refreshProjectSpaceAuthToken({ skipCache });
+    if (!token) throw new Error('Sign in before opening this prototype.');
+    return fetch(endpoint, {
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
+      method: 'POST',
+      redirect: 'error'
+    });
+  };
+  let response = await requestAccess();
+  if (response.status === 401) response = await requestAccess(true);
   if (!response.ok) throw new Error('Project Space could not authorize this prototype.');
 }
