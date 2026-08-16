@@ -10,6 +10,7 @@ const mainPanel = readFileSync(
   'utf8'
 );
 const webServer = readFileSync('server/web-server.ts', 'utf8');
+const viteConfig = readFileSync('vite.config.ts', 'utf8');
 
 describe('Project Codex chat page contract', () => {
   test('replaces the Project Chat surface with the real Codex conversation surface', () => {
@@ -41,5 +42,9 @@ describe('Project Codex chat page contract', () => {
   test('keeps the local app-server transport development-only', () => {
     expect(webServer).toContain("process.env.PROJECT_DEPLOY_ENVIRONMENT === 'prod'");
     expect(webServer).toContain('PROJECT_SPACE_LOCAL_CODEX_MACHINE_ID is disabled in production.');
+  });
+
+  test('uses one React runtime when the UI development package is linked', () => {
+    expect(viteConfig).toContain("dedupe: ['react', 'react-dom']");
   });
 });
