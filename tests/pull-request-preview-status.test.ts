@@ -230,6 +230,16 @@ describe('pull request Preview status adapter', () => {
     expect(calls).toEqual([['deploy', 'preview', 'status', '--all', '--format', 'json']]);
     expect(available.previews.map((preview) => preview.pullRequestNumber)).toEqual([263]);
 
+    const registryWithBlankOptionalSha = await getPullRequestPreviewStatus('DotNaos/project-space', undefined, {
+      cwd: '.',
+      run: async () => ({ exitCode: 0, stderr: '', stdout: JSON.stringify({ previews: [
+        { pullRequestNumber: 263, repositoryFullName: 'DotNaos/project-space', requestedSha, state: 'deploying' },
+        { pullRequestNumber: 264, repositoryFullName: 'DotNaos/project-space', requestedSha, runningSha: '', state: 'ready' }
+      ] }) })
+    });
+    expect(registryWithBlankOptionalSha.status).toBe('available');
+    expect(registryWithBlankOptionalSha.previews.map((preview) => preview.pullRequestNumber)).toEqual([263, 264]);
+
     const failed = await getPullRequestPreviewStatus('DotNaos/project-space', undefined, {
       cwd: '.',
       run: async () => ({ exitCode: 1, stderr: 'private host op://vault', stdout: 'secret' })
