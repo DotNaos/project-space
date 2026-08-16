@@ -14,7 +14,8 @@ import {
   Send
 } from 'lucide-react';
 import type {
-  GitHubIssueCommentRecord
+  GitHubIssueCommentRecord,
+  GitHubSubIssueProgress
 } from '@/shared/project-space-api';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
 import { IssueLabelChip } from '@/features/project-desktop/components/issue-visuals';
@@ -70,6 +71,23 @@ function taskStateChip(task: ProjectTaskViewModel): {
   if (task.state === 'review') return { color: 'success' };
   if (task.state === 'active') return { color: 'accent' };
   return { className: '!bg-neutral-600', color: 'default' };
+}
+
+function SubTaskProgressIndicator({ progress }: { progress: GitHubSubIssueProgress }) {
+  return (
+    <span
+      aria-label={`Sub-tasks ${progress.completed} of ${progress.total} complete`}
+      className="flex shrink-0 items-center gap-2 rounded-full bg-current/[.05] px-2.5 py-1 text-xs tabular-nums text-current/55"
+    >
+      <span aria-hidden="true" className="h-1.5 w-16 overflow-hidden rounded-full bg-current/[.1]">
+        <span
+          className="block h-full rounded-full bg-current/55"
+          style={{ width: `${progress.percentCompleted}%` }}
+        />
+      </span>
+      {progress.completed}/{progress.total} complete
+    </span>
+  );
 }
 
 function SubIssueList({ onOpenTask, subIssues }: {
@@ -254,9 +272,7 @@ export function ProjectTaskDetail({
               </span>
             ) : null}
             {subIssueProgress ? (
-              <span className="rounded-full bg-current/[.05] px-2.5 py-1 tabular-nums">
-                Sub-tasks {subIssueProgress.completed}/{subIssueProgress.total} complete
-              </span>
+              <SubTaskProgressIndicator progress={subIssueProgress} />
             ) : null}
           </div>
         ) : null}
