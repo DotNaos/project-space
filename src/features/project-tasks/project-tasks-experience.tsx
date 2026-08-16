@@ -52,6 +52,12 @@ export function ProjectTasksExperience({
     () => tasks.find((task) => task.issue.number === selectedIssueNumber),
     [selectedIssueNumber, tasks]
   );
+  const selectedSubIssues = useMemo(
+    () => selectedTask
+      ? tasks.filter((task) => task.issue.parentIssue?.number === selectedTask.issue.number)
+      : [],
+    [selectedTask, tasks]
+  );
 
   useEffect(() => {
     const controller = new IssueCreationHistoryController(
@@ -106,7 +112,9 @@ export function ProjectTasksExperience({
           comments={selectedTask.comments}
           isLoadingComments={commentsLoadingFor === selectedTask.issue.number}
           onBack={onShowTasks}
+          onOpenTask={(issueNumber) => onOpenTask(issueNumber)}
           repositoryFullName={repository?.fullName}
+          subIssues={selectedSubIssues}
           task={selectedTask}
         />
       ) : (

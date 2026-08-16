@@ -86,7 +86,7 @@ function StatusIcon({ task }: { task: ProjectTaskViewModel }) {
   return <CircleDashed aria-label="Backlog" className="size-4 shrink-0 text-neutral-600" />;
 }
 
-function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel }) {
+function TaskRow({ mode = 'list', onOpen, task }: { mode?: 'list' | 'tree'; onOpen(): void; task: ProjectTaskViewModel }) {
   const pullRequest = task.pullRequest;
   const merged = pullRequest?.state === 'merged';
   const PullRequestIcon = merged ? GitMerge : GitPullRequest;
@@ -94,7 +94,7 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
   return (
     <button
       aria-label={`Open task #${task.issue.number}: ${task.issue.title}`}
-      className="group block min-h-11 w-full border-b border-current/[.07] px-1 py-2 text-left transition-[background-color,scale] hover:bg-current/[.018] active:scale-[.99] @xl:px-3"
+      className={`group block min-h-11 w-full text-left transition-[background-color,scale] active:scale-[.99] ${mode === 'tree' ? 'rounded-lg px-2.5 py-2 hover:bg-current/[.045] @xl:px-3' : 'border-b border-current/[.07] px-1 py-2 hover:bg-current/[.018] @xl:px-3'}`}
       onClick={onOpen}
       type="button"
     >
@@ -142,12 +142,16 @@ function TaskRow({ onOpen, task }: { onOpen(): void; task: ProjectTaskViewModel 
   );
 }
 
-function TaskTreeNodeRow({ node, onOpen }: { node: ProjectTaskTreeNode; onOpen(number: number): void }) {
+function TaskTreeNodeRow({ isNested = false, node, onOpen }: { isNested?: boolean; node: ProjectTaskTreeNode; onOpen(number: number): void }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
 
   return (
-    <li aria-expanded={hasChildren ? expanded : undefined} role="treeitem">
+    <li
+      aria-expanded={hasChildren ? expanded : undefined}
+      className={isNested ? 'relative before:absolute before:left-[-1rem] before:top-1/2 before:h-px before:w-3 before:bg-current/[.1]' : undefined}
+      role="treeitem"
+    >
       <div className="flex min-w-0 items-start">
         {hasChildren ? (
           <button
@@ -161,12 +165,12 @@ function TaskTreeNodeRow({ node, onOpen }: { node: ProjectTaskTreeNode; onOpen(n
         ) : (
           <span aria-hidden="true" className="size-7 shrink-0" />
         )}
-        <TaskRow onOpen={() => onOpen(node.task.issue.number)} task={node.task} />
+        <TaskRow mode="tree" onOpen={() => onOpen(node.task.issue.number)} task={node.task} />
       </div>
       {hasChildren && expanded ? (
-        <ul className="ml-3 border-l border-current/[.1] pl-3" role="group">
+        <ul className="relative ml-3 mt-1 space-y-1 border-l border-current/[.1] pl-3" role="group">
           {node.children.map((child) => (
-            <TaskTreeNodeRow key={child.task.issue.number} node={child} onOpen={onOpen} />
+            <TaskTreeNodeRow isNested key={child.task.issue.number} node={child} onOpen={onOpen} />
           ))}
         </ul>
       ) : null}
