@@ -9,7 +9,9 @@ import type {
   GitHubBranchRecord,
   GitHubCatalogRepository,
   GitHubCatalogResult,
+  GitHubIssueReference,
   GitHubIssueRecord,
+  GitHubSubIssueProgress,
   GitHubOAuthDevicePollRequest,
   GitHubOAuthDevicePollResult,
   GitHubOAuthDeviceStartResult,
@@ -101,6 +103,33 @@ interface GitHubApiIssue {
   updated_at?: string | null;
   user?: {
     login?: string;
+  } | null;
+}
+
+interface GitHubApiIssueReference {
+  number: number;
+  repository?: {
+    nameWithOwner?: string | null;
+  } | null;
+  title: string;
+  url: string;
+}
+
+interface GitHubApiIssueHierarchyNode {
+  number: number;
+  parent?: GitHubApiIssueReference | null;
+  subIssuesSummary?: {
+    completed?: number | null;
+    percentCompleted?: number | null;
+    total?: number | null;
+  } | null;
+}
+
+interface GitHubApiIssueHierarchyResponse {
+  repository?: {
+    issues?: {
+      nodes?: Array<GitHubApiIssueHierarchyNode | null> | null;
+    } | null;
   } | null;
 }
 
@@ -248,6 +277,46 @@ export async function requestGitHub<T>(
   }
 
   return (await response.json()) as T;
+}
+
+export type RequestGitHubGraphQL = <Result>(
+  query: string,
+  variables: Record<string, string>,
+  token: string
+) => Promise<Result>;
+
+async function requestGitHubGraphQL<Result>(
+  query: string,
+  variables: Record<string, string>,
+  token: string
+): Promise<Result> {
+  const response = await fetch(`${githubApiBaseUrl}/graphql`, {
+    body: JSON.stringify({ query, variables }),
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    },
+    method: 'POST',
+    signal: AbortSignal.timeout(githubRequestTimeoutMs)
+  });
+  const payload = await response.json() as {
+    data?: Result;
+    errors?: Array<{ message?: string }>;
+    message?: string;
+  };
+
+  if (!response.ok || payload.errors?.length || payload.data === undefined) {
+    const message = payload.errors?.map((error) => error.message).filter(Boolean).join('; ')
+      || payload.message
+      || `GitHub GraphQL request failed with ${response.status}.`;
+    const rateLimited = response.status === 429 ||
+      (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0');
+    throw new GitHubRequestError(response.status, rateLimited, message);
+  }
+
+  return payload.data;
 }
 
 async function readLogin(token: string) {
@@ -536,19 +605,101 @@ export function listRepositoryIssues(
   );
 }
 
-export function mapGitHubIssue(issue: GitHubApiIssue): GitHubIssueRecord {
+export function mapGitHubIssue(
+  issue: GitHubApiIssue,
+  hierarchy?: ReadonlyMap<number, { parentIssue?: GitHubIssueReference; subIssueProgress?: GitHubSubIssueProgress }>
+): GitHubIssueRecord {
   const body = stripGitHubIssueCreationMarker(issue.body ?? '');
+  const issueHierarchy = hierarchy?.get(issue.number);
   return {
     author: issue.user?.login,
     body: body || undefined,
     id: issue.id,
     labels: issue.labels?.map((label) => label.name).filter((name): name is string => Boolean(name)) ?? [],
     number: issue.number,
+    parentIssue: issueHierarchy?.parentIssue,
     state: issue.state,
+    subIssueProgress: issueHierarchy?.subIssueProgress,
     title: issue.title,
     updatedAt: issue.updated_at ?? undefined,
     url: issue.html_url
   };
+}
+
+const issueHierarchyQuery = `
+  query RepositoryIssueHierarchy($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) {
+      issues(first: 100, states: [OPEN, CLOSED], orderBy: { field: UPDATED_AT, direction: DESC }) {
+        nodes {
+          number
+          parent {
+            number
+            title
+            url
+            repository {
+              nameWithOwner
+            }
+          }
+          subIssuesSummary {
+            completed
+            percentCompleted
+            total
+          }
+        }
+      }
+    }
+  }
+`;
+
+export function mapGitHubIssueHierarchy(
+  nodes: Array<GitHubApiIssueHierarchyNode | null>
+): ReadonlyMap<number, { parentIssue?: GitHubIssueReference; subIssueProgress?: GitHubSubIssueProgress }> {
+  const hierarchy = new Map<number, { parentIssue?: GitHubIssueReference; subIssueProgress?: GitHubSubIssueProgress }>();
+
+  for (const node of nodes) {
+    if (!node) continue;
+    const parentIssue = node.parent ? {
+      number: node.parent.number,
+      repositoryFullName: node.parent.repository?.nameWithOwner ?? undefined,
+      title: node.parent.title,
+      url: node.parent.url
+    } : undefined;
+    const progress = node.subIssuesSummary;
+    const subIssueProgress = progress && typeof progress.completed === 'number'
+      && typeof progress.percentCompleted === 'number'
+      && typeof progress.total === 'number'
+      && progress.total > 0
+      ? {
+          completed: progress.completed,
+          percentCompleted: progress.percentCompleted,
+          total: progress.total
+        }
+      : undefined;
+
+    if (parentIssue || subIssueProgress) {
+      hierarchy.set(node.number, { parentIssue, subIssueProgress });
+    }
+  }
+
+  return hierarchy;
+}
+
+export async function listRepositoryIssueHierarchy(
+  fullName: string,
+  token: string,
+  request: RequestGitHubGraphQL = requestGitHubGraphQL
+) {
+  const [owner, name] = fullName.split('/');
+  if (!owner || !name || fullName.split('/').length !== 2) {
+    throw new Error('GitHub repository names must use the owner/name format.');
+  }
+
+  const response = await request<GitHubApiIssueHierarchyResponse>(
+    issueHierarchyQuery,
+    { name, owner },
+    token
+  );
+  return mapGitHubIssueHierarchy(response.repository?.issues?.nodes ?? []);
 }
 
 function branchWebUrl(repoUrl: string, branchName: string) {
@@ -742,14 +893,22 @@ export async function getGitHubRepositoryDetails(
 
   try {
     const repoPath = fullName.split('/').map(encodeURIComponent).join('/');
-    const [repo, branches, issues, developmentLinks] = await Promise.all([
+    const [repo, branches, issues, developmentLinks, issueHierarchy] = await Promise.all([
       requestGitHub<GitHubApiRepository>(`/repos/${repoPath}`, auth.token),
       requestGitHub<GitHubApiBranch[]>(
         `/repos/${repoPath}/branches?per_page=30`,
         auth.token
       ),
       listRepositoryIssues(repoPath, auth.token),
-      loadRepositoryDevelopmentLinks(fullName, auth.token)
+      loadRepositoryDevelopmentLinks(fullName, auth.token),
+      listRepositoryIssueHierarchy(fullName, auth.token).catch((error) => {
+        projectSpaceLogger.warn('github_catalog.issue_hierarchy_unavailable', {
+          component: 'github-catalog',
+          error: error instanceof Error ? error.message : 'Unknown GitHub issue hierarchy error',
+          repository: fullName
+        });
+        return new Map();
+      })
     ]);
     const branchRecords = new Map<string, GitHubBranchRecord>();
 
@@ -814,7 +973,7 @@ export async function getGitHubRepositoryDetails(
       checkedAt: new Date().toISOString(),
       issues: issues
         .filter((issue) => !issue.pull_request)
-        .map(mapGitHubIssue),
+        .map((issue) => mapGitHubIssue(issue, issueHierarchy)),
       pullRequests: developmentLinks.pullRequests,
       status: 'connected'
     };

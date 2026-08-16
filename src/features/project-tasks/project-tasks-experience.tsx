@@ -8,6 +8,7 @@ import {
 import { isIssueCreationPath } from '@/features/project-desktop/components/issue-creation-route';
 import { ProjectTaskDetail } from './project-task-detail';
 import { ProjectTasksPage } from './project-tasks-page';
+import { collectProjectTaskDescendants } from './project-task-tree';
 import { useProjectTasks } from './use-project-tasks';
 
 export function ProjectTasksExperience({
@@ -51,6 +52,10 @@ export function ProjectTasksExperience({
   const selectedTask = useMemo(
     () => tasks.find((task) => task.issue.number === selectedIssueNumber),
     [selectedIssueNumber, tasks]
+  );
+  const selectedSubTasks = useMemo(
+    () => selectedTask ? collectProjectTaskDescendants(tasks, selectedTask.issue.number) : [],
+    [selectedTask, tasks]
   );
 
   useEffect(() => {
@@ -106,7 +111,9 @@ export function ProjectTasksExperience({
           comments={selectedTask.comments}
           isLoadingComments={commentsLoadingFor === selectedTask.issue.number}
           onBack={onShowTasks}
+          onOpenTask={(issueNumber) => onOpenTask(issueNumber)}
           repositoryFullName={repository?.fullName}
+          subIssues={selectedSubTasks}
           task={selectedTask}
         />
       ) : (

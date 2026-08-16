@@ -1,0 +1,59 @@
+---
+title: Design
+description: Data and presentation design for GitHub sub-task hierarchy views.
+---
+
+## Context
+
+Project Space already renders GitHub-backed tasks through a shared project-task model,
+but the local catalog adapter discarded parent and sub-issue summary fields. The task
+list and issue detail view consequently had different representations of the same work.
+
+## Goals and non-goals
+
+The goal is a consistent read-only representation of GitHub sub-tasks, including a
+useful tree mode and complete descendant progress. The change does not add GitHub write
+operations, alter issue relationships, or make the remote runtime responsible for local
+view state.
+
+## Architecture
+
+The GitHub catalog adapter requests parent references and `subIssuesSummary` alongside
+the existing issue fields and maps them into the shared task model. The task list uses
+that model to derive either a flat sequence or a guarded hierarchy. Issue detail walks
+the same model to collect all descendants and renders each through the shared task-row
+component.
+
+Tree construction tracks visited issue identifiers and keeps orphaned or cyclic nodes
+visible at the root. Descendant collection uses the same guard so malformed remote data
+cannot create an infinite render.
+
+## Decisions
+
+- Keep list mode as the default and make tree mode an explicit view choice.
+- Use one task-row component for list, tree, and detail so status, progress, and linked
+  pull request treatment cannot drift between screens.
+- Show every descendant in issue detail rather than limiting the view to direct children.
+- Keep local simulation fixtures rich enough to exercise completed, active, nested, and
+  pull-request-linked tasks.
+
+## Risks and mitigations
+
+- **Incomplete remote metadata could hide work:** orphaned tasks remain visible and
+  their own status is preserved.
+- **Cycles could hang rendering:** hierarchy and descendant traversals use visited-set
+  guards.
+- **Remote responses could evolve:** the adapter remains the boundary for GraphQL field
+  selection and mapping, while the UI consumes the stable shared model.
+
+## Migration and rollout
+
+No data migration is needed because the change is read-only. The normal pull request
+Preview is the rollout surface; local simulation remains available for deterministic
+tests and unauthenticated development.
+
+## Validation
+
+Run the focused hierarchy and task-view tests, TypeScript checks, web build, documentation
+spec validation, and the pull request CI suite. Verify both list/tree navigation and an
+issue detail page with multiple descendants.

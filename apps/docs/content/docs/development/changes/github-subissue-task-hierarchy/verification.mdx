@@ -1,0 +1,23 @@
+---
+title: Verification
+description: Evidence and final reconciliation for GitHub sub-task hierarchy views.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+GH-SUBTASK-UI is covered by the list/tree projection, shared task-row rendering, and
+the issue-detail descendant collection. GH-SUBTASK-DATA is covered by the catalog
+mapping, local hierarchy fixtures, and guarded traversal tests.
+
+## Final reconciliation
+
+- [x] Requirements are represented by the shared task model and view projections
+- [x] Design decisions are reflected in the catalog adapter, tree projection, and detail view
+- [x] Implementation tasks completed before final CI/Preview verification are evidenced
+- [ ] Pull request CI is green on the exact current revision
+- [ ] Preview shows the remote GitHub hierarchy for an authenticated session
+
+The remaining checks are delivery-surface verification and do not require a data
+migration or a GitHub write operation.

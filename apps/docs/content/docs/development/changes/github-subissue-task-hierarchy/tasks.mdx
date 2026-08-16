@@ -1,0 +1,30 @@
+---
+title: Tasks
+description: Implementation and verification checklist for GitHub sub-task hierarchy views.
+---
+
+## 1. Remote hierarchy data
+
+- [x] 1.1 Map GitHub parent references and sub-issue summaries into the task model
+  - **Evidence:** `server/local-github-catalog.ts` requests and maps the parent and `subIssuesSummary` fields used by task views.
+- [x] 1.2 Keep local simulation data representative of descendant progress
+  - **Evidence:** `server/local-simulation/seed.ts` includes six visible descendants with completed and incomplete statuses.
+
+## 2. Consistent task views
+
+- [x] 2.1 Add a guarded list/tree hierarchy projection
+  - **Evidence:** `src/features/project-tasks/project-task-tree.ts` derives tree rows while preserving orphaned and cyclic entries.
+- [x] 2.2 Reuse the task row across list, tree, and issue detail
+  - **Evidence:** `src/features/project-tasks/project-task-list-item.tsx` is used by the task list and detail descendant section.
+- [x] 2.3 Show all descendants and progress in issue detail
+  - **Evidence:** `collectProjectTaskDescendants` feeds the complete sub-task list and the inline completion indicator.
+
+## 3. Verification
+
+- [x] 3.1 Add focused hierarchy and task-view coverage
+  - **Evidence:** `tests/project-task-tree.test.ts` covers descendant collection and hierarchy edge cases; task-view tests cover the rendered states.
+- [ ] 3.2 Complete pull request CI and Preview verification
+
+## 4. Deferred follow-ups
+
+None.

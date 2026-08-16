@@ -71,7 +71,7 @@ function ClerkPreviewHubAuthBoundary({ children }: { children(account?: RailAcco
     let active = true;
     if (!isLoaded) return () => { active = false; };
     if (!isSignedIn) { setProjectSpaceAuthTokenProvider(null); setAuthenticated(false); return () => { active = false; }; }
-    setProjectSpaceAuthTokenProvider(() => getToken());
+    setProjectSpaceAuthTokenProvider((options) => getToken(options?.skipCache ? { skipCache: true } : undefined));
     setAuthenticated(undefined);
     projectSpaceClient.getAuthSession().then((session) => { if (active) { setAuthenticated(session.authenticated); setMessage(session.authenticated ? '' : 'This account is not authorized.'); } }).catch(() => { if (active) { setAuthenticated(false); setMessage('Project Space could not verify this account.'); } });
     return () => { active = false; };

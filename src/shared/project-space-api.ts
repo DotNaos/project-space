@@ -550,13 +550,28 @@ export interface GitHubPullRequestRecord {
   url: string;
 }
 
+export interface GitHubIssueReference {
+  number: number;
+  repositoryFullName?: string;
+  title: string;
+  url: string;
+}
+
+export interface GitHubSubIssueProgress {
+  completed: number;
+  percentCompleted: number;
+  total: number;
+}
+
 export interface GitHubIssueRecord {
   author?: string;
   body?: string;
   id?: number;
   labels: string[];
   number: number;
+  parentIssue?: GitHubIssueReference;
   state: 'open' | 'closed';
+  subIssueProgress?: GitHubSubIssueProgress;
   title: string;
   updatedAt?: string;
   url: string;
