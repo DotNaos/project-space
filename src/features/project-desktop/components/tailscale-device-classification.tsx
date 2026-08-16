@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Button as HeroUIButton,
-  Input,
-  Label,
-  Modal,
-  TextField
-} from '@heroui/react';
+import { Modal } from '@heroui/react';
 import { Network, RefreshCw } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { Button, Chip, ListBox, ListBoxItem, Select, Text } from '@/app/dotnaos-ui';
@@ -14,8 +8,7 @@ import {
   type TailscaleDeviceClassification as TailscaleClassification,
   type TailscaleInventoryDevice,
   type TailscaleInventoryResult,
-  type TailscaleInventorySourceKind,
-  type TailscaleProviderConnectionResult
+  type TailscaleInventorySourceKind
 } from '@/shared/tailscale-inventory-api';
 
 const classificationLabels: Record<TailscaleClassification, string> = {
@@ -57,23 +50,11 @@ function providerSourceLabel(source: TailscaleInventorySourceKind | undefined) {
   }
 }
 
-function safeVerifiedAt(value: string | undefined) {
-  if (!value) return 'Not yet verified';
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? 'Verified' : `Verified ${new Date(timestamp).toLocaleString()}`;
-}
-
 export function TailscaleDeviceClassification() {
   const [open, setOpen] = useState(false);
   const [inventory, setInventory] = useState<TailscaleInventoryResult>();
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [connection, setConnection] = useState<TailscaleProviderConnectionResult>();
-  const [connectionLoading, setConnectionLoading] = useState(false);
-  const [connectionError, setConnectionError] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [connectionSaving, setConnectionSaving] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, TailscaleClassification>>({});
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
@@ -93,62 +74,13 @@ export function TailscaleDeviceClassification() {
     }
   }, []);
 
-  const loadConnection = useCallback(async () => {
-    setConnectionLoading(true);
-    setConnectionError('');
-    try {
-      setConnection(await projectSpaceClient.getTailscaleProviderConnection());
-    } catch {
-      setConnectionError('The saved Tailscale connection could not be checked. Try again later.');
-    } finally {
-      setConnectionLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     if (open) {
-      void loadConnection();
       void load(true);
     }
-  }, [load, loadConnection, open]);
-
-  const connect = useCallback(async () => {
-    const trimmedClientId = clientId.trim();
-    if (!trimmedClientId || !clientSecret) {
-      setConnectionError('Enter both the Client ID and Client secret to connect this account.');
-      return;
-    }
-    const request = { clientId: trimmedClientId, clientSecret };
-    setClientSecret('');
-    setConnectionSaving(true);
-    setConnectionError('');
-    try {
-      setConnection(await projectSpaceClient.connectTailscaleProvider(request));
-      setClientId('');
-      await load(true);
-    } catch {
-      setConnectionError('Tailscale could not verify this connection. Check the account and required scope, then try again.');
-    } finally {
-      setConnectionSaving(false);
-    }
-  }, [clientId, clientSecret, load]);
-
-  const disconnect = useCallback(async () => {
-    setConnectionSaving(true);
-    setConnectionError('');
-    try {
-      setConnection(await projectSpaceClient.revokeTailscaleProviderConnection());
-      await Promise.all([loadConnection(), load(true)]);
-    } catch {
-      setConnectionError('The saved Project Space connection could not be removed. Try again later.');
-    } finally {
-      setConnectionSaving(false);
-    }
-  }, [load, loadConnection]);
+  }, [load, open]);
 
   const close = useCallback(() => {
-    setClientSecret('');
-    setConnectionError('');
     setOpen(false);
   }, []);
 
@@ -181,12 +113,9 @@ export function TailscaleDeviceClassification() {
     }
   }, [drafts]);
 
-  const source = connection?.source ?? inventory?.provider.source;
+  const source = inventory?.provider.source;
   const sourceLabel = providerSourceLabel(source);
-  const isApiConnection = source === 'tailscale_oauth_api' && connection?.connectionState === 'connected';
-  const needsConnection = connection?.connectionState === 'not_connected'
-    || connection?.connectionState === 'reauthorization_required'
-    || connection?.connectionState === 'legacy';
+  const connectionState = inventory?.provider.connectionState;
 
   return (
     <>
@@ -218,50 +147,39 @@ export function TailscaleDeviceClassification() {
                     <RefreshCw className={loading ? 'size-3.5 animate-spin' : 'size-3.5'} />Refresh devices
                   </Button>
                 </div>
-                {connectionLoading ? <Text className="mb-4 block text-xs text-neutral-500">Checking this account’s Tailscale connection…</Text> : null}
-                {isApiConnection ? (
+                {source === 'tailscale_oauth_api' && connectionState === 'connected' ? (
                   <div className="mb-4 border-y border-sky-500/20 py-3">
                     <Text className="block text-sm font-medium text-neutral-100">Connected to Tailscale API</Text>
-                    <Text className="mt-1 block text-xs text-neutral-500">{safeVerifiedAt(connection?.verifiedAt)}. This connection is scoped to the current Project Space account.</Text>
-                    <Text className="mt-2 block text-xs text-neutral-500">Disconnect removes this saved Project Space connection. It does not revoke the Tailscale OAuth client; revoke that separately in the Tailscale admin console.</Text>
-                    <HeroUIButton className="mt-3" isDisabled={connectionSaving} onPress={() => void disconnect()} size="sm" variant="danger">
-                      {connectionSaving ? 'Disconnecting…' : 'Disconnect'}
-                    </HeroUIButton>
+                    <Text className="mt-1 block text-xs text-neutral-500">This deployment’s infrastructure credential is configured outside the application and applies to its authorized users.</Text>
                   </div>
                 ) : null}
-                {connection?.connectionState === 'legacy' ? (
+                {connectionState === 'configured' ? (
+                  <div className="mb-4 border-y border-sky-500/20 py-3">
+                    <Text className="block text-sm font-medium text-neutral-100">Tailscale is configured for this deployment</Text>
+                    <Text className="mt-1 block text-xs text-neutral-500">Refresh devices to verify the deployment credential and load current Tailnet evidence.</Text>
+                  </div>
+                ) : null}
+                {connectionState === 'legacy' ? (
                   <div className="mb-4 border-y border-amber-500/20 py-3">
                     <Text className="block text-sm font-medium text-neutral-100">Temporary VPS local Tailscale</Text>
-                    <Text className="mt-1 block text-xs text-neutral-500">This is a temporary server-local inventory source. It is not a Tailscale API connection for this account.</Text>
+                    <Text className="mt-1 block text-xs text-neutral-500">This temporary server-local source remains active until deployment-owned OAuth inventory is configured and proven.</Text>
                   </div>
                 ) : null}
-                {needsConnection ? (
-                  <form className="mb-4 grid gap-3 border-y border-neutral-800 py-4" onSubmit={(event) => {
-                    event.preventDefault();
-                    void connect();
-                  }}>
-                    <div>
-                      <Text className="block text-sm font-medium text-neutral-100">Connect this account’s Tailscale API</Text>
-                      <Text className="mt-1 block text-xs leading-5 text-neutral-500">Ask a tailnet administrator to create a scoped OAuth client for this account. Project Space needs only <span className="font-mono text-neutral-300">devices:core:read</span>.</Text>
-                    </div>
-                    <TextField fullWidth isDisabled={connectionSaving} onChange={setClientId} value={clientId}>
-                      <Label>Client ID</Label>
-                      <Input autoComplete="off" className="w-full font-mono text-xs" variant="secondary" />
-                    </TextField>
-                    <TextField fullWidth isDisabled={connectionSaving} onChange={setClientSecret} value={clientSecret}>
-                      <Label>Client secret</Label>
-                      <Input autoComplete="off" className="w-full font-mono text-xs" type="password" variant="secondary" />
-                      <Text className="mt-1 block text-xs text-neutral-500">The secret is sent only to verify and save this connection. It is cleared from this form immediately after submission.</Text>
-                    </TextField>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <HeroUIButton isDisabled={connectionSaving || !clientId.trim() || !clientSecret} size="sm" type="submit" variant="primary">
-                        {connectionSaving ? 'Connecting…' : 'Connect Tailscale API'}
-                      </HeroUIButton>
-                      <a className="text-xs text-sky-300 underline-offset-4 hover:underline" href="https://login.tailscale.com/admin/settings/oauth" rel="noreferrer" target="_blank">Open Tailscale admin console</a>
-                    </div>
-                  </form>
+                {connectionState === 'not_configured' ? (
+                  <div className="mb-4 border-y border-neutral-800 py-3">
+                    <Text className="block text-sm font-medium text-neutral-100">Tailscale is not configured</Text>
+                    <Text className="mt-1 block text-xs text-neutral-500">Configure the deployment’s Tailscale OAuth client through its secret manager.</Text>
+                  </div>
                 ) : null}
-                {connectionError ? <div role="alert" className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/[.07] px-3 py-2 text-xs text-amber-100">{connectionError}</div> : null}
+                {connectionState === 'configuration_error' || connectionState === 'authentication_error' || connectionState === 'scope_insufficient' || connectionState === 'unavailable' ? (
+                  <div role="alert" className="mb-4 border-y border-amber-500/25 py-3 text-xs text-amber-100">
+                    {connectionState === 'scope_insufficient'
+                      ? 'The deployment credential does not have the required devices:core:read scope.'
+                      : connectionState === 'unavailable'
+                        ? 'Tailscale is temporarily unavailable for this deployment.'
+                        : 'The deployment’s Tailscale credential could not be used. Update it in the deployment secret manager.'}
+                  </div>
+                ) : null}
                 {loadError ? <div role="alert" className="rounded-lg border border-amber-500/25 bg-amber-500/[.07] px-3 py-2 text-xs text-amber-100">{loadError}</div> : null}
                 {loading && !inventory ? <Text className="block py-10 text-center text-sm text-neutral-500">Loading Tailnet devices…</Text> : null}
                 {!loading && inventory?.devices.length === 0 ? <Text className="block py-10 text-center text-sm text-neutral-500">No Tailnet devices were found.</Text> : null}

@@ -107,7 +107,8 @@ const reported = {
 
 describe('compute inventory repository', () => {
   test('maps an owner-scoped inventory with no missing connector environments', async () => {
-    const repository = new ProjectSpaceDatabaseRepository(new InventoryClient());
+    const client = new InventoryClient();
+    const repository = new ProjectSpaceDatabaseRepository(client);
     const inventory = await repository.listComputeInventory('user-one');
     expect(inventory.violations).toEqual([]);
     expect(inventory.connectors).toEqual([{
@@ -127,6 +128,27 @@ describe('compute inventory repository', () => {
     }]);
     expect(inventory.environments[0]?.environmentDefinitionId).toBe('definition-linux');
     expect(inventory.environments[0]?.identityResolution).toBe('resolved');
+    expect(client.calls.slice(0, 4).every(({ values }) => (
+      JSON.stringify(values) === JSON.stringify([['user-one']])
+    ))).toBe(true);
+  });
+
+  test('adds an explicit deployment infrastructure scope without widening connector ownership', async () => {
+    const client = new InventoryClient();
+    const repository = new ProjectSpaceDatabaseRepository(client);
+    await repository.listComputeInventory('user-one', {
+      additionalOwnerUserIds: ['project-space:tailscale-deployment']
+    });
+
+    for (const call of client.calls.slice(0, 4)) {
+      expect(call.sql).toContain('owner_user_id = any($1::text[])');
+      expect(call.values).toEqual([[
+        'user-one',
+        'project-space:tailscale-deployment'
+      ]]);
+    }
+    expect(client.calls[4]?.sql).toContain('owner_user_id = $1');
+    expect(client.calls[4]?.values).toEqual(['user-one']);
   });
 
   test('account-scopes a connector identity before persistence', async () => {

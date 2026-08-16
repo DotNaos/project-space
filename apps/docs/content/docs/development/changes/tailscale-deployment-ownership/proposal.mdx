@@ -1,0 +1,48 @@
+---
+title: Proposal
+description: Move Tailscale inventory from per-user credentials to one deployment-owned tailnet connection.
+---
+
+Change status: **Complete**
+
+Change kind: **Architecture and security**
+
+Issue: **[#785](https://github.com/DotNaos/project-space/issues/785)**
+Requirements: **Required**
+
+## Summary
+
+Make one Project Space deployment represent one infrastructure ownership domain and one
+deployment-owned Tailscale control-plane connection. Authorized members share its inventory and
+classifications, while credentials remain server-side deployment configuration.
+
+## Problem
+
+The previous account-scoped connection model treated each signed-in user as a separate tenant.
+That conflicts with Project Space's single-tenant deployment boundary, made members configure the
+same tailnet repeatedly, and stored long-lived infrastructure credentials in application data.
+
+## Scope
+
+- Load the Tailscale OAuth client from the deployment runtime through Infisical.
+- Share Tailscale observations, classifications, and derived Compute visibility across members.
+- Require an explicit fail-closed Production member allowlist.
+- Remove browser credential entry, connection mutation, and per-user credential storage.
+- Retire and clear legacy encrypted credential envelopes through a forward migration.
+- Use current Tailscale API connectivity evidence and exact direct IP addresses.
+- Run inventory without host-installed or host-authenticated Tailscale.
+
+## Out of scope
+
+- Joining the Project Space server to the tailnet.
+- Making a Tailscale-derived Environment a Task, dev-server, ping, or SSH destination; those need
+  the separately authorized data-plane work in [#733](https://github.com/DotNaos/project-space/issues/733).
+- Broad migration of historical per-user infrastructure resources; that continues in
+  [#786](https://github.com/DotNaos/project-space/issues/786).
+- WireGuard enrollment, key ownership, routing, or inventory semantics.
+
+## Delivery
+
+The change ships through the normal pull-request, exact-revision approval, release, and locked VPS
+deployment path. The old host-local source remains explicitly profiled until the deployment OAuth
+path is proven live, then the unused legacy OAuth client can be revoked separately.

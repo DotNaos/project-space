@@ -84,7 +84,6 @@ import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-
 import type {
   TailscaleClassificationRequest,
   TailscaleInventoryResult,
-  TailscaleProviderConnectionRequest,
   TailscaleProviderConnectionResult
 } from '@/shared/tailscale-inventory-api';
 import {
@@ -184,19 +183,6 @@ export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements 
 
   getTailscaleProviderConnection(): Promise<TailscaleProviderConnectionResult> {
     return this.request('/api/compute/tailscale/connection');
-  }
-
-  connectTailscaleProvider(
-    request: TailscaleProviderConnectionRequest
-  ): Promise<TailscaleProviderConnectionResult> {
-    return this.request('/api/compute/tailscale/connection', {
-      body: JSON.stringify(request),
-      method: 'POST'
-    });
-  }
-
-  revokeTailscaleProviderConnection(): Promise<TailscaleProviderConnectionResult> {
-    return this.request('/api/compute/tailscale/connection', { method: 'DELETE' });
   }
 
   setTailscaleDeviceClassification(

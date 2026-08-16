@@ -9,17 +9,17 @@ import {
   readAuthSessionFromRequest
 } from '../local-auth-store';
 import {
-  getTailscaleInventoryStore,
-  getTailscaleProviderConnectionStore
+  getTailscaleInventoryStore
 } from '../local-database-store';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { createCommandTailscaleInventorySource } from './command-source';
-import { createAccountTailscaleInventorySource } from './account-source';
+import { createDeploymentTailscaleInventorySource } from './deployment-source';
+import { tailscaleDeploymentInventoryScope } from './deployment-scope';
 import { createTailscaleInventoryHttpApi } from './http';
 import { createTailscaleOAuthApiClient } from './oauth-api-client';
 import { createProxyTailscaleInventorySource } from './proxy-source';
-import { createTailscaleProviderConnectionService } from './provider-connection-service';
 import { createTailscaleInventoryService } from './service';
+import { tailscaleInventoryScope } from './oauth-api-client';
 import type { TailscaleInventorySource } from './source';
 
 export function createConfiguredTailscaleInventoryHandler(options: {
@@ -28,8 +28,8 @@ export function createConfiguredTailscaleInventoryHandler(options: {
 }) {
   const legacyOwners = new Set<string>();
   let runtime: {
-    connection?: ReturnType<typeof createTailscaleProviderConnectionService>;
     inventory: ReturnType<typeof createTailscaleInventoryService>;
+    source: TailscaleInventorySource;
   } | undefined;
   const getRuntime = async () => {
     if (runtime) return runtime;
@@ -37,31 +37,20 @@ export function createConfiguredTailscaleInventoryHandler(options: {
     if (!store) {
       throw new Error('Tailscale inventory persistence is unavailable.');
     }
-    const connections = await getTailscaleProviderConnectionStore();
     const api = createTailscaleOAuthApiClient();
-    const source = options.source ?? (connections
-      ? createAccountTailscaleInventorySource({
-          api,
-          connections,
-          isLegacyOwner: (ownerUserId) =>
-            !isProjectSpaceAuthRequired() || legacyOwners.has(ownerUserId),
-          legacy: configuredLegacySource(process.env)
-        })
-      : configuredLegacySource(process.env));
-    const inventory = createTailscaleInventoryService({ source, store });
-    runtime = {
-      inventory,
-      ...(connections ? {
-        connection: createTailscaleProviderConnectionService({
-          api,
-          connections,
-          describe: async (ownerUserId) => source.describe?.(ownerUserId) ?? ({
-            connectionState: 'not_connected', source: 'not_connected'
-          }),
-          inventory: store
-        })
-      } : {})
-    };
+    const source = options.source ?? createDeploymentTailscaleInventorySource({
+      api,
+      environment: process.env,
+      isLegacyOwner: (ownerUserId) =>
+        !isProjectSpaceAuthRequired() || legacyOwners.has(ownerUserId),
+      legacy: configuredLegacySource(process.env)
+    });
+    const inventory = createTailscaleInventoryService({
+      inventoryScope: tailscaleDeploymentInventoryScope,
+      source,
+      store
+    });
+    runtime = { inventory, source };
     return runtime;
   };
   const resolve = createCodexMachineTasksAuthResolver({
@@ -82,19 +71,16 @@ export function createConfiguredTailscaleInventoryHandler(options: {
       return (await getRuntime()).inventory.setClassification(actor, deviceId, request);
     },
     async getConnection(ownerUserId) {
-      const connection = (await getRuntime()).connection;
-      if (!connection) throw new Error('Tailscale provider connections are unavailable.');
-      return connection.get(ownerUserId);
-    },
-    async connect(actor, request) {
-      const connection = (await getRuntime()).connection;
-      if (!connection) throw new Error('Tailscale provider connections are unavailable.');
-      return connection.connect(actor, request);
-    },
-    async revoke(actor) {
-      const connection = (await getRuntime()).connection;
-      if (!connection) throw new Error('Tailscale provider connections are unavailable.');
-      return connection.revoke(actor);
+      const source = (await getRuntime()).source;
+      const descriptor = await source.describe?.(ownerUserId) ?? {
+        connectionState: 'not_configured' as const,
+        source: 'not_connected' as const
+      };
+      return {
+        connectionState: descriptor.connectionState,
+        requiredScope: tailscaleInventoryScope,
+        source: descriptor.source
+      };
     }
   }, async (request) => {
     const actor = await resolve(request);

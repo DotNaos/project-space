@@ -27,13 +27,10 @@ const simulatedTailscaleDevices = [
 function simulatedTailscaleConnection(state: LocalSimulationState) {
   return {
     ...(state.tailscale ? {
-      connectedAt: state.tailscale.connectedAt,
-      connectionId: 'local-simulation-tailscale',
       connectionState: 'connected' as const,
-      source: 'tailscale_oauth_api' as const,
-      verifiedAt: state.tailscale.connectedAt
+      source: 'tailscale_oauth_api' as const
     } : {
-      connectionState: 'not_connected' as const,
+      connectionState: 'not_configured' as const,
       source: 'not_connected' as const
     }),
     requiredScope: 'devices:core:read' as const
@@ -95,24 +92,8 @@ export function createLocalSimulationRequestHandler(options: {
         writeJson(response, 200, simulatedTailscaleConnection(state));
         return;
       }
-      if (method === 'POST') {
-        const payload = await readJson<{ clientId?: unknown; clientSecret?: unknown }>(request);
-        if (typeof payload.clientId !== 'string' || payload.clientId.trim().length < 3 ||
-          typeof payload.clientSecret !== 'string' || payload.clientSecret.length < 8) {
-          writeJson(response, 400, { error: 'Invalid simulated Tailscale connection.' });
-          return;
-        }
-        await store.update((current) => {
-          current.tailscale = { classifications: {}, connectedAt: new Date().toISOString() };
-        });
-        writeJson(response, 200, simulatedTailscaleConnection(await store.read()));
-        return;
-      }
-      if (method === 'DELETE') {
-        await store.update((current) => { delete current.tailscale; });
-        writeJson(response, 200, simulatedTailscaleConnection(await store.read()));
-        return;
-      }
+      writeJson(response, 405, { error: 'Method not allowed.' });
+      return;
     }
     if (method === 'GET' && url.pathname === '/api/compute/tailscale/devices') {
       const now = new Date().toISOString();
@@ -133,12 +114,11 @@ export function createLocalSimulationRequestHandler(options: {
           tags: ['tag:development']
         })) : [],
         provider: state.tailscale ? {
-          connectionId: 'local-simulation-tailscale',
           connectionState: 'connected',
           refreshState: 'available',
           source: 'tailscale_oauth_api'
         } : {
-          connectionState: 'not_connected',
+          connectionState: 'not_configured',
           reasonCode: 'connection_missing',
           refreshState: 'not_checked',
           source: 'not_connected'

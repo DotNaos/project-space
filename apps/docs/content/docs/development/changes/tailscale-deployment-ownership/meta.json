@@ -1,0 +1,4 @@
+{
+  "title": "Deployment-owned Tailscale inventory",
+  "pages": ["proposal", "requirements", "design", "tasks", "verification"]
+}

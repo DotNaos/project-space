@@ -151,6 +151,10 @@ import {
   tailscaleProviderConnectionMigrationId,
   tailscaleProviderConnectionMigrationSql
 } from './tailscale-provider-connection-migration';
+import {
+  tailscaleProviderConnectionRetirementMigrationId,
+  tailscaleProviderConnectionRetirementMigrationSql
+} from './tailscale-provider-connection-retirement-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -883,6 +887,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: tailscaleProviderConnectionMigrationId,
     sql: tailscaleProviderConnectionMigrationSql
+  },
+  {
+    id: tailscaleProviderConnectionRetirementMigrationId,
+    sql: tailscaleProviderConnectionRetirementMigrationSql
   }
 ];
 
