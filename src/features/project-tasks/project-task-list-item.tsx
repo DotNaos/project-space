@@ -54,7 +54,7 @@ export function ProjectTaskListItem({
         </span>
         {subIssueProgress ? (
           <span
-            aria-label={`Sub-issues ${subIssueProgress.completed} of ${subIssueProgress.total} complete`}
+            aria-label={`Sub-tasks ${subIssueProgress.completed} of ${subIssueProgress.total} complete`}
             className="hidden shrink-0 items-center gap-1.5 text-[10px] tabular-nums text-current/45 sm:flex"
           >
             <span aria-hidden="true" className="h-1 w-12 overflow-hidden rounded-full bg-current/[.08]">

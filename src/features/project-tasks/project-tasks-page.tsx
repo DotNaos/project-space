@@ -83,7 +83,7 @@ function TaskTreeNodeRow({ isNested = false, node, onOpen }: { isNested?: boolea
       <div className="flex min-w-0 items-start">
         {hasChildren ? (
           <button
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} sub-issues for #${node.task.issue.number}`}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} sub-tasks for #${node.task.issue.number}`}
             className="mt-2 flex size-7 shrink-0 items-center justify-center rounded-md text-current/35 transition hover:bg-current/[.05] hover:text-current/70"
             onClick={() => setExpanded((current) => !current)}
             type="button"

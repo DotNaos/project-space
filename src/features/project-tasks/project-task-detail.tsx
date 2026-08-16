@@ -82,13 +82,13 @@ function SubIssueList({ onOpenTask, subIssues }: {
     <section className="mt-7 border-t border-current/[.08] pt-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-current/85">Sub-issues</h2>
+          <h2 className="text-sm font-semibold text-current/85">Sub-tasks</h2>
         </div>
         <span className="rounded-full bg-current/[.05] px-2.5 py-1 text-xs tabular-nums text-current/50">
           {subIssues.length}
         </span>
       </div>
-      <ul aria-label="Sub-issues" className="mt-3">
+      <ul aria-label="Sub-tasks" className="mt-3">
         {subIssues.map((subIssue) => (
           <li key={subIssue.issue.number}>
             <ProjectTaskListItem onOpen={() => onOpenTask(subIssue.issue.number)} task={subIssue} />
@@ -250,12 +250,12 @@ export function ProjectTaskDetail({
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-current/50">
             {parentIssue ? (
               <span className="rounded-full bg-current/[.05] px-2.5 py-1">
-                Sub-issue of #{parentIssue.number}
+                Sub-task of #{parentIssue.number}
               </span>
             ) : null}
             {subIssueProgress ? (
               <span className="rounded-full bg-current/[.05] px-2.5 py-1 tabular-nums">
-                Sub-issues {subIssueProgress.completed}/{subIssueProgress.total} complete
+                Sub-tasks {subIssueProgress.completed}/{subIssueProgress.total} complete
               </span>
             ) : null}
           </div>
