@@ -1,0 +1,40 @@
+---
+title: Proposal
+description: Treat closed issues without pull requests as valid completed work.
+---
+
+Change status: **Complete**
+
+Change kind: **Bug fix**
+
+Issue: **[#799](https://github.com/DotNaos/project-space/issues/799)**
+Requirements: **Changed**
+
+## Summary
+
+Stop presenting a closed GitHub issue as an error merely because it has no linked pull
+request. Closed issues are valid completed work even when the work was done outside the
+tracked pull-request flow.
+
+## Problem
+
+The task list treated every closed issue without a merged pull request as a workflow
+failure. This made valid, intentionally closed issues look broken and added misleading
+reconciliation text to the user-facing task list.
+
+## Scope
+
+- Mark closed issues without a pull request as completed in the task list.
+- Remove the workflow warning for that valid state.
+- Keep warnings for a closed issue with an explicit, unmerged pull request.
+- Keep the issue detail view consistent with the task list.
+
+## Out of scope
+
+- Changing GitHub issue or pull-request data.
+- Relaxing warnings for contradictory states with an explicit unmerged pull request.
+- Changing task hierarchy, sub-task, or deployment behavior.
+
+## Delivery
+
+This is a normal UI and view-model correction delivered through the pull-request flow.

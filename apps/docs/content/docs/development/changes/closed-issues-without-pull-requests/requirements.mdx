@@ -1,0 +1,26 @@
+---
+title: Requirement delta
+description: Valid completion behavior for closed issues without pull requests.
+---
+
+## CHANGED Requirements
+
+### Requirement: Closed issues without pull requests are valid completion
+
+The task and issue views MUST treat a closed GitHub issue with no linked pull request as
+completed work without displaying a workflow error.
+
+#### Scenario: Closed issue has no pull request
+
+- **Given** a GitHub issue is closed
+- **And** no pull request is linked to the issue
+- **When** the task list or issue detail view is rendered
+- **Then** the issue is shown as completed
+- **And** no missing-pull-request warning is shown
+
+#### Scenario: Closed issue has an explicit unmerged pull request
+
+- **Given** a GitHub issue is closed
+- **And** a linked pull request exists but is not merged
+- **When** the task list or issue detail view is rendered
+- **Then** the existing reconciliation warning remains visible

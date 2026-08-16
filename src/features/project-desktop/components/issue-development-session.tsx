@@ -404,7 +404,7 @@ export function IssueDevelopmentSession({
         />
       ) : null}
 
-      {issue.state === 'closed' && !isMerged ? (
+      {issue.state === 'closed' && selectedPullRequest && !isMerged ? (
         <p className="text-sm leading-6 text-amber-300">
           This issue is closed without a verified merged pull request. Reopen or reconcile it on GitHub before starting development.
         </p>

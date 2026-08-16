@@ -57,6 +57,7 @@ export function projectTaskState(
   if (pullRequest?.state === 'merged') {
     return issue.state === 'closed' ? 'completed' : 'review';
   }
+  if (issue.state === 'closed' && !pullRequest) return 'completed';
   if (pullRequest?.state === 'open' && pullRequest.isDraft === true) return 'active';
   if (pullRequest?.state === 'open' && pullRequest.isDraft === false) return 'review';
   if (issue.state === 'open' && branch) return 'active';
@@ -71,7 +72,7 @@ export function projectTaskWorkflowMessage(
   if (pullRequest?.state === 'merged' && issue.state !== 'closed') {
     return 'The pull request is merged, but the issue is still open.';
   }
-  if (issue.state === 'closed' && pullRequest?.state !== 'merged') {
+  if (issue.state === 'closed' && pullRequest && pullRequest.state !== 'merged') {
     return 'The issue is closed without a verified merged pull request.';
   }
   if (pullRequest?.state === 'open' && pullRequest.isDraft === undefined) {
@@ -135,6 +136,8 @@ export function createProjectTaskViewModels({
       ? projectTaskState(issue, resolvedPullRequest)
       : developmentHead.state === 'verified'
         ? projectTaskState(issue, developmentHead.pullRequest, developmentHead.branch)
+        : issue.state === 'closed' && !resolvedPullRequest
+          ? 'completed'
         : 'backlog';
     const workflowMessage = developmentHead.state !== 'verified' && developmentHead.state !== 'none'
       ? developmentHead.message

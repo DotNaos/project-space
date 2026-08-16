@@ -1,0 +1,56 @@
+---
+title: Design
+description: Consistent completion and warning rules for closed issues.
+---
+
+## Context
+
+The task view model used the absence of a merged pull request as evidence of an error for
+every closed issue. That incorrectly included the ordinary case where a closed issue has
+no pull request at all.
+
+## Goals and non-goals
+
+The goal is to make valid closed issues visibly completed and keep contradictory linked
+pull-request states actionable. The change does not infer completion for open issues or
+alter GitHub data.
+
+## Architecture
+
+The task view-model remains the single source for list state and workflow messages. The
+issue detail component applies the same explicit-pull-request check before rendering its
+reconciliation message.
+
+## Decision
+
+Separate the two states at the view-model boundary:
+
+- closed issue with no pull request: completed, no workflow message;
+- closed issue with an explicit non-merged pull request: retain the warning;
+- closed issue with a merged pull request: completed, as before.
+
+The issue detail warning uses the same distinction so both surfaces agree.
+
+## Decisions
+
+- Absence of a pull request is a valid closed-issue state, not an error.
+- An explicit non-merged pull request remains evidence that reconciliation is needed.
+- Completed presentation is derived locally from the issue state and linked PR metadata.
+
+## Risks and mitigations
+
+- **A real contradictory state could be hidden:** warnings remain for explicit closed or
+  open pull requests that are not merged.
+- **List and detail could diverge:** both paths are covered by the same distinction and
+  browser verification.
+
+## Migration and rollout
+
+No data migration or API change is needed. The correction ships with the web application
+and can be reverted independently.
+
+## Validation
+
+Cover the no-pull-request completion and warning suppression with view-model tests, retain
+the contradictory-state regression test, run the web build and quality checks, and verify
+the resulting task list and issue detail page in the local browser.
