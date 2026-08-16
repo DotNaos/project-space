@@ -122,16 +122,21 @@ export class ProjectSpaceHttpClient {
     const requestUrl = shouldUseCentralPreviewHub()
       ? new URL(path, 'https://pr.projects.os-home.net').toString()
       : resolveApiRequestUrl(this.baseUrl, path);
-    const token = await refreshProjectSpaceAuthToken();
-    return fetch(requestUrl, {
-      ...init,
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init?.headers
-      },
-      redirect: 'error'
-    }).then((response) => readJsonResponse<T>(response));
+    const request = async (skipCache = false) => {
+      const token = await refreshProjectSpaceAuthToken({ skipCache });
+      return fetch(requestUrl, {
+        ...init,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+          ...init?.headers
+        },
+        redirect: 'error'
+      });
+    };
+    let response = await request();
+    if (response.status === 401) response = await request(true);
+    return readJsonResponse<T>(response);
   }
 
   protected async establishPreviewAccess(pullRequestNumber: number) {
