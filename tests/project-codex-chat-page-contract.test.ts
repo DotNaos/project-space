@@ -13,6 +13,11 @@ const conversationPane = readFileSync(
   'src/features/codex-sessions/codex-conversation-pane.tsx',
   'utf8'
 );
+const createDialog = readFileSync(
+  'src/features/codex-sessions/codex-thread-create-dialog.tsx',
+  'utf8'
+);
+const taskDetail = readFileSync('src/features/project-tasks/project-task-detail.tsx', 'utf8');
 const webServer = readFileSync('server/web-server.ts', 'utf8');
 const viteConfig = readFileSync('vite.config.ts', 'utf8');
 
@@ -68,5 +73,15 @@ describe('Project Codex chat page contract', () => {
     expect(page).toContain('bg-app-panel');
     expect(page).not.toContain('bg-neutral-950 text-neutral-100');
     expect(mainPanel).toContain("projectTab === 'chat' && 'px-0 pt-0 sm:px-0 sm:pt-0'");
+  });
+
+  test('creates a Codex task from both chat and issue detail with exact machine and worktree selection', () => {
+    expect(page).toContain("label: 'New task'");
+    expect(page).toContain('<CodexThreadCreateDialog');
+    expect(taskDetail).toContain('New Codex task');
+    expect(createDialog).toContain('<Label>Machine</Label>');
+    expect(createDialog).toContain('<Label>Worktree</Label>');
+    expect(createDialog).toContain('controller.start(machineId, selectedWorktree.path)');
+    expect(createDialog).toContain("worktree.status === 'ready'");
   });
 });

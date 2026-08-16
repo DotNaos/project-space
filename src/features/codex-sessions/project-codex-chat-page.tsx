@@ -9,12 +9,14 @@ import {
   useSyncExternalStore
 } from 'react';
 import { Button, Drawer } from '@heroui/react';
-import { Chat, ChatSidebar, type ChatThreadData } from '@dotnaos/ui/chat';
+import { Chat, ChatSidebar, type ChatAction, type ChatThreadData } from '@dotnaos/ui/chat';
 import { Menu, X } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import { ProjectChatAgentAvatar } from '../project-chat/components/project-chat-agent-avatar';
 import type { CodexHostInventoryItem } from '@/shared/codex-host-inventory-api';
+import type { ProjectSpaceRecord } from '@/shared/project-space-api';
 import { CodexTaskWorkspace } from './codex-task-workspace';
+import { CodexThreadCreateDialog } from './codex-thread-create-dialog';
 import type { CodexSessionsController } from './codex-sessions-controller';
 import type { CodexThreadOrigin } from './codex-sessions-types';
 import {
@@ -39,17 +41,20 @@ const CompatibleChatSidebar = ChatSidebar as ComponentType<CompatibleChatSidebar
 export function ProjectCodexChatPage({
   controller,
   initialOrigin,
-  onOpenThread
+  onOpenThread,
+  project
 }: {
   controller: CodexSessionsController;
   initialOrigin?: CodexThreadOrigin;
   onOpenThread?(origin: CodexThreadOrigin): void;
+  project?: ProjectSpaceRecord;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
   const [hosts, setHosts] = useState<CodexHostInventoryItem[]>([]);
   const [hostError, setHostError] = useState('');
   const [hostsLoading, setHostsLoading] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const mounted = useRef(false);
   const machineIds = useMemo(() => hosts.map((host) => host.machineId), [hosts]);
   const machineKey = machineIds.join('\u0000');
@@ -156,9 +161,18 @@ export function ProjectCodexChatPage({
     onOpenThread?.(origin);
   }, [controller, onOpenThread]);
 
+  const selectSidebarAction = useCallback((action: ChatAction) => {
+    if (action.id === 'new-codex-task') {
+      setMobileSidebarOpen(false);
+      setCreateDialogOpen(true);
+    }
+  }, []);
+
   const sidebar = (
     <div className="h-full min-h-0 [&>aside]:h-full [&>aside]:border-l [&>aside]:border-r-0">
       <CompatibleChatSidebar
+        actions={[{ icon: 'plus', id: 'new-codex-task', label: 'New task' }]}
+        onActionSelect={selectSidebarAction}
         onThreadSelect={selectThread}
         threads={sections.flatMap((section) => section.threads)}
         threadSections={sections}
@@ -245,6 +259,15 @@ export function ProjectCodexChatPage({
           </Drawer.Dialog>
         </Drawer.Content>
       </Drawer.Backdrop>
+
+      <CodexThreadCreateDialog
+        controller={controller}
+        isOpen={createDialogOpen}
+        onCreated={(origin) => onOpenThread?.(origin)}
+        onOpenChange={setCreateDialogOpen}
+        project={project}
+        suppliedHosts={hosts}
+      />
     </section>
   );
 }

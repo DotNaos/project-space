@@ -206,10 +206,12 @@ class FakeTransport implements CodexSessionsTransport {
   mutationGenerations: Array<number | undefined> = [];
   readGenerations: Array<number | undefined> = [];
   readUsers: string[] = [];
+  startUsers: string[] = [];
   streamUsers: string[] = [];
   streamGenerations: Array<number | undefined> = [];
   listResult: CodexSessionListResult | Error = inventory();
   readResult: CodexSessionReadResult | Error = history();
+  startResult = { machineId, threadId };
   browserResult: CodexSessionBrowserResult | Error = {
     checkedAt: '2026-07-13T10:01:00.000Z',
     imageDataUrl: 'data:image/jpeg;base64,c2FmZQ==',
@@ -261,6 +263,11 @@ class FakeTransport implements CodexSessionsTransport {
     this.readGenerations.push(input.connectorGeneration);
     if (this.readResult instanceof Error) throw this.readResult;
     return structuredClone(this.readResult);
+  }
+
+  async start(input: { userId: string }) {
+    this.startUsers.push(input.userId);
+    return structuredClone(this.startResult);
   }
 
   async mutate(input: { request: { connectorGeneration?: number }; userId: string }) {
@@ -369,7 +376,13 @@ describe('Codex sessions hosted service', () => {
     await expect(service.list({ userId: 'user-b' }, { machineId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
     await expect(service.read(actor, { machineId: 'machine-b', threadId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
     await expect(service.browser(actor, { machineId: 'machine-b', threadId })).rejects.toBeInstanceOf(CodexSessionsAccessError);
+    await expect(service.start(actor, {
+      cwd: '/workspace/project-space',
+      machineId: 'machine-b',
+      operationId: 'operation-start'
+    })).rejects.toBeInstanceOf(CodexSessionsAccessError);
     expect(transport.browserUsers).toHaveLength(0);
+    expect(transport.startUsers).toHaveLength(0);
     expect(transport.mutationCalls).toBe(0);
   });
 
@@ -381,11 +394,13 @@ describe('Codex sessions hosted service', () => {
     await service.list(actor, { machineId });
     await service.read(actor, { machineId, threadId });
     await service.browser(actor, { machineId, threadId });
+    await service.start(actor, { cwd: '/workspace/project-space', machineId, operationId: 'operation-start' });
     await service.continue(actor, continuation());
 
     expect(transport.listScopes).toEqual([{ machineId, userId: actor.userId }]);
     expect(transport.readUsers).toEqual([actor.userId]);
     expect(transport.browserUsers).toEqual([actor.userId]);
+    expect(transport.startUsers).toEqual([actor.userId]);
     expect(transport.mutationUsers).toEqual([actor.userId]);
   });
 

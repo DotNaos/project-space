@@ -207,6 +207,24 @@ export class CodexSessionsController {
     });
   }
 
+  async start(machineId: string, cwd: string) {
+    if (!this.client.start) {
+      throw new CodexSessionsControllerError(
+        'thread_start_unavailable',
+        'This Codex host cannot create tasks yet.'
+      );
+    }
+    const result = await this.client.start({
+      cwd,
+      machineId,
+      operationId: this.createOperationId('start')
+    });
+    const origin = { machineId: result.machineId, threadId: result.threadId };
+    await this.loadMachines([machineId]);
+    await this.select(origin);
+    return origin;
+  }
+
   async continue(
     origin: CodexThreadOrigin,
     message: string,

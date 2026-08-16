@@ -10,6 +10,8 @@ import type {
   CodexSessionReadRequest,
   CodexSessionReadResult,
   CodexSessionSettingsRequest,
+  CodexSessionStartRequest,
+  CodexSessionStartResult,
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from './codex-sessions-api';
@@ -43,6 +45,7 @@ export type WorkspaceRuntimeCodexCommand = WorkspaceRuntimeCodexBinding & {
   | { kind: 'list'; request: CodexSessionListRequest }
   | { kind: 'read'; request: CodexSessionReadRequest }
   | { kind: 'settings'; request: CodexSessionSettingsRequest }
+  | { kind: 'start'; request: CodexSessionStartRequest }
   | { kind: 'stream-start'; request: CodexSessionReadRequest & { afterSequence?: number } }
   | { kind: 'stream-stop'; request: { machineId: string; threadId: string } }
   | { kind: 'runtime-start'; request: { operationId: string } }
@@ -54,6 +57,7 @@ export type WorkspaceRuntimeCodexResult =
   | CodexSessionListResult
   | CodexSessionOperationResult
   | CodexSessionReadResult
+  | CodexSessionStartResult
   | { state: 'ready' | 'stopped' | 'streaming' };
 
 export type WorkspaceRuntimeCodexMessage =

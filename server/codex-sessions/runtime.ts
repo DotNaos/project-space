@@ -70,6 +70,7 @@ function wrapHttpService(
       () => service.respondToUserInput(actor, request)
     ),
     settings: (actor, request) => withHttpErrors(() => service.settings(actor, request)),
+    start: (actor, request) => withHttpErrors(() => service.start(actor, request)),
     stream: (actor, request, emit, signal) => withHttpErrors(async () => {
       await Promise.all([
         service.stream(actor, request, emit, signal),

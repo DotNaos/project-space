@@ -11,6 +11,7 @@ import type {
   CodexSessionReadRequest,
   CodexSessionReadResult,
   CodexSessionSettingsRequest,
+  CodexSessionStartResult,
   CodexSessionsClient,
   CodexSessionStreamEvent,
   CodexSessionUploadedImage,
@@ -160,6 +161,13 @@ export function createCodexSessionsClient(
     },
     settings(input: CodexSessionSettingsRequest) {
       return threadMutation('settings', input);
+    },
+    start(input) {
+      return request<CodexSessionStartResult>(pathWithMachine('/api/codex/sessions/start', input.machineId), {
+        body: JSON.stringify(input),
+        headers: { 'Idempotency-Key': input.operationId },
+        method: 'POST'
+      });
     },
     async uploadImage(machineId, file) {
       const response = await fetchImplementation(`${baseUrl}${pathWithMachine('/api/codex/sessions/images', machineId)}`, {

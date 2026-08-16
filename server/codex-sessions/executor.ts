@@ -9,6 +9,7 @@ import type {
   CodexSessionOperationResult,
   CodexSessionReadRequest,
   CodexSessionSettingsRequest,
+  CodexSessionStartRequest,
   CodexSessionStreamEvent,
   CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
@@ -70,10 +71,11 @@ type ExecutableOperation =
   | 'interrupt'
   | 'list'
   | 'read'
-  | 'settings';
+  | 'settings'
+  | 'start';
 export type CodexSessionsBoundOperation = Exclude<
   ExecutableOperation,
-  'browser' | 'start'
+  'browser'
 >;
 export class CodexSessionsExecutorError extends Error {
   readonly code = 'codex_sessions_executor_rejected';
@@ -141,6 +143,8 @@ export class CodexSessionsExecutor {
         return wireResult(operation, await this.approve(payload as CodexSessionApprovalRequest));
       case 'input':
         return wireResult(operation, await this.respondToInput(payload as CodexSessionUserInputResponse));
+      case 'start':
+        return wireResult(operation, await this.start(payload as CodexSessionStartRequest));
     }
   }
 
@@ -287,6 +291,20 @@ export class CodexSessionsExecutor {
       },
       publishedAt: new Date(this.options.now?.() ?? Date.now()).toISOString(),
       sessions
+    };
+  }
+
+  private async start(request: CodexSessionStartRequest) {
+    if (request.machineId !== this.options.expectedMachineId) {
+      throw new CodexSessionsExecutorError();
+    }
+    const result = await this.options.manager.startThread({
+      cwd: request.cwd,
+      operationId: request.operationId
+    });
+    return {
+      machineId: this.options.expectedMachineId,
+      threadId: result.thread.id
     };
   }
 

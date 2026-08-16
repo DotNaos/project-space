@@ -137,6 +137,17 @@ export interface CodexSessionListResult {
   sessions: CodexSessionRecord[];
 }
 
+export interface CodexSessionStartRequest {
+  cwd: string;
+  machineId: string;
+  operationId: string;
+}
+
+export interface CodexSessionStartResult {
+  machineId: string;
+  threadId: string;
+}
+
 export type CodexConversationItemKind =
   | 'agent-message'
   | 'command'
@@ -390,6 +401,7 @@ export interface CodexSessionsClient {
   list(request: CodexSessionListRequest): Promise<CodexSessionListResult>;
   read(request: CodexSessionReadRequest): Promise<CodexSessionReadResult>;
   settings(request: CodexSessionSettingsRequest): Promise<CodexSessionOperationResult>;
+  start?(request: CodexSessionStartRequest): Promise<CodexSessionStartResult>;
   uploadImage?(
     machineId: string,
     file: Blob

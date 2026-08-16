@@ -11,6 +11,7 @@ import {
   GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
+  Bot,
   Send
 } from 'lucide-react';
 import type {
@@ -164,6 +165,7 @@ export function ProjectTaskDetail({
   comments,
   isLoadingComments,
   onBack,
+  onNewCodexTask,
   onOpenTask,
   repositoryFullName,
   subIssues,
@@ -173,6 +175,7 @@ export function ProjectTaskDetail({
   comments: GitHubIssueCommentRecord[];
   isLoadingComments: boolean;
   onBack(): void;
+  onNewCodexTask(): void;
   onOpenTask(issueNumber: number): void;
   repositoryFullName?: string;
   subIssues: ProjectTaskViewModel[];
@@ -211,11 +214,17 @@ export function ProjectTaskDetail({
           <button className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-current/70 hover:bg-current/[.06] hover:text-current" onClick={onBack} type="button">
             <ArrowLeft className="size-4" /> Tasks
           </button>
-          {runtime.apis === 'external' && task.issue.url ? (
-            <a aria-label="Open issue on GitHub" className="rounded-full p-2 text-current/35 hover:bg-current/[.06] hover:text-current" href={task.issue.url} rel="noreferrer" target="_blank">
-              <ExternalLink className="size-4" />
-            </a>
-          ) : <span aria-hidden="true" className="size-8" />}
+          <div className="flex items-center gap-1.5">
+            <Button onPress={onNewCodexTask} size="sm" variant="secondary">
+              <Bot className="size-4" />
+              New Codex task
+            </Button>
+            {runtime.apis === 'external' && task.issue.url ? (
+              <a aria-label="Open issue on GitHub" className="rounded-full p-2 text-current/35 hover:bg-current/[.06] hover:text-current" href={task.issue.url} rel="noreferrer" target="_blank">
+                <ExternalLink className="size-4" />
+              </a>
+            ) : null}
+          </div>
         </div>
         <div className="mt-4 min-w-0">
           <h1 className="text-2xl font-semibold leading-tight tracking-[-.035em] @lg:text-3xl">{task.issue.title}</h1>

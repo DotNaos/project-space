@@ -17,6 +17,8 @@ import {
   type CodexSessionReadResult,
   type CodexSessionRecord,
   type CodexSessionSettingsRequest,
+  type CodexSessionStartRequest,
+  type CodexSessionStartResult,
   type CodexSessionStreamEvent,
   type CodexSessionUserInputResponse
 } from '../../src/shared/codex-sessions-api';
@@ -70,6 +72,9 @@ export interface CodexSessionsTransport {
     threadId: string;
   }>;
   read(input: CodexSessionReadRequest & { userId: string }): Promise<CodexSessionReadResult>;
+  start?(
+    input: CodexSessionStartRequest & { userId: string }
+  ): Promise<CodexSessionStartResult>;
   stream?(
     input: CodexSessionStreamRequest & { userId: string },
     emit: (event: CodexSessionStreamEvent) => void,
@@ -278,6 +283,21 @@ export function createCodexSessionsService(options: {
       }
       throw error;
     }
+  }
+
+  async function start(actor: CodexSessionsActor, request: CodexSessionStartRequest) {
+    const machineScope = await scope(actor, request.machineId);
+    if (!options.transport.start) {
+      throw new CodexTransportUnavailableError('This Codex host cannot create tasks.');
+    }
+    const result = await options.transport.start({ ...request, userId: machineScope.userId });
+    if (
+      result.machineId !== machineScope.machineId ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.threadId)
+    ) {
+      throw new CodexTransportUncertainError('The connector created an unverifiable Codex task.');
+    }
+    return result;
   }
 
   function mutate(
@@ -531,6 +551,7 @@ export function createCodexSessionsService(options: {
       reconcileMutation(actor, 'input', request),
     respondToUserInput: (actor: CodexSessionsActor, request: CodexSessionUserInputResponse) => mutate(actor, 'input', request),
     settings: (actor: CodexSessionsActor, request: CodexSessionSettingsRequest) => mutate(actor, 'settings', request),
+    start,
     stream,
     transportStream
   };

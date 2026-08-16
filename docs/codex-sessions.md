@@ -21,6 +21,10 @@ thread IDs and live state.
   compact active-task count; opening it reveals the same grouped tasks in a temporary drawer.
 - Both project entry points open one canonical task workspace at
   `/codex/machines/:machineId/threads/:threadId`. Task titles are descriptive and never route keys.
+- Project Chat and issue detail pages can create an empty persistent Codex task after the user
+  chooses an online Codex machine and a ready worktree for the current project. The issue entry
+  point keeps the issue number visible as context, while the exact worktree path remains the task's
+  execution boundary.
 - Task rows use the task name as their only primary text. Issue and pull-request references are
   separate metadata, and active work uses a spinner instead of a static “Running” status.
 - Opening history is read-only. It uses `thread/read` and never resumes or subscribes to the task.

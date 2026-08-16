@@ -3,7 +3,8 @@ import type {
   CodexSessionInspectResult,
   CodexSessionListResult,
   CodexSessionOperationResult,
-  CodexSessionReadResult
+  CodexSessionReadResult,
+  CodexSessionStartResult
 } from '../../src/shared/codex-sessions-api';
 import type { CodexSessionsHttpHandler } from '../codex-sessions-http';
 import { createConfiguredCodexSessionsRuntime } from './configured-runtime';
@@ -34,7 +35,7 @@ export async function createLocalDevelopmentCodexSessionsRuntime(input: {
     resolveImageAttachments: (attachmentIds) => images.resolve(attachmentIds)
   });
   const execute = async <Result>(
-    operation: 'approval' | 'browser' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'list' | 'read' | 'settings',
+    operation: 'approval' | 'browser' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'list' | 'read' | 'settings' | 'start',
     request: unknown
   ) => (await executor.executeBound(operation, request, 1)).result as Result;
   const transport: CodexSessionsTransport = {
@@ -65,6 +66,10 @@ export async function createLocalDevelopmentCodexSessionsRuntime(input: {
     async read(request) {
       requireMachine(request.machineId, input.machineId);
       return execute<CodexSessionReadResult>('read', request);
+    },
+    async start(request) {
+      requireMachine(request.machineId, input.machineId);
+      return execute<CodexSessionStartResult>('start', request);
     },
     async stream(request, emit, signal) {
       requireMachine(request.machineId, input.machineId);

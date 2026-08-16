@@ -7,11 +7,15 @@ import {
 } from '@/features/project-desktop/components/issue-creation-history';
 import { isIssueCreationPath } from '@/features/project-desktop/components/issue-creation-route';
 import { ProjectTaskDetail } from './project-task-detail';
+import { CodexThreadCreateDialog } from '@/features/codex-sessions/codex-thread-create-dialog';
+import { useCodexSessionsInventory } from '@/features/codex-sessions/codex-sessions-inventory-context';
+import type { CodexThreadOrigin } from '@/features/codex-sessions/codex-sessions-types';
 import { ProjectTasksPage } from './project-tasks-page';
 import { collectProjectTaskDescendants } from './project-task-tree';
 import { useProjectTasks } from './use-project-tasks';
 
 export function ProjectTasksExperience({
+  onOpenCodex,
   onOpenTask,
   onShowTasks,
   project,
@@ -20,6 +24,7 @@ export function ProjectTasksExperience({
   repository,
   selectedIssueNumber
 }: {
+  onOpenCodex(origin: CodexThreadOrigin): void;
   onOpenTask(issueNumber: number, projectIdOverride?: string): void;
   onShowTasks(): void;
   project: ProjectSpaceRecord;
@@ -28,11 +33,13 @@ export function ProjectTasksExperience({
   repository?: GitHubCatalogRepository;
   selectedIssueNumber?: number;
 }) {
+  const codexInventory = useCodexSessionsInventory();
   const [creationOpen, setCreationOpen] = useState(() =>
     typeof window !== 'undefined' && isIssueCreationPath(window.location.pathname, project.id)
   );
   const [creationCloseRequest, setCreationCloseRequest] = useState(0);
   const [commentsLoadingFor, setCommentsLoadingFor] = useState<number>();
+  const [codexDialogOpen, setCodexDialogOpen] = useState(false);
   const creationHistoryRef = useRef<IssueCreationHistoryController | null>(null);
   const pendingCreatedIssueRef = useRef<{
     issueNumber: number;
@@ -111,6 +118,7 @@ export function ProjectTasksExperience({
           comments={selectedTask.comments}
           isLoadingComments={commentsLoadingFor === selectedTask.issue.number}
           onBack={onShowTasks}
+          onNewCodexTask={() => setCodexDialogOpen(true)}
           onOpenTask={(issueNumber) => onOpenTask(issueNumber)}
           repositoryFullName={repository?.fullName}
           subIssues={selectedSubTasks}
@@ -154,6 +162,16 @@ export function ProjectTasksExperience({
         repositories={repositories}
         repository={repository}
       />
+      {codexInventory && selectedTask ? (
+        <CodexThreadCreateDialog
+          controller={codexInventory.controller}
+          isOpen={codexDialogOpen}
+          issueNumber={selectedTask.issue.number}
+          onCreated={onOpenCodex}
+          onOpenChange={setCodexDialogOpen}
+          project={project}
+        />
+      ) : null}
     </div>
   );
 }

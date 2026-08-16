@@ -9,6 +9,7 @@ import type {
   CodexSessionReadRequest,
   CodexSessionReadResult,
   CodexSessionSettingsRequest,
+  CodexSessionStartRequest,
   CodexSessionSubscribeRequest,
   CodexSessionsClient,
   CodexSessionStreamEvent,
@@ -78,6 +79,7 @@ interface FakeCalls {
   lists: CodexSessionListRequest[];
   reads: CodexSessionReadRequest[];
   settings: CodexSessionSettingsRequest[];
+  starts: CodexSessionStartRequest[];
   subscriptions: CodexSessionSubscribeRequest[];
 }
 
@@ -87,7 +89,7 @@ function fakeClient(options: {
 } = {}) {
   const calls: FakeCalls = {
     approvals: [], continues: [], inputs: [], interrupts: [], lists: [], reads: [],
-    settings: [], subscriptions: []
+    settings: [], starts: [], subscriptions: []
   };
   let onEvent: ((event: CodexSessionStreamEvent) => void) | undefined;
   const client: CodexSessionsClient = {
@@ -118,6 +120,10 @@ function fakeClient(options: {
     async settings(request) {
       calls.settings.push(request);
       return accepted(request.operationId);
+    },
+    async start(request) {
+      calls.starts.push(request);
+      return { machineId: request.machineId, threadId: origin.threadId };
     },
     subscribe(request, handler) {
       calls.subscriptions.push(request);
@@ -175,6 +181,21 @@ describe('Codex sessions UI controller', () => {
     expect(fake.calls.approvals).toHaveLength(0);
     expect(fake.calls.inputs).toHaveLength(0);
     expect(fake.calls.interrupts).toHaveLength(0);
+  });
+
+  test('creates and opens a task in the exact selected worktree', async () => {
+    const fake = fakeClient();
+    const controller = new CodexSessionsController(fake.client, operationIds());
+
+    const created = await controller.start('machine-mac', '/worktrees/issue-479');
+
+    expect(created).toEqual(origin);
+    expect(fake.calls.starts).toEqual([{
+      cwd: '/worktrees/issue-479',
+      machineId: 'machine-mac',
+      operationId: 'codex-ui:start:test-0001'
+    }]);
+    expect(controller.getState().selectedOrigin).toEqual(origin);
   });
 
   test('merges streaming deltas once per event identifier', async () => {

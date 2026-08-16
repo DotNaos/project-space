@@ -16,6 +16,8 @@ import {
   type CodexSessionReadRequest,
   type CodexSessionReadResult,
   type CodexSessionSettingsRequest,
+  type CodexSessionStartRequest,
+  type CodexSessionStartResult,
   type CodexSessionListResult,
   type CodexSessionStreamEvent,
   type CodexSessionUserInputResponse
@@ -67,6 +69,10 @@ export interface CodexSessionsHttpService {
     context: CodexSessionsRequestContext,
     request: CodexSessionSettingsRequest
   ): Promise<CodexSessionOperationResult>;
+  start(
+    context: CodexSessionsRequestContext,
+    request: CodexSessionStartRequest
+  ): Promise<CodexSessionStartResult>;
   stream(
     context: CodexSessionsRequestContext,
     request: CodexSessionReadRequest & { afterSequence?: number },
@@ -114,7 +120,7 @@ export function createCodexSessionsHttpApi(
     response.setHeader('Cache-Control', 'private, no-store');
     try {
       const context = await resolveContext(request);
-      const machineId = route.kind === 'list'
+      const machineId = route.kind === 'list' || route.kind === 'start'
         ? requiredQuery(url, 'machineId')
         : requiredMachineId(
             url,
@@ -142,6 +148,7 @@ export function createCodexSessionsHttpApi(
 
 type Route =
   | { kind: 'list' }
+  | { kind: 'start' }
   | {
       kind: 'approval' | 'browser' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'read' | 'settings' | 'stream';
       threadId: string;
@@ -149,6 +156,7 @@ type Route =
 
 function routeFor(method: string | undefined, pathname: string): Route | undefined {
   if (method === 'GET' && pathname === '/api/codex/sessions') return { kind: 'list' };
+  if (method === 'POST' && pathname === '/api/codex/sessions/start') return { kind: 'start' };
   const match = pathname.match(/^\/api\/codex\/sessions\/([^/]+)(?:\/(browser|continue|interrupt|approval|input|inspect|settings|stream))?$/);
   if (!match) return undefined;
   let threadId = '';
@@ -194,6 +202,22 @@ async function executeRoute(
       machineId,
       ...(search ? { search } : {})
     });
+  }
+
+  if (route.kind === 'start') {
+    rejectUnexpectedQuery(url, ['machineId']);
+    const body = await readJsonObject(request);
+    onlyKeys(body, ['cwd', 'machineId', 'operationId']);
+    if (body.machineId !== machineId) {
+      throw invalidRequest('The machineId field does not match the selected machine.');
+    }
+    const operationId = requiredString(body, 'operationId', CODEX_OPERATION_ID_PATTERN);
+    requireIdempotencyHeader(request, operationId);
+    const cwd = requiredString(body, 'cwd');
+    if (cwd.length > 4_096 || !cwd.startsWith('/') || /[\u0000-\u001f\u007f]/.test(cwd)) {
+      throw invalidRequest('The cwd field is invalid.');
+    }
+    return service.start(context, { cwd, machineId, operationId });
   }
 
   if (route.kind === 'read') {

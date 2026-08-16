@@ -45,11 +45,11 @@ export function parseCodexHostCommand(
   const kind = text(input.kind);
   const machineKinds = new Set([
     'approval', 'continue', 'input', 'inspect', 'interrupt', 'list', 'read',
-    'settings', 'stream-start', 'stream-stop'
+    'settings', 'start', 'stream-start', 'stream-stop'
   ]);
   if (machineKinds.has(kind) && request.machineId !== scope.machineId) invalid();
   if (!machineKinds.has(kind) && !['runtime-start', 'runtime-stop'].includes(kind)) invalid();
-  if (['approval', 'continue', 'input', 'interrupt', 'settings'].includes(kind) &&
+  if (['approval', 'continue', 'input', 'interrupt', 'settings', 'start'].includes(kind) &&
       request.operationId !== input.operationId) invalid();
   if (kind === 'runtime-start' || kind === 'runtime-stop') {
     if (request.operationId !== input.operationId) invalid();

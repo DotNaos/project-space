@@ -363,7 +363,7 @@ export function ProjectMainPanel({
           hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
         )}
       >
-        <ProjectCodexChatPage controller={codexController} onOpenThread={onOpenCodex} />
+        <ProjectCodexChatPage controller={codexController} onOpenThread={onOpenCodex} project={project} />
       </Surface>
     );
   }
@@ -381,6 +381,7 @@ export function ProjectMainPanel({
           controller={codexController}
           initialOrigin={selectedCodexOrigin}
           onOpenThread={onOpenCodex}
+          project={project}
         />
       </Surface>
     );
@@ -445,7 +446,11 @@ export function ProjectMainPanel({
           >
           <ProjectDetail
             chat={(
-              <ProjectCodexChatPage controller={codexController} />
+              <ProjectCodexChatPage
+                controller={codexController}
+                onOpenThread={onOpenCodex}
+                project={project}
+              />
             )}
             codex={(
               <ProjectCodexTasks
@@ -458,6 +463,7 @@ export function ProjectMainPanel({
             )}
             historyFocus={historyFocus}
             launcherError={launcherError}
+            onOpenCodex={onOpenCodex}
             onOpenIssue={onOpenProjectIssue}
             onOpenHistory={onOpenProjectHistory}
             onOpenWorkflowRun={onOpenProjectWorkflowRun}

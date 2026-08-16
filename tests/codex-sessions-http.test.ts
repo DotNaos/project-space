@@ -110,6 +110,10 @@ function stubService() {
       calls.push({ input, method: 'settings' });
       return accepted(input);
     },
+    async start(_context, input) {
+      calls.push({ input, method: 'start' });
+      return { machineId: input.machineId, threadId };
+    },
     async stream(_context, input, emit) {
       calls.push({ input, method: 'stream' });
       emit({
@@ -246,6 +250,28 @@ describe('Codex sessions authenticated HTTP boundary', () => {
     expect(mismatch.status).toBe(400);
     expect(missingHeader.status).toBe(400);
     expect(calls).toHaveLength(0);
+  });
+
+  test('creates a persistent task only in the exact selected machine and worktree', async () => {
+    const { calls, service } = stubService();
+    const origin = await startApi(service);
+    const client = createCodexSessionsClient({ baseUrl: origin });
+
+    const result = await client.start?.({
+      cwd: '/worktrees/issue-479',
+      machineId: 'machine-one',
+      operationId: 'operation-start-0001'
+    });
+
+    expect(result).toEqual({ machineId: 'machine-one', threadId });
+    expect(calls).toContainEqual({
+      input: {
+        cwd: '/worktrees/issue-479',
+        machineId: 'machine-one',
+        operationId: 'operation-start-0001'
+      },
+      method: 'start'
+    });
   });
 
   test('forwards only valid catalogue settings with the exact continued task', async () => {
