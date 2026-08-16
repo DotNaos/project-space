@@ -151,6 +151,13 @@ export function preflightCapacity(input: {
   return { availableBytes, requiredBytes, sufficient: availableBytes >= requiredBytes };
 }
 
+export function preflightTemporaryParent(
+  host: NodeJS.Platform,
+  systemTemporaryDirectory: string,
+) {
+  return host === 'darwin' ? '/tmp' : systemTemporaryDirectory;
+}
+
 export function preflightLaneEnvironment(input: {
   baseSha: string;
   environment: NodeJS.ProcessEnv;
@@ -237,7 +244,9 @@ async function main() {
     version: headVersion,
   });
   const results: LaneResult[] = [];
-  const temporaryRoot = mkdtempSync(join(tmpdir(), 'project-space-ci-preflight-'));
+  const temporaryRoot = mkdtempSync(
+    join(preflightTemporaryParent(platform(), tmpdir()), 'ps-ci-'),
+  );
   try {
     for (const lane of lanes) {
       if (lane.remoteOnly) {
@@ -327,9 +336,10 @@ async function runLane(
 }
 
 function currentPreflightCapacity(fullMatrix: boolean) {
+  const temporaryParent = preflightTemporaryParent(platform(), tmpdir());
   return preflightCapacity({
     fullMatrix,
-    temporaryAvailableBytes: availableBytes(tmpdir()),
+    temporaryAvailableBytes: availableBytes(temporaryParent),
     worktreeAvailableBytes: availableBytes('.'),
   });
 }

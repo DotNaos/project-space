@@ -6,6 +6,7 @@ import {
   preflightCapacity,
   preflightLaneEnvironment,
   preflightPlan,
+  preflightTemporaryParent,
 } from '../scripts/ci-preflight';
 import {
   fastCiSelection,
@@ -171,6 +172,16 @@ describe('canonical local CI preflight', () => {
       temporaryAvailableBytes: 5 * 1024 ** 3,
       worktreeAvailableBytes: 8 * 1024 ** 3,
     }).sufficient).toBe(true);
+  });
+
+  test('uses a short macOS temporary root for Unix socket compatibility', () => {
+    expect(
+      preflightTemporaryParent(
+        'darwin',
+        '/var/folders/ab/long-user-temporary-directory/T',
+      ),
+    ).toBe('/tmp');
+    expect(preflightTemporaryParent('linux', '/var/tmp')).toBe('/var/tmp');
   });
 
   test('binds every lane to one run-owned temporary root and the changelog to the stacked base', () => {
