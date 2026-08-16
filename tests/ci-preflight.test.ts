@@ -3,15 +3,19 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  localPreflightProfile,
+  parsePreflightOptions,
   preflightCapacity,
   preflightLaneEnvironment,
   preflightPlan,
+  preflightTemporaryParent,
 } from '../scripts/ci-preflight';
 import {
   fastCiSelection,
   releaseVerificationPolicy,
   releaseWorkflowTriggered,
 } from '../scripts/release-verification-policy';
+import { resolveQualityCheck } from '../scripts/quality-checks';
 
 const fixture = {
   baseVersion: '0.4.55',
@@ -44,19 +48,18 @@ describe('canonical local CI preflight', () => {
 
   test.each([
     ['ordinary web change', ['src/features/project-desktop/example.tsx'], ['web-build'], ['cli-docs-contract', 'docs-build', 'mobile-build', 'go-race', 'actionlint']],
-    ['release-critical', ['packaging/release/example.ts'], ['go-race', 'actionlint'], []],
-    ['platform workflow', ['.github/workflows/release.yml'], ['go-race', 'actionlint'], []],
+    ['release-critical', ['packaging/release/example.ts'], ['actionlint'], ['go-race', 'docs-build', 'mobile-build']],
+    ['platform workflow', ['.github/workflows/release.yml'], ['actionlint'], ['go-race', 'docs-build', 'mobile-build']],
     ['docs', ['apps/docs/content/docs/index.mdx'], ['docs-build'], ['cli-docs-contract', 'go-race']],
     ['Go', ['cmd/project/main.go'], ['cli-docs-contract', 'go-race'], ['actionlint']],
     ['web', ['src/main.tsx'], ['web-build'], ['cli-docs-contract', 'go-race']],
     ['mobile', ['apps/mobile/App.tsx'], ['mobile-build'], ['cli-docs-contract', 'go-race']],
     ['Rust hostd', ['project-hostd/src/main.rs'], ['rust-tests', 'rust-clippy'], []],
   ])('selects the required local lanes for representative %s changes', (_name, changedPaths, present, absent) => {
-    const policy = releaseVerificationPolicy({ ...fixture, changedPaths });
     const ids = preflightPlan({
       changedPaths,
-      fullMatrix: policy.fullMatrix,
       host: 'linux',
+      mode: 'fast',
       version: fixture.headVersion,
     }).map(({ id }) => id);
     for (const id of present) expect(ids).toContain(id);
@@ -85,8 +88,8 @@ describe('canonical local CI preflight', () => {
   test('selects all locally required unconditional PR lanes and records remote gates', () => {
     const plan = preflightPlan({
       changedPaths: ['package.json', '.github/workflows/docs.yml'],
-      fullMatrix: true,
       host: 'darwin',
+      mode: 'full',
       pullRequest: 435,
       version: '0.4.56',
     });
@@ -100,6 +103,7 @@ describe('canonical local CI preflight', () => {
       'cli-docs-contract',
       'docs-typecheck',
       'docs-build',
+      'typecheck',
       'tests',
       'web-build',
       'mobile-build',
@@ -113,7 +117,14 @@ describe('canonical local CI preflight', () => {
       'macos-packaging',
       'post-run-cleanliness',
     ]));
-    expect(plan.find(({ id }) => id === 'actionlint')?.command).toContain(
+    expect(plan.find(({ id }) => id === 'actionlint')?.command).toEqual([
+      'bun',
+      'run',
+      'ci:check',
+      '--',
+      'actionlint',
+    ]);
+    expect(resolveQualityCheck('actionlint').command).toContain(
       'shellcheck -S error',
     );
     expect(plan.filter(({ remoteOnly }) => remoteOnly).map(({ id }) => id)).toEqual([
@@ -122,6 +133,62 @@ describe('canonical local CI preflight', () => {
       'signing-and-publication',
       'preview-and-production',
     ]);
+  });
+
+  test('keeps the fast local profile selective when GitHub policy requires a full matrix', () => {
+    const changedPaths = ['packaging/release/example.ts'];
+    expect(
+      releaseVerificationPolicy({ ...fixture, changedPaths }).fullMatrix,
+    ).toBe(true);
+
+    const fastIds = preflightPlan({
+      changedPaths,
+      host: 'darwin',
+      mode: 'fast',
+      version: fixture.headVersion,
+    }).map(({ id }) => id);
+    const fullIds = preflightPlan({
+      changedPaths,
+      host: 'darwin',
+      mode: 'full',
+      version: fixture.headVersion,
+    }).map(({ id }) => id);
+
+    expect(fastIds).toContain('actionlint');
+    expect(fastIds).not.toContain('macos-packaging');
+    expect(fastIds).not.toContain('rust-tests');
+    expect(fullIds).toContain('macos-packaging');
+    expect(fullIds).toContain('rust-tests');
+    expect(localPreflightProfile(changedPaths, 'fast')).toEqual({
+      mode: 'fast',
+      selection: {
+        cliDocs: false,
+        docs: false,
+        go: false,
+        mobile: false,
+        rust: false,
+        workflow: true,
+      },
+    });
+    expect(
+      Object.values(localPreflightProfile(changedPaths, 'full').selection),
+    ).toEqual([true, true, true, true, true, true]);
+  });
+
+  test('publishes explicit fast and full commands and defaults the direct runner to fast', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(packageJson.scripts['ci:preflight']).toBe(
+      'bun scripts/ci-preflight.ts --mode fast',
+    );
+    expect(packageJson.scripts['ci:preflight:full']).toBe(
+      'bun scripts/ci-preflight.ts --mode full',
+    );
+    expect(parsePreflightOptions([]).mode).toBe('fast');
+    expect(parsePreflightOptions(['--mode', 'full']).mode).toBe('full');
+    expect(() => parsePreflightOptions(['--mode', 'github'])).toThrow();
+    expect(() => parsePreflightOptions(['--typo', 'fast'])).toThrow();
   });
 
   test.each([
@@ -136,6 +203,7 @@ describe('canonical local CI preflight', () => {
   test('documents the exact report and dirty-worktree contract', () => {
     const source = readFileSync('scripts/ci-preflight.ts', 'utf8');
     expect(source).toContain('schemaVersion: 1');
+    expect(source).toContain('localProfile: localPreflightProfile');
     expect(source).toContain('requires a clean worktree');
     expect(source).toContain("status: 'remote-only'");
     expect(source).toContain("'--pull-request'");
@@ -150,7 +218,7 @@ describe('canonical local CI preflight', () => {
 
   test('refuses low-capacity matrices before expensive lanes', () => {
     expect(preflightCapacity({
-      fullMatrix: false,
+      mode: 'fast',
       temporaryAvailableBytes: 8 * 1024 ** 3,
       worktreeAvailableBytes: 2 * 1024 ** 3 - 1,
     })).toEqual({
@@ -159,10 +227,20 @@ describe('canonical local CI preflight', () => {
       sufficient: false,
     });
     expect(preflightCapacity({
-      fullMatrix: true,
+      mode: 'full',
       temporaryAvailableBytes: 5 * 1024 ** 3,
       worktreeAvailableBytes: 8 * 1024 ** 3,
     }).sufficient).toBe(true);
+  });
+
+  test('uses a short macOS temporary root for Unix socket compatibility', () => {
+    expect(
+      preflightTemporaryParent(
+        'darwin',
+        '/var/folders/ab/long-user-temporary-directory/T',
+      ),
+    ).toBe('/tmp');
+    expect(preflightTemporaryParent('linux', '/var/tmp')).toBe('/var/tmp');
   });
 
   test('binds every lane to one run-owned temporary root and the changelog to the stacked base', () => {
@@ -193,6 +271,32 @@ describe('canonical local CI preflight', () => {
       temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
     });
     expect(environment.DOCS_SPECS_BASE).toBe('a'.repeat(40));
+  });
+
+  test('keeps Rust build artifacts inside the run-owned temporary root', () => {
+    const environment = preflightLaneEnvironment({
+      baseSha: 'a'.repeat(40),
+      environment: {},
+      headSha: 'b'.repeat(40),
+      laneId: 'rust-tests',
+      temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
+    });
+    expect(environment.CARGO_TARGET_DIR).toBe(
+      '/private/tmp/project-space-ci-preflight-owned/cargo-target',
+    );
+  });
+
+  test('binds diff hygiene to the exact preflight range', () => {
+    const environment = preflightLaneEnvironment({
+      baseSha: 'a'.repeat(40),
+      environment: {},
+      headSha: 'b'.repeat(40),
+      laneId: 'diff-hygiene',
+      temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
+    });
+    expect(environment.CI_CHECK_DIFF_RANGE).toBe(
+      `${'a'.repeat(40)}...${'b'.repeat(40)}`,
+    );
   });
 
   test('refuses a report for a revision other than the clean checkout in JSON', () => {

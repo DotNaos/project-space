@@ -1,0 +1,11 @@
+min_version: 2.1.10
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: staged diff hygiene
+      run: bun run ci:check -- --staged diff-hygiene
+    - name: package-manager policy
+      run: bun run ci:check -- --staged package-manager-policy
+    - name: documentation and change specifications
+      run: bun run ci:check -- --staged docs-specs

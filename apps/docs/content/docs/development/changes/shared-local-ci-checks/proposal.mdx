@@ -1,0 +1,44 @@
+---
+title: Proposal
+description: Run fast staged checks before commits and share quality commands with CI.
+---
+
+Change status: **Complete**
+
+Change kind: **Feature**
+
+Issue: **[#790](https://github.com/DotNaos/project-space/issues/790)**
+Requirements: **Required**
+
+## Summary
+
+Install Lefthook with the Bun dependencies, run cheap repository checks against the
+exact staged commit, and route local preflight and CI quality lanes through the same
+named command registry. Keep fast local feedback distinct from an optional comprehensive
+pass over local CI and release checks.
+
+## Problem
+
+Developers can currently receive a green local result and then fail CI because workflow
+YAML repeats commands independently and documentation coverage is checked only after a
+push. Partial commits also need checks to inspect the Git index rather than unrelated
+unstaged edits.
+
+## Scope
+
+- Install and configure Lefthook for fast pre-commit checks.
+- Validate staged diff hygiene, package-manager policy, and documentation coverage.
+- Centralize locally reproducible CI commands and use them from workflows and preflight.
+- Provide explicit fast and full local preflight profiles.
+- Document the local commands, bypass boundary, and protected remote-only checks.
+
+## Out of scope
+
+- Moving slow builds or complete test suites into pre-commit.
+- Reproducing protected deployment, signing, or foreign-platform checks locally.
+- Preventing Git's explicit hook bypass; CI remains authoritative.
+
+## Delivery
+
+The dependency, hook configuration, scripts, workflow calls, tests, and documentation
+ship together. No database, production data, secret, or permission migration is needed.

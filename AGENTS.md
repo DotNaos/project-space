@@ -11,8 +11,9 @@
 
 ## CI preflight and coherent pull request revisions
 
-- Treat every push that creates or updates a pull request as a handoff to CI. Commit the exact revision locally, then run `bun run ci:preflight --base origin/main --head HEAD --pull-request <number> --format json` before pushing it.
-- The preflight report records the exact base and head commits, changed paths, selected release matrix, every local result, and every protected remote-only gate. A green local report is not signing, release, Preview, deployment, rollback, or health proof.
+- Treat every push that creates or updates a pull request as a handoff to CI. Commit the exact revision locally, then run the fast changed-path preflight with `bun run ci:preflight --base origin/main --head HEAD --pull-request <number> --format json` before pushing it.
+- Use `bun run ci:preflight:full --base origin/main --head HEAD --pull-request <number> --format json` when comprehensive local proof is useful. It runs all locally reproducible Fast CI lanes, the release-quality TypeScript check, and macOS packaging when available; protected and foreign-platform gates remain remote-only.
+- Both preflight reports record the requested local profile, exact base and head commits, changed paths, GitHub release-policy selection, every local result, and every protected remote-only gate. A green local report is not signing, release, Preview, deployment, rollback, or health proof.
 - Every pull request adds exactly one immutable JSON file directly under `.github/release-intents/`, named with a new lowercase UUID. Use schema `project-space.release-intent/v1` and choose exactly one intent: `none`, `patch`, `minor`, or `major`.
 - Use `none` only when the merged change needs no new CLI, connector, installer, or machine-tool release. Release-sensitive paths require `patch`, `minor`, or `major`.
 - Pull requests never assign a concrete version, change `package.json` version, or edit historical versioned release entries. The serial queue derives the next version from the latest published signed release only after merge, reserves that exact tag, and processes release-bearing merges oldest first.

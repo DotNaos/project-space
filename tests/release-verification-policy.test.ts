@@ -157,18 +157,12 @@ describe('release verification policy', () => {
     expect(mobile).not.toContain('needs:');
     expect(go).not.toContain('needs:');
     expect(rust).not.toContain('needs:');
-    expect(typescript).toContain('bun run check');
-    expect(typescript).toContain('bun test --isolate');
-    expect(typescript).toContain('bun run build:web');
-    expect(mobile).toContain(
-      'bun install --frozen-lockfile',
-    );
+    expect(typescript).toContain('bun run ci:check -- typecheck tests web-build');
+    expect(mobile).toContain('bun run ci:check -- mobile-dependencies');
     expect(mobile).toContain("hashFiles('apps/mobile/bun.lock')");
-    expect(mobile).toContain('bun run build:prototype');
-    expect(go).toContain('go test -race ./...');
-    expect(go).toContain('go vet ./...');
-    expect(rust).toContain('cargo +1.90.0 clippy --locked -- -D warnings');
-    expect(rust).toContain('cargo +1.90.0 test --locked');
+    expect(mobile).toContain('bun run ci:check -- mobile-build');
+    expect(go).toContain('bun run ci:check -- go-race go-vet');
+    expect(rust).toContain('bun run ci:check -- rust-format rust-clippy rust-tests');
 
     const exactCacheKey =
       "key: bun-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock') }}";

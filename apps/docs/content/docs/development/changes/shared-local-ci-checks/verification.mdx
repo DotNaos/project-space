@@ -1,0 +1,31 @@
+---
+title: Verification
+description: Requirement evidence for shared local and CI checks.
+---
+
+Verification status: **Complete**
+
+## Requirement evidence
+
+- [x] DEV-CHECKS-001 — Fast staged commit feedback
+  - **Evidence:** Exact-index tests cover both partial-staging directions; an installed hook accepted valid staged content and rejected trailing whitespace.
+- [x] DEV-CHECKS-002 — Shared local and CI commands
+  - **Evidence:** Registry contract tests and workflow tests prove local preflight, pull-request CI, release quality, and production validation resolve the same named commands.
+- [x] DEV-CHECKS-003 — Explicit local preflight profiles
+  - **Evidence:** Contract tests prove the separate selections; realistic runs pass 13 fast-profile lanes and all 24 full-profile lanes, including release-quality type checking and macOS packaging.
+
+## Final reconciliation
+
+- [x] Current requirements describe only delivered behavior
+- [x] Architecture and design decisions match the implementation
+- [x] Every required task and subtask is complete
+- [x] Focused tests and repository validation pass
+  - **Evidence:** Focused contracts and the complete repository test suite pass; six environment-gated integrations are skipped, and TypeScript and package-manager checks are green.
+- [x] Deployed documentation type-checks and builds
+  - **Evidence:** Documentation dependency installation, type-check, and production build pass with 255 static pages generated.
+- [x] Realistic hook and partial-commit paths are dogfooded
+  - **Evidence:** Fresh-install commit dogfood and inverse partial-staging fixtures pass.
+- [x] Issue #790 and pull-request commitments are implemented or linked to a continuation issue
+  - **Evidence:** PR #793 implements the issue without deferred required work.
+
+Structural validation does not replace tests or semantic review.

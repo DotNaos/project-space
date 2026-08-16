@@ -101,20 +101,16 @@ jobs:
 
       - name: Install dependencies
         if: steps.current-main.outputs.superseded != 'true'
-        run: bun install --frozen-lockfile
+        run: bun run ci:check -- locked-root-dependencies
 
       - name: Validate TypeScript
         if: steps.current-main.outputs.superseded != 'true'
-        run: |
-          bun test --isolate
-          bun run check
-          bun run build
+        run: bun run ci:check -- tests typecheck project-build
 
       - name: Validate Go and build the Project CLI
         if: steps.current-main.outputs.superseded != 'true'
         run: |
-          go test ./...
-          go vet ./...
+          bun run ci:check -- go-test go-vet
           go build -trimpath -o "$RUNNER_TEMP/project" ./cmd/project
 
       - name: Verify the approved connector release is published

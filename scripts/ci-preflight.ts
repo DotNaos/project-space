@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 
-import { mkdtempSync, readdirSync, rmSync, statfsSync } from 'node:fs';
+import { mkdtempSync, rmSync, statfsSync } from 'node:fs';
 import { platform, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   fastCiSelection,
   releaseVerificationPolicy,
 } from './release-verification-policy';
+import { sharedCheckCommand } from './quality-checks';
 
 export type PreflightLane = {
   command?: string[];
@@ -21,10 +22,13 @@ type LaneResult = PreflightLane & {
   status: 'failed' | 'passed' | 'remote-only';
 };
 
-type Options = {
+export type PreflightMode = 'fast' | 'full';
+
+export type PreflightOptions = {
   base: string;
   format: 'json' | 'text';
   head: string;
+  mode: PreflightMode;
   pullRequest?: number;
 };
 
@@ -34,17 +38,18 @@ const MINIMUM_FULL_MATRIX_FREE_BYTES = 5 * GIBIBYTE;
 
 export function preflightPlan(input: {
   changedPaths: string[];
-  fullMatrix: boolean;
   host: NodeJS.Platform;
+  mode: PreflightMode;
   pullRequest?: number;
   version: string;
 }) {
-  const selection = fastCiSelection(input.changedPaths, input.fullMatrix);
+  const fullMatrix = input.mode === 'full';
+  const selection = fastCiSelection(input.changedPaths, fullMatrix);
   const lanes: PreflightLane[] = [
-    { id: 'diff-hygiene', command: ['git', 'diff', '--check'] },
-    { id: 'package-manager-policy', command: ['bun', 'run', 'check:package-manager'] },
-    { id: 'docs-specs', command: ['bun', 'run', 'docs:specs:check'] },
-    { id: 'locked-root-dependencies', command: ['bun', 'install', '--frozen-lockfile'] },
+    { id: 'diff-hygiene', command: sharedCheckCommand('diff-hygiene') },
+    { id: 'package-manager-policy', command: sharedCheckCommand('package-manager-policy') },
+    { id: 'docs-specs', command: sharedCheckCommand('docs-specs') },
+    { id: 'locked-root-dependencies', command: sharedCheckCommand('locked-root-dependencies') },
     {
       id: 'changelog',
       command: input.pullRequest
@@ -56,22 +61,22 @@ export function preflightPlan(input: {
           ]
         : ['bun', 'run', 'docs:release:check'],
     },
-    { id: 'tests', command: ['bun', 'test', '--isolate'] },
-    { id: 'web-build', command: ['bun', 'run', 'build:web'] },
   ];
+
+  if (fullMatrix) {
+    lanes.push({ id: 'typecheck', command: sharedCheckCommand('typecheck') });
+  }
+  lanes.push(
+    { id: 'tests', command: sharedCheckCommand('tests') },
+    { id: 'web-build', command: sharedCheckCommand('web-build') },
+  );
 
   if (selection.cliDocs) {
     lanes.push(
-      { id: 'generated-cli-docs', command: ['bun', 'run', 'docs:cli:check'] },
+      { id: 'generated-cli-docs', command: sharedCheckCommand('generated-cli-docs') },
       {
         id: 'cli-docs-contract',
-        command: [
-          'go',
-          'test',
-          './cmd/project',
-          '-run',
-          'CLIDocs|RootCommandIncludesExpectedCommands',
-        ],
+        command: sharedCheckCommand('cli-docs-contract'),
       },
     );
   }
@@ -79,18 +84,15 @@ export function preflightPlan(input: {
     lanes.push(
       {
         id: 'docs-dependencies',
-        command: ['bun', 'install', '--frozen-lockfile'],
-        reason: 'working-directory=apps/docs',
+        command: sharedCheckCommand('docs-dependencies'),
       },
       {
         id: 'docs-typecheck',
-        command: ['bun', 'run', 'typecheck'],
-        reason: 'working-directory=apps/docs',
+        command: sharedCheckCommand('docs-typecheck'),
       },
       {
         id: 'docs-build',
-        command: ['bun', 'run', 'build'],
-        reason: 'working-directory=apps/docs',
+        command: sharedCheckCommand('docs-build'),
       },
     );
   }
@@ -98,49 +100,37 @@ export function preflightPlan(input: {
     lanes.push(
       {
         id: 'mobile-dependencies',
-        command: ['bun', 'install', '--frozen-lockfile'],
-        reason: 'working-directory=apps/mobile',
+        command: sharedCheckCommand('mobile-dependencies'),
       },
       {
         id: 'mobile-build',
-        command: ['bun', 'run', 'build:prototype'],
-        reason: 'working-directory=apps/mobile',
+        command: sharedCheckCommand('mobile-build'),
       },
     );
   }
   if (selection.go) {
     lanes.push(
-      { id: 'go-race', command: ['go', 'test', '-race', './...'] },
-      { id: 'go-vet', command: ['go', 'vet', './...'] },
+      { id: 'go-race', command: sharedCheckCommand('go-race') },
+      { id: 'go-vet', command: sharedCheckCommand('go-vet') },
     );
   }
   if (selection.rust) {
     lanes.push(
-      { id: 'rust-format', command: ['cargo', 'fmt', '--manifest-path', 'project-hostd/Cargo.toml', '--', '--check'] },
-      { id: 'rust-clippy', command: ['cargo', 'clippy', '--manifest-path', 'project-hostd/Cargo.toml', '--', '-D', 'warnings'] },
-      { id: 'rust-tests', command: ['cargo', 'test', '--manifest-path', 'project-hostd/Cargo.toml', '--locked'] },
+      { id: 'rust-format', command: sharedCheckCommand('rust-format') },
+      { id: 'rust-clippy', command: sharedCheckCommand('rust-clippy') },
+      { id: 'rust-tests', command: sharedCheckCommand('rust-tests') },
     );
   }
   if (selection.workflow) {
-    lanes.push({
-      id: 'actionlint',
-      command: [
-        'go',
-        'run',
-        'github.com/rhysd/actionlint/cmd/actionlint@v1.7.7',
-        '-shellcheck',
-        'shellcheck -S error',
-        ...workflowFiles(),
-      ],
-    });
-    lanes.push({ id: 'shell-syntax', command: ['bash', '-n', ...trackedShellScripts()] });
+    lanes.push({ id: 'actionlint', command: sharedCheckCommand('actionlint') });
+    lanes.push({ id: 'shell-syntax', command: sharedCheckCommand('shell-syntax') });
   }
-  if (input.fullMatrix && input.host === 'darwin') {
+  if (fullMatrix && input.host === 'darwin') {
     lanes.push({
       id: 'macos-packaging',
       command: ['packaging/macos/test-release-packaging.sh', input.version],
     });
-  } else if (input.fullMatrix) {
+  } else if (fullMatrix) {
     lanes.push(remote('macos-packaging', 'requires a macOS runner'));
   }
   lanes.push({
@@ -157,11 +147,11 @@ export function preflightPlan(input: {
 }
 
 export function preflightCapacity(input: {
-  fullMatrix: boolean;
+  mode: PreflightMode;
   temporaryAvailableBytes: number;
   worktreeAvailableBytes: number;
 }) {
-  const requiredBytes = input.fullMatrix
+  const requiredBytes = input.mode === 'full'
     ? MINIMUM_FULL_MATRIX_FREE_BYTES
     : MINIMUM_FAST_MATRIX_FREE_BYTES;
   const availableBytes = Math.min(
@@ -169,6 +159,23 @@ export function preflightCapacity(input: {
     input.worktreeAvailableBytes,
   );
   return { availableBytes, requiredBytes, sufficient: availableBytes >= requiredBytes };
+}
+
+export function localPreflightProfile(
+  changedPaths: string[],
+  mode: PreflightMode,
+) {
+  return {
+    mode,
+    selection: fastCiSelection(changedPaths, mode === 'full'),
+  };
+}
+
+export function preflightTemporaryParent(
+  host: NodeJS.Platform,
+  systemTemporaryDirectory: string,
+) {
+  return host === 'darwin' ? '/tmp' : systemTemporaryDirectory;
 }
 
 export function preflightLaneEnvironment(input: {
@@ -185,6 +192,12 @@ export function preflightLaneEnvironment(input: {
     TMP: input.temporaryRoot,
     TMPDIR: input.temporaryRoot,
   };
+  if (input.laneId.startsWith('rust-')) {
+    return {
+      ...environment,
+      CARGO_TARGET_DIR: join(input.temporaryRoot, 'cargo-target'),
+    };
+  }
   if (input.laneId === 'changelog') {
     return {
       ...environment,
@@ -195,6 +208,12 @@ export function preflightLaneEnvironment(input: {
   if (input.laneId === 'docs-specs') {
     return { ...environment, DOCS_SPECS_BASE: input.baseSha };
   }
+  if (input.laneId === 'diff-hygiene') {
+    return {
+      ...environment,
+      CI_CHECK_DIFF_RANGE: `${input.baseSha}...${input.headSha}`,
+    };
+  }
   return environment;
 }
 
@@ -202,35 +221,8 @@ function remote(id: string, reason: string): PreflightLane {
   return { id, reason, remoteOnly: true };
 }
 
-function trackedShellScripts() {
-  return readdirRecursive('.')
-    .filter((path) => path.endsWith('.sh'))
-    .filter((path) => !path.includes('/node_modules/') && !path.startsWith('./.git/'))
-    .map((path) => path.replace(/^\.\//, ''))
-    .sort();
-}
-
-function workflowFiles() {
-  return readdirSync('.github/workflows')
-    .filter((path) => path.endsWith('.yml') || path.endsWith('.yaml'))
-    .map((path) => `.github/workflows/${path}`)
-    .sort();
-}
-
-function readdirRecursive(root: string): string[] {
-  const entries = readdirSync(root, { withFileTypes: true });
-  return entries.flatMap((entry) => {
-    const path = `${root}/${entry.name}`;
-    if (entry.isDirectory()) {
-      if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') return [];
-      return readdirRecursive(path);
-    }
-    return entry.isFile() ? [path] : [];
-  });
-}
-
 async function main() {
-  const options = parseOptions(process.argv.slice(2));
+  const options = parsePreflightOptions(process.argv.slice(2));
   const baseSha = await gitText('rev-parse', `${options.base}^{commit}`);
   const headSha = await gitText('rev-parse', `${options.head}^{commit}`);
   const checkoutSha = await gitText('rev-parse', 'HEAD^{commit}');
@@ -258,7 +250,7 @@ async function main() {
     eventName: 'pull_request',
     headVersion,
   });
-  const capacity = currentPreflightCapacity(classification.fullMatrix);
+  const capacity = currentPreflightCapacity(options.mode);
   if (!capacity.sufficient) {
     throw new Error(
       `CI preflight needs at least ${formatBytes(capacity.requiredBytes)} free on both the worktree and temporary filesystems; only ${formatBytes(capacity.availableBytes)} is available. No test, install, build, or cache cleanup was started.`,
@@ -266,13 +258,15 @@ async function main() {
   }
   const lanes = preflightPlan({
     changedPaths,
-    fullMatrix: classification.fullMatrix,
     host: platform(),
+    mode: options.mode,
     pullRequest: options.pullRequest,
     version: headVersion,
   });
   const results: LaneResult[] = [];
-  const temporaryRoot = mkdtempSync(join(tmpdir(), 'project-space-ci-preflight-'));
+  const temporaryRoot = mkdtempSync(
+    join(preflightTemporaryParent(platform(), tmpdir()), 'ps-ci-'),
+  );
   try {
     for (const lane of lanes) {
       if (lane.remoteOnly) {
@@ -300,6 +294,7 @@ async function main() {
       mode: classification.fullMatrix ? 'full' : 'patch-fast',
       reason: classification.reason,
     },
+    localProfile: localPreflightProfile(changedPaths, options.mode),
     lanes: results,
     conclusion,
   };
@@ -329,20 +324,12 @@ async function runLane(
     } as LaneResult;
   }
   const command = lane.command!;
-  const workingDirectory = lane.reason?.includes('apps/docs')
-    ? 'apps/docs'
-    : lane.reason?.includes('apps/mobile')
-      ? 'apps/mobile'
-      : '.';
-  const actualCommand =
-    lane.id === 'diff-hygiene'
-      ? ['git', 'diff', '--check', `${baseSha}...${headSha}`]
-      : command;
+  const actualCommand = command;
   const display = actualCommand.join(' ');
   console.error(`\n[ci:preflight] ${lane.id}: ${display}`);
   const started = performance.now();
   const child = Bun.spawn(actualCommand, {
-    cwd: workingDirectory,
+    cwd: '.',
     env: preflightLaneEnvironment({
       baseSha,
       environment: process.env,
@@ -369,10 +356,11 @@ async function runLane(
   } as LaneResult;
 }
 
-function currentPreflightCapacity(fullMatrix: boolean) {
+function currentPreflightCapacity(mode: PreflightMode) {
+  const temporaryParent = preflightTemporaryParent(platform(), tmpdir());
   return preflightCapacity({
-    fullMatrix,
-    temporaryAvailableBytes: availableBytes(tmpdir()),
+    mode,
+    temporaryAvailableBytes: availableBytes(temporaryParent),
     worktreeAvailableBytes: availableBytes('.'),
   });
 }
@@ -386,30 +374,40 @@ function formatBytes(bytes: number) {
   return `${(bytes / GIBIBYTE).toFixed(1)} GiB`;
 }
 
-function parseOptions(args: string[]): Options {
+export function parsePreflightOptions(args: string[]): PreflightOptions {
+  const allowedKeys = new Set([
+    '--base',
+    '--format',
+    '--head',
+    '--mode',
+    '--pull-request',
+  ]);
   const values = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index];
     const value = args[index + 1];
-    if (!key?.startsWith('--') || value === undefined) usage();
+    if (!key || !allowedKeys.has(key) || value === undefined) usage();
     values.set(key, value);
   }
   const format = values.get('--format') ?? 'text';
+  const mode = values.get('--mode') ?? 'fast';
   const rawPr = values.get('--pull-request');
   const pullRequest = rawPr === undefined ? undefined : Number(rawPr);
   if (format !== 'json' && format !== 'text') usage();
+  if (mode !== 'fast' && mode !== 'full') usage();
   if (pullRequest !== undefined && (!Number.isSafeInteger(pullRequest) || pullRequest <= 0)) usage();
   return {
     base: values.get('--base') ?? 'origin/main',
     format,
     head: values.get('--head') ?? 'HEAD',
+    mode,
     pullRequest,
   };
 }
 
 function usage(): never {
   throw new Error(
-    'Usage: bun run ci:preflight --base <ref> [--head HEAD] [--pull-request <number>] [--format json|text]',
+    'Usage: bun scripts/ci-preflight.ts [--mode fast|full] [--base <ref>] [--head HEAD] [--pull-request <number>] [--format json|text]; package commands: bun run ci:preflight or bun run ci:preflight:full',
   );
 }
 
@@ -423,11 +421,15 @@ function printText(report: {
   baseSha: string;
   headSha: string;
   classification: { mode: string; reason: string };
+  localProfile: { mode: PreflightMode };
   lanes: LaneResult[];
   conclusion: string;
 }) {
   console.log(`CI preflight ${report.conclusion}: ${report.headSha} against ${report.baseSha}`);
-  console.log(`Matrix: ${report.classification.mode} — ${report.classification.reason}`);
+  console.log(`Local profile: ${report.localProfile.mode}`);
+  console.log(
+    `GitHub matrix: ${report.classification.mode} — ${report.classification.reason}`,
+  );
   for (const lane of report.lanes) {
     console.log(`- ${lane.id}: ${lane.status}${lane.reason ? ` (${lane.reason})` : ''}`);
   }

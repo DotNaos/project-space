@@ -40,30 +40,71 @@ pull-request job; a manual run on `main` cannot prove an arbitrary PR head.
 
 ## Canonical local preflight
 
-Run the repository-owned preflight against a committed, clean revision:
+Run the fast repository-owned preflight against a committed, clean revision:
 
 ```sh
 bun run ci:preflight --base origin/main --head HEAD --pull-request 466 --format json
 ```
 
-The preflight uses the same changed-path selection as `Fast CI`. The ordinary
-path therefore avoids docs, mobile, Go, workflow, and platform work when those
-surfaces are untouched. A pull-request number enables exact PR-owned release
-intent validation; without one, the historical release catalog is checked.
+This default profile uses changed paths to select relevant local extras. It avoids
+docs, mobile, Go, Rust, workflow, and platform work when those surfaces are untouched,
+even when GitHub's release policy requires broader remote proof. It is the short local
+feedback loop, not a claim that every GitHub lane has run.
+
+Run the optional full profile when you want comprehensive local proof:
+
+```sh
+bun run ci:preflight:full --base origin/main --head HEAD --pull-request 466 --format json
+```
+
+The full profile runs all locally reproducible `Fast CI` lanes plus the release-quality
+TypeScript check, using the same shared repository commands as Actions. On macOS it also
+runs the native macOS packaging contract. A pull-request number enables exact PR-owned
+release intent validation; without one, the historical release catalog is checked.
 
 The report records exact base and head commits, changed paths, selected lanes,
 commands, durations, conclusions, and relevant protected remote-only gates. It
 refuses a dirty checkout or a requested head other than the checked-out `HEAD`,
 because otherwise the report could name code that was not actually tested.
 
-Release-critical changes select all local extras. On macOS the preflight also
-runs the native macOS packaging contract. Foreign-host packaging, production
-signing, immutable publication, Preview credentials, VPS access, rollback,
-TLS, exact remote identity, and health remain remote-only.
+The report records both the requested local profile and GitHub's independent release
+policy decision. Foreign-host packaging, production signing, immutable publication,
+Preview credentials, VPS access, rollback, TLS, exact remote identity, and health
+remain remote-only and are listed explicitly rather than simulated locally.
 
-The expected feedback target under normal runner availability is two to five
-minutes for an ordinary pull request. Release-critical changes are allowed to
-take longer rather than weakening their required proof.
+The expected feedback target under normal runner availability is two to five minutes
+for the fast profile. The full profile is intentionally allowed to take longer.
+
+## Shared checks and pre-commit feedback
+
+Repository quality commands are defined once and addressed by a stable check ID.
+GitHub Actions and `ci:preflight` call the same runner that developers can invoke:
+
+```sh
+bun run ci:check -- package-manager-policy docs-specs
+bun run ci:check -- tests web-build
+```
+
+Run `bun run ci:preflight` for fast changed-path-selected feedback. Run
+`bun run ci:preflight:full` for comprehensive local CI and release-quality proof. Individual IDs
+are useful for repeating one failed lane, but they do not replace the clean-revision,
+base/head, capacity, changelog, and final-cleanliness guarantees of either preflight.
+
+The trusted `lefthook` Bun dependency installs the repository hook during a normal
+dependency installation. Before a commit, Lefthook runs diff hygiene, package-manager
+policy, and documentation/change-spec validation in parallel. These checks read the
+staged Git index, so unrelated unstaged work cannot hide or create a failure. Run the
+same profile directly with:
+
+```sh
+bun run check:pre-commit
+```
+
+Git still permits an intentional one-off bypass with `git commit --no-verify`, and
+Lefthook can be disabled for one command with `LEFTHOOK=0`. A bypass never weakens CI:
+the shared checks run again against the exact pull-request revision. Signing,
+publication, Windows-only validation, Preview, and Production remain protected or
+remote-only gates and are reported as such by local preflight.
 
 ## Pull-request Previews
 

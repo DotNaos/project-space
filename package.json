@@ -18,7 +18,9 @@
     "build:project-cli:macos-arm64": "mkdir -p dist && build_sha=${GITHUB_SHA:-$(git rev-parse HEAD)} && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags=\"-s -w -X main.projectMachineClientVersion=$npm_package_version -X main.projectMachineClientReleaseID=v$npm_package_version -X main.projectMachineClientBuildID=$build_sha\" -o dist/project ./cmd/project",
     "build:machine-tools:macos-arm64": "bun run build:codex-host:macos-arm64 && bun run build:project-cli:macos-arm64 && packaging/macos/build-machine-tools.sh \"$npm_package_version\" dist dist/macos-release",
     "docs:build": "cd apps/docs && bun run build",
-    "ci:preflight": "bun scripts/ci-preflight.ts",
+    "ci:check": "bun scripts/run-quality-checks.ts",
+    "ci:preflight": "bun scripts/ci-preflight.ts --mode fast",
+    "ci:preflight:full": "bun scripts/ci-preflight.ts --mode full",
     "ci:inventory:open-prs": "bun scripts/report-open-pr-ci.ts",
     "docs:release:check": "bun scripts/validate-release-pr.ts --catalog",
     "docs:release:pr": "bun scripts/validate-release-pr.ts",
@@ -31,12 +33,16 @@
     "jetkvm:provision": "bun scripts/jetkvm-provisioning.ts",
     "docs:typecheck": "cd apps/docs && bun run typecheck",
     "check": "bun run check:package-manager && tsc -b",
+    "check:pre-commit": "bun run ci:check -- --pre-commit",
     "check:package-manager": "bun scripts/check-package-manager.ts",
     "check:cli": "go test ./...",
     "preview": "vite preview",
     "start": "bun server/web-server.ts",
     "start:preview-gateway": "bun server/preview-gateway.ts"
   },
+  "trustedDependencies": [
+    "lefthook"
+  ],
   "dependencies": {
     "@clerk/backend": "^3.9.0",
     "@clerk/react": "^6.11.3",
@@ -72,6 +78,7 @@
     "@types/react-dom": "^19.1.7",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.0",
+    "lefthook": "2.1.10",
     "tailwindcss": "^4.1.11",
     "typescript": "^5.9.2",
     "vite": "^7.0.6"

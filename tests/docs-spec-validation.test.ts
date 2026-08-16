@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -25,7 +25,7 @@ describe('documentation change-spec validation', () => {
 
     expect(report.diagnostics).toEqual([]);
     expect(report.requirements).toBe(5);
-    expect(report.changes).toBe(10);
+    expect(report.changes).toBe(11);
     expect(report.templates).toBe(1);
   });
 
@@ -157,6 +157,47 @@ The system provides something.
     ]);
   });
 
+  test('checks pull-request change-spec coverage from the merge base through the staged index', () => {
+    const root = documentationRepository();
+    const base = runGit(root, ['rev-parse', 'HEAD']).trim();
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src/example.ts'), 'export const example = true;\n');
+    runGit(root, ['add', 'src/example.ts']);
+
+    const uncovered = runStagedValidator(root, base);
+    expect(uncovered.exitCode).toBe(1);
+    expect(uncovered.stderr.toString()).toContain('no change-spec artifact changed');
+
+    runGit(root, ['restore', '--staged', 'src/example.ts']);
+    const tasks = join(
+      root,
+      'apps/docs/content/docs/development/changes/documentation-system/tasks.mdx',
+    );
+    writeFileSync(tasks, `${readFileSync(tasks, 'utf8')}\n<!-- coverage fixture -->\n`);
+    runGit(root, ['add', tasks]);
+    runGit(root, ['commit', '-m', 'document behavior change']);
+    runGit(root, ['add', 'src/example.ts']);
+
+    expect(runStagedValidator(root, base).exitCode).toBe(0);
+  });
+
+  test('validates staged documentation rather than an unstaged repair', () => {
+    const root = documentationRepository();
+    const base = runGit(root, ['rev-parse', 'HEAD']).trim();
+    const proposal = join(
+      root,
+      'apps/docs/content/docs/development/changes/documentation-system/proposal.mdx',
+    );
+    const valid = readFileSync(proposal, 'utf8');
+    writeFileSync(proposal, valid.replace('## Summary', '## Missing summary'));
+    runGit(root, ['add', proposal]);
+    writeFileSync(proposal, valid);
+
+    const result = runStagedValidator(root, base);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain('Proposal is missing the Summary section.');
+  });
+
   test('rejects internal documentation links to missing deployed routes', () => {
     const root = mkdtempSync(join(tmpdir(), 'project-doc-links-'));
     temporaryRoots.push(root);
@@ -171,3 +212,43 @@ The system provides something.
     }]);
   });
 });
+
+function documentationRepository() {
+  const root = mkdtempSync(join(tmpdir(), 'project-space-staged-docs-test-'));
+  temporaryRoots.push(root);
+  cpSync('apps/docs/content/docs', join(root, 'apps/docs/content/docs'), {
+    recursive: true,
+  });
+  cpSync('apps/docs/content/change-template', join(root, 'apps/docs/content/change-template'), {
+    recursive: true,
+  });
+  runGit(root, ['init', '-b', 'main']);
+  runGit(root, ['config', 'user.email', 'test@example.com']);
+  runGit(root, ['config', 'user.name', 'Documentation test']);
+  runGit(root, ['add', '.']);
+  runGit(root, ['commit', '-m', 'base']);
+  return root;
+}
+
+function runStagedValidator(root: string, base: string) {
+  return Bun.spawnSync(
+    [
+      'bun',
+      join(import.meta.dir, '../scripts/validate-docs-specs.ts'),
+      '--staged',
+      '--base',
+      base,
+    ],
+    { cwd: root, stderr: 'pipe', stdout: 'pipe' },
+  );
+}
+
+function runGit(root: string, arguments_: string[]) {
+  const result = Bun.spawnSync(['git', ...arguments_], {
+    cwd: root,
+    stderr: 'pipe',
+    stdout: 'pipe',
+  });
+  if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  return result.stdout.toString();
+}
