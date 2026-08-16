@@ -41,6 +41,9 @@ import type { createConfiguredProjectHostdRuntime } from './project-hostd/config
 import type { createHostControlHttpApi } from './host-control/http';
 import type { createCanonicalRuntimeControlHttpApi } from './canonical-runtime-control/http';
 import type { createConfiguredTailscaleInventoryHandler } from './tailscale-inventory/configured-runtime';
+import type {
+  createConfiguredLegacyConnectorCleanupHandler
+} from './legacy-connector-cleanup/configured-runtime';
 import type { ClerkBackendReadiness } from './clerk-backend-readiness';
 
 interface ProjectSpaceApiHandlerOptions {
@@ -62,6 +65,7 @@ interface ProjectSpaceApiHandlerOptions {
   roadmapCli?: ReturnType<typeof createConfiguredRoadmapCliHandler>;
   sshControlGateway?: ReturnType<typeof createConfiguredSshControlGatewayHandler>;
   tailscaleInventory?: ReturnType<typeof createConfiguredTailscaleInventoryHandler>;
+  legacyConnectorCleanup?: ReturnType<typeof createConfiguredLegacyConnectorCleanupHandler>;
 }
 
 export function createProjectSpaceApiHandler(
@@ -160,6 +164,13 @@ export function createProjectSpaceApiHandler(
       if (
         options.tailscaleInventory &&
         await options.tailscaleInventory(request, response, url)
+      ) {
+        return true;
+      }
+
+      if (
+        options.legacyConnectorCleanup &&
+        await options.legacyConnectorCleanup(request, response, url)
       ) {
         return true;
       }
