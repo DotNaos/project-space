@@ -203,6 +203,19 @@ describe('canonical local CI preflight', () => {
     expect(environment.DOCS_SPECS_BASE).toBe('a'.repeat(40));
   });
 
+  test('keeps Rust build artifacts inside the run-owned temporary root', () => {
+    const environment = preflightLaneEnvironment({
+      baseSha: 'a'.repeat(40),
+      environment: {},
+      headSha: 'b'.repeat(40),
+      laneId: 'rust-tests',
+      temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
+    });
+    expect(environment.CARGO_TARGET_DIR).toBe(
+      '/private/tmp/project-space-ci-preflight-owned/cargo-target',
+    );
+  });
+
   test('binds diff hygiene to the exact preflight range', () => {
     const environment = preflightLaneEnvironment({
       baseSha: 'a'.repeat(40),

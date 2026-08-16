@@ -165,6 +165,12 @@ export function preflightLaneEnvironment(input: {
     TMP: input.temporaryRoot,
     TMPDIR: input.temporaryRoot,
   };
+  if (input.laneId.startsWith('rust-')) {
+    return {
+      ...environment,
+      CARGO_TARGET_DIR: join(input.temporaryRoot, 'cargo-target'),
+    };
+  }
   if (input.laneId === 'changelog') {
     return {
       ...environment,
