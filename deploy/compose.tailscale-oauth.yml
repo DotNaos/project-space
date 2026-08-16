@@ -1,0 +1,6 @@
+# Compatibility marker for host-independent deployment-owned Tailscale OAuth inventory.
+# The base Compose file now keeps the legacy sidecar behind this inactive profile too.
+services:
+  tailscale-status:
+    profiles:
+      - legacy-vps-local-tailscale

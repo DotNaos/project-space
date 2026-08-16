@@ -9,6 +9,8 @@ const previewWebDockerfile = new URL(
 );
 const productionWebDockerfile = new URL('../deploy/Dockerfile', import.meta.url);
 const productionComposeFile = new URL('../deploy/compose.yml', import.meta.url);
+const deploymentConfigFile = new URL('../deploy/deploy.yaml', import.meta.url);
+const tailscaleOAuthComposeFile = new URL('../deploy/compose.tailscale-oauth.yml', import.meta.url);
 const previewComposeFile = new URL('../deploy/preview.compose.yml', import.meta.url);
 
 describe('Project build routing', () => {
@@ -113,6 +115,37 @@ describe('Project build routing', () => {
     expect(sidecar).toContain('/var/run/tailscale/tailscaled.sock:ro');
     expect(sidecar).not.toContain('CLERK_SECRET_KEY');
     expect(sidecar).not.toContain('GITHUB_TOKEN');
+  });
+
+  test('supports host-independent OAuth inventory without starting the legacy sidecar', async () => {
+    const overlay = await readFile(tailscaleOAuthComposeFile, 'utf8');
+    expect(overlay).toContain('tailscale-status:');
+    expect(overlay).toContain('legacy-vps-local-tailscale');
+    expect(overlay).not.toContain('tailscaled.sock');
+    expect(overlay).not.toContain('/var/run/tailscale');
+  });
+
+  test('loads deployment-owned Tailscale OAuth credentials from the fixed Infisical project', async () => {
+    const deployment = await readFile(deploymentConfigFile, 'utf8');
+    for (const name of [
+      'PROJECT_SPACE_ALLOWED_EMAILS',
+      'TAILSCALE_OAUTH_CLIENT_ID',
+      'TAILSCALE_OAUTH_CLIENT_SECRET'
+    ]) {
+      expect(deployment).toContain(
+        `${name}: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/${name}`
+      );
+    }
+    expect(deployment).not.toContain('PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY');
+    expect(deployment).not.toContain('op://');
+  });
+
+  test('passes deployment-owned Tailscale credentials to the web runtime only', async () => {
+    const compose = await readFile(productionComposeFile, 'utf8');
+    const web = /\n  web:\n([\s\S]*?)\n  tailscale-status:\n/.exec(compose)?.[1] ?? '';
+    expect(web).toContain('TAILSCALE_OAUTH_CLIENT_ID: ${TAILSCALE_OAUTH_CLIENT_ID:-}');
+    expect(web).toContain('TAILSCALE_OAUTH_CLIENT_SECRET: ${TAILSCALE_OAUTH_CLIENT_SECRET:-}');
+    expect(web).not.toContain('PROJECT_SPACE_PROVIDER_CREDENTIAL_ENCRYPTION_KEY');
   });
 
   test('configures the SSH control gateway identity on each Project Space web service', async () => {

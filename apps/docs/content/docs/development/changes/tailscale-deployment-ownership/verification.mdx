@@ -1,0 +1,29 @@
+---
+title: Verification
+description: Requirement and delivery evidence for deployment-owned Tailscale inventory.
+---
+
+Verification status: **Complete**
+
+## Requirement evidence
+
+- [x] TAILSCALE-DEPLOYMENT-001 — One deployment-owned tailnet inventory
+- [x] TAILSCALE-DEPLOYMENT-002 — Fail-closed production membership
+- [x] TAILSCALE-DEPLOYMENT-003 — Supported fresh API truth
+- [x] TAILSCALE-DEPLOYMENT-004 — Deployment-only credential delivery
+- [x] TAILSCALE-DEPLOYMENT-005 — Safe legacy retirement and stale-data denial
+- [x] TAILSCALE-DEPLOYMENT-006 — Control plane remains separate from network access
+
+## Final reconciliation
+
+- [x] Requirements describe the deployment boundary and current control-plane behavior
+- [x] Design keeps real member audit identity while sharing only the fixed Tailscale scope
+- [x] Browser, API, database, migration, deployment, and documentation paths match the decision
+- [x] Focused tests and the complete repository suite pass with declared persistent-test skips
+- [x] Independent review found no remaining security or contract blocker
+- [x] Infisical proves the member boundary and OAuth names are configured without printing values
+- [x] Data-plane and historic ownership work remain explicitly linked to #733 and #786
+
+Structural and local verification do not authorize delivery. Pull-request approval of the exact
+current revision, required GitHub checks, locked Production deployment, fresh authenticated
+inventory, unauthenticated denial, and live browser proof remain the delivery gates.

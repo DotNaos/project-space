@@ -32,6 +32,12 @@ export function createProxyTailscaleInventorySource(
   const now = options.now ?? (() => new Date());
 
   return {
+    async describe() {
+      return {
+        connectionState: 'legacy' as const,
+        source: 'temporary_vps_local_status' as const
+      };
+    },
     async observe(): Promise<TailscaleInventorySourceResult> {
       const signal = AbortSignal.timeout(tailscaleStatusProxyTimeoutMs);
       let response: Response;

@@ -83,7 +83,8 @@ import type {
 import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
 import type {
   TailscaleClassificationRequest,
-  TailscaleInventoryResult
+  TailscaleInventoryResult,
+  TailscaleProviderConnectionResult
 } from '@/shared/tailscale-inventory-api';
 import {
   refreshProjectSpaceAuthToken,
@@ -178,6 +179,10 @@ export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements 
 
   getTailscaleInventory(refresh = false): Promise<TailscaleInventoryResult> {
     return this.request(`/api/compute/tailscale/devices${refresh ? '?refresh=1' : ''}`);
+  }
+
+  getTailscaleProviderConnection(): Promise<TailscaleProviderConnectionResult> {
+    return this.request('/api/compute/tailscale/connection');
   }
 
   setTailscaleDeviceClassification(

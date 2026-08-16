@@ -8,28 +8,50 @@ import {
   isProjectSpaceAuthRequired,
   readAuthSessionFromRequest
 } from '../local-auth-store';
-import { getTailscaleInventoryStore } from '../local-database-store';
+import {
+  getTailscaleInventoryStore
+} from '../local-database-store';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { createCommandTailscaleInventorySource } from './command-source';
+import { createDeploymentTailscaleInventorySource } from './deployment-source';
+import { tailscaleDeploymentInventoryScope } from './deployment-scope';
 import { createTailscaleInventoryHttpApi } from './http';
+import { createTailscaleOAuthApiClient } from './oauth-api-client';
 import { createProxyTailscaleInventorySource } from './proxy-source';
 import { createTailscaleInventoryService } from './service';
+import { tailscaleInventoryScope } from './oauth-api-client';
 import type { TailscaleInventorySource } from './source';
 
 export function createConfiguredTailscaleInventoryHandler(options: {
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   source?: TailscaleInventorySource;
 }) {
-  const source = options.source ?? configuredSource(process.env);
-  let service: ReturnType<typeof createTailscaleInventoryService> | undefined;
-  const getService = async () => {
-    if (service) return service;
+  const legacyOwners = new Set<string>();
+  let runtime: {
+    inventory: ReturnType<typeof createTailscaleInventoryService>;
+    source: TailscaleInventorySource;
+  } | undefined;
+  const getRuntime = async () => {
+    if (runtime) return runtime;
     const store = await getTailscaleInventoryStore();
     if (!store) {
       throw new Error('Tailscale inventory persistence is unavailable.');
     }
-    service = createTailscaleInventoryService({ source, store });
-    return service;
+    const api = createTailscaleOAuthApiClient();
+    const source = options.source ?? createDeploymentTailscaleInventorySource({
+      api,
+      environment: process.env,
+      isLegacyOwner: (ownerUserId) =>
+        !isProjectSpaceAuthRequired() || legacyOwners.has(ownerUserId),
+      legacy: configuredLegacySource(process.env)
+    });
+    const inventory = createTailscaleInventoryService({
+      inventoryScope: tailscaleDeploymentInventoryScope,
+      source,
+      store
+    });
+    runtime = { inventory, source };
+    return runtime;
   };
   const resolve = createCodexMachineTasksAuthResolver({
     authenticateMachine: async ({ machineId, token }) => (
@@ -43,10 +65,22 @@ export function createConfiguredTailscaleInventoryHandler(options: {
   });
   return createTailscaleInventoryHttpApi({
     async list(ownerUserId, refresh) {
-      return (await getService()).list(ownerUserId, refresh);
+      return (await getRuntime()).inventory.list(ownerUserId, refresh);
     },
     async setClassification(actor, deviceId, request) {
-      return (await getService()).setClassification(actor, deviceId, request);
+      return (await getRuntime()).inventory.setClassification(actor, deviceId, request);
+    },
+    async getConnection(ownerUserId) {
+      const source = (await getRuntime()).source;
+      const descriptor = await source.describe?.(ownerUserId) ?? {
+        connectionState: 'not_configured' as const,
+        source: 'not_connected' as const
+      };
+      return {
+        connectionState: descriptor.connectionState,
+        requiredScope: tailscaleInventoryScope,
+        source: descriptor.source
+      };
     }
   }, async (request) => {
     const actor = await resolve(request);
@@ -55,9 +89,8 @@ export function createConfiguredTailscaleInventoryHandler(options: {
     }
     if (isProjectSpaceAuthRequired()) {
       const session = await readAuthSessionFromRequest(request);
-      if (!session || !isConfiguredInventoryOwner(session, process.env)) {
-        throw new CodexMachineTasksAuthError(403);
-      }
+      if (!session) throw new CodexMachineTasksAuthError(401);
+      if (isConfiguredInventoryOwner(session, process.env)) legacyOwners.add(session.userId);
     }
     return { actorId: actor.userId, kind: 'human', ownerUserId: actor.userId };
   });
@@ -92,7 +125,7 @@ export function isConfiguredInventoryOwner(
   return allowed.length === 1 && allowed[0] === email.toLowerCase();
 }
 
-function configuredSource(environment: NodeJS.ProcessEnv): TailscaleInventorySource {
+function configuredLegacySource(environment: NodeJS.ProcessEnv): TailscaleInventorySource {
   const mode = environment.PROJECT_SPACE_TAILSCALE_INVENTORY_SOURCE?.trim() || 'command';
   if (mode === 'command') return createCommandTailscaleInventorySource();
   if (mode === 'proxy') return createProxyTailscaleInventorySource();

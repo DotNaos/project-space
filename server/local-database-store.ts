@@ -26,6 +26,7 @@ import type {
 } from './database/models';
 import { ProjectSpaceDatabaseRepository } from './database/repository';
 import { PostgresPrivateNetworkStore, type PrivateNetworkStore } from './private-network/store';
+import { tailscaleDeploymentInventoryScope } from './tailscale-inventory/deployment-scope';
 import {
   PostgresTailscaleInventoryStore
 } from './tailscale-inventory/store';
@@ -347,7 +348,9 @@ export async function deleteDevServerSession(input: DevServerSessionKey) {
 }
 
 export async function listComputeInventory(userId: string) {
-  return (await getDatabaseRepository()).listComputeInventory(userId);
+  return (await getDatabaseRepository()).listComputeInventory(userId, {
+    additionalOwnerUserIds: [tailscaleDeploymentInventoryScope]
+  });
 }
 
 export async function reconcileConnectorComputeInventory(

@@ -1,0 +1,82 @@
+---
+title: Requirement delta
+description: Deployment ownership, membership, inventory, and credential requirements for Tailscale.
+---
+
+## ADDED Requirements
+
+### TAILSCALE-DEPLOYMENT-001 — One deployment-owned tailnet inventory
+
+Project Space MUST use one deployment-owned Tailscale OAuth client and MUST give every authorized
+member the same deployment-scoped observations and classifications without exposing another
+member's user-owned provider records.
+
+#### Scenario: Two authorized members inspect Compute
+
+- **Given** two members belong to the same Project Space deployment
+- **When** one refreshes or classifies a Tailscale device and the other reads inventory
+- **Then** both see the same Tailscale state while their Connector associations remain separate
+
+### TAILSCALE-DEPLOYMENT-002 — Fail-closed production membership
+
+Production MUST require an explicit member allowlist and MUST NOT treat an otherwise valid Clerk
+session as deployment membership when the allowlist is empty or does not contain that identity.
+
+#### Scenario: Unlisted Clerk user signs in
+
+- **Given** a valid Clerk session is not in the Production deployment member allowlist
+- **When** it requests Project Space or Tailscale inventory
+- **Then** authentication fails without returning deployment data
+
+### TAILSCALE-DEPLOYMENT-003 — Supported fresh API truth
+
+Project Space MUST request only `devices:core:read`, MUST accept Tailscale's current
+`connectedToControl` connectivity field, MUST keep exact numeric IP addresses authoritative, and
+MUST fail closed when a non-empty device response contains no valid device.
+
+#### Scenario: Current Devices API response arrives
+
+- **Given** the deployment credential can read a current Tailscale device response
+- **When** Project Space refreshes inventory
+- **Then** it records validated devices, direct IPs, connectivity, freshness, and sanitized source state
+
+### TAILSCALE-DEPLOYMENT-004 — Deployment-only credential delivery
+
+The OAuth client ID and secret MUST enter Production only through the fixed Infisical deployment
+path and trusted backend runtime, and MUST NOT be accepted, returned, or mutated by browser APIs.
+
+#### Scenario: Browser attempts connection mutation
+
+- **Given** a signed-in deployment member sends credentials to the old connection endpoint
+- **When** the request uses POST, PUT, PATCH, or DELETE
+- **Then** the server rejects the method without reading or storing credential material
+
+### TAILSCALE-DEPLOYMENT-005 — Safe legacy retirement and stale-data denial
+
+Project Space MUST revoke legacy per-user connection rows, clear every encrypted credential field,
+and MUST NOT return cached device inventory when deployment credentials are missing or invalid.
+
+#### Scenario: Upgrade contains old provider credentials
+
+- **Given** an existing database has active encrypted per-user Tailscale connection rows
+- **When** the deployment-owned migration runs
+- **Then** those rows become revoked, credential fields become null, and only safe audit metadata remains
+
+### TAILSCALE-DEPLOYMENT-006 — Control plane remains separate from network access
+
+Project Space MUST NOT treat OAuth inventory as server tailnet membership or authorization for
+ping, SSH, terminal, dev-server, relay, or unrestricted remote commands.
+
+#### Scenario: Inventory refresh succeeds
+
+- **Given** the deployment loads fresh Tailscale devices
+- **When** a member views or classifies them
+- **Then** no network data-plane operation becomes available solely from the OAuth connection
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

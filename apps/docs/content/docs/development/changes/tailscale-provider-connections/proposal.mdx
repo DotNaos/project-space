@@ -1,0 +1,52 @@
+---
+title: Proposal
+description: Account-scoped Tailscale OAuth inventory without host Tailscale ownership.
+---
+
+Change status: **Complete**
+
+Change kind: **Feature**
+
+Issue: **[#731](https://github.com/DotNaos/project-space/issues/731)**
+Requirements: **Required**
+
+## Summary
+
+Add one account-owned Tailscale provider connection per authenticated Project Space user.
+Project Space exchanges supported Tailscale OAuth client credentials for short-lived access,
+loads fresh device inventory from the official API, and keeps credentials encrypted and
+isolated from every other account.
+
+## Problem
+
+The temporary production adapter reads the VPS host's local `tailscaled` state. That proves
+real inventory but couples the deployment to one machine and one tailnet, cannot represent
+multiple Project Space users safely, and obscures who owns the inventory source.
+
+## Scope
+
+- Store one encrypted Tailscale OAuth client-credentials connection per Project Space owner.
+- Request the least-privilege `devices:core:read` scope and load devices from Tailscale's API.
+- Preserve exact device IP addresses and explicit provider/source identity in Compute.
+- Refresh inventory with bounded freshness and fail-closed provider error states.
+- Provide authenticated connect, inspect, refresh, and disconnect flows without returning secrets.
+- Keep the temporary VPS-local source explicitly named and limited to its configured owner.
+- Support a host-independent production runtime with no Tailscale socket or daemon requirement.
+- Deliver the provider encryption key through the protected production deployment boundary.
+
+## Out of scope
+
+- Joining the Project Space server to a user's tailnet or treating API access as network access.
+- Remote ping, SSH, dev-server, terminal, or command transport; this continues in
+  [#733](https://github.com/DotNaos/project-space/issues/733).
+- WireGuard enrollment, key ownership, routing, or lifecycle; this continues in
+  [#734](https://github.com/DotNaos/project-space/issues/734).
+- Removing the temporary VPS-local adapter before real production migration evidence exists.
+- Fabricating Hosts for provider-managed environments such as GitHub Codespaces.
+
+## Delivery
+
+This is an additive provider and storage change released through the normal minor-release path.
+The existing VPS-local adapter remains available during migration. Production receives a stable
+credential-encryption key through its protected deployment job; future secret-store migration
+must preserve that key until stored provider credentials have been deliberately rotated.

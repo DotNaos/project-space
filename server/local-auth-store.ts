@@ -31,9 +31,9 @@ function getClerkSecretKey() {
   return process.env.CLERK_SECRET_KEY ?? '';
 }
 
-function readAllowedEmails() {
+function readAllowedEmails(environment: NodeJS.ProcessEnv = process.env) {
   return new Set(
-    (process.env.PROJECT_SPACE_ALLOWED_EMAILS ?? '')
+    (environment.PROJECT_SPACE_ALLOWED_EMAILS ?? '')
       .split(',')
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean)
@@ -55,11 +55,14 @@ function readStringClaim(
   return undefined;
 }
 
-export function isProjectSpaceEmailAllowed(email?: string) {
-  const allowedEmails = readAllowedEmails();
+export function isProjectSpaceEmailAllowed(
+  email?: string,
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  const allowedEmails = readAllowedEmails(environment);
 
   if (allowedEmails.size === 0) {
-    return true;
+    return environment.PROJECT_DEPLOY_ENVIRONMENT?.trim() !== 'prod';
   }
 
   return Boolean(email && allowedEmails.has(email.toLowerCase()));

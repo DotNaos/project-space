@@ -43,6 +43,9 @@ export function createCommandTailscaleInventorySource(
   const runner = options.runner ?? execFileTailscaleStatusRunner;
 
   return {
+    async describe() {
+      return { connectionState: 'legacy' as const, source: 'local_tailscale_command' as const };
+    },
     async observe(): Promise<TailscaleInventorySourceResult> {
       let stdout: string;
       try {

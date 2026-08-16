@@ -8,6 +8,20 @@ export type TailscaleDeviceClassification = typeof tailscaleDeviceClassification
 export type TailscaleProviderRefreshState =
   | 'available' | 'partial' | 'unavailable' | 'not_checked';
 export type TailscaleProviderNetworkState = 'online' | 'offline' | 'stale' | 'unknown';
+export type TailscaleInventorySourceKind =
+  | 'tailscale_oauth_api'
+  | 'temporary_vps_local_status'
+  | 'local_tailscale_command'
+  | 'not_connected';
+export type TailscaleProviderConnectionState =
+  | 'authentication_error'
+  | 'configured'
+  | 'configuration_error'
+  | 'connected'
+  | 'legacy'
+  | 'not_configured'
+  | 'scope_insufficient'
+  | 'unavailable';
 
 export interface TailscaleInventoryDevice {
   addresses: string[];
@@ -28,11 +42,20 @@ export interface TailscaleInventoryDevice {
 export interface TailscaleInventoryResult {
   devices: TailscaleInventoryDevice[];
   provider: {
+    connectionId?: string;
+    connectionState: TailscaleProviderConnectionState;
     errorCount?: number;
     reasonCode?: string;
     refreshState: TailscaleProviderRefreshState;
+    source: TailscaleInventorySourceKind;
   };
   schemaVersion: typeof tailscaleInventoryApiVersion;
+}
+
+export interface TailscaleProviderConnectionResult {
+  connectionState: TailscaleProviderConnectionState;
+  requiredScope: 'devices:core:read';
+  source: TailscaleInventorySourceKind;
 }
 
 export interface TailscaleClassificationRequest {

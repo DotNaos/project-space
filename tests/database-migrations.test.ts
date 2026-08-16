@@ -79,6 +79,14 @@ import {
   infisicalCredentialReferencesMigrationId,
   infisicalCredentialReferencesMigrationSql
 } from '../server/database/infisical-credential-references-migration';
+import {
+  tailscaleProviderConnectionMigrationId,
+  tailscaleProviderConnectionMigrationSql
+} from '../server/database/tailscale-provider-connection-migration';
+import {
+  tailscaleProviderConnectionRetirementMigrationId,
+  tailscaleProviderConnectionRetirementMigrationSql
+} from '../server/database/tailscale-provider-connection-retirement-migration';
 
 interface QueryCall {
   sql: string;
@@ -129,7 +137,7 @@ describe('database migrations', () => {
     expect(tailscaleInventoryMigrationSql).toContain('tailscale_compute_environment_projections');
     expect(tailscaleInventoryMigrationSql).toContain('classification_revision integer not null');
     expect(tailscaleInventoryMigrationSql).not.toContain('credential');
-    expect(databaseMigrations.at(-2)?.id).toBe(tailscaleInventoryMigrationId);
+    expect(databaseMigrations.at(-4)?.id).toBe(tailscaleInventoryMigrationId);
   });
 
   test('fails closed on retired 1Password references and permits only environment names', () => {
@@ -143,7 +151,50 @@ describe('database migrations', () => {
     expect(infisicalCredentialReferencesMigrationSql).toContain(
       "credential_reference ~ '^env://[A-Z_][A-Z0-9_]{0,127}$'"
     );
-    expect(databaseMigrations.at(-1)?.id).toBe(infisicalCredentialReferencesMigrationId);
+    expect(databaseMigrations.at(-3)?.id).toBe(infisicalCredentialReferencesMigrationId);
+  });
+
+  test('adds account-scoped Tailscale provider credentials without auditing secrets', () => {
+    expect(tailscaleProviderConnectionMigrationId).toBe('0055_tailscale_provider_connections');
+    expect(tailscaleProviderConnectionMigrationSql).toContain(
+      'create table tailscale_provider_connections'
+    );
+    expect(tailscaleProviderConnectionMigrationSql).toContain('unique (owner_user_id)');
+    expect(tailscaleProviderConnectionMigrationSql).toContain(
+      "state in ('active', 'revoked')"
+    );
+    expect(tailscaleProviderConnectionMigrationSql).toContain('credential_ciphertext text');
+    expect(tailscaleProviderConnectionMigrationSql).toContain(
+      'create table tailscale_provider_connection_audits'
+    );
+    const auditSql = tailscaleProviderConnectionMigrationSql.slice(
+      tailscaleProviderConnectionMigrationSql.indexOf('create table tailscale_provider_connection_audits')
+    );
+    expect(auditSql).not.toMatch(/credential|ciphertext|client_secret|token|raw_error/i);
+    expect(databaseMigrations.at(-2)?.id).toBe(tailscaleProviderConnectionMigrationId);
+  });
+
+  test('retires and clears every legacy per-user Tailscale credential', () => {
+    expect(tailscaleProviderConnectionRetirementMigrationId).toBe(
+      '0056_tailscale_provider_connection_retirement'
+    );
+    expect(tailscaleProviderConnectionRetirementMigrationSql).toContain(
+      "set state = 'revoked'"
+    );
+    for (const column of [
+      'credential_key_id',
+      'credential_ciphertext',
+      'credential_iv',
+      'credential_tag'
+    ]) {
+      expect(tailscaleProviderConnectionRetirementMigrationSql).toContain(`${column} = null`);
+    }
+    expect(tailscaleProviderConnectionRetirementMigrationSql).toContain(
+      "'project-space:migration:0056', 'revoked'"
+    );
+    expect(databaseMigrations.at(-1)?.id).toBe(
+      tailscaleProviderConnectionRetirementMigrationId
+    );
   });
 
   test('adds Environment definitions and backfills every concrete instance', () => {
@@ -369,7 +420,7 @@ describe('database migrations', () => {
     expect(canonicalRuntimeControlMigrationSql).not.toMatch(
       /password|credential_reference|private_key|request_body|stdout|stderr/i
     );
-    expect(databaseMigrations.at(-5)?.id).toBe(canonicalRuntimeControlMigrationId);
+    expect(databaseMigrations.at(-7)?.id).toBe(canonicalRuntimeControlMigrationId);
   });
 
   test('extends canonical control additively with safe mutation replay and ownership fences', () => {
@@ -402,11 +453,11 @@ describe('database migrations', () => {
     expect(canonicalRuntimeMutationMigrationSql).toContain(
       'add constraint ssh_gateway_operations_operation_v3_check'
     );
-    expect(databaseMigrations.at(-4)?.id).toBe(canonicalRuntimeMutationMigrationId);
+    expect(databaseMigrations.at(-6)?.id).toBe(canonicalRuntimeMutationMigrationId);
   });
 
   test('stores only bounded Runtime presentation fields', () => {
-    expect(databaseMigrations.at(-3)?.id).toBe(workspaceRuntimePresentationMigrationId);
+    expect(databaseMigrations.at(-5)?.id).toBe(workspaceRuntimePresentationMigrationId);
     expect(workspaceRuntimePresentationMigrationSql).toContain('presentation_repository');
     expect(workspaceRuntimePresentationMigrationSql).toContain('presentation_task_number');
     expect(workspaceRuntimePresentationMigrationSql).not.toContain('presentation_task_title');
@@ -496,7 +547,9 @@ describe('database migrations', () => {
       '0051_canonical_runtime_mutations',
       '0052_workspace_runtime_presentation',
       '0053_tailscale_inventory',
-      '0054_infisical_credential_references'
+      '0054_infisical_credential_references',
+      '0055_tailscale_provider_connections',
+      '0056_tailscale_provider_connection_retirement'
     ]);
 
     expect(connectorCompatibilityUsageMigrationId).toBe('0049_connector_compatibility_usage');

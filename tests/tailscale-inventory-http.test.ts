@@ -20,6 +20,18 @@ async function start(
         });
       }
       return { id, ...request, revision: request.expectedRevision + 1 };
+    },
+    async getConnection(owner) {
+      calls.push(['get-connection', owner]);
+      return { connectionState: 'not_configured', requiredScope: 'devices:core:read', source: 'not_connected' };
+    },
+    async connect(requestActor, request) {
+      calls.push(['connect', requestActor, request]);
+      return { connectionState: 'connected', requiredScope: 'devices:core:read', source: 'tailscale_oauth_api' };
+    },
+    async revoke(requestActor) {
+      calls.push(['revoke', requestActor]);
+      return { connectionState: 'not_configured', requiredScope: 'devices:core:read', source: 'not_connected' };
     }
   }, async () => {
     if (options.authError) throw options.authError;
@@ -30,6 +42,28 @@ async function start(
 describe('Tailscale inventory HTTP boundary', () => {
   test('allows only exact refresh query and private no-store GET', async () => { const { calls, origin } = await start(); const response = await fetch(`${origin}/api/compute/tailscale/devices?refresh=1`); expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('private, no-store'); expect(calls).toEqual([['list', 'owner', true]]); expect((await fetch(`${origin}/api/compute/tailscale/devices?refresh=true`)).status).toBe(400); });
   test('enforces strict JSON human classification and never refreshes source', async () => { const { calls, origin } = await start(); const url = `${origin}/api/compute/tailscale/devices/device-a/classification`; expect((await fetch(url, { body: JSON.stringify({ classification: 'environment', expectedRevision: 0 }), headers: { 'Content-Type': 'application/json' }, method: 'POST' })).status).toBe(200); expect(calls[0]).toEqual(['classify', expect.objectContaining({ kind: 'human' }), 'device-a', { classification: 'environment', expectedRevision: 0 }]); expect((await fetch(url, { body: JSON.stringify({ classification: 'ignored', expectedRevision: 0, extra: true }), headers: { 'Content-Type': 'application/json' }, method: 'POST' })).status).toBe(400); });
+  test('exposes deployment connection status as read-only metadata', async () => {
+    const { calls, origin } = await start();
+    const route = `${origin}/api/compute/tailscale/connection`;
+    const connected = await fetch(route);
+    expect(connected.status).toBe(200);
+    expect(await connected.json()).toEqual({
+      connectionState: 'not_configured', requiredScope: 'devices:core:read', source: 'not_connected'
+    });
+    expect(calls).toEqual([['get-connection', 'owner']]);
+    for (const method of ['POST', 'DELETE', 'PUT', 'PATCH'] as const) {
+      const response = await fetch(route, {
+        body: JSON.stringify({ clientId: 'client-id-must-not-be-accepted', clientSecret: 'secret-must-not-be-accepted' }),
+        headers: { 'Content-Type': 'application/json' }, method
+      });
+      expect(response.status).toBe(405);
+      expect(await response.json()).toEqual({
+        error: { code: 'method_not_allowed', message: 'Method not allowed.' }
+      });
+    }
+    expect(calls).toEqual([['get-connection', 'owner']]);
+    expect((await fetch(`${route}?owner=other`)).status).toBe(400);
+  });
   test('decodes one encoded stable device id without accepting an encoded path', async () => {
     const { calls, origin } = await start();
     const init = { body: JSON.stringify({ classification: 'ignored', expectedRevision: 0 }), headers: { 'Content-Type': 'application/json' }, method: 'POST' };
