@@ -1,0 +1,4 @@
+{
+  "title": "Shared local and CI checks",
+  "pages": ["proposal", "requirements", "design", "tasks", "verification"]
+}

@@ -1,0 +1,28 @@
+---
+title: Tasks
+description: Implementation and verification checklist for shared quality checks.
+---
+
+## 1. Shared command boundary
+
+- [x] 1.1 Add the named quality-check registry and runner
+  - **Evidence:** CI check IDs resolve their command, arguments, and working directory in one module.
+- [x] 1.2 Route local preflight and applicable workflows through the registry
+  - **Evidence:** Preflight, pull-request CI, release quality, and production validation invoke `ci:check` IDs.
+
+## 2. Fast staged feedback
+
+- [x] 2.1 Add pinned Lefthook configuration and trusted Bun installation
+  - **Evidence:** Lefthook 2.1.10 and the pre-commit jobs are declared in the repository.
+- [x] 2.2 Make partial-commit checks index exact
+  - **Evidence:** Package-manager and documentation validators read staged blobs; coverage spans merge base to index.
+
+## 3. Verification
+
+- [ ] 3.1 Prove focused command and partial-staging behavior
+- [ ] 3.2 Validate and dogfood Lefthook in an isolated repository
+- [ ] 3.3 Run full local preflight and exact pull-request CI
+
+## 4. Deferred follow-ups
+
+None.

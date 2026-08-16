@@ -12,6 +12,7 @@ import {
   releaseVerificationPolicy,
   releaseWorkflowTriggered,
 } from '../scripts/release-verification-policy';
+import { resolveQualityCheck } from '../scripts/quality-checks';
 
 const fixture = {
   baseVersion: '0.4.55',
@@ -113,7 +114,14 @@ describe('canonical local CI preflight', () => {
       'macos-packaging',
       'post-run-cleanliness',
     ]));
-    expect(plan.find(({ id }) => id === 'actionlint')?.command).toContain(
+    expect(plan.find(({ id }) => id === 'actionlint')?.command).toEqual([
+      'bun',
+      'run',
+      'ci:check',
+      '--',
+      'actionlint',
+    ]);
+    expect(resolveQualityCheck('actionlint').command).toContain(
       'shellcheck -S error',
     );
     expect(plan.filter(({ remoteOnly }) => remoteOnly).map(({ id }) => id)).toEqual([
@@ -193,6 +201,19 @@ describe('canonical local CI preflight', () => {
       temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
     });
     expect(environment.DOCS_SPECS_BASE).toBe('a'.repeat(40));
+  });
+
+  test('binds diff hygiene to the exact preflight range', () => {
+    const environment = preflightLaneEnvironment({
+      baseSha: 'a'.repeat(40),
+      environment: {},
+      headSha: 'b'.repeat(40),
+      laneId: 'diff-hygiene',
+      temporaryRoot: '/private/tmp/project-space-ci-preflight-owned',
+    });
+    expect(environment.CI_CHECK_DIFF_RANGE).toBe(
+      `${'a'.repeat(40)}...${'b'.repeat(40)}`,
+    );
   });
 
   test('refuses a report for a revision other than the clean checkout in JSON', () => {

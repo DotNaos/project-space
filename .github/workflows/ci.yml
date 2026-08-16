@@ -96,21 +96,21 @@ jobs:
           key: bun-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock') }}
 
       - name: Install root dependencies once
-        run: bun install --frozen-lockfile
+        run: bun run ci:check -- locked-root-dependencies
 
       - name: Check package-manager policy
-        run: bun run check:package-manager
+        run: bun run ci:check -- package-manager-policy
 
       - name: Validate documentation and change specifications
         env:
           DOCS_SPECS_BASE: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
-        run: bun run docs:specs:check
+        run: bun run ci:check -- docs-specs
 
       - name: Run TypeScript tests
-        run: bun test --isolate
+        run: bun run ci:check -- tests
 
       - name: Build web surfaces
-        run: bun run build:web
+        run: bun run ci:check -- web-build
 
       - name: Set up Go for selected extras
         if: steps.select.outputs.go == 'true' || steps.select.outputs.cliDocs == 'true' || steps.select.outputs.workflow == 'true'
@@ -121,30 +121,19 @@ jobs:
 
       - name: Verify generated CLI documentation
         if: steps.select.outputs.cliDocs == 'true'
-        run: |
-          go test ./cmd/project -run 'CLIDocs|RootCommandIncludesExpectedCommands'
-          bun run docs:cli:check
+        run: bun run ci:check -- cli-docs-contract generated-cli-docs
 
       - name: Type-check and build documentation
         if: steps.select.outputs.docs == 'true'
-        working-directory: apps/docs
-        run: |
-          bun install --frozen-lockfile
-          bun run typecheck
-          bun run build
+        run: bun run ci:check -- docs-dependencies docs-typecheck docs-build
 
       - name: Build mobile prototype
         if: steps.select.outputs.mobile == 'true'
-        working-directory: apps/mobile
-        run: |
-          bun install --frozen-lockfile
-          bun run build:prototype
+        run: bun run ci:check -- mobile-dependencies mobile-build
 
       - name: Test and vet Go
         if: steps.select.outputs.go == 'true'
-        run: |
-          go test -race ./...
-          go vet ./...
+        run: bun run ci:check -- go-race go-vet
 
       - name: Install pinned Rust toolchain for hostd
         if: steps.select.outputs.rust == 'true'
@@ -152,18 +141,11 @@ jobs:
 
       - name: Test and lint project-hostd
         if: steps.select.outputs.rust == 'true'
-        working-directory: project-hostd
-        run: |
-          cargo +1.90.0 fmt -- --check
-          cargo +1.90.0 clippy --locked -- -D warnings
-          cargo +1.90.0 test --locked
+        run: bun run ci:check -- rust-format rust-clippy rust-tests
 
       - name: Lint workflows and shell scripts
         if: steps.select.outputs.workflow == 'true'
-        run: |
-          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 \
-            -shellcheck 'shellcheck -S error'
-          git ls-files -z '*.sh' | xargs -0 bash -n
+        run: bun run ci:check -- actionlint shell-syntax
 
   windows-cli:
     name: Windows CLI compatibility

@@ -65,6 +65,37 @@ The expected feedback target under normal runner availability is two to five
 minutes for an ordinary pull request. Release-critical changes are allowed to
 take longer rather than weakening their required proof.
 
+## Shared checks and pre-commit feedback
+
+Repository quality commands are defined once and addressed by a stable check ID.
+GitHub Actions and `ci:preflight` call the same runner that developers can invoke:
+
+```sh
+bun run ci:check -- package-manager-policy docs-specs
+bun run ci:check -- tests web-build
+```
+
+Run `bun run ci:preflight` for the changed-path-selected local equivalent of pull-request
+CI. Individual IDs are useful for repeating one failed lane, but they do not replace the
+clean-revision, base/head, capacity, changelog, and final-cleanliness guarantees of the
+canonical preflight.
+
+The trusted `lefthook` Bun dependency installs the repository hook during a normal
+dependency installation. Before a commit, Lefthook runs diff hygiene, package-manager
+policy, and documentation/change-spec validation in parallel. These checks read the
+staged Git index, so unrelated unstaged work cannot hide or create a failure. Run the
+same profile directly with:
+
+```sh
+bun run check:pre-commit
+```
+
+Git still permits an intentional one-off bypass with `git commit --no-verify`, and
+Lefthook can be disabled for one command with `LEFTHOOK=0`. A bypass never weakens CI:
+the shared checks run again against the exact pull-request revision. Signing,
+publication, Windows-only validation, Preview, and Production remain protected or
+remote-only gates and are reported as such by local preflight.
+
 ## Pull-request Previews
 
 Every internal pull request receives one Preview for its exact current head.

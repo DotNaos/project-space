@@ -1,0 +1,36 @@
+---
+title: Requirement delta
+description: Requirements for shared local and CI quality checks.
+---
+
+## ADDED Requirements
+
+### DEV-CHECKS-001 — Fast staged commit feedback
+
+Project Space MUST run fast read-only quality checks against the exact Git index before
+a normal commit and MUST keep CI authoritative when hooks are explicitly bypassed.
+
+#### Scenario: Invalid staged change
+
+- **Given** a developer has staged a change that violates diff, package-manager, or change-spec policy
+- **When** the developer creates a normal Git commit
+- **Then** the commit is stopped with the failing shared check identified
+
+### DEV-CHECKS-002 — Shared local and CI commands
+
+Project Space MUST define locally runnable quality commands once and MUST call those
+same commands from local preflight and applicable CI lanes.
+
+#### Scenario: Reproduce a CI quality lane locally
+
+- **Given** an applicable CI quality lane reports a failure
+- **When** a developer runs its documented shared check locally
+- **Then** the same repository-owned command and working-directory contract are used
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.
