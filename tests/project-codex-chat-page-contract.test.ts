@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const page = readFileSync(
   'src/features/codex-sessions/project-codex-chat-page.tsx',
@@ -59,6 +59,27 @@ describe('Project Codex chat page contract', () => {
 
   test('uses one React runtime when the UI development package is linked', () => {
     expect(viteConfig).toContain("dedupe: ['react', 'react-dom']");
+  });
+
+  test('loads the published UI syntax runtime before its legacy Prism languages', () => {
+    const uiPackage = JSON.parse(
+      readFileSync('node_modules/@dotnaos/ui/package.json', 'utf8')
+    ) as { version: string };
+    const syntaxChunk = readdirSync('node_modules/@dotnaos/ui/dist/chunks')
+      .find((file) => file.startsWith('prism-languages-') && file.endsWith('.js'));
+
+    expect(uiPackage.version).toBe('0.0.13');
+    expect(syntaxChunk).toBeDefined();
+
+    const syntaxRuntime = readFileSync(
+      `node_modules/@dotnaos/ui/dist/chunks/${syntaxChunk}`,
+      'utf8'
+    );
+    const runtimeIndex = syntaxRuntime.indexOf('Reflect.set(globalThis, "Prism", Prism)');
+    const languageIndex = syntaxRuntime.indexOf('await import("./prism-markup-');
+
+    expect(runtimeIndex).toBeGreaterThanOrEqual(0);
+    expect(languageIndex).toBeGreaterThan(runtimeIndex);
   });
 
   test('uses the shared Markdown message and supports pasted images', () => {
