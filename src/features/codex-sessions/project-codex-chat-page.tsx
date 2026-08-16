@@ -3,6 +3,7 @@ import { Button, Drawer } from '@heroui/react';
 import { Chat, ChatSidebar, type ChatThreadData } from '@dotnaos/ui/chat';
 import { Menu, X } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
+import { ProjectChatAgentAvatar } from '../project-chat/components/project-chat-agent-avatar';
 import type { CodexHostInventoryItem } from '@/shared/codex-host-inventory-api';
 import { CodexTaskWorkspace } from './codex-task-workspace';
 import type { CodexSessionsController } from './codex-sessions-controller';
@@ -11,6 +12,7 @@ import {
   buildCodexChatThreadSections,
   parseCodexChatThreadId
 } from './project-codex-chat-model';
+import { codexAgentIdentity } from './codex-agent-identity';
 
 const hostRefreshIntervalMs = 30_000;
 const sessionRefreshIntervalMs = 5_000;
@@ -49,7 +51,16 @@ export function ProjectCodexChatPage({
         ? 'ready' as const
         : 'loading' as const;
   const sections = useMemo(
-    () => buildCodexChatThreadSections(hosts, state.sessions, state.selectedOrigin),
+    () => buildCodexChatThreadSections(hosts, state.sessions, state.selectedOrigin).map((section) => ({
+      ...section,
+      threads: section.threads.map((thread) => {
+        const identity = codexAgentIdentity(thread.label);
+        return {
+          ...thread,
+          avatar: <ProjectChatAgentAvatar category={identity.category} name={identity.name} size={28} />
+        };
+      })
+    })),
     [hosts, state.selectedOrigin, state.sessions]
   );
 
@@ -127,7 +138,7 @@ export function ProjectCodexChatPage({
   }, [controller, onOpenThread]);
 
   const sidebar = (
-    <div className="h-full min-h-0 [&>aside]:h-full [&>aside]:border-l [&>aside]:border-r-0 [&>aside]:border-neutral-800 [&>aside]:bg-neutral-950">
+    <div className="h-full min-h-0 [&>aside]:h-full [&>aside]:border-l [&>aside]:border-r-0">
       <ChatSidebar
         onThreadSelect={selectThread}
         threadSections={sections}
@@ -137,7 +148,7 @@ export function ProjectCodexChatPage({
   );
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 overflow-hidden bg-neutral-950 text-neutral-100">
+    <section className="flex h-full min-h-0 min-w-0 overflow-hidden bg-app-panel text-neutral-100">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-neutral-800 px-3 lg:hidden">
           <div className="min-w-0">
@@ -173,16 +184,18 @@ export function ProjectCodexChatPage({
               historyStatusDetail={selectedSession.statusDetail ?? selectedMachine?.statusDetail}
               loadBrowser={(origin) => controller.browser(origin)}
               machine={selectedMachine}
-              onContinue={async (origin, message, settings) => { await controller.continue(origin, message, settings); }}
+              onContinue={async (origin, message, settings, imageAttachmentIds) => { await controller.continue(origin, message, settings, imageAttachmentIds); }}
               onInterrupt={async (origin, turnId) => { await controller.interrupt(origin, turnId); }}
               onPermissionChange={async (origin, permissionProfileId) => { await controller.updatePermissionProfile(origin, permissionProfileId); }}
               onResolveApproval={async (decision) => { await controller.resolveApproval(decision); }}
               onResolveUserInput={async (decision) => { await controller.resolveUserInput(decision); }}
-              onSteer={async (origin, message) => { await controller.steer(origin, message); }}
+              onRemoveImage={(machineId, attachmentId) => controller.removeImage(machineId, attachmentId)}
+              onSteer={async (origin, message, imageAttachmentIds) => { await controller.steer(origin, message, imageAttachmentIds); }}
+              onUploadImage={(machineId, file) => controller.uploadImage(machineId, file)}
               session={selectedSession}
             />
           ) : (
-            <div className="h-full min-h-0 [&>section]:h-full [&>section]:rounded-none [&>section]:border-0 [&>section]:bg-neutral-950">
+            <div className="h-full min-h-0 [&>section]:h-full [&>section]:rounded-none [&>section]:border-0">
               <Chat
                 disabled
                 emptyDescription={emptyDescription(hostsLoading, hosts.length)}
@@ -203,7 +216,7 @@ export function ProjectCodexChatPage({
 
       <Drawer.Backdrop isOpen={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
         <Drawer.Content className="w-[min(88vw,22rem)]" placement="right">
-          <Drawer.Dialog className="h-dvh rounded-none border-l border-neutral-800 bg-neutral-950 p-0 outline-none">
+          <Drawer.Dialog className="h-dvh rounded-none border-l border-neutral-800 bg-app-panel p-0 outline-none">
             <Drawer.Header className="sr-only"><Drawer.Heading>Codex tasks</Drawer.Heading></Drawer.Header>
             <Drawer.CloseTrigger className="absolute right-3 top-3 z-10 grid size-9 place-items-center rounded-lg text-neutral-400 hover:bg-neutral-800">
               <X className="size-4" />

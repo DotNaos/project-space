@@ -7,6 +7,7 @@ import {
 } from '../src/features/codex-sessions/project-codex-chat-model';
 import type { CodexHostInventoryItem } from '../src/shared/codex-host-inventory-api';
 import type { CodexSession } from '../src/features/codex-sessions/codex-sessions-types';
+import { codexAgentIdentity } from '../src/features/codex-sessions/codex-agent-identity';
 
 const host: CodexHostInventoryItem = {
   addresses: ['100.80.135.9'],
@@ -53,5 +54,16 @@ describe('Project Codex chat model', () => {
     const origin = { machineId: 'machine:one', threadId: 'thread/one' };
     expect(parseCodexChatThreadId(codexChatThreadId(origin))).toEqual(origin);
     expect(parseCodexChatThreadId('invalid')).toBeUndefined();
+  });
+
+  test('derives the claimed agent identity used for task avatars', () => {
+    expect(codexAgentIdentity('#479 · Hera · Redesign Project Chat')).toEqual({
+      category: 'mythology',
+      name: 'Hera'
+    });
+    expect(codexAgentIdentity('#479/2 · Picasso · Review chat')).toEqual({
+      category: 'artist',
+      name: 'Picasso'
+    });
   });
 });

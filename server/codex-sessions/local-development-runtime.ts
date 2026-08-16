@@ -5,21 +5,33 @@ import type {
   CodexSessionOperationResult,
   CodexSessionReadResult
 } from '../../src/shared/codex-sessions-api';
+import type { CodexSessionsHttpHandler } from '../codex-sessions-http';
 import { createConfiguredCodexSessionsRuntime } from './configured-runtime';
 import { CodexSessionsExecutor } from './executor';
 import { CodexSessionManager } from './manager';
 import type { CodexSessionsTransport } from './service';
+import { CodexImageStore } from '../prototype-review-codex-images';
 
 export async function createLocalDevelopmentCodexSessionsRuntime(input: {
   machineId: string;
   machineName: string;
 }) {
   const manager = new CodexSessionManager();
+  const images = new CodexImageStore(
+    async () => undefined,
+    undefined,
+    undefined,
+    {
+      machineId: input.machineId,
+      routePrefix: '/api/codex/sessions/images'
+    }
+  );
   const executor = new CodexSessionsExecutor({
     expectedGeneration: 1,
     expectedMachineId: input.machineId,
     machineName: input.machineName,
-    manager
+    manager,
+    resolveImageAttachments: (attachmentIds) => images.resolve(attachmentIds)
   });
   const execute = async <Result>(
     operation: 'approval' | 'browser' | 'continue' | 'input' | 'inspect' | 'interrupt' | 'list' | 'read' | 'settings',
@@ -70,15 +82,21 @@ export async function createLocalDevelopmentCodexSessionsRuntime(input: {
   };
   try {
     const runtime = await createConfiguredCodexSessionsRuntime({ transport });
+    const handleRequest: CodexSessionsHttpHandler = async (request, response, url) => {
+      if (await images.handleRequest(request, response, url)) return true;
+      return runtime.handleRequest(request, response, url);
+    };
     return {
       async close() {
         executor.close();
+        await images.close();
         await manager.close();
       },
-      handleRequest: runtime.handleRequest
+      handleRequest
     };
   } catch (error) {
     executor.close();
+    await images.close();
     await manager.close();
     throw error;
   }

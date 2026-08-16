@@ -401,10 +401,13 @@ export function ProjectMainPanel({
         className={cn(
           'min-h-0 flex-1 overflow-x-hidden px-4 sm:px-8',
           useWorkspaceChrome ? 'pt-4 sm:pt-6' : 'pt-2',
-          containsOwnScroll ? 'overflow-hidden' : 'overflow-y-auto'
+          containsOwnScroll ? 'overflow-hidden' : 'overflow-y-auto',
+          projectTab === 'chat' && 'px-0 pt-0 sm:px-0 sm:pt-0'
         )}
         style={{
-          paddingBottom: containsOwnScroll
+          paddingBottom: projectTab === 'chat'
+            ? 0
+            : containsOwnScroll
             ? hasBottomTabBar
               ? 'calc(6.75rem + env(safe-area-inset-bottom))'
               : '0.5rem'

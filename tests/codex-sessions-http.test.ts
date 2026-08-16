@@ -488,6 +488,40 @@ describe('Codex sessions browser client', () => {
     expect(surfaces).toEqual([null, 'prototype-review']);
   });
 
+  test('uploads and removes composer images with auth on the exact machine route', async () => {
+    const requests: Array<{ body: BodyInit | null | undefined; headers: Headers; method: string; url: string }> = [];
+    const client = createCodexSessionsClient({
+      authToken: 'signed-session-token',
+      fetchImplementation: async (input, init) => {
+        requests.push({
+          body: init?.body,
+          headers: new Headers(init?.headers),
+          method: init?.method ?? 'GET',
+          url: String(input)
+        });
+        return init?.method === 'DELETE'
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({
+              id: '9cb4681a-52f4-4c20-8c2f-377120980ebf',
+              mediaType: 'image/png',
+              previewUrl: '/api/codex/sessions/images/9cb4681a?machineId=machine-one'
+            }), { headers: { 'Content-Type': 'application/json' }, status: 201 });
+      }
+    });
+    const file = new File([new Uint8Array([1, 2, 3])], 'pasted.png', { type: 'image/png' });
+
+    const uploaded = await client.uploadImage?.('machine-one', file);
+    await client.removeImage?.('machine-one', uploaded!.id);
+
+    expect(requests.map((request) => [request.method, request.url])).toEqual([
+      ['POST', '/api/codex/sessions/images?machineId=machine-one'],
+      ['DELETE', `/api/codex/sessions/images/${uploaded!.id}?machineId=machine-one`]
+    ]);
+    expect(requests[0]?.body).toBe(file);
+    expect(requests[0]?.headers.get('authorization')).toBe('Bearer signed-session-token');
+    expect(requests[0]?.headers.get('content-type')).toBe('image/png');
+  });
+
   test('cancels a Codex inventory request that exceeds its deadline', async () => {
     let aborted = false;
     const client = createCodexSessionsClient({

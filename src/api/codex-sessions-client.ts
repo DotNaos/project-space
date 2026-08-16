@@ -13,6 +13,7 @@ import type {
   CodexSessionSettingsRequest,
   CodexSessionsClient,
   CodexSessionStreamEvent,
+  CodexSessionUploadedImage,
   CodexSessionUserInputResponse
 } from '../shared/codex-sessions-api';
 import { CODEX_SESSION_LIST_DEADLINE_MS } from '../shared/codex-session-inventory-window';
@@ -160,6 +161,32 @@ export function createCodexSessionsClient(
     settings(input: CodexSessionSettingsRequest) {
       return threadMutation('settings', input);
     },
+    async uploadImage(machineId, file) {
+      const response = await fetchImplementation(`${baseUrl}${pathWithMachine('/api/codex/sessions/images', machineId)}`, {
+        body: file,
+        headers: {
+          ...(await authHeaders()),
+          'Content-Type': file.type
+        },
+        method: 'POST'
+      });
+      const payload = await response.json().catch(() => undefined) as unknown;
+      if (!response.ok || !isUploadedImage(payload)) {
+        throw new CodexSessionsRequestError(
+          'image_upload_failed',
+          imageUploadError(payload),
+          response.status
+        );
+      }
+      return payload;
+    },
+    async removeImage(machineId, attachmentId) {
+      const response = await fetchImplementation(
+        `${baseUrl}${pathWithMachine(`/api/codex/sessions/images/${encodeURIComponent(attachmentId)}`, machineId)}`,
+        { headers: await authHeaders(), method: 'DELETE' }
+      );
+      if (!response.ok && response.status !== 404) await readResponse(response);
+    },
     respondToUserInput(input: CodexSessionUserInputResponse) {
       return threadMutation('input', input);
     },
@@ -205,6 +232,21 @@ export function createCodexSessionsClient(
       return () => controller.abort();
     }
   };
+}
+
+function isUploadedImage(value: unknown): value is CodexSessionUploadedImage {
+  if (!value || typeof value !== 'object') return false;
+  const image = value as Partial<CodexSessionUploadedImage>;
+  return typeof image.id === 'string'
+    && typeof image.previewUrl === 'string'
+    && (image.mediaType === 'image/jpeg' || image.mediaType === 'image/png');
+}
+
+function imageUploadError(value: unknown) {
+  if (value && typeof value === 'object' && typeof (value as { error?: unknown }).error === 'string') {
+    return (value as { error: string }).error;
+  }
+  return 'The image could not be attached.';
 }
 
 function pathWithMachine(path: string, machineId: string) {

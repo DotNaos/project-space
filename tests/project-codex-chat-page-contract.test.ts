@@ -9,6 +9,10 @@ const mainPanel = readFileSync(
   'src/features/project-desktop/components/project-main-panel.tsx',
   'utf8'
 );
+const conversationPane = readFileSync(
+  'src/features/codex-sessions/codex-conversation-pane.tsx',
+  'utf8'
+);
 const webServer = readFileSync('server/web-server.ts', 'utf8');
 const viteConfig = readFileSync('vite.config.ts', 'utf8');
 
@@ -50,5 +54,19 @@ describe('Project Codex chat page contract', () => {
 
   test('uses one React runtime when the UI development package is linked', () => {
     expect(viteConfig).toContain("dedupe: ['react', 'react-dom']");
+  });
+
+  test('uses the shared Markdown message and supports pasted images', () => {
+    expect(conversationPane).toContain('<ChatMessage');
+    expect(conversationPane).not.toContain('<p className="break-words whitespace-pre-wrap">');
+    expect(conversationPane).toContain('onPaste={(event) =>');
+    expect(conversationPane).toContain('pastedCodexImages(event)');
+    expect(conversationPane).toContain('imageAttachmentIds');
+  });
+
+  test('uses the shell surface without darker chat gutters', () => {
+    expect(page).toContain('bg-app-panel');
+    expect(page).not.toContain('bg-neutral-950 text-neutral-100');
+    expect(mainPanel).toContain("projectTab === 'chat' && 'px-0 pt-0 sm:px-0 sm:pt-0'");
   });
 });

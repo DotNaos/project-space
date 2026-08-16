@@ -11,6 +11,14 @@ mock.module('@/lib/utils', () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(' ')
 }));
 
+mock.module('@dotnaos/ui/chat', () => ({
+  ChatMessage: ({ message }: { message: { content: string } }) => createElement(
+    'article',
+    { className: 'ml-auto max-w-full break-words', 'data-ui-chat-message': true },
+    message.content
+  )
+}));
+
 mock.module('@/app/dotnaos-ui', () => ({
   Button: ({
     children,

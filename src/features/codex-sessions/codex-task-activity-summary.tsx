@@ -132,7 +132,7 @@ export function CodexLiveActivitySummary({ machine, session }: { machine?: Codex
     <section
       aria-label="Live Codex activity summary"
       className={cn(
-        'shrink-0 border-b border-neutral-800/80 bg-neutral-950 px-4 py-3 sm:px-6',
+        'shrink-0 border-b border-neutral-800/80 bg-app-panel px-4 py-3 sm:px-6',
         stalled && 'bg-amber-500/[0.035]'
       )}
       data-codex-live-summary={stalled ? 'stalled' : running ? 'running' : 'idle'}

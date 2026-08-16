@@ -300,7 +300,7 @@ export function ProjectDetail({
     <div
       className={cn(
         'mx-auto flex w-full flex-col gap-4',
-        tab === 'issues' || tab === 'roadmap' || tab === 'chat' ? 'max-w-[90rem]' : 'max-w-5xl',
+        tab === 'chat' ? 'max-w-none gap-0' : tab === 'issues' || tab === 'roadmap' ? 'max-w-[90rem]' : 'max-w-5xl',
         containsOwnScroll || tab === 'roadmap' ? 'h-full min-h-0 overflow-hidden' : 'min-h-full'
       )}
     >

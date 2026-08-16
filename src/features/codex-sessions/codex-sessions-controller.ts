@@ -303,6 +303,20 @@ export class CodexSessionsController {
     return this.client.browser(origin);
   }
 
+  uploadImage(machineId: string, file: Blob) {
+    if (!this.client.uploadImage) {
+      throw new CodexSessionsControllerError(
+        'image_upload_unavailable',
+        'Image attachments are unavailable for this Codex connection.'
+      );
+    }
+    return this.client.uploadImage(machineId, file);
+  }
+
+  async removeImage(machineId: string, attachmentId: string) {
+    await this.client.removeImage?.(machineId, attachmentId);
+  }
+
   interrupt(origin: CodexThreadOrigin, turnId: string) {
     const key = `interrupt:${origin.machineId}:${origin.threadId}:${turnId}`;
     return this.runOperation(key, (operationId) => this.client.interrupt({

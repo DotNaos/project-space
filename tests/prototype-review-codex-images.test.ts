@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { PrototypeReviewCodexImageStore } from '../server/prototype-review-codex-images';
+import { CodexImageStore, PrototypeReviewCodexImageStore } from '../server/prototype-review-codex-images';
 
 const image = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -15,11 +15,12 @@ const servers: Server[] = [];
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => {
+    server.closeAllConnections();
     server.close(() => resolve());
   })));
 });
 
-async function start(store: PrototypeReviewCodexImageStore) {
+async function start(store: Pick<CodexImageStore, 'handleRequest'>) {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     if (!await store.handleRequest(request, response, url)) response.writeHead(404).end();
@@ -113,6 +114,37 @@ describe('prototype review Codex images', () => {
       }
     } finally {
       await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test('scopes the normal Codex image route to the exact machine', async () => {
+    const store = new CodexImageStore(
+      async () => undefined,
+      undefined,
+      undefined,
+      { machineId: 'machine-one', routePrefix: '/api/codex/sessions/images' }
+    );
+    const origin = await start(store);
+    try {
+      const wrongMachine = await fetch(`${origin}/api/codex/sessions/images?machineId=machine-two`, {
+        body: image,
+        headers: { 'Content-Type': 'image/png' },
+        method: 'POST'
+      });
+      expect(wrongMachine.status).toBe(400);
+
+      const upload = await fetch(`${origin}/api/codex/sessions/images?machineId=machine-one`, {
+        body: image,
+        headers: { 'Content-Type': 'image/png' },
+        method: 'POST'
+      });
+      expect(upload.status).toBe(201);
+      const payload = await upload.json() as { id: string; previewUrl: string };
+      expect(payload.previewUrl).toContain('/api/codex/sessions/images/');
+      expect(payload.previewUrl).toContain('machineId=machine-one');
+      expect((await fetch(`${origin}${payload.previewUrl}`)).status).toBe(200);
+    } finally {
+      await store.close();
     }
   });
 });
