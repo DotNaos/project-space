@@ -104,6 +104,20 @@ describe('pull request Preview status adapter', () => {
     });
   });
 
+  test('treats blank optional running SHA fields as absent', () => {
+    expect(sanitizePullRequestPreview({
+      pullRequestNumber: 263,
+      repositoryFullName: 'DotNaos/project-space',
+      requestedSha,
+      runningSha: '',
+      state: 'ready'
+    }, 'DotNaos/project-space')).toMatchObject({
+      requestedSha,
+      runningSha: undefined,
+      state: 'ready'
+    });
+  });
+
   test('rejects active records with missing or malformed identity evidence', () => {
     for (const record of [
       { pullRequestNumber: 263, repositoryFullName: 'DotNaos/project-space', state: 'ready' },
