@@ -1,0 +1,26 @@
+---
+title: Verification
+description: Requirement and delivery evidence for legacy Connector cleanup.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+- [x] CONNECTOR-CLEANUP-001 — Owner-scoped list/removal, strict HTTP, fingerprint, and conflict tests pass.
+- [x] CONNECTOR-CLEANUP-002 — Store and PostgreSQL tests prove active dependencies block removal.
+- [x] CONNECTOR-CLEANUP-003 — Repository tests and SQL review prove canonical and external resources are preserved.
+- [x] CONNECTOR-CLEANUP-004 — Reconcile and real PostgreSQL trigger tests prove receipts prevent resurrection.
+
+## Final reconciliation
+
+- [x] Current requirements describe the implemented cleanup boundary
+- [x] Architecture and documentation match the receipt model
+- [x] Focused tests, type checking, documentation validation, and real PostgreSQL checks pass
+- [x] Desktop and mobile browser paths are dogfooded without UI errors
+- [ ] Exact pull-request revision passes required remote checks
+- [ ] Approved revision is merged, deployed, and Production cleanup is freshly verified
+
+The implementation and local evidence are complete. Delivery evidence remains incomplete
+until the exact review revision passes its remote gates and the approved Production path
+is verified.

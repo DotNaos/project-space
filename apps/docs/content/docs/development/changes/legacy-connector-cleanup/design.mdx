@@ -1,0 +1,65 @@
+---
+title: Design
+description: Fail-closed receipt and dependency model for legacy Connector cleanup.
+---
+
+## Context
+
+Legacy Connector associations are intertwined with durable machine and runtime history.
+Deleting their root membership would cascade into data outside Compute cleanup. The safe
+boundary is therefore the old Compute projection, not the physical or provider resource.
+
+## Goals and non-goals
+
+Goals:
+
+- Give owners a precise, understandable cleanup surface.
+- Preserve all canonical infrastructure and historical evidence.
+- Make retries idempotent and concurrent state changes fail closed.
+- Ensure refresh cannot resurrect a removed projection.
+
+Non-goals:
+
+- Restore Connector runtime behavior.
+- Automatically remove dependencies or remote resources.
+- Replace the broader Compute redesign tracked in #732.
+
+## Architecture
+
+The owner-only API reads legacy associations, returns sanitized blockers and an identity
+fingerprint, and accepts only that exact fingerprint. Each record is rechecked in its own
+transaction. An eligible result inserts an immutable receipt. Inventory queries hide only
+receipt-backed legacy-only projections, while every Connector-derived upsert checks the
+same receipt before writing.
+
+## Decisions
+
+1. Keep machine membership and audit history instead of cascading physical deletion.
+2. Use one receipt per owner and Connector identity as the durable tombstone.
+3. Process bulk requests per record so safe successes do not weaken blocked outcomes.
+4. Require an authenticated human session and derive ownership on the server.
+5. Expose blocker categories and counts, never credentials or raw remote output.
+6. Keep the cleanup review separate from both canonical Compute inventory and Tailnet classification.
+
+## Risks and mitigations
+
+- **Stale confirmation:** fingerprints and row locks turn it into a conflict.
+- **Concurrent reconciliation:** membership and association locks plus receipt guards prevent resurrection.
+- **Accidental infrastructure loss:** cleanup writes only the receipt table; canonical tables are read for preservation checks.
+- **Ambiguous partial results:** every selected row receives one explicit outcome.
+- **Unauthorized machine access:** machine identities are rejected before the cleanup service runs.
+
+## Migration and rollout
+
+Migration 0057 creates only the receipt table, constraints, index, and a receipt-aware
+replacement for the existing reconciliation trigger. Existing data is not removed during
+migration. After deployment, Production must be freshly preflighted and only eligible
+records may receive receipts.
+
+## Validation
+
+- Test authorization, strict request parsing, fingerprints, blockers, retries, and partial results.
+- Apply every migration on real PostgreSQL and prove the trigger cannot recreate a removed row.
+- Test canonical provider and Tailscale preservation in repository inventory.
+- Dogfood desktop and mobile review, cancellation, removal refresh, and blocked states.
+- Run the canonical repository preflight on the exact committed revision.

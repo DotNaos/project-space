@@ -54,8 +54,20 @@ mock.module('@heroui/react', () => {
     Dialog: element('div'), Footer: element('div'), Header: element('div'),
     Heading: element('h2'), Icon: element('div'), CloseTrigger: element('button')
   });
+  const AlertDialog = Object.assign(({ children, isOpen }: { children?: ReactNode; isOpen?: boolean }) => (
+    isOpen ? createElement('div', undefined, children) : null
+  ), {
+    Backdrop: element('div'), Body: element('div'), Container: element('div'),
+    Dialog: element('div'), Footer: element('div'), Header: element('div'),
+    Heading: element('h2'), Icon: element('div')
+  });
+  const Checkbox = Object.assign(element('label'), {
+    Content: element('span'), Control: element('span'), Indicator: element('span')
+  });
   return {
+    AlertDialog,
     Button: element('button'),
+    Checkbox,
     Input: element('input'),
     Label: element('label'),
     Modal,

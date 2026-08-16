@@ -1,0 +1,43 @@
+---
+title: Tasks
+description: Implementation and delivery checklist for legacy Connector cleanup.
+---
+
+## 1. Safe removal boundary
+
+- [x] 1.1 Add owner-scoped preflight and exact removal contracts
+  - **Evidence:** The API returns sanitized records, blockers, fingerprints, and per-record outcomes.
+- [x] 1.2 Persist immutable removal receipts
+  - **Evidence:** Migration 0057 adds constrained receipts without cascading foreign keys.
+- [x] 1.3 Prevent resurrection after removal
+  - **Evidence:** Repository reconciliation and the membership trigger both skip receipt-backed Connectors.
+- [x] 1.4 Preserve canonical and historical resources
+  - **Evidence:** Removal writes only a receipt and inventory retains provider, Tailscale, physical Host, and membership evidence.
+
+## 2. Owner experience
+
+- [x] 2.1 Add the compact Compute cleanup entry
+  - **Evidence:** Compute shows one summary only when owner legacy records exist.
+- [x] 2.2 Add review, blockers, selection, confirmation, and partial outcomes
+  - **Evidence:** Eligible rows are selectable; blocked rows name dependencies; confirmation states the exact safe scope.
+
+## 3. Verification
+
+- [x] 3.1 Cover contracts and migration behavior
+  - **Evidence:** Focused HTTP, service, store, UI, repository, migration, and regression tests pass.
+- [x] 3.2 Prove the database path on PostgreSQL
+  - **Evidence:** A real PostgreSQL 17 run preserved membership and prevented trigger resurrection after receipt insertion.
+- [x] 3.3 Dogfood the integrated UI
+  - **Evidence:** Desktop and mobile review, cancellation, blocked state, removal, refresh, and browser logs were checked locally.
+- [ ] 3.4 Complete exact-revision delivery checks
+  - **Status:** blocked
+  - **Reason:** Pull request CI, approval, merge, deployment, and Production cleanup require the review revision.
+  - **Blocked by:** #722
+  - **Unblocked when:** The exact pull-request revision is published and completes its delivery gates.
+
+## 4. Deferred follow-ups
+
+- [ ] Redesign the complete Compute page
+  - **Issue:** #732
+  - **Reason:** Cleanup must land first and the redesign is an independent product surface.
+  - **Acceptance criteria:** Replace the duplicate machine and Tailnet presentation while retaining canonical Codespaces and Tailscale-backed access.

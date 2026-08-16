@@ -56,4 +56,20 @@ describe('canonical compute inventory client regression', () => {
     });
     expect(sections[0]!.rows.map((row) => row.name)).toEqual(['project-space-537-qxpr6qvjp9vf5v']);
   });
+
+  test('binds legacy cleanup to an exact record set and idempotency key', async () => {
+    const client = new RegressionClient();
+    const records = [{ connectorId: 'legacy-machine', fingerprint: 'a'.repeat(64) }];
+
+    await client.removeLegacyConnectors(records, 'cleanup:legacy-machine:1');
+
+    expect(client.calls).toEqual([{
+      init: {
+        body: JSON.stringify({ records }),
+        headers: { 'Idempotency-Key': 'cleanup:legacy-machine:1' },
+        method: 'POST'
+      },
+      path: '/api/compute/legacy-connectors/removals'
+    }]);
+  });
 });
