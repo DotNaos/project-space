@@ -277,5 +277,9 @@ stored key is account-scoped. CPU, memory, filesystem, architecture, source,
 and report time are included in `ResourceProfile`. Host-backed profiles are
 stored once at Host level; provider-managed capacity stays on the Environment.
 
-Old Connector records remain visible only as conservative compatibility evidence.
-They do not gate the Environment migration or create a new runtime path.
+Old Connector records are conservative compatibility evidence until an owner
+removes them through the dependency-checked cleanup flow. A removal receipt
+suppresses only that exact legacy projection, so later inventory refreshes do
+not recreate it. The historical membership remains available for audit; no
+canonical Environment, Host, Tailscale device, provider resource, credential,
+or remote machine is deleted as part of Compute cleanup.

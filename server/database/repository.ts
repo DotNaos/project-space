@@ -108,6 +108,7 @@ interface ComputePlatformRow {
 }
 
 interface ComputeHostRow {
+  legacy_tombstoned_only?: boolean;
   id: string;
   identity_key: string;
   identity_version: number;
@@ -137,6 +138,7 @@ interface ComputeEnvironmentRow {
   identity_resolution: 'resolved' | 'conflict';
   identity_version: number;
   kind: ComputeEnvironmentRecord['kind'];
+  legacy_tombstoned_only?: boolean;
   name: string;
   parent_environment_id: string | null;
   platform_id: string;
@@ -268,7 +270,32 @@ export class ProjectSpaceDatabaseRepository {
         [visibleOwnerUserIds]
       ),
       this.client.query<ComputeHostRow>(
-        `select id, platform_id, identity_version, identity_key, name, resources
+        `select id, platform_id, identity_version, identity_key, name, resources,
+                (
+                  exists (
+                    select 1 from compute_environments environment
+                    join connector_compute_environments legacy
+                      on legacy.owner_user_id = environment.owner_user_id and legacy.environment_id = environment.id
+                    join legacy_connector_removal_receipts receipt
+                      on receipt.owner_user_id = legacy.owner_user_id and receipt.connector_id = legacy.connector_id
+                   where environment.owner_user_id = compute_hosts.owner_user_id and environment.host_id = compute_hosts.id
+                     and legacy.association_source = 'legacy'
+                  )
+                  and not exists (
+                    select 1 from compute_environments environment
+                   where environment.owner_user_id = compute_hosts.owner_user_id and environment.host_id = compute_hosts.id
+                     and (
+                       not exists (
+                         select 1 from connector_compute_environments legacy
+                         join legacy_connector_removal_receipts receipt on receipt.owner_user_id = legacy.owner_user_id and receipt.connector_id = legacy.connector_id
+                         where legacy.owner_user_id = environment.owner_user_id and legacy.environment_id = environment.id and legacy.association_source = 'legacy'
+                       )
+                       or exists (select 1 from environment_provider_bindings binding where binding.owner_user_id = environment.owner_user_id and binding.environment_id = environment.id)
+                       or exists (select 1 from tailscale_compute_environment_projections projection where projection.owner_user_id = environment.owner_user_id and projection.environment_id = environment.id)
+                     )
+                  )
+                  and not exists (select 1 from physical_machines physical where physical.owner_user_id = compute_hosts.owner_user_id and physical.id = compute_hosts.id)
+                ) as legacy_tombstoned_only
            from compute_hosts where owner_user_id = any($1::text[]) order by lower(name), id`,
         [visibleOwnerUserIds]
       ),
@@ -276,36 +303,48 @@ export class ProjectSpaceDatabaseRepository {
         `select id, environment_definition_id, platform_id, host_id,
                 parent_environment_id, identity_version,
                 identity_key, identity_resolution, kind, name, host_resolution, host_evidence,
-                resource_mode, resources
+                resource_mode, resources,
+                (
+                  exists (
+                    select 1 from connector_compute_environments legacy
+                    join legacy_connector_removal_receipts receipt
+                      on receipt.owner_user_id = legacy.owner_user_id and receipt.connector_id = legacy.connector_id
+                   where legacy.owner_user_id = compute_environments.owner_user_id
+                     and legacy.environment_id = compute_environments.id
+                     and legacy.association_source = 'legacy'
+                  )
+                  and not exists (
+                    select 1 from connector_compute_environments live
+                    left join legacy_connector_removal_receipts receipt
+                      on receipt.owner_user_id = live.owner_user_id and receipt.connector_id = live.connector_id
+                   where live.owner_user_id = compute_environments.owner_user_id
+                     and live.environment_id = compute_environments.id and receipt.connector_id is null
+                  )
+                  and not exists (select 1 from environment_provider_bindings binding where binding.owner_user_id = compute_environments.owner_user_id and binding.environment_id = compute_environments.id)
+                  and not exists (select 1 from tailscale_compute_environment_projections projection where projection.owner_user_id = compute_environments.owner_user_id and projection.environment_id = compute_environments.id)
+                ) as legacy_tombstoned_only
            from compute_environments where owner_user_id = any($1::text[]) order by lower(name), id`,
         [visibleOwnerUserIds]
       ),
       this.client.query<ConnectorEnvironmentRow>(
-        `select connector_id, environment_id, associated_at
-           from connector_compute_environments where owner_user_id = $1
+        `select association.connector_id, association.environment_id, association.associated_at
+           from connector_compute_environments association
+           left join legacy_connector_removal_receipts receipt
+             on receipt.owner_user_id = association.owner_user_id and receipt.connector_id = association.connector_id
+          where association.owner_user_id = $1 and receipt.connector_id is null
           order by connector_id`,
         [ownerUserId]
       )
     ]);
-    const environmentDefinitions: EnvironmentDefinitionRecord[] = definitionResult.rows.map((row) => ({
-      bootstrapStrategy: row.bootstrap_strategy,
-      id: row.id,
-      kind: row.kind,
-      name: row.name,
-      operatingSystemFamily: row.operating_system_family,
-      ownership: row.ownership,
-      slug: row.slug,
-      supportedArchitectures: row.supported_architectures
-    }));
-    const platforms: ComputePlatformRecord[] = platformResult.rows;
-    const hosts: ComputeHostRecord[] = hostResult.rows.map((row) => ({
+    const visibleEnvironmentRows = environmentResult.rows.filter((row) => !row.legacy_tombstoned_only);
+    const hosts: ComputeHostRecord[] = hostResult.rows.filter((row) => !row.legacy_tombstoned_only).map((row) => ({
       id: row.id,
       identity: { key: row.identity_key, version: row.identity_version },
       name: row.name,
       platformId: row.platform_id,
       resources: row.resources ?? undefined
     }));
-    const environments: ComputeEnvironmentRecord[] = environmentResult.rows.map((row) => ({
+    const environments: ComputeEnvironmentRecord[] = visibleEnvironmentRows.map((row) => ({
       environmentDefinitionId: row.environment_definition_id,
       hostAssociation: row.host_resolution === 'verified'
         ? { evidence: row.host_evidence as 'provider' | 'tpm' | 'smbios' | 'host_broker', hostId: row.host_id!, resolution: 'verified' }
@@ -326,6 +365,17 @@ export class ProjectSpaceDatabaseRepository {
       resourceMode: row.resource_mode,
       resources: row.resources ?? undefined
     }));
+    const environmentDefinitions: EnvironmentDefinitionRecord[] = definitionResult.rows.map((row) => ({
+      bootstrapStrategy: row.bootstrap_strategy,
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      operatingSystemFamily: row.operating_system_family,
+      ownership: row.ownership,
+      slug: row.slug,
+      supportedArchitectures: row.supported_architectures
+    }));
+    const platforms: ComputePlatformRecord[] = platformResult.rows;
     const connectors: ConnectorEnvironmentAssociation[] = connectorResult.rows.map((row) => ({
       associatedAt: toIsoString(row.associated_at),
       connectorId: row.connector_id,
@@ -353,6 +403,12 @@ export class ProjectSpaceDatabaseRepository {
           [machine.id, ownerUserId]
         );
         if (!owned.rows[0]) continue;
+        const retired = await client.query<{ connector_id: string }>(
+          `select connector_id from legacy_connector_removal_receipts
+            where owner_user_id = $1 and connector_id = $2`,
+          [ownerUserId, machine.id]
+        );
+        if (retired.rows[0]) continue;
         const metadata = machine.compute;
         const platform = await client.query<{ id: string }>(
           `insert into compute_platforms (id, owner_user_id, kind, name)
@@ -508,8 +564,14 @@ export class ProjectSpaceDatabaseRepository {
              environment_id = excluded.environment_id,
              association_source = 'connector',
              associated_at = now()
-           where connector_compute_environments.association_source = 'legacy'
-              or connector_compute_environments.environment_id = excluded.environment_id
+           where (
+             connector_compute_environments.association_source = 'legacy'
+             or connector_compute_environments.environment_id = excluded.environment_id
+           ) and not exists (
+               select 1 from legacy_connector_removal_receipts receipt
+                where receipt.owner_user_id = excluded.owner_user_id
+                  and receipt.connector_id = excluded.connector_id
+             )
            returning environment_id`,
           [machine.id, ownerUserId, environmentId]
         );

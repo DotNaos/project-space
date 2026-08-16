@@ -1,0 +1,45 @@
+---
+title: Proposal
+description: Remove legacy Connector records from Compute without deleting infrastructure.
+---
+
+Change status: **Active**
+
+Change kind: **Feature**
+
+Issue: **[#722](https://github.com/DotNaos/project-space/issues/722)**
+Requirements: **Required**
+
+## Summary
+
+Add an owner-only cleanup flow for legacy Connector records shown in Compute. Removal
+records a durable receipt so the exact old projection stays absent after refresh while
+the underlying historical and canonical resources remain intact.
+
+## Problem
+
+Retired Connector records still clutter Compute and can be recreated by inventory
+reconciliation. Direct database deletion is unsafe because the same identities are
+referenced by credentials, Hosts, task execution, development servers, and audit data.
+
+## Scope
+
+- List only the current owner's legacy Connector records and their blockers.
+- Remove eligible records with exact fingerprints and idempotent receipts.
+- Prevent repository reconciliation and database triggers from recreating removed rows.
+- Keep blocked rows visible with sanitized dependency categories.
+- Add a compact review and confirmation flow to Compute.
+- Hide platform groups that no longer contain a visible Environment.
+
+## Out of scope
+
+- Deleting a Tailscale device, physical machine, provider resource, credential, Host,
+  canonical Environment, deployment target, or remote installation.
+- Removing active dependencies to make a record eligible.
+- Redesigning the complete Compute page; that remains issue #732.
+
+## Delivery
+
+This is an additive database migration and owner-only API. Production cleanup happens
+only after the exact pull-request revision is approved, merged, deployed, and freshly
+preflighted against Production dependencies.

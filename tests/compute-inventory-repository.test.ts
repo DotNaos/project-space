@@ -11,6 +11,7 @@ class InventoryClient implements DatabaseQueryClient {
   currentHostResolution = 'manual';
   hasCurrentAssociation = false;
   rejectAssociationMove = false;
+  retiredConnector = false;
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
@@ -47,15 +48,19 @@ class InventoryClient implements DatabaseQueryClient {
         parent_environment_id: null,
         platform_id: 'platform-local',
         resource_mode: 'dedicated',
-        resources: null
+        resources: null,
+        legacy_tombstoned_only: this.retiredConnector
       }] as Row[] };
     }
     if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
-      return { rows: [{
+      return { rows: this.retiredConnector ? [] : [{
         associated_at: '2026-08-08T00:00:00.000Z',
         connector_id: 'connector-one',
         environment_id: 'environment-one'
       }] as Row[] };
+    }
+    if (sql.includes('select connector_id from legacy_connector_removal_receipts')) {
+      return { rows: this.retiredConnector ? [{ connector_id: 'connector-one' } as Row] : [] as Row[] };
     }
     if (sql.includes('from machine_memberships') && sql.includes('for update')) {
       return { rows: [{ machine_id: 'connector-one' }] as Row[] };
@@ -170,6 +175,17 @@ describe('compute inventory repository', () => {
     expect(environmentInsert?.values[6]).not.toContain(reported.environmentIdentity.key);
     expect(environmentInsert?.values[12]).toBeNull();
     expect(environmentInsert?.values[13]).toBe('definition-native_linux');
+  });
+
+  test('suppresses only a tombstoned legacy projection and never reconciles it back', async () => {
+    const client = new InventoryClient(); client.retiredConnector = true;
+    const repository = new ProjectSpaceDatabaseRepository(client, () => 'new-id');
+    const inventory = await repository.listComputeInventory('user-one');
+    expect(inventory.connectors).toEqual([]);
+    expect(inventory.environments).toEqual([]);
+    await repository.reconcileConnectorComputeInventory('user-one', [{ compute: reported, id: 'connector-one', name: 'connector-one' }]);
+    expect(client.calls.some(({ sql }) => sql.includes('insert into compute_platforms'))).toBeFalse();
+    expect(client.calls.some(({ sql }) => sql.includes('insert into connector_compute_environments'))).toBeFalse();
   });
 
   test('persists missing exclusive resources as SQL null', async () => {

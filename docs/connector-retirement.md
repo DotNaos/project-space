@@ -50,3 +50,28 @@ sessions](./workspace-runtime-sessions.md) for the active contracts.
 - The signed release manifest remains
   `project-space.connector-runtime-release/v1`; its schema and parser are
   unchanged for installed v0.21.17 clients.
+
+## Removing legacy Compute records
+
+Legacy Connector rows may be removed from Compute only through the dedicated
+owner-only cleanup flow. The server first resolves the exact owner-scoped
+record and checks every remaining dependency. Active credentials, Host
+associations, run destinations, Workspace Runtimes, Codex routes, development
+servers, or in-flight work block removal and are named to the owner.
+
+Removal records an immutable, sanitized receipt and suppresses that exact
+legacy projection during later reconciliation. It does not delete the
+underlying membership or historical evidence. This prevents a refresh from
+recreating the row while preserving audit and recovery evidence.
+
+The cleanup transaction never calls Tailscale, SSH, a provider, or a remote
+machine. It never deletes or modifies a Tailscale device, physical machine,
+provider resource, deployment destination, canonical Environment, credential,
+or remote installation. If a Tailscale or provider-backed Environment is
+already bound to the same canonical Environment identity, the owner sees that
+replacement before confirming removal.
+
+Bulk cleanup uses the same rules for every selected row. Eligible rows can
+succeed while blocked or changed rows remain untouched, and repeating a
+completed request returns the existing receipt instead of affecting another
+resource.

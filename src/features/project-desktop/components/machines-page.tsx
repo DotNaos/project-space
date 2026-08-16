@@ -36,6 +36,7 @@ import {
   type MachineFilter
 } from './machines-page-model';
 import type { SettingsMachineGroupsStatus } from './settings-machine-groups-view-model';
+import { LegacyConnectorCleanup } from './legacy-connector-cleanup';
 import { TailscaleDeviceClassification } from './tailscale-device-classification';
 
 const filters: Array<{ id: MachineFilter; label: string }> = [
@@ -428,6 +429,7 @@ export function MachinesPage({
           ) : null}
           <TailscaleDeviceClassification />
         </div>
+        <LegacyConnectorCleanup onChanged={onRefresh} />
       </header>
 
       <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-800/70 py-4 lg:flex-row lg:items-center lg:justify-between">
