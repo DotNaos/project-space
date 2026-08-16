@@ -1,0 +1,36 @@
+---
+title: Requirement delta
+description: Requirements for consistent GitHub sub-task hierarchy and progress rendering.
+---
+
+Requirements: **Changed**
+
+## ADDED Requirements
+
+### GH-SUBTASK-UI — Task views MUST show GitHub sub-task relationships consistently
+
+#### Scenario: Render a parent with descendants in tree mode
+
+- **Given** a task has GitHub sub-tasks or deeper descendants
+- **When** the user selects the tree view
+- **Then** the parent and every available descendant MUST be shown in hierarchy order with their own status and issue number
+
+#### Scenario: Render descendants in issue detail
+
+- **Given** the user opens an issue that has descendant sub-tasks
+- **When** the issue detail view loads
+- **Then** all available descendants MUST be listed as the same task-row item used by the task views
+
+### GH-SUBTASK-DATA — Task hierarchy data MUST preserve GitHub relationship and progress truth
+
+#### Scenario: Load hierarchy metadata from GitHub
+
+- **Given** the remote GitHub catalog returns an issue with parent and sub-issue metadata
+- **When** Project Space maps the catalog response into task data
+- **Then** the task MUST retain its parent relationship, sub-issue summary, and completion state for rendering
+
+#### Scenario: Handle incomplete hierarchy metadata safely
+
+- **Given** a task references a missing parent or participates in a malformed cycle
+- **When** the hierarchy is built
+- **Then** the task MUST remain visible without causing an infinite traversal or fabricated relationship

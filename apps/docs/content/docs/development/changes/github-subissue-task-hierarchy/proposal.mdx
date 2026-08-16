@@ -1,0 +1,48 @@
+---
+title: Proposal
+description: Keep GitHub sub-task hierarchy consistent across task list and issue detail views.
+---
+
+Change status: **Active**
+
+Change kind: **Feature**
+
+Issue: **[#712](https://github.com/DotNaos/project-space/issues/712)**
+Requirements: **Changed**
+
+## Summary
+
+Expose GitHub sub-issue relationships and progress consistently in Project Space task
+views. The task list can show a flat list or a hierarchy, while the issue detail view
+shows every descendant sub-task using the same row treatment.
+
+## Problem
+
+The local task experience treated related tasks as a flat list and used different row
+layouts in the task list and issue detail view. The remote GitHub catalog also did not
+carry enough parent and sub-issue summary data to render the relationship reliably.
+
+## Scope
+
+- Fetch GitHub parent references and sub-issue summaries in the catalog adapter.
+- Reuse one task-row presentation in list, tree, and issue-detail views.
+- Add a safe tree mode that preserves tasks with missing or cyclic parent references.
+- Display all descendant sub-tasks and their completion states in issue detail.
+- Keep local simulation data and focused tests representative of the hierarchy.
+
+## Out of scope
+
+- Creating, deleting, or re-parenting GitHub issues.
+- Changing GitHub data, the remote runtime, authentication, or the preview gateway.
+- Replacing the existing flat list mode.
+
+## Delivery
+
+The change ships through the normal pull request and Preview flow. It has no database
+migration and no write-side GitHub API requirement. Preview verification should use the
+trusted remote GitHub read path when an authenticated preview session is available.
+
+## Requirements rationale
+
+This change affects observable task navigation and the data contract used to render
+hierarchy and progress, so the requirement delta records the supported behavior.
