@@ -4,10 +4,12 @@ import type { GitHubCodespaceRunnerRequest } from '../../src/shared/github-codes
 import { writeJson } from '../project-space-http-response';
 import {
   GitHubCodespaceRunnerAuthenticationError,
+  type GitHubCodespaceInventoryRuntime,
   type GitHubCodespaceRunnerRuntime
 } from './configured-runtime';
 
-const route = '/api/github/codespace-runner';
+const runnerRoute = '/api/github/codespace-runner';
+const inventoryRoute = '/api/compute/github/codespaces';
 const maximumBodyBytes = 16 * 1024;
 const operationPattern = /^codespace:[0-9a-f-]{36}$/i;
 const branchPattern = /^[^\s~^:?*\\[\]]{1,255}$/;
@@ -15,11 +17,14 @@ const codespaceNamePattern = /^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 export function createGitHubCodespaceRunnerHttpHandler(options: {
-  runtime: GitHubCodespaceRunnerRuntime;
+  runtime: GitHubCodespaceRunnerRuntime & GitHubCodespaceInventoryRuntime;
 }) {
   return async function handle(request: IncomingMessage, response: ServerResponse, url: URL) {
-    if (url.pathname !== route) return false;
+    if (url.pathname !== runnerRoute && url.pathname !== inventoryRoute) return false;
     response.setHeader('Cache-Control', 'private, no-store');
+    if (url.pathname === inventoryRoute) {
+      return handleInventoryRequest(request, response, url, options.runtime);
+    }
     if (request.method !== 'POST') {
       writeJson(response, 405, { error: 'Method not allowed.' });
       return true;
@@ -38,6 +43,43 @@ export function createGitHubCodespaceRunnerHttpHandler(options: {
     }
     return true;
   };
+}
+
+async function handleInventoryRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  runtime: GitHubCodespaceInventoryRuntime
+) {
+  if (request.method !== 'GET') {
+    writeJson(response, 405, {
+      error: { code: 'method_not_allowed', message: 'Method not allowed.' }
+    });
+    return true;
+  }
+  if ([...url.searchParams.keys()].length > 0) {
+    writeJson(response, 400, {
+      error: { code: 'invalid_request', message: 'GitHub Codespaces inventory requests do not accept query parameters.' }
+    });
+    return true;
+  }
+  try {
+    writeJson(response, 200, await runtime.listInventory());
+  } catch (error) {
+    if (error instanceof GitHubCodespaceRunnerAuthenticationError) {
+      writeJson(response, 401, {
+        error: { code: 'authentication_failed', message: 'Authentication failed.' }
+      });
+    } else {
+      writeJson(response, 503, {
+        error: {
+          code: 'github_codespace_inventory_unavailable',
+          message: 'GitHub Codespaces inventory is temporarily unavailable.'
+        }
+      });
+    }
+  }
+  return true;
 }
 
 function parseRequest(value: Record<string, unknown>): GitHubCodespaceRunnerRequest {

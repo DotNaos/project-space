@@ -1,0 +1,24 @@
+---
+title: Verification
+description: Evidence and final reconciliation for the source-first Compute redesign.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+COMPUTE-SOURCE-UI is covered by the source projection and production-shaped UI tests.
+COMPUTE-SOURCE-ISOLATION is covered by independent request states and provider-failure UI tests.
+COMPUTE-TAILSCALE-TRUTH is covered by direct-address row rendering and live Tailscale review.
+
+## Final reconciliation
+
+- [x] Tailscale devices render once with exact direct addresses and inline classification
+- [x] GitHub Codespaces render with provider-native lifecycle, repository, and branch
+- [x] One provider failure does not hide or disable the other provider
+- [x] Legacy Connector and duplicate Tailnet controls are absent from the primary page
+- [x] The signed-in local page shows live Tailscale and GitHub data at desktop and phone widths
+- [x] Focused tests, TypeScript checks, web build, documentation validation, and full test suite pass
+- [ ] Pull request CI is green on the exact current revision
+
+No production deployment or provider mutation is required for this review.

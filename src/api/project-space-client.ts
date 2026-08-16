@@ -111,6 +111,7 @@ import type {
   GitHubCodespaceRunnerRequest,
   GitHubCodespaceRunnerResult
 } from '@/shared/github-codespace-runner-api';
+import type { GitHubCodespaceInventoryResult } from '@/shared/github-codespace-inventory-api';
 import type {
   MachinePowerOperationResult,
   MachinePowerRequest,
@@ -181,6 +182,10 @@ export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements 
         Accept: 'application/vnd.project-space.compute-inventory+json; version=3'
       }
     });
+  }
+
+  getGitHubCodespaceInventory(): Promise<GitHubCodespaceInventoryResult> {
+    return this.request('/api/compute/github/codespaces');
   }
 
   getLegacyConnectorCleanup(): Promise<LegacyConnectorCleanupSnapshot> {

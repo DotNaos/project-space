@@ -8,7 +8,6 @@ import { useCodexDesktop } from './use-codex-desktop';
 import { createProjectDesktopTopologyNavigation } from './project-desktop-topology-navigation';
 import { dedupeProjectCatalog } from './project-catalog-model';
 import {
-  computeInventoryRefreshIntervalMs,
   createGitHubProjectRecord,
   findMatchingProject,
   githubCatalogTimeoutMs,
@@ -268,19 +267,6 @@ export function useProjectDesktop() {
       return undefined;
     }
   }, []);
-
-  useEffect(() => {
-    void refreshComputeInventory();
-    let isRefreshing = false;
-    const interval = window.setInterval(() => {
-      if (isRefreshing) return;
-      isRefreshing = true;
-      void refreshComputeInventory({ silent: true }).finally(() => {
-        isRefreshing = false;
-      });
-    }, computeInventoryRefreshIntervalMs);
-    return () => window.clearInterval(interval);
-  }, [refreshComputeInventory]);
 
   const refreshGitHubCatalog = useCallback(async (forceRefresh = false) => {
     setIsGitHubRefreshing(true);

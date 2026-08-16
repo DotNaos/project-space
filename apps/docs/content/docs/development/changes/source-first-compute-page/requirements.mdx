@@ -1,0 +1,50 @@
+---
+title: Requirement delta
+description: Requirements for source-first Compute inventory and independent provider truth.
+---
+
+Requirements: **Changed**
+
+## ADDED Requirements
+
+### COMPUTE-SOURCE-UI — Compute MUST group primary resources by their authoritative source
+
+#### Scenario: Show deployment-owned Tailscale devices
+
+- **Given** the deployment Tailscale inventory returns devices
+- **When** the user opens Compute
+- **Then** every device MUST appear once under Tailscale with its exact direct addresses and network state
+
+#### Scenario: Show provider-owned GitHub Codespaces
+
+- **Given** the signed-in GitHub connection returns Codespaces
+- **When** the user opens Compute
+- **Then** every Codespace MUST appear under GitHub Codespaces with its native lifecycle, repository, and branch
+
+#### Scenario: Keep legacy Connector inventory out of the primary page
+
+- **Given** legacy Connector-derived hosts or environments still exist
+- **When** the primary Compute inventory is rendered
+- **Then** those records MUST NOT become primary rows or duplicate authoritative source resources
+
+### COMPUTE-SOURCE-ISOLATION — Compute sources MUST load and fail independently
+
+#### Scenario: GitHub is unavailable while Tailscale succeeds
+
+- **Given** the GitHub Codespaces request fails and the Tailscale request succeeds
+- **When** Compute finishes loading
+- **Then** the Tailscale rows MUST remain usable and GitHub MUST show a sanitized source-specific error
+
+#### Scenario: Tailscale is unavailable while GitHub succeeds
+
+- **Given** the Tailscale request fails and the GitHub Codespaces request succeeds
+- **When** Compute finishes loading
+- **Then** the Codespace rows MUST remain usable and Tailscale MUST show a sanitized source-specific error
+
+### COMPUTE-TAILSCALE-TRUTH — Tailscale readiness MUST remain address-native
+
+#### Scenario: Render a device without DNS readiness
+
+- **Given** a Tailscale device has exact numeric addresses and no usable MagicDNS name
+- **When** Compute renders the device
+- **Then** the direct addresses MUST remain canonical and DNS resolution MUST NOT be required for readiness

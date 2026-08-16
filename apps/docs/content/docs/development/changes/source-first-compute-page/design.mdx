@@ -1,0 +1,55 @@
+---
+title: Design
+description: Provider boundaries and UI structure for the source-first Compute page.
+---
+
+## Context
+
+The previous Compute page consumed a monolithic inventory assembled from database projections
+and legacy Connector topology. Tailscale inventory existed behind a separate modal, while the
+GitHub runner exposed only task-scoped operations rather than a page-suitable provider list.
+
+## Goals and non-goals
+
+The goal is a primary page whose rows preserve the identity and state owned by Tailscale and
+GitHub. The redesign does not transfer provider ownership into Project Space, remove legacy
+storage, or introduce a hostname-based readiness dependency.
+
+## Architecture
+
+The client loads two independent read-only resources. The existing deployment-owned Tailscale
+endpoint remains authoritative for device addresses, freshness, network state, and classification.
+A new GitHub Codespaces endpoint reuses the normal signed-in OAuth resolution and bounded GitHub
+pagination, then returns sanitized provider-native records.
+
+The Compute hook owns separate state for each request, uses independent refresh intervals, and
+preserves last-known results when a refresh fails. A small projection creates stable source rows
+for search and filtering without merging provider status. Inline Tailscale classification keeps
+the observed revision for optimistic concurrency.
+
+## Decisions
+
+- Render Tailscale first and GitHub Codespaces second in a fixed source order.
+- Use `tailscale:<device id>` and `github:<codespace name>` as stable row identities.
+- Keep exact numeric Tailscale addresses visible and treat MagicDNS as optional metadata only.
+- Show GitHub's native lifecycle rather than mapping it to legacy host capability state.
+- Sanitize provider failures and unsafe or malformed GitHub response fields at the server boundary.
+- Keep legacy inventory APIs available for compatibility, but stop polling them from the primary page.
+
+## Risks and mitigations
+
+- **A provider outage could hide healthy resources:** independent states keep the other source visible.
+- **Remote provider data could be malformed:** bounded validation rejects invalid identities and drops unsafe URLs.
+- **Classification conflicts could overwrite another update:** revision-aware writes fail locally and offer a row reload.
+- **Narrow layouts could clip addresses or controls:** rows stack at phone widths and direct addresses wrap.
+
+## Migration and rollout
+
+No data migration is required. The new read endpoint and source-first UI can ship together. The
+legacy Connector and monolithic inventory APIs remain available to subordinate compatibility paths.
+
+## Validation
+
+Run focused source-model, UI, client, runtime, HTTP, and regression tests; TypeScript checks; the
+web build; documentation validation; and the complete test suite. Visually verify the signed-in
+full-stack page at desktop and phone widths with live GitHub and Tailscale data.
