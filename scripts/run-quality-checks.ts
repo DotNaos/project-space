@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
   preCommitCheckIds,
   qualityCheckIds,
@@ -21,7 +24,7 @@ async function main() {
     });
     const display = check.command.join(' ');
     console.error(`[ci:check] ${check.id}: ${display}`);
-    const child = Bun.spawn(check.command, {
+    const child = Bun.spawn(resolveExecutable(check.command), {
       cwd: check.cwd ?? '.',
       env: process.env,
       stderr: 'inherit',
@@ -30,6 +33,14 @@ async function main() {
     const exitCode = await child.exited;
     if (exitCode !== 0) process.exit(exitCode);
   }
+}
+
+function resolveExecutable(command: string[]) {
+  if (command[0] !== 'rustup' || Bun.which('rustup')) return command;
+  const userRustup = join(homedir(), '.cargo', 'bin', 'rustup');
+  return existsSync(userRustup)
+    ? [userRustup, ...command.slice(1)]
+    : command;
 }
 
 function parseOptions(args: string[]): Options {

@@ -38,8 +38,10 @@ describe('shared local and CI quality checks', () => {
 
   test('preserves pinned tools and working directories in the registry', () => {
     expect(resolveQualityCheck('rust-clippy').command).toEqual([
+      'rustup',
+      'run',
+      '1.90.0',
       'cargo',
-      '+1.90.0',
       'clippy',
       '--manifest-path',
       'project-hostd/Cargo.toml',

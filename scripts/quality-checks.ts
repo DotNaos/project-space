@@ -130,8 +130,10 @@ export function resolveQualityCheck(
     },
     'rust-clippy': {
       command: [
+        'rustup',
+        'run',
+        '1.90.0',
         'cargo',
-        '+1.90.0',
         'clippy',
         '--manifest-path',
         'project-hostd/Cargo.toml',
@@ -143,8 +145,10 @@ export function resolveQualityCheck(
     },
     'rust-format': {
       command: [
+        'rustup',
+        'run',
+        '1.90.0',
         'cargo',
-        '+1.90.0',
         'fmt',
         '--manifest-path',
         'project-hostd/Cargo.toml',
@@ -154,8 +158,10 @@ export function resolveQualityCheck(
     },
     'rust-tests': {
       command: [
+        'rustup',
+        'run',
+        '1.90.0',
         'cargo',
-        '+1.90.0',
         'test',
         '--manifest-path',
         'project-hostd/Cargo.toml',
