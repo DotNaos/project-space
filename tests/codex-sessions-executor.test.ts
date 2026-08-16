@@ -95,7 +95,13 @@ describe('canonical Codex session executor', () => {
     expect(result).toMatchObject({
       operation: 'list',
       result: {
-        machine: { id: machineId, name: 'Workspace Runtime', online: true },
+        machine: {
+          id: machineId,
+          name: 'Workspace Runtime',
+          online: true,
+          supportsModelSelection: true,
+          supportsModelSettings: true
+        },
         sessions: [{ id: threadId, loadedByProjectSpace: true }]
       }
     });

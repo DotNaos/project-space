@@ -281,7 +281,9 @@ export class CodexSessionsExecutor {
       machine: {
         id: this.options.expectedMachineId,
         name: this.options.machineName,
-        online: true
+        online: true,
+        supportsModelSelection: true,
+        supportsModelSettings: true
       },
       publishedAt: new Date(this.options.now?.() ?? Date.now()).toISOString(),
       sessions

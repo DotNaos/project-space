@@ -79,12 +79,14 @@ installProcessErrorHandlers(logger);
 const port = Number(process.env.PORT ?? process.env.PROJECT_SPACE_PORT ?? 4173);
 const host = process.env.PROJECT_SPACE_HOST ?? '127.0.0.1';
 const staticRoot = resolve(process.cwd(), 'dist/renderer');
-const backend = createLocalProjectSpaceBackend();
-const machineConnectionRuntime = await createConfiguredMachineConnectionRuntime();
 const localCodexMachineId = process.env.PROJECT_SPACE_LOCAL_CODEX_MACHINE_ID?.trim();
 if (localCodexMachineId && process.env.PROJECT_DEPLOY_ENVIRONMENT === 'prod') {
   throw new Error('PROJECT_SPACE_LOCAL_CODEX_MACHINE_ID is disabled in production.');
 }
+const backend = createLocalProjectSpaceBackend({
+  ...(localCodexMachineId ? { connectorMachineId: localCodexMachineId } : {})
+});
+const machineConnectionRuntime = await createConfiguredMachineConnectionRuntime();
 const localCodex = localCodexMachineId
   ? await createLocalDevelopmentCodexSessionsRuntime({
       machineId: localCodexMachineId,

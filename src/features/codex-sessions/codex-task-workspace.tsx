@@ -30,10 +30,7 @@ import { CodexDecisionPanel } from './codex-decision-panel';
 import { effectiveCodexSessionStatus } from './codex-sessions-model';
 import { useCodexSessionModels } from './use-codex-session-models';
 import { parseProjectCodexTaskTitle } from './project-codex-task-model';
-import {
-  CodexLiveActivitySummary,
-  CodexTaskStatusBar
-} from './codex-task-activity-summary';
+import { CodexTaskStatusBar } from './codex-task-activity-summary';
 import {
   clampCodexChatSplitPercent,
   shouldAutoOpenCodexBrowser
@@ -190,7 +187,6 @@ export function CodexTaskWorkspace({
   );
   const chat = (
     <div className="flex h-full min-h-0 flex-col">
-      <CodexLiveActivitySummary machine={machine} session={session} />
       <div className="min-h-0 flex-1">
         <CodexConversationPane
           activeTurnId={activeTurnId}
@@ -224,8 +220,6 @@ export function CodexTaskWorkspace({
             {task.title}
           </Text>
         </div>
-        {task.issueNumber ? <Chip className="text-neutral-400" size="sm">Issue #{task.issueNumber}</Chip> : null}
-        {task.pullRequestNumber ? <Chip className="text-neutral-400" size="sm">PR #{task.pullRequestNumber}</Chip> : null}
         {hasBrowserActivity && !narrowLayout ? (
           <Chip className="items-center gap-1.5 text-emerald-300" size="sm">
             <Monitor className="size-3" /> Browser {snapshot?.state === 'live' ? 'live' : 'available'}

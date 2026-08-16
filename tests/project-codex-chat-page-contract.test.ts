@@ -27,21 +27,25 @@ describe('Project Codex chat page contract', () => {
     expect(page).toContain('hosts.map((host) => host.machineId)');
     expect(page).toContain('controller.loadMachines(machineIds)');
     expect(page).toContain('setHosts([])');
-    expect(page).toContain('machineIds.includes(selectedMachineId)');
+    expect(page).toContain('machineIds.includes(state.selectedOrigin.machineId)');
     expect(page).not.toContain('codexMachineIds');
   });
 
-  test('keeps machine and worktree selection visible and moves the task list into a phone drawer', () => {
-    expect(page).toContain('<MachineSelect');
-    expect(page).toContain('<WorktreeSelect');
+  test('keeps the task list on the right and removes redundant project selectors', () => {
+    expect(page).not.toContain('<MachineSelect');
+    expect(page).not.toContain('<WorktreeSelect');
     expect(page).toContain('<Drawer.Backdrop');
+    expect(page).toContain('placement="right"');
     expect(page).toContain('lg:hidden');
     expect(page).toContain('hidden h-full min-h-0 w-[17rem] shrink-0 lg:block');
+    expect(page.indexOf('flex min-h-0 min-w-0 flex-1 flex-col'))
+      .toBeLessThan(page.indexOf('hidden h-full min-h-0 w-[17rem] shrink-0 lg:block'));
   });
 
   test('keeps the local app-server transport development-only', () => {
     expect(webServer).toContain("process.env.PROJECT_DEPLOY_ENVIRONMENT === 'prod'");
     expect(webServer).toContain('PROJECT_SPACE_LOCAL_CODEX_MACHINE_ID is disabled in production.');
+    expect(webServer).toContain('connectorMachineId: localCodexMachineId');
   });
 
   test('uses one React runtime when the UI development package is linked', () => {

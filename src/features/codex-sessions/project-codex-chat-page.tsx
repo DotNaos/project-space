@@ -1,6 +1,5 @@
-import type { Key } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Button, Drawer, Label, ListBox, Select } from '@heroui/react';
+import { Button, Drawer } from '@heroui/react';
 import { Chat, ChatSidebar, type ChatThreadData } from '@dotnaos/ui/chat';
 import { Menu, X } from 'lucide-react';
 import { projectSpaceClient } from '@/api/project-space-client';
@@ -10,7 +9,6 @@ import type { CodexSessionsController } from './codex-sessions-controller';
 import type { CodexThreadOrigin } from './codex-sessions-types';
 import {
   buildCodexChatThreadSections,
-  newestSessionForWorktree,
   parseCodexChatThreadId
 } from './project-codex-chat-model';
 
@@ -31,12 +29,9 @@ export function ProjectCodexChatPage({
   const [hostError, setHostError] = useState('');
   const [hostsLoading, setHostsLoading] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [selectedMachineId, setSelectedMachineId] = useState(initialOrigin?.machineId ?? '');
-  const [selectedWorktreePath, setSelectedWorktreePath] = useState('');
   const mounted = useRef(false);
   const machineIds = useMemo(() => hosts.map((host) => host.machineId), [hosts]);
   const machineKey = machineIds.join('\u0000');
-  const selectedHost = hosts.find((host) => host.machineId === selectedMachineId);
   const selectedSession = state.sessions.find((session) => (
     session.machineId === state.selectedOrigin?.machineId
     && session.threadId === state.selectedOrigin.threadId
@@ -108,11 +103,13 @@ export function ProjectCodexChatPage({
   }, [controller, machineKey]);
 
   useEffect(() => {
-    if (hostsLoading || !selectedMachineId || machineIds.includes(selectedMachineId)) return;
-    setSelectedMachineId('');
-    setSelectedWorktreePath('');
+    if (
+      hostsLoading
+      || !state.selectedOrigin
+      || machineIds.includes(state.selectedOrigin.machineId)
+    ) return;
     controller.clearSelection();
-  }, [controller, hostsLoading, machineKey, selectedMachineId]);
+  }, [controller, hostsLoading, machineKey, state.selectedOrigin]);
 
   useEffect(() => {
     if (mounted.current) return;
@@ -121,44 +118,16 @@ export function ProjectCodexChatPage({
     else controller.clearSelection();
   }, [controller, initialOrigin]);
 
-  useEffect(() => {
-    if (!selectedMachineId || !selectedWorktreePath) return;
-    const session = newestSessionForWorktree(state.sessions, selectedMachineId, selectedWorktreePath);
-    if (!session) return;
-    if (
-      state.selectedOrigin?.machineId !== session.machineId
-      || state.selectedOrigin.threadId !== session.threadId
-    ) {
-      void controller.select({ machineId: session.machineId, threadId: session.threadId });
-    }
-  }, [controller, selectedMachineId, selectedWorktreePath, state.selectedOrigin, state.sessions]);
-
-  useEffect(() => {
-    if (!initialOrigin || hosts.length === 0 || selectedWorktreePath) return;
-    const session = state.sessions.find((entry) => (
-      entry.machineId === initialOrigin.machineId && entry.threadId === initialOrigin.threadId
-    ));
-    if (session?.cwd) {
-      setSelectedMachineId(session.machineId);
-      setSelectedWorktreePath(session.cwd);
-    }
-  }, [hosts.length, initialOrigin, selectedWorktreePath, state.sessions]);
-
   const selectThread = useCallback((thread: ChatThreadData) => {
     const origin = parseCodexChatThreadId(thread.id);
     if (!origin) return;
-    const session = state.sessions.find((entry) => (
-      entry.machineId === origin.machineId && entry.threadId === origin.threadId
-    ));
-    setSelectedMachineId(origin.machineId);
-    setSelectedWorktreePath(session?.cwd ?? '');
     setMobileSidebarOpen(false);
     void controller.select(origin);
     onOpenThread?.(origin);
-  }, [controller, onOpenThread, state.sessions]);
+  }, [controller, onOpenThread]);
 
   const sidebar = (
-    <div className="h-full min-h-0 [&>aside]:h-full [&>aside]:border-neutral-800 [&>aside]:bg-neutral-950">
+    <div className="h-full min-h-0 [&>aside]:h-full [&>aside]:border-l [&>aside]:border-r-0 [&>aside]:border-neutral-800 [&>aside]:bg-neutral-950">
       <ChatSidebar
         onThreadSelect={selectThread}
         threadSections={sections}
@@ -169,13 +138,17 @@ export function ProjectCodexChatPage({
 
   return (
     <section className="flex h-full min-h-0 min-w-0 overflow-hidden bg-neutral-950 text-neutral-100">
-      <div className="hidden h-full min-h-0 w-[17rem] shrink-0 lg:block">{sidebar}</div>
-
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 flex-wrap items-end gap-2 border-b border-neutral-800 px-3 py-2.5 sm:px-4">
+        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-neutral-800 px-3 lg:hidden">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-neutral-100">Chat</p>
+            <p className="truncate text-[10px] text-neutral-500">
+              {hostsLoading ? 'Checking machines…' : `${hosts.length} online`}
+            </p>
+          </div>
           <Button
             aria-label="Open Codex tasks"
-            className="mb-0.5 lg:hidden"
+            className="ml-auto"
             isIconOnly
             size="sm"
             variant="ghost"
@@ -183,26 +156,6 @@ export function ProjectCodexChatPage({
           >
             <Menu className="size-4" />
           </Button>
-          <div className="mr-auto min-w-0 pb-1">
-            <p className="truncate text-sm font-semibold text-neutral-100">Chat</p>
-            <p className="truncate text-xs text-neutral-500">
-              {hostsLoading ? 'Checking online machines…' : `${hosts.length} online ${hosts.length === 1 ? 'machine' : 'machines'}`}
-            </p>
-          </div>
-          <MachineSelect
-            hosts={hosts}
-            value={selectedMachineId}
-            onChange={(machineId) => {
-              setSelectedMachineId(machineId);
-              setSelectedWorktreePath('');
-              controller.clearSelection();
-            }}
-          />
-          <WorktreeSelect
-            host={selectedHost}
-            value={selectedWorktreePath}
-            onChange={setSelectedWorktreePath}
-          />
         </header>
 
         {hostError || state.errorMessage ? (
@@ -232,13 +185,13 @@ export function ProjectCodexChatPage({
             <div className="h-full min-h-0 [&>section]:h-full [&>section]:rounded-none [&>section]:border-0 [&>section]:bg-neutral-950">
               <Chat
                 disabled
-                emptyDescription={emptyDescription(hostsLoading, hosts.length, selectedMachineId, selectedWorktreePath)}
-                emptyTitle="Choose where to continue"
+                emptyDescription={emptyDescription(hostsLoading, hosts.length)}
+                emptyTitle="Choose a Codex task"
                 inputValue=""
                 messages={[]}
                 onInputChange={() => undefined}
                 onSubmit={() => undefined}
-                placeholder={selectedMachineId ? 'Select a worktree to enable chat' : 'Select a machine and worktree to enable chat'}
+                placeholder="Choose a task to enable chat"
                 title="Codex chat"
               />
             </div>
@@ -246,9 +199,11 @@ export function ProjectCodexChatPage({
         </div>
       </div>
 
+      <div className="hidden h-full min-h-0 w-[17rem] shrink-0 lg:block">{sidebar}</div>
+
       <Drawer.Backdrop isOpen={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <Drawer.Content className="w-[min(88vw,22rem)]" placement="left">
-          <Drawer.Dialog className="h-dvh rounded-none border-r border-neutral-800 bg-neutral-950 p-0 outline-none">
+        <Drawer.Content className="w-[min(88vw,22rem)]" placement="right">
+          <Drawer.Dialog className="h-dvh rounded-none border-l border-neutral-800 bg-neutral-950 p-0 outline-none">
             <Drawer.Header className="sr-only"><Drawer.Heading>Codex tasks</Drawer.Heading></Drawer.Header>
             <Drawer.CloseTrigger className="absolute right-3 top-3 z-10 grid size-9 place-items-center rounded-lg text-neutral-400 hover:bg-neutral-800">
               <X className="size-4" />
@@ -261,76 +216,11 @@ export function ProjectCodexChatPage({
   );
 }
 
-function MachineSelect({
-  hosts,
-  onChange,
-  value
-}: {
-  hosts: readonly CodexHostInventoryItem[];
-  onChange(value: string): void;
-  value: string;
-}) {
-  return (
-    <Select className="w-[min(42vw,13rem)]" placeholder="Machine" value={value || null} onChange={(key) => onChange(String(key ?? ''))} variant="secondary">
-      <Label className="sr-only">Machine</Label>
-      <Select.Trigger className="min-h-9"><Select.Value /><Select.Indicator /></Select.Trigger>
-      <Select.Popover><ListBox>{hosts.map((host) => (
-        <ListBox.Item id={host.machineId} key={host.machineId} textValue={host.name}>
-          <span className="flex min-w-0 items-center gap-2"><span className="size-1.5 shrink-0 rounded-full bg-emerald-400" /><span className="truncate">{host.name}</span></span>
-          <ListBox.ItemIndicator />
-        </ListBox.Item>
-      ))}</ListBox></Select.Popover>
-    </Select>
-  );
-}
-
-function WorktreeSelect({
-  host,
-  onChange,
-  value
-}: {
-  host?: CodexHostInventoryItem;
-  onChange(value: string): void;
-  value: string;
-}) {
-  const worktrees = [...(host?.worktrees ?? [])];
-  if (value && !worktrees.some((worktree) => worktree.path === value)) {
-    worktrees.unshift({
-      label: value.split('/').filter(Boolean).pop() ?? value,
-      path: value,
-      threadCount: 1
-    });
-  }
-  return (
-    <Select
-      className="w-[min(42vw,15rem)]"
-      isDisabled={!host}
-      placeholder="Worktree"
-      value={value || null}
-      onChange={(key: Key | null) => onChange(String(key ?? ''))}
-      variant="secondary"
-    >
-      <Label className="sr-only">Worktree</Label>
-      <Select.Trigger className="min-h-9"><Select.Value /><Select.Indicator /></Select.Trigger>
-      <Select.Popover><ListBox>{worktrees.map((worktree) => (
-        <ListBox.Item id={worktree.path} key={worktree.path} textValue={worktree.label}>
-          <span className="min-w-0"><span className="block truncate">{worktree.label}</span><span className="block truncate text-xs text-neutral-500">{worktree.threadCount} tasks</span></span>
-          <ListBox.ItemIndicator />
-        </ListBox.Item>
-      ))}</ListBox></Select.Popover>
-    </Select>
-  );
-}
-
 function emptyDescription(
   loading: boolean,
-  hostCount: number,
-  machineId: string,
-  worktreePath: string
+  hostCount: number
 ) {
-  if (loading) return 'Only fresh, online Tailscale machines will appear here.';
+  if (loading) return 'Only fresh, online Tailscale machines appear in the task list.';
   if (hostCount === 0) return 'No Tailscale machine with available Codex tasks is online right now.';
-  if (!machineId) return 'Select an online machine, then choose one of its worktrees.';
-  if (!worktreePath) return 'Choose a worktree. Its latest Codex task will open automatically.';
-  return 'Loading the latest Codex task in this worktree…';
+  return 'Choose a task from the list on the right. The composer stays disabled until then.';
 }
