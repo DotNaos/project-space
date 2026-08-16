@@ -20,6 +20,7 @@ import { IssueMarkdown } from '@/features/project-desktop/components/issue-markd
 import { IssueLabelChip } from '@/features/project-desktop/components/issue-visuals';
 import { useRuntimeBinding } from '@/features/project-desktop/components/runtime-binding-context';
 import { ProjectTaskDetailTabs } from './project-task-detail-tabs';
+import { ProjectTaskListItem } from './project-task-list-item';
 import { pullRequestChipPresentation } from './project-task-presentation';
 import type { ProjectTaskViewModel } from './task-view-model';
 
@@ -82,30 +83,15 @@ function SubIssueList({ onOpenTask, subIssues }: {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-current/85">Sub-issues</h2>
-          <p className="mt-1 text-xs text-current/40">Work grouped under this issue</p>
         </div>
         <span className="rounded-full bg-current/[.05] px-2.5 py-1 text-xs tabular-nums text-current/50">
           {subIssues.length}
         </span>
       </div>
-      <ul aria-label="Sub-issues" className="mt-3 divide-y divide-current/[.07]">
+      <ul aria-label="Sub-issues" className="mt-3">
         {subIssues.map((subIssue) => (
           <li key={subIssue.issue.number}>
-            <button
-              aria-label={`Open sub-issue #${subIssue.issue.number}: ${subIssue.issue.title}`}
-              className="group flex min-h-12 w-full items-center gap-3 py-2 text-left transition-colors hover:text-current"
-              onClick={() => onOpenTask(subIssue.issue.number)}
-              type="button"
-            >
-              <span className="shrink-0 text-xs tabular-nums text-current/30">#{subIssue.issue.number}</span>
-              <span className="min-w-0 flex-1 truncate text-sm text-current/70 group-hover:text-current/90">
-                {subIssue.issue.title}
-              </span>
-              <span className="flex shrink-0 items-center gap-1.5 text-xs text-current/45">
-                <TaskStateChipIcon task={subIssue} />
-                {taskStateLabel(subIssue)}
-              </span>
-            </button>
+            <ProjectTaskListItem onOpen={() => onOpenTask(subIssue.issue.number)} task={subIssue} />
           </li>
         ))}
       </ul>
