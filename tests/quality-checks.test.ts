@@ -54,6 +54,14 @@ describe('shared local and CI quality checks', () => {
       command: ['bun', 'run', 'build'],
       cwd: 'apps/docs',
     });
+    expect(resolveQualityCheck('go-race').command).toEqual([
+      'go',
+      'test',
+      '-race',
+      '-p',
+      '1',
+      './...',
+    ]);
     expect(sharedCheckCommand('go-race')).toEqual([
       'bun',
       'run',
