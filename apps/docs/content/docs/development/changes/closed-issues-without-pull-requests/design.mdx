@@ -11,7 +11,7 @@ no pull request at all.
 
 ## Goals and non-goals
 
-The goal is to make valid closed issues visibly completed and keep contradictory linked
+The goal is to make valid closed issues visibly distinct and keep contradictory linked
 pull-request states actionable. The change does not infer completion for open issues or
 alter GitHub data.
 
@@ -25,7 +25,7 @@ reconciliation message.
 
 Separate the two states at the view-model boundary:
 
-- closed issue with no pull request: completed, no workflow message;
+- closed issue with no pull request: closed category, no workflow message;
 - closed issue with an explicit non-merged pull request: retain the warning;
 - closed issue with a merged pull request: completed, as before.
 

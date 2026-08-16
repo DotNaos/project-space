@@ -5,8 +5,8 @@ description: Implementation checklist for closed issue completion handling.
 
 ## 1. View behavior
 
-- [x] Treat closed issues without pull requests as completed in the task view model.
-  - **Evidence:** `projectTaskState` and `createProjectTaskViewModels` return `completed` for the closed/no-PR state.
+- [x] Treat closed issues without pull requests as a separate Closed state in the task view model.
+  - **Evidence:** `projectTaskState` and `createProjectTaskViewModels` return `closed` for the closed/no-PR state.
 - [x] Suppress the missing-pull-request warning when no pull request exists.
   - **Evidence:** `projectTaskWorkflowMessage` returns no message when the pull request is absent.
 - [x] Keep the warning for an explicit unmerged pull request.

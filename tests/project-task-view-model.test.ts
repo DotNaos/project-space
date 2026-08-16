@@ -52,7 +52,7 @@ describe('project task view model', () => {
       { ...issue, state: 'closed' },
       pullRequest({ state: 'merged' })
     )).toBe('completed');
-    expect(projectTaskState({ ...issue, state: 'closed' })).toBe('completed');
+    expect(projectTaskState({ ...issue, state: 'closed' })).toBe('closed');
   });
 
   test('keeps contradictory and partial GitHub states recoverable', () => {
@@ -92,7 +92,7 @@ describe('project task view model', () => {
     expect(task.workflowMessage).toBeUndefined();
   });
 
-  test('marks a closed issue without a pull request as completed', () => {
+  test('keeps a closed issue without a pull request in its own closed state', () => {
     const [task] = createProjectTaskViewModels({
       branches: [defaultBranch],
       issues: [{ ...issue, state: 'closed' }],
@@ -100,7 +100,7 @@ describe('project task view model', () => {
       repositoryFullName: 'DotNaos/project-space'
     });
 
-    expect(task.state).toBe('completed');
+    expect(task.state).toBe('closed');
     expect(task.workflowMessage).toBeUndefined();
   });
 

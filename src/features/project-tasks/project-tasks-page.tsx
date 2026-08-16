@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleDashed,
   CircleDot,
+  CircleSlash2,
   GitBranch,
   GitMerge,
   GitPullRequest,
@@ -62,6 +63,13 @@ const filters: TaskFilterDefinition[] = [
     iconClassName: 'text-violet-400',
     id: 'completed',
     label: 'Completed'
+  },
+  {
+    activeClassName: 'bg-neutral-500/15 text-neutral-200',
+    icon: CircleSlash2,
+    iconClassName: 'text-neutral-400',
+    id: 'closed',
+    label: 'Closed'
   }
 ];
 

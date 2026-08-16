@@ -7,7 +7,7 @@ import type {
 } from '@/shared/project-space-api';
 import { resolveIssueDevelopmentHead } from '../project-desktop/components/issue-development-head';
 
-export type ProjectTaskState = 'active' | 'backlog' | 'completed' | 'review';
+export type ProjectTaskState = 'active' | 'backlog' | 'closed' | 'completed' | 'review';
 export type ProjectTaskHealth = 'attention' | 'healthy' | 'unknown';
 
 export interface ProjectTaskViewModel {
@@ -57,7 +57,7 @@ export function projectTaskState(
   if (pullRequest?.state === 'merged') {
     return issue.state === 'closed' ? 'completed' : 'review';
   }
-  if (issue.state === 'closed' && !pullRequest) return 'completed';
+  if (issue.state === 'closed' && !pullRequest) return 'closed';
   if (pullRequest?.state === 'open' && pullRequest.isDraft === true) return 'active';
   if (pullRequest?.state === 'open' && pullRequest.isDraft === false) return 'review';
   if (issue.state === 'open' && branch) return 'active';
@@ -137,7 +137,7 @@ export function createProjectTaskViewModels({
       : developmentHead.state === 'verified'
         ? projectTaskState(issue, developmentHead.pullRequest, developmentHead.branch)
         : issue.state === 'closed' && !resolvedPullRequest
-          ? 'completed'
+          ? 'closed'
         : 'backlog';
     const workflowMessage = developmentHead.state !== 'verified' && developmentHead.state !== 'none'
       ? developmentHead.message

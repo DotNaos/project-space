@@ -2,6 +2,7 @@ import { Tooltip } from '@heroui/react';
 import {
   CircleDashed,
   CircleDot,
+  CircleSlash2,
   CircleX,
   GitBranch,
   GitMerge,
@@ -15,6 +16,9 @@ function StatusIcon({ task }: { task: ProjectTaskViewModel }) {
   }
   if (task.state === 'completed') {
     return <GitMerge aria-label="Completed" className="size-4 shrink-0 text-violet-400" />;
+  }
+  if (task.state === 'closed') {
+    return <CircleSlash2 aria-label="Closed" className="size-4 shrink-0 text-neutral-400" />;
   }
   if (task.state === 'review') {
     return <CircleDot aria-label="Review" className="size-4 shrink-0 text-emerald-400" />;
