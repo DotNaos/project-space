@@ -10,20 +10,11 @@ import type {
 } from '@/shared/project-space-api';
 import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
 import { useCallback, useEffect, useMemo } from 'react';
-import { createProjectChatClient } from '@/api/project-chat-client';
-import {
-  refreshProjectSpaceAuthToken,
-  resolveProjectSpaceApiBaseUrl
-} from '@/api/project-space-client';
-import { ProjectChatWorkspace } from '@/features/project-chat/project-chat-workspace';
-import { CodexSessionsControllerPage } from '@/features/codex-sessions/codex-sessions-controller-page';
+import { ProjectCodexChatPage } from '@/features/codex-sessions/project-codex-chat-page';
 import type { CodexSessionsController } from '@/features/codex-sessions/codex-sessions-controller';
 import { CodexSessionsInventoryProvider } from '@/features/codex-sessions/codex-sessions-inventory-context';
 import type { CodexSessionTarget } from '@/features/codex-sessions/codex-session-route';
 import { ProjectCodexTasks } from '@/features/codex-sessions/project-codex-tasks';
-import { CodexThreadDirectory } from '@/features/codex-sessions/codex-thread-directory';
-import { useProjectCodexTaskTitles } from '@/features/codex-sessions/use-project-codex-task-titles';
-import { projectChatProjectId } from '@/shared/project-chat-project';
 import type { ProjectDetailTab, ProjectMainView, SettingsSection } from '../hooks/project-desktop-routing';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { Button, Card, Surface, Text } from '@/app/dotnaos-ui';
@@ -35,16 +26,6 @@ import { SettingsView } from './settings-view';
 import { projectRecordsForCodex, resolveProjectRepository } from './project-main-model';
 import { cn } from '@/lib/utils';
 import type { GitHistoryFocus } from './git-focused-history';
-
-const projectChatClient = createProjectChatClient({
-  baseUrl: typeof window === 'undefined'
-    ? ''
-    : resolveProjectSpaceApiBaseUrl(
-        window.location.href,
-        import.meta.env.VITE_PROJECT_SPACE_API_BASE_URL
-      ),
-  getAuthToken: refreshProjectSpaceAuthToken
-});
 
 function isVisibleProject(project: ProjectSpaceRecord) {
   const folder = project.rootPath.split('/').filter(Boolean).pop() ?? '';
@@ -287,10 +268,6 @@ export function ProjectMainPanel({
       selectedChatRepository?.fullName ?? project?.github?.fullName
     );
   }, [project, projects, selectedChatRepository?.fullName]);
-  const projectCodexTaskTitles = useProjectCodexTaskTitles(
-    codexController,
-    mainView === 'project' ? projectCodexRecords : projects
-  );
   useEffect(() => {
     if (
       mainView !== 'project' ||
@@ -386,12 +363,7 @@ export function ProjectMainPanel({
           hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
         )}
       >
-        <ProjectChatWorkspace
-          client={projectChatClient}
-          onOpenThread={onOpenCodex}
-          recentProjectIds={recentProjectIds}
-          taskTitles={projectCodexTaskTitles}
-        />
+        <ProjectCodexChatPage controller={codexController} onOpenThread={onOpenCodex} project={project} />
       </Surface>
     );
   }
@@ -405,12 +377,11 @@ export function ProjectMainPanel({
           hasBottomTabBar && 'pb-[calc(6.75rem+env(safe-area-inset-bottom))]'
         )}
       >
-        <CodexSessionsControllerPage
+        <ProjectCodexChatPage
           controller={codexController}
-          machineIds={codexMachineIds}
-          onBackFromThread={() => onOpenCodex()}
+          initialOrigin={selectedCodexOrigin}
           onOpenThread={onOpenCodex}
-          selectedOrigin={selectedCodexOrigin}
+          project={project}
         />
       </Surface>
     );
@@ -431,10 +402,13 @@ export function ProjectMainPanel({
         className={cn(
           'min-h-0 flex-1 overflow-x-hidden px-4 sm:px-8',
           useWorkspaceChrome ? 'pt-4 sm:pt-6' : 'pt-2',
-          containsOwnScroll ? 'overflow-hidden' : 'overflow-y-auto'
+          containsOwnScroll ? 'overflow-hidden' : 'overflow-y-auto',
+          projectTab === 'chat' && 'px-0 pt-0 sm:px-0 sm:pt-0'
         )}
         style={{
-          paddingBottom: containsOwnScroll
+          paddingBottom: projectTab === 'chat'
+            ? 0
+            : containsOwnScroll
             ? hasBottomTabBar
               ? 'calc(6.75rem + env(safe-area-inset-bottom))'
               : '0.5rem'
@@ -472,32 +446,10 @@ export function ProjectMainPanel({
           >
           <ProjectDetail
             chat={(
-              <ProjectChatWorkspace
-                client={projectChatClient}
-                defaultProjectId={projectChatProjectId(project, selectedChatRepository)}
+              <ProjectCodexChatPage
+                controller={codexController}
                 onOpenThread={onOpenCodex}
-                recentProjectIds={recentProjectIds}
-                showChannelNavigation={false}
-                syncRoute={false}
-                threadDirectory={(
-                  <CodexThreadDirectory
-                    controller={codexController}
-                    machineIds={codexMachineIds}
-                    onOpenProject={onSelectProject}
-                    onOpenThread={onOpenCodex}
-                    projects={projects}
-                  />
-                )}
-                taskTitles={projectCodexTaskTitles}
-                taskPreview={(
-                  <ProjectCodexTasks
-                    controller={codexController}
-                    machineIds={codexMachineIds}
-                    mode="preview"
-                    onOpenTask={onOpenCodex}
-                    projectRecords={projectCodexRecords}
-                  />
-                )}
+                project={project}
               />
             )}
             codex={(
@@ -511,6 +463,7 @@ export function ProjectMainPanel({
             )}
             historyFocus={historyFocus}
             launcherError={launcherError}
+            onOpenCodex={onOpenCodex}
             onOpenIssue={onOpenProjectIssue}
             onOpenHistory={onOpenProjectHistory}
             onOpenWorkflowRun={onOpenProjectWorkflowRun}

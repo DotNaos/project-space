@@ -137,6 +137,17 @@ export interface CodexSessionListResult {
   sessions: CodexSessionRecord[];
 }
 
+export interface CodexSessionStartRequest {
+  cwd: string;
+  machineId: string;
+  operationId: string;
+}
+
+export interface CodexSessionStartResult {
+  machineId: string;
+  threadId: string;
+}
+
 export type CodexConversationItemKind =
   | 'agent-message'
   | 'command'
@@ -390,6 +401,12 @@ export interface CodexSessionsClient {
   list(request: CodexSessionListRequest): Promise<CodexSessionListResult>;
   read(request: CodexSessionReadRequest): Promise<CodexSessionReadResult>;
   settings(request: CodexSessionSettingsRequest): Promise<CodexSessionOperationResult>;
+  start?(request: CodexSessionStartRequest): Promise<CodexSessionStartResult>;
+  uploadImage?(
+    machineId: string,
+    file: Blob
+  ): Promise<CodexSessionUploadedImage>;
+  removeImage?(machineId: string, attachmentId: string): Promise<void>;
   respondToUserInput(
     request: CodexSessionUserInputResponse
   ): Promise<CodexSessionOperationResult>;
@@ -398,4 +415,10 @@ export interface CodexSessionsClient {
     onEvent: (event: CodexSessionStreamEvent) => void,
     onError?: (error: unknown) => void
   ): () => void;
+}
+
+export interface CodexSessionUploadedImage {
+  id: string;
+  mediaType: 'image/jpeg' | 'image/png';
+  previewUrl: string;
 }

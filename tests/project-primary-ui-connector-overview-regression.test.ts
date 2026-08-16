@@ -26,13 +26,17 @@ describe('primary project UI Connector retirement boundary', () => {
     expect(source).not.toContain('getConnectorOverview');
   });
 
-  test('keeps task execution behind the canonical runtime notice', () => {
-    const taskDetail = readFileSync(
-      join(import.meta.dir, '..', 'src/features/project-tasks/project-task-detail.tsx'),
-      'utf8'
-    );
+  test('renders task execution and pipeline status without the retired Connector hierarchy', () => {
+    const taskDetail = [
+      'src/features/project-tasks/project-task-detail.tsx',
+      'src/features/project-tasks/project-task-runner-panel.tsx',
+      'src/features/project-tasks/project-task-pipeline-panel.tsx'
+    ].map((path) => readFileSync(join(import.meta.dir, '..', path), 'utf8')).join('\n');
 
-    expect(taskDetail).toContain('WorkspaceRuntimeNotice');
+    expect(taskDetail).toContain('ProjectTaskRunnerPanel');
+    expect(taskDetail).toContain('ProjectTaskPipelinePanel');
+    expect(taskDetail).not.toContain('Open Compute');
+    expect(taskDetail).not.toContain('href="/settings"');
     expect(taskDetail).not.toContain('IssueDevelopmentSession');
     expect(taskDetail).not.toContain('IssueDevelopmentPipeline');
     expect(taskDetail).not.toContain('ConnectorOverviewResult');

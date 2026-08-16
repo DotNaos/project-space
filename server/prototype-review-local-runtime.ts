@@ -317,6 +317,14 @@ function guardTransport(
       await authorize();
       return transport.read(input);
     },
+    ...(transport.start
+      ? {
+          start: async (input) => {
+            await authorize();
+            return transport.start!(input);
+          }
+        }
+      : {}),
     ...(transport.stream
       ? {
           stream: async (input, emit, signal) => {

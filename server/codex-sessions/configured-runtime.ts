@@ -84,6 +84,7 @@ export function createRetiredCodexSessionsTransport(): CodexSessionsTransport {
     async inspect() { throw new CodexTransportUnavailableError(); },
     async mutate() { throw new CodexTransportUnavailableError(); },
     async read() { throw new CodexTransportUnavailableError(); },
+    async start() { throw new CodexTransportUnavailableError(); },
     async stream() { throw new CodexTransportUnavailableError(); }
   };
 }

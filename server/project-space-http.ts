@@ -16,6 +16,7 @@ import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { previewPullRequestNumberFromHostname } from '../src/shared/preview-host';
 import type { CodexSessionsHttpHandler } from './codex-sessions-http';
 import { createConfiguredCodexSessionsHandler } from './codex-sessions/configured-runtime';
+import { createConfiguredCodexHostInventoryHandler } from './codex-host-inventory';
 import { createProjectTopologyInventoryService } from './project-topology/project-inventory-service';
 import { createProjectTopologyInventoryHttpHandler } from './project-topology/project-inventory-http';
 import {
@@ -150,6 +151,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   );
   const projectChatRuntime = resolveProjectChatRuntime(options, rawBackend);
   const codexSessions = options.codexSessions ?? createConfiguredCodexSessionsHandler();
+  const codexHostInventory = createConfiguredCodexHostInventoryHandler();
   const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
   const codexMachineTasks = createConfiguredCodexMachineTasksHandler({
     attachLeases: codexAttachLeases,
@@ -300,6 +302,7 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
       authReadiness: options.authReadiness,
       canonicalRuntimeControl,
       codexAuthorization,
+      codexHostInventory,
       codexSessions,
       codexMachineTasks,
       computeInventoryCli,

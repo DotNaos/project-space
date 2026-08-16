@@ -70,6 +70,11 @@ class FakeSessionManager {
       }
     };
   }
+
+  async startThread(input: { cwd: string; operationId: string }) {
+    this.calls.push(`start:${input.cwd}:${input.operationId}`);
+    return { thread: { ephemeral: false, id: threadId, status: { type: 'idle' as const } } };
+  }
 }
 
 function fixture() {
@@ -95,7 +100,13 @@ describe('canonical Codex session executor', () => {
     expect(result).toMatchObject({
       operation: 'list',
       result: {
-        machine: { id: machineId, name: 'Workspace Runtime', online: true },
+        machine: {
+          id: machineId,
+          name: 'Workspace Runtime',
+          online: true,
+          supportsModelSelection: true,
+          supportsModelSettings: true
+        },
         sessions: [{ id: threadId, loadedByProjectSpace: true }]
       }
     });
@@ -115,6 +126,24 @@ describe('canonical Codex session executor', () => {
       operation: 'read',
       result: { openedReadOnly: true, session: { id: threadId } }
     });
+    executor.close();
+  });
+
+  test('starts a persistent task in the exact requested worktree', async () => {
+    const { executor, manager } = fixture();
+    const result = await executor.executeBound('start', {
+      cwd: '/managed/worktrees/issue-479',
+      machineId,
+      operationId: 'codex-ui:start:test-0001'
+    }, 4);
+
+    expect(result).toEqual({
+      operation: 'start',
+      result: { machineId, threadId }
+    });
+    expect(manager.calls).toEqual([
+      'start:/managed/worktrees/issue-479:codex-ui:start:test-0001'
+    ]);
     executor.close();
   });
 });

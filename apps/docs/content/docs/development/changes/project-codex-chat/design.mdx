@@ -1,0 +1,70 @@
+---
+title: Design
+description: Data and interface boundaries for the host-grouped Codex Chat page.
+---
+
+## Context
+
+Project Space already has a canonical Codex session controller and task workspace. Tailscale
+inventory is the deployment-owned source of network presence, while Codex task history is
+owned by each machine's Workspace Runtime.
+
+## Goals and non-goals
+
+Goals:
+
+- Reuse the complete Codex task experience in the center of Chat.
+- Keep machine presence and Codex task truth in their existing ownership boundaries.
+- Make the task list compact on desktop and accessible through a drawer on phones.
+- Support the normal signed-in local development path without production-only shortcuts.
+
+Non-goals:
+
+- Merge Tailscale and Codex records into a new canonical inventory.
+- Depend on MagicDNS or hostnames for readiness.
+- Preserve Project Chat as a second graphical conversation surface.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    T[Deployment Tailscale inventory] --> O[Fresh online host filter]
+    O --> H[Signed-in host inventory]
+    H --> S[Codex sessions per eligible machine]
+    S --> N[Grouped task navigation]
+    S --> C[Canonical Codex conversation]
+```
+
+## Decisions
+
+1. Refresh Tailscale before requesting eligible Codex hosts.
+2. Match observations to user-owned machine identities while keeping exact Tailscale
+   addresses as the network truth.
+3. Request sessions only for the machine identifiers returned by the online-host endpoint.
+4. Add grouped sections to `@dotnaos/ui` while retaining the existing flat thread API.
+5. Use four visible tasks as the default collapsed count for every host.
+6. Use the canonical Codex task workspace for conversation, approvals, input, live state,
+   continuation, and browser activity.
+7. Enable the local app-server transport only when an explicit development machine is set,
+   and reject that transport in production.
+
+## Risks and mitigations
+
+- **Stale host remains visible:** provider failures clear the host list and removed selections.
+- **One source impersonates another:** Tailscale controls presence; Codex controls task data.
+- **Long task lists dominate the page:** each section collapses after four tasks.
+- **Phone navigation crowds the conversation:** the sidebar becomes a bounded drawer.
+- **Development transport reaches production:** startup fails closed when production is set.
+
+## Migration and rollout
+
+No data migration is required. Rollback restores the previous Chat component and removes the
+new read-only host endpoint and development transport wiring.
+
+## Validation
+
+- Test the host query against fresh, offline, and stale Tailscale observations.
+- Test grouping, four-task collapse, expansion, selection, and the disabled composer.
+- Type-check and build Project Space and `@dotnaos/ui`.
+- Dogfood desktop and phone layouts with the actual consumer bundle.
+- Verify the signed-in local path against live Tailscale and Codex sources.

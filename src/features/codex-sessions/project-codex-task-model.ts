@@ -322,7 +322,7 @@ export function parseProjectCodexTaskTitle(rawTitle: string) {
   let pullRequestNumber: number | undefined;
   let consumed = 0;
   for (const part of parts) {
-    const issue = part.match(/^(?:issue\s*)?#(\d+)$/i);
+    const issue = part.match(/^(?:issue\s*)?#(\d+)(?:\/\d+)?$/i);
     const pullRequest = part.match(/^(?:pr|pull request)\s*#?(\d+)$/i);
     if (issue && issueNumber === undefined) {
       issueNumber = Number(issue[1]);

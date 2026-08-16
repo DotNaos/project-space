@@ -19,15 +19,24 @@ import {
   Wrench,
   X
 } from 'lucide-react';
+import { ChatMessage } from '@dotnaos/ui/chat';
 import { Button, Text } from '@/app/dotnaos-ui';
+import { ProjectChatAgentAvatar } from '../project-chat/components/project-chat-agent-avatar';
 import { cn } from '@/lib/utils';
-import type { CodexSessionTurnSettings } from '@/shared/codex-sessions-api';
+import type { CodexSessionTurnSettings, CodexSessionUploadedImage } from '@/shared/codex-sessions-api';
 import {
   codexContinueBlockReason,
   codexSteerBlockReason,
   codexThreadOrigin
 } from './codex-sessions-model';
 import { CodexComposerTextArea } from './codex-composer-textarea';
+import {
+  CodexComposerImageButton,
+  CodexComposerImagePreviews,
+  pastedCodexImages,
+  useCodexComposerImages
+} from './codex-composer-images';
+import { codexAgentIdentity, type CodexAgentIdentity } from './codex-agent-identity';
 import { CodexMarkdownMessage } from './codex-markdown-message';
 import { CodexSessionPermissionControl } from './codex-session-permission-control';
 import {
@@ -189,34 +198,49 @@ function ActivityRun({ items }: { items: ActivityItem[] }) {
   );
 }
 
-function MessageItem({ item }: { item: Extract<CodexConversationItem, { kind: 'message' }> }) {
+function MessageImages({ item }: { item: MessageConversationItem }) {
+  if (!item.images?.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {item.images.map((image) => (
+        <img
+          alt="Attached conversation image"
+          className="max-h-72 max-w-full rounded-xl border border-neutral-700 object-contain"
+          key={image.id}
+          src={image.dataUrl}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MessageItem({ agent, item }: { agent: CodexAgentIdentity; item: MessageConversationItem }) {
   if (item.role === 'assistant') {
     return (
       <article
         aria-label="Assistant response"
-        className="min-w-0 py-4 sm:py-5"
+        className="flex min-w-0 items-start gap-3 py-4 sm:py-5"
         data-codex-message-role="assistant"
       >
-        <CodexMarkdownMessage text={item.text} />
-        {item.streaming ? (
-          <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-neutral-500">
-            <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Streaming
-          </span>
-        ) : null}
+        <ProjectChatAgentAvatar category={agent.category} name={agent.name} size={30} />
+        <div className="min-w-0 flex-1">
+          <CodexMarkdownMessage text={item.text} />
+          <MessageImages item={item} />
+          {item.streaming ? (
+            <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-neutral-500">
+              <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Streaming
+            </span>
+          ) : null}
+        </div>
       </article>
     );
   }
 
   return (
-    <article
-      aria-label="Your message"
-      className="flex justify-end py-3"
-      data-codex-message-role="user"
-    >
-      <div className="min-w-0 max-w-full rounded-2xl rounded-br-md bg-neutral-800/90 px-4 py-2.5 text-sm leading-6 text-neutral-100 sm:max-w-[76ch] max-[639px]:max-w-[88%]">
-        <p className="break-words whitespace-pre-wrap">{item.text}</p>
-      </div>
-    </article>
+    <div aria-label="Your message" className="py-3" data-codex-message-role="user">
+      <ChatMessage message={{ content: item.text, createdAt: item.createdAt, id: item.id, role: 'user' }} />
+      <div className="ml-auto max-w-[80%]"><MessageImages item={item} /></div>
+    </div>
   );
 }
 
@@ -230,7 +254,9 @@ export function CodexConversationPane({
   onBack,
   onContinue,
   onPermissionChange,
+  onRemoveImage,
   onSteer,
+  onUploadImage,
   onOpenDetails,
   session,
   showHeader = true,
@@ -246,13 +272,16 @@ export function CodexConversationPane({
   onContinue?(
     origin: CodexThreadOrigin,
     message: string,
-    settings?: CodexSessionTurnSettings
+    settings?: CodexSessionTurnSettings,
+    imageAttachmentIds?: readonly string[]
   ): Promise<void> | void;
   onPermissionChange?(
     origin: CodexThreadOrigin,
     permissionProfileId: string
   ): Promise<void>;
-  onSteer?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
+  onRemoveImage?(machineId: string, attachmentId: string): Promise<void> | void;
+  onSteer?(origin: CodexThreadOrigin, message: string, imageAttachmentIds?: readonly string[]): Promise<void> | void;
+  onUploadImage?(machineId: string, file: File): Promise<CodexSessionUploadedImage>;
   onOpenDetails?(): void;
   session?: CodexSession;
   showHeader?: boolean;
@@ -261,6 +290,7 @@ export function CodexConversationPane({
   const [draft, setDraft] = useState('');
   const [queuedMessages, setQueuedMessages] = useState<Array<{
     id: string;
+    imageAttachmentIds: string[];
     message: string;
     settings?: CodexSessionTurnSettings;
   }>>([]);
@@ -268,6 +298,13 @@ export function CodexConversationPane({
   const endRef = useRef<HTMLDivElement>(null);
   const dispatchingQueue = useRef(false);
   const lastQueuedDispatch = useRef<string | undefined>(undefined);
+  const composerImages = useCodexComposerImages({
+    machineId: session?.machineId,
+    remove: onRemoveImage,
+    scopeKey: session ? `${session.machineId}:${session.threadId}` : undefined,
+    upload: onUploadImage
+  });
+  const agent = codexAgentIdentity(session?.title ?? 'Codex');
 
   useEffect(() => {
     setDraft('');
@@ -298,7 +335,7 @@ export function CodexConversationPane({
     dispatchingQueue.current = true;
     lastQueuedDispatch.current = next.id;
     setSending(true);
-    void Promise.resolve(onContinue(codexThreadOrigin(session), next.message, next.settings))
+    void Promise.resolve(onContinue(codexThreadOrigin(session), next.message, next.settings, next.imageAttachmentIds))
       .then(() => {
         setQueuedMessages((current) => current.filter((queued) => queued.id !== next.id));
       })
@@ -313,7 +350,7 @@ export function CodexConversationPane({
 
   if (!session) {
     return (
-      <section className="grid h-full min-h-0 place-items-center bg-neutral-950 text-center">
+      <section className="grid h-full min-h-0 place-items-center bg-app-panel text-center">
         <div className="max-w-xs px-6">
           <TerminalSquare className="mx-auto size-6 text-neutral-700" />
           <Text as="h2" className="mt-4 block text-sm font-medium text-neutral-300">Select a Codex session</Text>
@@ -334,16 +371,18 @@ export function CodexConversationPane({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const message = draft.trim();
-    if (!message || blockReason || !canSubmit || sending) return;
+    const imageAttachmentIds = composerImages.imageAttachmentIds;
+    const message = draft.trim() || (imageAttachmentIds.length ? 'Please review the attached image.' : '');
+    if (!message || blockReason || !canSubmit || sending || composerImages.uploading) return;
     setSending(true);
     try {
       if (activeTurn && onSteer) {
-        await onSteer(codexThreadOrigin(session!), message);
+        await onSteer(codexThreadOrigin(session!), message, imageAttachmentIds);
       } else if (onContinue) {
-        await onContinue(codexThreadOrigin(session!), message, modelSelection?.override);
+        await onContinue(codexThreadOrigin(session!), message, modelSelection?.override, imageAttachmentIds);
       }
       setDraft('');
+      composerImages.clearAfterSend();
     } catch {
       // The controller publishes the safe operation error; preserve the draft for retry.
     } finally {
@@ -352,21 +391,24 @@ export function CodexConversationPane({
   }
 
   function queueDraft() {
-    const message = draft.trim();
-    if (!activeTurn || !onContinue || !message || blockReason || sending) return;
+    const imageAttachmentIds = composerImages.imageAttachmentIds;
+    const message = draft.trim() || (imageAttachmentIds.length ? 'Please review the attached image.' : '');
+    if (!activeTurn || !onContinue || !message || blockReason || sending || composerImages.uploading) return;
     setQueuedMessages((current) => [...current, {
       id: crypto.randomUUID(),
+      imageAttachmentIds,
       message,
       ...(modelSelection?.override ? { settings: modelSelection.override } : {})
     }]);
     setDraft('');
+    composerImages.clearAfterSend();
   }
 
-  async function steerQueued(id: string, message: string) {
+  async function steerQueued(id: string, message: string, imageAttachmentIds: readonly string[]) {
     if (!activeTurn || !onSteer || sending) return;
     setSending(true);
     try {
-      await onSteer(codexThreadOrigin(session!), message);
+      await onSteer(codexThreadOrigin(session!), message, imageAttachmentIds);
       setQueuedMessages((current) => current.filter((queued) => queued.id !== id));
     } catch {
       // Keep the queued message available when steering is rejected or ambiguous.
@@ -376,7 +418,7 @@ export function CodexConversationPane({
   }
 
   return (
-    <section aria-label="Selected Codex conversation" className="flex h-full min-h-0 flex-col bg-neutral-950">
+    <section aria-label="Selected Codex conversation" className="flex h-full min-h-0 flex-col bg-app-panel">
       {showHeader ? <header className="flex h-[68px] shrink-0 items-center gap-2 border-b border-neutral-800/80 px-4">
         {onBack ? (
           <Button aria-label="Back to sessions" className="-ml-2 size-8 min-h-0" isIconOnly onPress={onBack} size="sm" variant="ghost">
@@ -402,7 +444,7 @@ export function CodexConversationPane({
           <div className="mx-auto w-full max-w-[84ch]" data-codex-transcript="article">
             {groupConversationItems(conversation.items).map((segment) => (
               segment.kind === 'message'
-                ? <MessageItem item={segment.item} key={segment.item.id} />
+                ? <MessageItem agent={agent} item={segment.item} key={segment.item.id} />
                 : <ActivityRun items={segment.items} key={`activity-run-${segment.items[0].id}`} />
             ))}
           </div>
@@ -446,7 +488,7 @@ export function CodexConversationPane({
                 <button
                   className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-100"
                   disabled={sending}
-                  onClick={() => void steerQueued(queued.id, queued.message)}
+                  onClick={() => void steerQueued(queued.id, queued.message, queued.imageAttachmentIds)}
                   title="Move this message into the active turn"
                   type="button"
                 >
@@ -467,7 +509,7 @@ export function CodexConversationPane({
         </div>
       ) : null}
       <form
-        className="shrink-0 bg-neutral-950 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-4"
+        className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-4"
         data-codex-composer="true"
         onSubmit={submit}
       >
@@ -478,6 +520,10 @@ export function CodexConversationPane({
           </div>
         ) : null}
         <div className="flex min-h-[7.25rem] flex-col rounded-[1.75rem] border border-neutral-700/80 bg-neutral-900 px-3 pb-2.5 pt-3 shadow-[0_10px_32px_rgba(0,0,0,0.32)] transition-colors focus-within:border-neutral-500">
+          <CodexComposerImagePreviews
+            images={composerImages.images}
+            onDiscard={composerImages.discard}
+          />
           <CodexComposerTextArea
             aria-label="Continue this Codex session"
             className="min-h-14 w-full flex-none px-1 py-0"
@@ -492,11 +538,22 @@ export function CodexConversationPane({
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();
             }}
+            onPaste={(event) => {
+              const images = pastedCodexImages(event);
+              if (!images.length) return;
+              event.preventDefault();
+              void composerImages.attach(images);
+            }}
             placeholder={blockReason ?? 'Continue this session…'}
             value={draft}
           />
+          {composerImages.error ? <Text className="px-1 pb-1 text-[10px] text-red-300">{composerImages.error}</Text> : null}
           <div className="mt-auto flex min-w-0 items-center justify-between gap-3" data-codex-composer-actions="true">
             <div className="flex min-w-0 items-center gap-0.5">
+              <CodexComposerImageButton
+                disabled={Boolean(blockReason) || sending || composerImages.images.length >= 3}
+                onAttach={(files) => void composerImages.attach(files)}
+              />
               {session.permissionProfiles?.length && onPermissionChange ? (
                 <CodexSessionPermissionControl
                   activeProfileId={session.permissionProfileId}
@@ -536,7 +593,7 @@ export function CodexConversationPane({
                 <button
                   aria-label="Queue for the next turn"
                   className="grid size-9 shrink-0 place-items-center rounded-full text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 disabled:pointer-events-none disabled:opacity-50"
-                  disabled={!draft.trim() || Boolean(blockReason) || !onContinue || sending}
+                  disabled={(!draft.trim() && composerImages.imageAttachmentIds.length === 0) || Boolean(blockReason) || !onContinue || sending || composerImages.uploading}
                   onClick={queueDraft}
                   title="Queue for the next turn"
                   type="button"
@@ -547,7 +604,7 @@ export function CodexConversationPane({
               <button
                 aria-label={activeTurn ? 'Steer active Codex turn' : 'Send to this Codex session'}
                 className="grid size-9 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-900 shadow-sm transition hover:bg-white disabled:pointer-events-none disabled:opacity-50"
-                disabled={!draft.trim() || Boolean(blockReason) || !canSubmit || sending}
+                disabled={(!draft.trim() && composerImages.imageAttachmentIds.length === 0) || Boolean(blockReason) || !canSubmit || sending || composerImages.uploading}
                 type="submit"
               >
                 {sending ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-3.5" />}

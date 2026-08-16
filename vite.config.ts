@@ -217,7 +217,8 @@ export default defineConfig(({ command }) => {
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')
-    }
+    },
+    dedupe: ['react', 'react-dom']
   },
   server: {
     ...(configuredAllowedHosts.length > 0 ? { allowedHosts: configuredAllowedHosts } : {}),

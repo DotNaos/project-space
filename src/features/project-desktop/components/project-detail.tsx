@@ -33,6 +33,7 @@ import { ProjectctlManifestPanel } from './projectctl-manifest-panel';
 import { RepositoryActivityPanel } from './repository-activity-panel';
 import { projectTabItems } from './project-detail-tabs';
 import type { GitHistoryFocus } from './git-focused-history';
+import type { CodexThreadOrigin } from '@/features/codex-sessions/codex-sessions-types';
 
 const templateStatusTitle: Record<FullstackTemplateCheck['status'], string> = {
   implemented: 'Implemented',
@@ -238,6 +239,7 @@ export interface ProjectDetailProps {
   codex: React.ReactNode;
   historyFocus?: GitHistoryFocus;
   launcherError: string;
+  onOpenCodex(origin: CodexThreadOrigin): void;
   onOpenIssue(issueNumber: number, projectIdOverride?: string): void;
   onOpenHistory(focus: Omit<GitHistoryFocus, 'requestId'>): void;
   onOpenWorkflowRun(runId: number): void;
@@ -265,6 +267,7 @@ export function ProjectDetail({
   codex,
   historyFocus,
   launcherError,
+  onOpenCodex,
   onOpenIssue,
   onOpenHistory,
   onOpenWorkflowRun,
@@ -300,7 +303,7 @@ export function ProjectDetail({
     <div
       className={cn(
         'mx-auto flex w-full flex-col gap-4',
-        tab === 'issues' || tab === 'roadmap' ? 'max-w-[90rem]' : 'max-w-5xl',
+        tab === 'chat' ? 'max-w-none gap-0' : tab === 'issues' || tab === 'roadmap' ? 'max-w-[90rem]' : 'max-w-5xl',
         containsOwnScroll || tab === 'roadmap' ? 'h-full min-h-0 overflow-hidden' : 'min-h-full'
       )}
     >
@@ -400,6 +403,7 @@ export function ProjectDetail({
 
         {tab === 'issues' || tab === 'roadmap' ? (
           <ProjectTasksExperience
+            onOpenCodex={onOpenCodex}
             onOpenTask={onOpenIssue}
             onShowTasks={() => onSelectTab('issues')}
             project={project}

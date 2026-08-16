@@ -11,16 +11,21 @@ import {
   GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
+  Bot,
   Send
 } from 'lucide-react';
 import type {
   GitHubIssueCommentRecord,
-  GitHubSubIssueProgress
+  GitHubSubIssueProgress,
+  ProjectSpaceRecord
 } from '@/shared/project-space-api';
 import { IssueMarkdown } from '@/features/project-desktop/components/issue-markdown';
 import { IssueLabelChip } from '@/features/project-desktop/components/issue-visuals';
 import { useRuntimeBinding } from '@/features/project-desktop/components/runtime-binding-context';
+import type { CodexThreadOrigin } from '@/features/codex-sessions/codex-sessions-types';
 import { ProjectTaskDetailTabs } from './project-task-detail-tabs';
+import { ProjectTaskPipelinePanel } from './project-task-pipeline-panel';
+import { ProjectTaskRunnerPanel } from './project-task-runner-panel';
 import { ProjectTaskListItem } from './project-task-list-item';
 import { pullRequestChipPresentation } from './project-task-presentation';
 import type { ProjectTaskViewModel } from './task-view-model';
@@ -31,23 +36,6 @@ function taskStateLabel(task: ProjectTaskViewModel) {
   if (task.state === 'review') return 'Review';
   if (task.state === 'active') return 'Active';
   return 'Backlog';
-}
-
-function WorkspaceRuntimeNotice() {
-  return (
-    <section className="grid gap-3 rounded-xl border border-current/[.08] bg-current/[.025] p-5">
-      <div>
-        <h2 className="text-sm font-semibold text-current/85">Workspace Runtime</h2>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-current/55">
-          Task execution and pipeline actions are available through the canonical Compute view.
-          Open Compute to inspect the available runtime before continuing.
-        </p>
-      </div>
-      <a className="inline-flex w-fit" href="/settings">
-        <Button size="sm" variant="secondary">Open Compute</Button>
-      </a>
-    </section>
-  );
 }
 
 function TaskStateChipIcon({ task }: { task: ProjectTaskViewModel }) {
@@ -164,7 +152,10 @@ export function ProjectTaskDetail({
   comments,
   isLoadingComments,
   onBack,
+  onNewCodexTask,
+  onOpenCodex,
   onOpenTask,
+  project,
   repositoryFullName,
   subIssues,
   task
@@ -173,7 +164,10 @@ export function ProjectTaskDetail({
   comments: GitHubIssueCommentRecord[];
   isLoadingComments: boolean;
   onBack(): void;
+  onNewCodexTask(): void;
+  onOpenCodex(origin: CodexThreadOrigin): void;
   onOpenTask(issueNumber: number): void;
+  project: ProjectSpaceRecord;
   repositoryFullName?: string;
   subIssues: ProjectTaskViewModel[];
   task: ProjectTaskViewModel;
@@ -211,11 +205,17 @@ export function ProjectTaskDetail({
           <button className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm text-current/70 hover:bg-current/[.06] hover:text-current" onClick={onBack} type="button">
             <ArrowLeft className="size-4" /> Tasks
           </button>
-          {runtime.apis === 'external' && task.issue.url ? (
-            <a aria-label="Open issue on GitHub" className="rounded-full p-2 text-current/35 hover:bg-current/[.06] hover:text-current" href={task.issue.url} rel="noreferrer" target="_blank">
-              <ExternalLink className="size-4" />
-            </a>
-          ) : <span aria-hidden="true" className="size-8" />}
+          <div className="flex items-center gap-1.5">
+            <Button onPress={onNewCodexTask} size="sm" variant="secondary">
+              <Bot className="size-4" />
+              New Codex task
+            </Button>
+            {runtime.apis === 'external' && task.issue.url ? (
+              <a aria-label="Open issue on GitHub" className="rounded-full p-2 text-current/35 hover:bg-current/[.06] hover:text-current" href={task.issue.url} rel="noreferrer" target="_blank">
+                <ExternalLink className="size-4" />
+              </a>
+            ) : null}
+          </div>
         </div>
         <div className="mt-4 min-w-0">
           <h1 className="text-2xl font-semibold leading-tight tracking-[-.035em] @lg:text-3xl">{task.issue.title}</h1>
@@ -295,11 +295,23 @@ export function ProjectTaskDetail({
           </div>
         )}
         pipeline={(
-          <WorkspaceRuntimeNotice />
+          <ProjectTaskPipelinePanel
+            health={task.health}
+            issueNumber={task.issue.number}
+            pipeline={task.pipeline}
+            projectId={project.id}
+            pullRequest={task.pullRequest}
+            repositoryFullName={repositoryFullName}
+          />
         )}
         resetKey={task.issue.number}
         runner={(
-          <div className="py-5"><WorkspaceRuntimeNotice /></div>
+          <ProjectTaskRunnerPanel
+            issueNumber={task.issue.number}
+            onNewTask={onNewCodexTask}
+            onOpenTask={onOpenCodex}
+            project={project}
+          />
         )}
       />
     </section>

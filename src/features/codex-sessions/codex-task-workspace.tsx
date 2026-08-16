@@ -18,8 +18,10 @@ import {
 import type {
   CodexSessionBrowserResult,
   CodexSessionBrowserRequest,
-  CodexSessionTurnSettings
+  CodexSessionTurnSettings,
+  CodexSessionUploadedImage
 } from '@/shared/codex-sessions-api';
+import { ProjectChatAgentAvatar } from '../project-chat/components/project-chat-agent-avatar';
 import {
   browserMirrorHasActivity,
   CodexBrowserPane,
@@ -30,10 +32,8 @@ import { CodexDecisionPanel } from './codex-decision-panel';
 import { effectiveCodexSessionStatus } from './codex-sessions-model';
 import { useCodexSessionModels } from './use-codex-session-models';
 import { parseProjectCodexTaskTitle } from './project-codex-task-model';
-import {
-  CodexLiveActivitySummary,
-  CodexTaskStatusBar
-} from './codex-task-activity-summary';
+import { codexAgentIdentity } from './codex-agent-identity';
+import { CodexTaskStatusBar } from './codex-task-activity-summary';
 import {
   clampCodexChatSplitPercent,
   shouldAutoOpenCodexBrowser
@@ -102,7 +102,9 @@ export function CodexTaskWorkspace({
   onContinue,
   onInterrupt,
   onPermissionChange,
+  onRemoveImage,
   onSteer,
+  onUploadImage,
   onResolveApproval,
   onResolveUserInput,
   session
@@ -117,11 +119,14 @@ export function CodexTaskWorkspace({
   onContinue?(
     origin: CodexThreadOrigin,
     message: string,
-    settings?: CodexSessionTurnSettings
+    settings?: CodexSessionTurnSettings,
+    imageAttachmentIds?: readonly string[]
   ): Promise<void> | void;
   onInterrupt?(origin: CodexThreadOrigin, turnId: string): Promise<void> | void;
   onPermissionChange?(origin: CodexThreadOrigin, permissionProfileId: string): Promise<void>;
-  onSteer?(origin: CodexThreadOrigin, message: string): Promise<void> | void;
+  onRemoveImage?(machineId: string, attachmentId: string): Promise<void> | void;
+  onSteer?(origin: CodexThreadOrigin, message: string, imageAttachmentIds?: readonly string[]): Promise<void> | void;
+  onUploadImage?(machineId: string, file: File): Promise<CodexSessionUploadedImage>;
   onResolveApproval?(decision: CodexApprovalDecision): Promise<void> | void;
   onResolveUserInput?(decision: CodexUserInputDecision): Promise<void> | void;
   session: CodexSession;
@@ -143,6 +148,7 @@ export function CodexTaskWorkspace({
   const hasBrowserActivity = browserMirrorHasActivity(mirror);
   const baseStatus = effectiveCodexSessionStatus(session, machine);
   const task = parseProjectCodexTaskTitle(session.title);
+  const agent = codexAgentIdentity(session.title);
   const modelSelection = useCodexSessionModels(
     session,
     machine?.supportsModelSettings === true
@@ -190,7 +196,6 @@ export function CodexTaskWorkspace({
   );
   const chat = (
     <div className="flex h-full min-h-0 flex-col">
-      <CodexLiveActivitySummary machine={machine} session={session} />
       <div className="min-h-0 flex-1">
         <CodexConversationPane
           activeTurnId={activeTurnId}
@@ -201,7 +206,9 @@ export function CodexTaskWorkspace({
           modelSelection={modelSelection}
           onContinue={onContinue}
           onPermissionChange={onPermissionChange}
+          onRemoveImage={onRemoveImage}
           onSteer={onSteer}
+          onUploadImage={onUploadImage}
           session={session}
           showHeader={false}
           supplemental={decisions}
@@ -212,20 +219,19 @@ export function CodexTaskWorkspace({
   const browser = <CodexBrowserPane state={mirror} taskTitle={task.title} />;
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col bg-neutral-950 text-neutral-100">
+    <section className="flex h-full min-h-0 min-w-0 flex-col bg-app-panel text-neutral-100">
       <header className="flex min-h-[56px] shrink-0 items-center gap-3 px-3 pr-14 md:px-4">
         {onBack ? (
           <Button aria-label="Back to Codex tasks" className="size-8 min-h-0" isIconOnly onPress={onBack} size="sm" variant="ghost">
             <ArrowLeft className="size-4" />
           </Button>
         ) : null}
+        <ProjectChatAgentAvatar category={agent.category} name={agent.name} size={30} />
         <div className="min-w-0">
           <Text as="h1" className="block truncate text-sm font-semibold text-neutral-100">
             {task.title}
           </Text>
         </div>
-        {task.issueNumber ? <Chip className="text-neutral-400" size="sm">Issue #{task.issueNumber}</Chip> : null}
-        {task.pullRequestNumber ? <Chip className="text-neutral-400" size="sm">PR #{task.pullRequestNumber}</Chip> : null}
         {hasBrowserActivity && !narrowLayout ? (
           <Chip className="items-center gap-1.5 text-emerald-300" size="sm">
             <Monitor className="size-3" /> Browser {snapshot?.state === 'live' ? 'live' : 'available'}

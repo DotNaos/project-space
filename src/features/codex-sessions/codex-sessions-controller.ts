@@ -207,6 +207,24 @@ export class CodexSessionsController {
     });
   }
 
+  async start(machineId: string, cwd: string) {
+    if (!this.client.start) {
+      throw new CodexSessionsControllerError(
+        'thread_start_unavailable',
+        'This Codex host cannot create tasks yet.'
+      );
+    }
+    const result = await this.client.start({
+      cwd,
+      machineId,
+      operationId: this.createOperationId('start')
+    });
+    const origin = { machineId: result.machineId, threadId: result.threadId };
+    await this.loadMachines([machineId]);
+    await this.select(origin);
+    return origin;
+  }
+
   async continue(
     origin: CodexThreadOrigin,
     message: string,
@@ -301,6 +319,20 @@ export class CodexSessionsController {
 
   browser(origin: CodexThreadOrigin) {
     return this.client.browser(origin);
+  }
+
+  uploadImage(machineId: string, file: Blob) {
+    if (!this.client.uploadImage) {
+      throw new CodexSessionsControllerError(
+        'image_upload_unavailable',
+        'Image attachments are unavailable for this Codex connection.'
+      );
+    }
+    return this.client.uploadImage(machineId, file);
+  }
+
+  async removeImage(machineId: string, attachmentId: string) {
+    await this.client.removeImage?.(machineId, attachmentId);
   }
 
   interrupt(origin: CodexThreadOrigin, turnId: string) {

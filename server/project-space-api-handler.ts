@@ -45,11 +45,13 @@ import type {
   createConfiguredLegacyConnectorCleanupHandler
 } from './legacy-connector-cleanup/configured-runtime';
 import type { ClerkBackendReadiness } from './clerk-backend-readiness';
+import type { createConfiguredCodexHostInventoryHandler } from './codex-host-inventory';
 
 interface ProjectSpaceApiHandlerOptions {
   authReadiness?: ClerkBackendReadiness;
   canonicalRuntimeControl?: ReturnType<typeof createCanonicalRuntimeControlHttpApi>;
   codexAuthorization?: ReturnType<typeof createConfiguredCodexAuthorizationHandler>;
+  codexHostInventory?: ReturnType<typeof createConfiguredCodexHostInventoryHandler>;
   codexSessions?: CodexSessionsHttpHandler;
   codexMachineTasks?: CodexMachineTasksHttpHandler;
   githubCodespaceRunner?: ReturnType<typeof createGitHubCodespaceRunnerHttpHandler>;
@@ -187,6 +189,8 @@ export function createProjectSpaceApiHandler(
         if (await handleIssueAttachmentContentRoute(request, response, url)) return true;
         if (options.githubCodespaceRunner &&
             await options.githubCodespaceRunner(request, response, url)) return true;
+        if (options.codexHostInventory &&
+            await options.codexHostInventory(request, response, url)) return true;
         if (options.codexSessions && await options.codexSessions(request, response, url)) {
           return true;
         }

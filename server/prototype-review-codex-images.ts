@@ -25,7 +25,12 @@ export type PrototypeReviewCodexImagesHandler = (
   url: URL
 ) => Promise<boolean>;
 
-export class PrototypeReviewCodexImageStore {
+interface CodexImageStoreOptions {
+  machineId?: string;
+  routePrefix?: string;
+}
+
+export class CodexImageStore {
   private readonly attachments = new Map<string, AttachmentRecord>();
   private readonly deleteRootOnClose: boolean;
   private readonly root: Promise<string>;
@@ -33,7 +38,8 @@ export class PrototypeReviewCodexImageStore {
   constructor(
     private readonly authorize: () => Promise<void>,
     private readonly now = () => Date.now(),
-    persistentRoot?: string
+    persistentRoot?: string,
+    private readonly options: CodexImageStoreOptions = {}
   ) {
     this.deleteRootOnClose = !persistentRoot;
     this.root = persistentRoot
@@ -47,7 +53,7 @@ export class PrototypeReviewCodexImageStore {
     url
   ) => {
     const match = url.pathname.match(
-      /^\/api\/prototype-review\/codex-images(?:\/([0-9a-f-]+))?$/
+      new RegExp(`^${escapeRegExp(this.routePrefix)}(?:/([0-9a-f-]+))?$`)
     );
     if (!match) return false;
     response.setHeader('Cache-Control', 'private, no-store');
@@ -57,7 +63,7 @@ export class PrototypeReviewCodexImageStore {
       await this.removeExpired();
       const attachmentId = match[1];
       if (request.method === 'POST' && !attachmentId) {
-        rejectQuery(url);
+        validateQuery(url, this.options.machineId);
         const mediaType = imageMediaType(request.headers['content-type']);
         const bytes = await readBody(request);
         const validated = await validateGitHubIssueAttachment({
@@ -79,12 +85,12 @@ export class PrototypeReviewCodexImageStore {
         writeJson(response, 201, {
           id,
           mediaType: validated.mediaType,
-          previewUrl: `/api/prototype-review/codex-images/${id}`
+          previewUrl: this.previewUrl(id)
         });
         return true;
       }
       if (request.method === 'GET' && attachmentId) {
-        rejectQuery(url);
+        validateQuery(url, this.options.machineId);
         const attachment = await this.require(attachmentId);
         const bytes = await readFile(attachment.path);
         response.statusCode = 200;
@@ -94,7 +100,7 @@ export class PrototypeReviewCodexImageStore {
         return true;
       }
       if (request.method === 'DELETE' && attachmentId) {
-        rejectQuery(url);
+        validateQuery(url, this.options.machineId);
         await this.remove(attachmentId);
         response.statusCode = 204;
         response.end();
@@ -102,6 +108,7 @@ export class PrototypeReviewCodexImageStore {
       }
       throw new ImageRequestError(405, 'Method not allowed.');
     } catch (error) {
+      request.resume();
       const known = error instanceof ImageRequestError ? error : undefined;
       writeJson(response, known?.statusCode ?? 400, {
         error: known?.message ?? 'The image could not be attached.'
@@ -128,6 +135,17 @@ export class PrototypeReviewCodexImageStore {
     if (this.deleteRootOnClose) {
       await rm(await this.root, { force: true, recursive: true });
     }
+  }
+
+  private get routePrefix() {
+    return this.options.routePrefix ?? '/api/prototype-review/codex-images';
+  }
+
+  private previewUrl(id: string) {
+    const query = this.options.machineId
+      ? `?${new URLSearchParams({ machineId: this.options.machineId })}`
+      : '';
+    return `${this.routePrefix}/${id}${query}`;
   }
 
   private async require(id: string) {
@@ -194,6 +212,8 @@ export class PrototypeReviewCodexImageStore {
   }
 }
 
+export class PrototypeReviewCodexImageStore extends CodexImageStore {}
+
 class ImageRequestError extends Error {
   constructor(
     readonly statusCode: number,
@@ -227,8 +247,18 @@ function imageMediaType(value: string | string[] | undefined) {
   return mediaType;
 }
 
-function rejectQuery(url: URL) {
-  if ([...url.searchParams].length > 0) {
+function validateQuery(url: URL, machineId?: string) {
+  if (!machineId && [...url.searchParams].length === 0) return;
+  if (
+    machineId
+    && url.searchParams.size === 1
+    && url.searchParams.get('machineId') === machineId
+  ) return;
+  if ([...url.searchParams].length > 0 || machineId) {
     throw new ImageRequestError(400, 'The image request contains unsupported parameters.');
   }
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
