@@ -15,9 +15,8 @@
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src", "apps/prototype/src"]

@@ -1,0 +1,4 @@
+{
+  "title": "TypeScript 7 compiler upgrade",
+  "pages": ["proposal", "requirements", "design", "tasks", "verification"]
+}

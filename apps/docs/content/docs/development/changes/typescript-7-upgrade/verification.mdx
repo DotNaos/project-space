@@ -1,0 +1,25 @@
+---
+title: Verification
+description: Evidence for the TypeScript 7 compiler upgrade.
+---
+
+Verification status: **Complete**
+
+## Requirement evidence
+
+- [x] TYPESCRIPT-7-001 — First-party manifests and lockfiles resolve TypeScript 7.0.2.
+- [x] TYPESCRIPT-7-002 — Root check and web build pass under TypeScript 7.0.2.
+- [x] TYPESCRIPT-7-003 — The benchmark reports successful cold and incremental comparisons with
+  timing, peak RSS, versions, and environment metadata.
+
+## Final reconciliation
+
+- [x] TypeScript 7.0.2 is resolved in root, docs, and mobile Bun lockfiles.
+- [x] The required `baseUrl` and CSS-subpath compatibility changes are minimal and typed.
+- [x] 3,007 tests pass and 7 environment-gated integrations remain skipped.
+- [x] The web application and prototype builds pass.
+- [x] Docs route type generation and direct TypeScript 7 checking pass.
+- [x] Three benchmark runs per compiler and mode pass on the same revision.
+
+The docs wrapper's automatic secondary-manager fallback is not claimed as a passing Bun workflow; it is
+kept outside the implementation and recorded as a follow-up repository tooling issue.
