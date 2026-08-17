@@ -92,6 +92,7 @@ import {
   createConfiguredLegacyConnectorCleanupHandler
 } from './legacy-connector-cleanup/configured-runtime';
 import type { ClerkBackendReadiness } from './clerk-backend-readiness';
+import type { LocalCodexHostInventory } from './codex-host-inventory';
 
 export interface ProjectSpaceHttpOptions {
   authReadiness?: ClerkBackendReadiness;
@@ -102,6 +103,7 @@ export interface ProjectSpaceHttpOptions {
   host?: string;
   machineConnectionRuntime?: MachineConnectionRuntime;
   logger?: ProjectSpaceLogger;
+  localCodexHostInventory?: LocalCodexHostInventory;
   port?: number;
   projectChatRuntime?: ProjectChatRuntime;
   previewDocsProxy?: PreviewDocsProxyDependencies;
@@ -151,7 +153,9 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   );
   const projectChatRuntime = resolveProjectChatRuntime(options, rawBackend);
   const codexSessions = options.codexSessions ?? createConfiguredCodexSessionsHandler();
-  const codexHostInventory = createConfiguredCodexHostInventoryHandler();
+  const codexHostInventory = createConfiguredCodexHostInventoryHandler(
+    options.localCodexHostInventory
+  );
   const codexAttachLeases = options.codexAttachLeases ?? new CodexAttachLeaseStore();
   const codexMachineTasks = createConfiguredCodexMachineTasksHandler({
     attachLeases: codexAttachLeases,

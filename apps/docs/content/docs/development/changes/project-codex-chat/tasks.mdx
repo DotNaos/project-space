@@ -22,6 +22,8 @@ description: Implementation and verification checklist for the Codex Chat redesi
   - **Evidence:** HeroUI selects remain in the header and the empty Chat composer is disabled until selection.
 - [x] 2.4 Support phone navigation
   - **Evidence:** A HeroUI drawer replaces the fixed sidebar below the desktop breakpoint.
+- [x] 2.5 Bind issue task creation to its assigned worktree
+  - **Evidence:** Task detail renders one fixed issue worktree, while general Chat keeps the host-scoped picker.
 
 ## 3. Verification
 
@@ -33,6 +35,8 @@ description: Implementation and verification checklist for the Codex Chat redesi
   - **Evidence:** Desktop collapse and expansion, phone drawer, task selection, and horizontal overflow were visually checked.
 - [x] 3.4 Verify live providers
   - **Evidence:** Deployment Tailscale OAuth returned fresh data and the local Codex app-server returned real tasks.
+- [x] 3.5 Dogfood issue-bound and general task creation
+  - **Evidence:** The signed-in live app shows only managed worktrees in Chat and the exact #763 worktree without a picker on task detail.
 
 ## 4. Deferred follow-ups
 
