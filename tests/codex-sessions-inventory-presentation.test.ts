@@ -54,4 +54,24 @@ describe('Codex session inventory presentation', () => {
       status: 'offline'
     });
   });
+
+  test('omits stored tombstones from an offline fallback inventory', () => {
+    const available = inventory().sessions[0]!;
+    const offline = asOfflineCodexSessionInventory(
+      { id: machineId, name: 'MacBook', online: true },
+      [
+        available,
+        {
+          ...available,
+          id: '019f831b-2b5a-72d0-952c-763b9255caf0',
+          loadedByProjectSpace: false,
+          status: 'missing',
+          title: 'Removed local task'
+        }
+      ],
+      () => new Date('2026-07-21T12:05:00.000Z')
+    );
+
+    expect(offline.sessions.map((session) => session.id)).toEqual([available.id]);
+  });
 });

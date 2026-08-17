@@ -64,13 +64,15 @@ to that GitHub issue and MUST NOT offer worktrees assigned to other issues.
 
 For an eligible online host, the production Chat page MUST list task snapshots owned by the
 signed-in user when no direct host transport is available. Live-only actions MUST remain
-unavailable until the host transport is reachable.
+unavailable until the host transport is reachable. Snapshots already marked missing by a
+complete host inventory MUST NOT be presented as locally available tasks.
 
 #### Scenario: Production reads locally published tasks
 
 - **Given** an online Tailscale host has published Codex task snapshots for the signed-in user
 - **When** production cannot open the direct host transport
-- **Then** the Chat task list shows those stored tasks without enabling unverifiable live actions
+- **Then** the Chat task list shows the current stored tasks, omits missing tombstones, and does
+  not enable unverifiable live actions
 
 ### CHAT-007 — Task route navigation
 
