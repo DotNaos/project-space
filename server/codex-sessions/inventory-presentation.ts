@@ -44,10 +44,12 @@ export function asOfflineCodexSessionInventory(
       statusMessage: 'The connector is offline. Showing the last saved session inventory.'
     },
     publishedAt: checkedAt,
-    sessions: sessions.map((session) => ({
-      ...session,
-      loadedByProjectSpace: false,
-      status: 'offline'
-    }))
+    sessions: sessions
+      .filter((session) => session.status !== 'missing')
+      .map((session) => ({
+        ...session,
+        loadedByProjectSpace: false,
+        status: 'offline'
+      }))
   };
 }

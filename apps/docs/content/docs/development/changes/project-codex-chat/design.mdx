@@ -51,7 +51,8 @@ flowchart LR
    general Chat dialog may select from that host catalogue, while task detail requires one
    unambiguous identity match and fails closed otherwise.
 9. In production, serve the signed-in user's stored task list and conversation snapshots when
-   no direct host transport exists. Keep inspection and mutation fail-closed.
+   no direct host transport exists. Exclude snapshots that a complete host inventory marked
+   missing, and keep inspection and mutation fail-closed.
 10. Resolve friendly project route aliases through the same canonical repository matcher used
     during route hydration before opening task detail.
 
