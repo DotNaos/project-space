@@ -164,7 +164,7 @@ export function ProjectTasksExperience({
         repositories={repositories}
         repository={repository}
       />
-      {codexInventory && selectedTask ? (
+      {codexInventory && selectedTask && repository ? (
         <CodexThreadCreateDialog
           controller={codexInventory.controller}
           isOpen={codexDialogOpen}
@@ -172,6 +172,11 @@ export function ProjectTasksExperience({
           onCreated={onOpenCodex}
           onOpenChange={setCodexDialogOpen}
           project={project}
+          taskBinding={{
+            branch: selectedTask.branch?.name,
+            issueNumber: selectedTask.issue.number,
+            repository: repository.fullName
+          }}
         />
       ) : null}
     </div>

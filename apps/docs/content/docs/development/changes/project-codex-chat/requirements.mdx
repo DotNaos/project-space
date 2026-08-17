@@ -49,6 +49,17 @@ composer disabled until a valid task can be selected from both values.
 - **When** no machine and worktree have been selected
 - **Then** the composer is visible but cannot submit a message
 
+### CHAT-005 — Task-bound worktree creation
+
+The task detail page MUST create a Codex task only in the Project-managed worktree assigned
+to that GitHub issue and MUST NOT offer worktrees assigned to other issues.
+
+#### Scenario: Create from an existing task
+
+- **Given** an existing GitHub issue has an assigned Project-managed worktree on an online machine
+- **When** the user opens the new Codex task dialog from that issue
+- **Then** the assigned worktree is shown as fixed context and no worktree picker is available
+
 ## CHANGED Requirements
 
 None.

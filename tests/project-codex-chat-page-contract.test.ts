@@ -18,6 +18,7 @@ const createDialog = readFileSync(
   'utf8'
 );
 const taskDetail = readFileSync('src/features/project-tasks/project-task-detail.tsx', 'utf8');
+const taskExperience = readFileSync('src/features/project-tasks/project-tasks-experience.tsx', 'utf8');
 const webServer = readFileSync('server/web-server.ts', 'utf8');
 const viteConfig = readFileSync('vite.config.ts', 'utf8');
 
@@ -96,13 +97,18 @@ describe('Project Codex chat page contract', () => {
     expect(mainPanel).toContain("projectTab === 'chat' && 'px-0 pt-0 sm:px-0 sm:pt-0'");
   });
 
-  test('creates a Codex task from both chat and issue detail with exact machine and worktree selection', () => {
+  test('uses host-scoped worktrees in chat and binds issue detail to its own worktree', () => {
     expect(page).toContain("label: 'New task'");
     expect(page).toContain('<CodexThreadCreateDialog');
     expect(taskDetail).toContain('New Codex task');
     expect(createDialog).toContain('<Label>Machine</Label>');
     expect(createDialog).toContain('<Label>Worktree</Label>');
+    expect(createDialog).toContain('taskBinding ?');
+    expect(createDialog).toContain('This task always uses its own assigned worktree.');
     expect(createDialog).toContain('controller.start(machineId, selectedWorktree.path)');
-    expect(createDialog).toContain("worktree.status === 'ready'");
+    expect(createDialog).not.toContain('loadProjectWorktrees');
+    expect(taskExperience).toContain('branch: selectedTask.branch?.name');
+    expect(taskExperience).toContain('issueNumber: selectedTask.issue.number');
+    expect(taskExperience).toContain('repository: repository.fullName');
   });
 });

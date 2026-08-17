@@ -47,6 +47,9 @@ flowchart LR
    continuation, and browser activity.
 7. Enable the local app-server transport only when an explicit development machine is set,
    and reject that transport in production.
+8. Publish repository, issue, and branch identity with each Project-managed worktree. The
+   general Chat dialog may select from that host catalogue, while task detail requires one
+   unambiguous identity match and fails closed otherwise.
 
 ## Risks and mitigations
 
@@ -55,6 +58,8 @@ flowchart LR
 - **Long task lists dominate the page:** each section collapses after four tasks.
 - **Phone navigation crowds the conversation:** the sidebar becomes a bounded drawer.
 - **Development transport reaches production:** startup fails closed when production is set.
+- **A task starts in another task's worktree:** task-detail creation accepts only one exact
+  repository and issue match, additionally checking the branch when available.
 
 ## Migration and rollout
 
@@ -65,6 +70,7 @@ new read-only host endpoint and development transport wiring.
 
 - Test the host query against fresh, offline, and stale Tailscale observations.
 - Test grouping, four-task collapse, expansion, selection, and the disabled composer.
+- Test general host-scoped worktree selection and exact task-detail worktree binding.
 - Type-check and build Project Space and `@dotnaos/ui`.
 - Dogfood desktop and phone layouts with the actual consumer bundle.
 - Verify the signed-in local path against live Tailscale and Codex sources.

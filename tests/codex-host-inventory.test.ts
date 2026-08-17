@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { createCodexHostInventoryService } from '../server/codex-host-inventory';
+import {
+  createCodexHostInventoryService,
+  mergeCodexHostWorktrees
+} from '../server/codex-host-inventory';
 import type { DatabaseQueryClient } from '../server/database/client';
 
 class HostInventoryClient implements DatabaseQueryClient {
@@ -15,7 +18,13 @@ class HostInventoryClient implements DatabaseQueryClient {
         machine_name: 'os-macbook',
         worktrees: [
           { path: '/Users/oli/projects/project-space', threadCount: 12 },
-          { path: '/Users/oli/projects/.worktrees/project-space/issue-479', threadCount: 3 }
+          {
+            branch: 'issue-479-redesign-chat',
+            issueNumber: 479,
+            path: '/Users/oli/projects/.worktrees/project-space/issue-479',
+            repository: 'DotNaos/project-space',
+            threadCount: 3
+          }
         ]
       }] as Row[]
     };
@@ -23,6 +32,32 @@ class HostInventoryClient implements DatabaseQueryClient {
 }
 
 describe('Codex host inventory', () => {
+  test('keeps the local managed catalogue authoritative over observed session paths', () => {
+    expect(mergeCodexHostWorktrees([{
+      label: 'project-space',
+      path: '/projects/project-space',
+      threadCount: 5
+    }, {
+      label: 'issue-763',
+      path: '/projects/.worktrees/project-space/issue-763',
+      threadCount: 2
+    }], [{
+      branch: 'issue-763',
+      issueNumber: 763,
+      label: 'issue-763',
+      path: '/projects/.worktrees/project-space/issue-763',
+      repository: 'DotNaos/project-space',
+      threadCount: 0
+    }])).toEqual([{
+      branch: 'issue-763',
+      issueNumber: 763,
+      label: 'issue-763',
+      path: '/projects/.worktrees/project-space/issue-763',
+      repository: 'DotNaos/project-space',
+      threadCount: 2
+    }]);
+  });
+
   test('projects exact addresses and real worktree counts for the signed-in owner', async () => {
     const client = new HostInventoryClient();
     const service = createCodexHostInventoryService(
@@ -42,7 +77,14 @@ describe('Codex host inventory', () => {
         tailscaleDeviceId: 'device-online',
         worktrees: [
           { label: 'project-space', path: '/Users/oli/projects/project-space', threadCount: 12 },
-          { label: 'issue-479', path: '/Users/oli/projects/.worktrees/project-space/issue-479', threadCount: 3 }
+          {
+            branch: 'issue-479-redesign-chat',
+            issueNumber: 479,
+            label: 'issue-479',
+            path: '/Users/oli/projects/.worktrees/project-space/issue-479',
+            repository: 'DotNaos/project-space',
+            threadCount: 3
+          }
         ]
       }]
     });
@@ -62,6 +104,7 @@ describe('Codex host inventory', () => {
     expect(sql).toContain('observation.fresh_until > now()');
     expect(sql).toContain('observation.addresses');
     expect(sql).toContain("snapshot.snapshot ->> 'archived'");
+    expect(sql).toContain("snapshot.snapshot -> 'taskIdentity' ->> 'branch'");
     expect(sql).not.toContain('MagicDNS');
   });
 });

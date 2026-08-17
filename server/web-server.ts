@@ -7,6 +7,7 @@ import { createProjectSpaceServer } from './project-space-http';
 import { probeClerkBackendReadiness } from './clerk-backend-readiness';
 import { connectorRuntimeRecord } from './connector-build-info';
 import { createLocalDevelopmentCodexSessionsRuntime } from './codex-sessions/local-development-runtime';
+import { createLocalCodexHostWorktreeLoader } from './local-codex-host-worktrees';
 import {
   initializeOpenTelemetry,
   installProcessErrorHandlers,
@@ -104,6 +105,12 @@ const server = await createProjectSpaceServer({
   host,
   machineConnectionRuntime: machineConnectionRuntime ?? undefined,
   logger,
+  ...(localCodexMachineId ? {
+    localCodexHostInventory: {
+      loadWorktrees: createLocalCodexHostWorktreeLoader(backend, localCodexMachineId),
+      machineId: localCodexMachineId
+    }
+  } : {}),
   port,
   staticRoot
 });

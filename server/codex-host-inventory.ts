@@ -3,7 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   CODEX_HOST_INVENTORY_API_VERSION,
-  type CodexHostInventoryResult
+  type CodexHostInventoryResult,
+  type CodexHostWorktree
 } from '../src/shared/codex-host-inventory-api';
 import type { DatabaseQueryClient } from './database/client';
 import { getCurrentAuthSession, isProjectSpaceAuthRequired } from './local-auth-store';
@@ -22,7 +23,10 @@ interface HostRow {
 }
 
 interface WorktreeRow {
+  branch: unknown;
+  issueNumber: unknown;
   path: unknown;
+  repository: unknown;
   threadCount: unknown;
 }
 
@@ -43,11 +47,21 @@ export function createCodexHostInventoryService(
                ) as addresses,
                coalesce((
                  select jsonb_agg(jsonb_build_object(
+                   'branch', worktree.branch,
+                   'issueNumber', worktree.issue_number,
                    'path', worktree.cwd,
+                   'repository', worktree.repository,
                    'threadCount', worktree.thread_count
                  ) order by worktree.latest_activity desc, worktree.cwd)
                    from (
                      select snapshot.snapshot ->> 'cwd' as cwd,
+                            max(nullif(snapshot.snapshot -> 'taskIdentity' ->> 'branch', '')) as branch,
+                            max(case
+                              when snapshot.snapshot -> 'taskIdentity' ->> 'issueNumber' ~ '^[1-9][0-9]*$'
+                                then (snapshot.snapshot -> 'taskIdentity' ->> 'issueNumber')::int
+                              else null
+                            end) as issue_number,
+                            max(nullif(snapshot.snapshot -> 'taskIdentity' ->> 'repository', '')) as repository,
                             count(*)::int as thread_count,
                             max(snapshot.last_activity_at) as latest_activity
                        from codex_session_snapshots snapshot
@@ -92,8 +106,11 @@ export function createCodexHostInventoryService(
           name: row.machine_name,
           tailscaleDeviceId: row.device_id,
           worktrees: worktreeRows(row.worktrees).map((worktree) => ({
+            ...(worktree.branch ? { branch: worktree.branch } : {}),
+            ...(worktree.issueNumber ? { issueNumber: worktree.issueNumber } : {}),
             label: basename(worktree.path) || worktree.path,
             path: worktree.path,
+            ...(worktree.repository ? { repository: worktree.repository } : {}),
             threadCount: worktree.threadCount
           }))
         }))
@@ -102,7 +119,14 @@ export function createCodexHostInventoryService(
   };
 }
 
-export function createConfiguredCodexHostInventoryHandler() {
+export interface LocalCodexHostInventory {
+  loadWorktrees(): Promise<CodexHostWorktree[]>;
+  machineId: string;
+}
+
+export function createConfiguredCodexHostInventoryHandler(
+  localHost?: LocalCodexHostInventory
+) {
   let service: ReturnType<typeof createCodexHostInventoryService> | undefined;
   return async function handle(
     request: IncomingMessage,
@@ -132,7 +156,8 @@ export function createConfiguredCodexHostInventoryHandler() {
     }
     try {
       service ??= createCodexHostInventoryService(await getCodexSessionsDatabaseClient());
-      writeJson(response, 200, await service.list(userId));
+      const result = await service.list(userId);
+      writeJson(response, 200, localHost ? await mergeLocalHostWorktrees(result, localHost) : result);
     } catch {
       service = undefined;
       writeJson(response, 503, {
@@ -143,21 +168,67 @@ export function createConfiguredCodexHostInventoryHandler() {
   };
 }
 
+async function mergeLocalHostWorktrees(
+  result: CodexHostInventoryResult,
+  localHost: LocalCodexHostInventory
+): Promise<CodexHostInventoryResult> {
+  const localWorktrees = await localHost.loadWorktrees();
+  return {
+    ...result,
+    hosts: result.hosts.map((host) => host.machineId === localHost.machineId
+      ? { ...host, worktrees: mergeCodexHostWorktrees(host.worktrees, localWorktrees) }
+      : host)
+  };
+}
+
+export function mergeCodexHostWorktrees(
+  observed: readonly CodexHostWorktree[],
+  local: readonly CodexHostWorktree[]
+) {
+  const observedByPath = new Map(observed.map((worktree) => [worktree.path, worktree]));
+  return local.map((worktree) => ({
+    ...worktree,
+    threadCount: observedByPath.get(worktree.path)?.threadCount ?? worktree.threadCount
+  })).sort((left, right) => (
+    right.threadCount - left.threadCount || left.label.localeCompare(right.label)
+  ));
+}
+
 function stringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : [];
 }
 
-function worktreeRows(value: unknown): Array<{ path: string; threadCount: number }> {
+function worktreeRows(value: unknown): Array<{
+  branch?: string;
+  issueNumber?: number;
+  path: string;
+  repository?: string;
+  threadCount: number;
+}> {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return [];
     const row = entry as WorktreeRow;
+    const branch = typeof row.branch === 'string' && row.branch.length <= 256
+      ? row.branch
+      : undefined;
+    const issueNumber = Number(row.issueNumber);
     const path = typeof row.path === 'string' ? row.path : '';
+    const repository = typeof row.repository === 'string' &&
+      /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(row.repository)
+      ? row.repository
+      : undefined;
     const threadCount = Number(row.threadCount);
     return path && path.length <= 4096 && Number.isSafeInteger(threadCount) && threadCount >= 0
-      ? [{ path, threadCount }]
+      ? [{
+          ...(branch ? { branch } : {}),
+          ...(Number.isSafeInteger(issueNumber) && issueNumber > 0 ? { issueNumber } : {}),
+          path,
+          ...(repository ? { repository } : {}),
+          threadCount
+        }]
       : [];
   });
 }
