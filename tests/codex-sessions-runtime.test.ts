@@ -36,6 +36,25 @@ function memoryStore() {
   } as unknown as CodexSessionsStore;
 }
 
+function storedMemoryStore() {
+  const store = memoryStore() as CodexSessionsStore & {
+    saveInventory(input: { sessions: unknown[] }): Promise<void>;
+  };
+  void store.saveInventory({
+    sessions: [{
+      archived: false,
+      id: threadId,
+      lastActivityAt: '2026-07-13T11:59:00.000Z',
+      loadedByProjectSpace: false,
+      machineId,
+      machineName: 'MacBook',
+      status: 'idle',
+      title: '#763 · Restore local tasks'
+    }]
+  });
+  return store;
+}
+
 function transport(scopes: Array<{ machineId: string; userId: string }>): CodexSessionsTransport {
   return {
     async describeMachine({ machineId: selectedMachineId }) {
@@ -168,18 +187,25 @@ describe('configured Codex sessions runtime', () => {
     expect(scopes).toHaveLength(0);
   });
 
-  test('retires the legacy default runtime before database or machine lookup', async () => {
+  test('serves signed-in stored tasks when the owning host transport is unavailable', async () => {
     const origin = await start({
-      createStore: async () => { throw new Error('database details must stay private'); }
+      createStore: async () => storedMemoryStore(),
+      machineAccess: async (candidateUserId, candidateMachineId) => (
+        candidateUserId === userId && candidateMachineId === machineId
+      )
     });
 
     const response = await fetch(`${origin}/api/codex/sessions?machineId=${machineId}`);
 
-    expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ code: 'canonical_runtime_required' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      inventoryState: 'stale',
+      machine: { id: machineId, online: false },
+      sessions: [{ id: threadId, status: 'offline' }]
+    });
   });
 
-  test('fails closed when an inspect still targets the retired Connector channel', async () => {
+  test('keeps live-only inspection unavailable without a host transport', async () => {
     const origin = await start({
       createStore: async () => memoryStore(),
       machineAccess: async () => true
@@ -189,7 +215,9 @@ describe('configured Codex sessions runtime', () => {
       `${origin}/api/codex/sessions/${threadId}/inspect?machineId=${machineId}`
     );
 
-    expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ code: 'canonical_runtime_required' });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'connector_unavailable' }
+    });
   });
 });

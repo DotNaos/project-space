@@ -17,7 +17,6 @@ import {
   type CodexSessionsTransport
 } from './service';
 import { createCodexSessionsRuntime, type CodexSessionsRuntime } from './runtime';
-import { retireCodexHttp } from './retirement';
 
 const codexApiPrefix = '/api/codex/sessions';
 
@@ -50,13 +49,6 @@ export async function createConfiguredCodexSessionsRuntime(
 export function createConfiguredCodexSessionsHandler(
   options: ConfiguredCodexSessionsRuntimeOptions = {}
 ): CodexSessionsHttpHandler {
-  if (!options.transport) {
-    return async (_request, response, url) => {
-      if (!url.pathname.startsWith(codexApiPrefix)) return false;
-      retireCodexHttp(response);
-      return true;
-    };
-  }
   let runtime: Promise<CodexSessionsRuntime> | undefined;
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     if (!url.pathname.startsWith(codexApiPrefix)) return false;

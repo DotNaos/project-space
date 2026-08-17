@@ -60,6 +60,29 @@ to that GitHub issue and MUST NOT offer worktrees assigned to other issues.
 - **When** the user opens the new Codex task dialog from that issue
 - **Then** the assigned worktree is shown as fixed context and no worktree picker is available
 
+### CHAT-006 — Stored local task discovery
+
+For an eligible online host, the production Chat page MUST list task snapshots owned by the
+signed-in user when no direct host transport is available. Live-only actions MUST remain
+unavailable until the host transport is reachable.
+
+#### Scenario: Production reads locally published tasks
+
+- **Given** an online Tailscale host has published Codex task snapshots for the signed-in user
+- **When** production cannot open the direct host transport
+- **Then** the Chat task list shows those stored tasks without enabling unverifiable live actions
+
+### CHAT-007 — Task route navigation
+
+Selecting a task MUST open its detail route when the visible project URL is a friendly alias
+for the canonical repository catalogue identity.
+
+#### Scenario: Open from a friendly project URL
+
+- **Given** the task list is open at `/projects/project-space/issues`
+- **When** the user selects issue 763
+- **Then** Project Space opens `/projects/project-space/issues/763`
+
 ## CHANGED Requirements
 
 None.
