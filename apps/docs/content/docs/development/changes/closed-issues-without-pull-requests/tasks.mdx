@@ -1,0 +1,24 @@
+---
+title: Tasks
+description: Implementation checklist for closed issue completion handling.
+---
+
+## 1. View behavior
+
+- [x] Treat closed issues without pull requests as a separate Closed state in the task view model.
+  - **Evidence:** `projectTaskState` and `createProjectTaskViewModels` return `closed` for the closed/no-PR state.
+- [x] Suppress the missing-pull-request warning when no pull request exists.
+  - **Evidence:** `projectTaskWorkflowMessage` returns no message when the pull request is absent.
+- [x] Keep the warning for an explicit unmerged pull request.
+  - **Evidence:** The existing closed-issue regression assertion still checks the warning for a linked closed PR.
+- [x] Align the issue detail view with the task list.
+  - **Evidence:** The detail warning is guarded by `selectedPullRequest` and the browser check shows no warning for issue #796.
+
+## 2. Verification
+
+- [x] Add regression coverage for completion and warning suppression.
+  - **Evidence:** `tests/project-task-view-model.test.ts` covers both states.
+- [x] Run focused tests, TypeScript checks, diff hygiene, and the web build.
+  - **Evidence:** Focused tests, `bun run check`, `git diff --check`, and `bun run build:web` passed.
+- [x] Dogfood the task list and issue detail page in the local browser.
+  - **Evidence:** Issue #796 rendered under Closed without a red icon or missing-PR warning.

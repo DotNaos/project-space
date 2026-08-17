@@ -1,0 +1,28 @@
+---
+title: Verification
+description: Verification evidence for valid closed issues without pull requests.
+---
+
+Verification status: **Complete**
+
+## Requirement evidence
+
+- [x] A closed issue without a pull request is rendered in Closed with no warning.
+- [x] A closed issue with an explicit unmerged pull request retains the warning.
+- [x] The issue detail view no longer shows a warning when no pull request exists.
+
+## Checks
+
+- [x] Focused Bun tests: 14 passed, 0 failed, 39 expectations.
+- [x] TypeScript project check passed.
+- [x] Web and prototype builds passed.
+- [x] Browser dogfood passed with issue #796 rendered as Closed and without the
+  missing-pull-request error.
+
+## Final reconciliation
+
+- [x] Requirements and scenarios are covered by the view-model tests.
+- [x] The design preserves warnings for explicit unmerged pull requests.
+- [x] All implementation tasks are complete with evidence above.
+- [x] Local browser verification covered both the task list and issue detail route.
+- [x] No migration or deployment-only follow-up is required.

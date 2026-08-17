@@ -63,5 +63,6 @@ describe('project tasks page', () => {
     expect(html).toContain('Sub-tasks 2 of 6 complete');
     expect(html).toContain('2/6');
     expect(html).toContain('aria-label="Tree view"');
+    expect(html).toContain('>Closed</button>');
   });
 });

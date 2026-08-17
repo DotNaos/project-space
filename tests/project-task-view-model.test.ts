@@ -52,6 +52,7 @@ describe('project task view model', () => {
       { ...issue, state: 'closed' },
       pullRequest({ state: 'merged' })
     )).toBe('completed');
+    expect(projectTaskState({ ...issue, state: 'closed' })).toBe('closed');
   });
 
   test('keeps contradictory and partial GitHub states recoverable', () => {
@@ -69,6 +70,7 @@ describe('project task view model', () => {
       undefined,
       pullRequest({ state: 'closed' })
     )).toContain('without a verified merged');
+    expect(projectTaskWorkflowMessage({ ...issue, state: 'closed' })).toBeUndefined();
     expect(projectTaskWorkflowMessage(issue, undefined, pullRequest({ isDraft: undefined })))
       .toContain('could not be verified');
   });
@@ -87,6 +89,18 @@ describe('project task view model', () => {
     });
 
     expect(task.state).toBe('active');
+    expect(task.workflowMessage).toBeUndefined();
+  });
+
+  test('keeps a closed issue without a pull request in its own closed state', () => {
+    const [task] = createProjectTaskViewModels({
+      branches: [defaultBranch],
+      issues: [{ ...issue, state: 'closed' }],
+      pullRequests: [],
+      repositoryFullName: 'DotNaos/project-space'
+    });
+
+    expect(task.state).toBe('closed');
     expect(task.workflowMessage).toBeUndefined();
   });
 

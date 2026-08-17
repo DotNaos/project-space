@@ -6,6 +6,7 @@ import {
   ChevronUp,
   CircleDashed,
   CircleDot,
+  CircleSlash2,
   CircleX,
   ExternalLink,
   GitMerge,
@@ -33,6 +34,7 @@ import type { ProjectTaskViewModel } from './task-view-model';
 function taskStateLabel(task: ProjectTaskViewModel) {
   if (task.health === 'attention' || task.workflowMessage) return 'Needs attention';
   if (task.state === 'completed') return 'Completed';
+  if (task.state === 'closed') return 'Closed';
   if (task.state === 'review') return 'Review';
   if (task.state === 'active') return 'Active';
   return 'Backlog';
@@ -44,6 +46,7 @@ function TaskStateChipIcon({ task }: { task: ProjectTaskViewModel }) {
     return <CircleX aria-hidden className={className} />;
   }
   if (task.state === 'completed') return <GitMerge aria-hidden className={className} />;
+  if (task.state === 'closed') return <CircleSlash2 aria-hidden className={className} />;
   if (task.state === 'review' || task.state === 'active') {
     return <CircleDot aria-hidden className={className} />;
   }
@@ -56,6 +59,7 @@ function taskStateChip(task: ProjectTaskViewModel): {
 } {
   if (task.health === 'attention' || task.workflowMessage) return { color: 'danger' };
   if (task.state === 'completed') return { className: '!bg-violet-500', color: 'default' };
+  if (task.state === 'closed') return { className: '!bg-neutral-500', color: 'default' };
   if (task.state === 'review') return { color: 'success' };
   if (task.state === 'active') return { color: 'accent' };
   return { className: '!bg-neutral-600', color: 'default' };
