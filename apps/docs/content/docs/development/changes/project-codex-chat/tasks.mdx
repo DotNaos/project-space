@@ -11,6 +11,8 @@ description: Implementation and verification checklist for the Codex Chat redesi
   - **Evidence:** The page refreshes Tailscale first and passes only returned host identifiers to the Codex session controller.
 - [x] 1.3 Keep local Codex access development-only
   - **Evidence:** The web server requires an explicit local machine and rejects that transport in production.
+- [x] 1.4 Restore stored task discovery in production
+  - **Evidence:** The authenticated sessions endpoint serves stored snapshots without restoring the retired host transport.
 
 ## 2. Interface
 
@@ -24,6 +26,8 @@ description: Implementation and verification checklist for the Codex Chat redesi
   - **Evidence:** A HeroUI drawer replaces the fixed sidebar below the desktop breakpoint.
 - [x] 2.5 Bind issue task creation to its assigned worktree
   - **Evidence:** Task detail renders one fixed issue worktree, while general Chat keeps the host-scoped picker.
+- [x] 2.6 Open task detail from friendly project routes
+  - **Evidence:** Task navigation resolves `project-space` to the canonical repository record before routing.
 
 ## 3. Verification
 
@@ -37,6 +41,8 @@ description: Implementation and verification checklist for the Codex Chat redesi
   - **Evidence:** Deployment Tailscale OAuth returned fresh data and the local Codex app-server returned real tasks.
 - [x] 3.5 Dogfood issue-bound and general task creation
   - **Evidence:** The signed-in live app shows only managed worktrees in Chat and the exact #763 worktree without a picker on task detail.
+- [x] 3.6 Dogfood stored task discovery and task navigation
+  - **Evidence:** The signed-in live app shows five real local tasks under os-macbook, opens a real conversation, and routes #763 to its detail page on desktop and phone layouts.
 
 ## 4. Deferred follow-ups
 

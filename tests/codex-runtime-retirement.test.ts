@@ -8,7 +8,6 @@ import {
 import {
   createConfiguredCodexMachineTasksHandler
 } from '../server/codex-machine-tasks/configured-runtime';
-import { createConfiguredCodexSessionsHandler } from '../server/codex-sessions/configured-runtime';
 import { createConfiguredMachineReadinessHandler } from '../server/machine-readiness/configured-runtime';
 import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import type { WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
@@ -35,7 +34,6 @@ describe('Codex runtime retirement boundary', () => {
       }
     }) as never;
     const handlers = [
-      [createConfiguredCodexSessionsHandler(), '/api/codex/sessions?machineId=hidden'],
       [createConfiguredCodexMachineTasksHandler({ backend }), '/api/codex/tasks/existing'],
       [createConfiguredCodexAuthorizationHandler({ backend }), '/api/codex/authorization'],
       [createConfiguredMachineReadinessHandler({ backend }), '/api/machine-readiness']

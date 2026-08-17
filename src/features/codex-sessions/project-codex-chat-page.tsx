@@ -33,9 +33,8 @@ type CompatibleChatSidebarProps = ComponentProps<typeof ChatSidebar> & {
   threadSections?: readonly CodexChatThreadSection[];
 };
 
-// The published package accepts a flat `threads` list. The linked UI worktree
-// additionally understands grouped sections. Supplying both keeps CI and the
-// review surface useful until the UI-library release lands.
+// Keep the required flat collection empty. Supplying the same tasks both here
+// and in `threadSections` makes section-aware releases render every task twice.
 const CompatibleChatSidebar = ChatSidebar as ComponentType<CompatibleChatSidebarProps>;
 
 export function ProjectCodexChatPage({
@@ -174,7 +173,7 @@ export function ProjectCodexChatPage({
         actions={[{ icon: 'plus', id: 'new-codex-task', label: 'New task' }]}
         onActionSelect={selectSidebarAction}
         onThreadSelect={selectThread}
-        threads={sections.flatMap((section) => section.threads)}
+        threads={[]}
         threadSections={sections}
         title="Codex tasks"
       />

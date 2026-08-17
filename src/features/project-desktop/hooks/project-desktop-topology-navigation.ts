@@ -4,6 +4,7 @@ import type {
   ProjectsState
 } from '@/shared/project-space-api';
 import {
+  resolveRouteProject,
   writeRoute,
   type ProjectDetailTab,
   type ProjectMainView
@@ -42,9 +43,15 @@ export function createProjectDesktopTopologyNavigation({
   setSelectedMachineId,
   setSelectedProjectId
 }: ProjectDesktopTopologyNavigationOptions) {
+  const projects = Object.values(projectsById);
+
+  function resolveProject(projectId: string) {
+    return projectsById[projectId] ?? resolveRouteProject(projects, projectId);
+  }
+
   function selectProjectContext(projectId: string, groupId?: string) {
     const nextSelectedExplorerTarget: ExplorerTarget = { kind: 'workspace' };
-    const nextProject = projectsById[projectId];
+    const nextProject = resolveProject(projectId);
     const nextRecentProjectIds = pushRecentProject(projectId);
 
     setSelectedExplorerTarget(nextSelectedExplorerTarget);
@@ -73,7 +80,7 @@ export function createProjectDesktopTopologyNavigation({
         return;
       }
 
-      const targetProject = projectsById[targetProjectId];
+      const targetProject = resolveProject(targetProjectId);
       if (!targetProject) {
         return;
       }

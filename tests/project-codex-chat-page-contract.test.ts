@@ -48,6 +48,9 @@ describe('Project Codex chat page contract', () => {
     expect(page).toContain('placement="right"');
     expect(page).toContain('lg:hidden');
     expect(page).toContain('hidden h-full min-h-0 w-[17rem] shrink-0 lg:block');
+    expect(page).toContain('threads={[]}');
+    expect(page).toContain('threadSections={sections}');
+    expect(page).not.toContain('threads={sections.flatMap');
     expect(page.indexOf('flex min-h-0 min-w-0 flex-1 flex-col'))
       .toBeLessThan(page.indexOf('hidden h-full min-h-0 w-[17rem] shrink-0 lg:block'));
   });

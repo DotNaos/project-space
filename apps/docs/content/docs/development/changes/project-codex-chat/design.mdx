@@ -50,6 +50,10 @@ flowchart LR
 8. Publish repository, issue, and branch identity with each Project-managed worktree. The
    general Chat dialog may select from that host catalogue, while task detail requires one
    unambiguous identity match and fails closed otherwise.
+9. In production, serve the signed-in user's stored task list and conversation snapshots when
+   no direct host transport exists. Keep inspection and mutation fail-closed.
+10. Resolve friendly project route aliases through the same canonical repository matcher used
+    during route hydration before opening task detail.
 
 ## Risks and mitigations
 
@@ -71,6 +75,7 @@ new read-only host endpoint and development transport wiring.
 - Test the host query against fresh, offline, and stale Tailscale observations.
 - Test grouping, four-task collapse, expansion, selection, and the disabled composer.
 - Test general host-scoped worktree selection and exact task-detail worktree binding.
+- Test stored production task discovery, live-action denial, and friendly task-route aliases.
 - Type-check and build Project Space and `@dotnaos/ui`.
 - Dogfood desktop and phone layouts with the actual consumer bundle.
 - Verify the signed-in local path against live Tailscale and Codex sources.
