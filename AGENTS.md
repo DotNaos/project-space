@@ -9,6 +9,16 @@
 - If the current worktree is dirty, belongs to another task, or contains changes whose ownership is unclear, leave those changes untouched and prepare a fresh worktree based on the latest `origin/main`. Do not solve the collision by stashing, committing, resetting, or moving another task's files.
 - Integrate completed work through its dedicated branch and pull request. Reconcile with the latest `main` inside that task's worktree before merging, rather than using the shared worktree as an integration area.
 
+## Luna fleet codebase scans
+
+- When the user explicitly requests a Luna fleet, or when an approved migration or component-extraction task calls for a repository-wide inventory, use a fleet of `gpt-5.6-luna` subagents. Do not substitute Terra for this workflow.
+- Establish the current task worktree and exact commit before dispatch. Fleet agents are read-only unless the user separately authorizes implementation, and subagents must not prepare, claim, or mutate worktrees during an inventory scan.
+- Split the repository into distinct, non-overlapping audit scopes such as routes and shells, page and tab reachability, planning views, Git and workspace views, visualization components, hidden or orphaned UI, tests and stories, migration history, and component-library extraction boundaries.
+- Give every agent the same evidence contract: exact repository-relative paths and 1-based line ranges, current route or caller reachability, user-visible behavior, product and data dependencies, reusable versus application-specific classification, proposed generic API, target package, migration order, required tests or stories, risks, and a clear separation between facts and recommendations.
+- Keep the fleet productive at the available concurrency limit. Close completed agents promptly, refill freed slots with uncovered scopes, and add a final challenge or deduplication pass when independent findings conflict.
+- The main agent should synthesize the returned evidence instead of repeating the fleet's repository scan. It may inspect only the cited evidence needed to resolve conflicts or verify a consequential claim.
+- Produce one deduplicated inventory that classifies every candidate as: migrate into the current Project Space shell, extract to `DotNaos/ui` and consume from the package, keep application-specific, or delete after proven replacement. Record dependency order so reusable components are extracted before legacy callers are removed.
+
 ## CI preflight and coherent pull request revisions
 
 - Treat every push that creates or updates a pull request as a handoff to CI. Commit the exact revision locally, then run the fast changed-path preflight with `bun run ci:preflight --base origin/main --head HEAD --pull-request <number> --format json` before pushing it.
