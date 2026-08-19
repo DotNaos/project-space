@@ -1,0 +1,48 @@
+---
+title: Requirement delta
+description: Requirements for the TypeScript 7 compiler upgrade and benchmark.
+---
+
+## ADDED Requirements
+
+### TYPESCRIPT-7-001 — First-party toolchains use TypeScript 7
+
+Project Space MUST resolve TypeScript 7.0.2 from every first-party Bun package that declares
+TypeScript as a development dependency.
+
+#### Scenario: Frozen install
+
+- **Given** the repository and its first-party package lockfiles are checked out
+- **When** a developer performs a frozen Bun install
+- **Then** each first-party TypeScript package resolves to 7.0.2 without a competing lockfile
+
+### TYPESCRIPT-7-002 — Compiler checks remain successful
+
+Project Space MUST keep its project-reference typecheck and web build successful under
+TypeScript 7.0.2 without weakening strictness or hiding diagnostics.
+
+#### Scenario: Root typecheck and web build
+
+- **Given** the TypeScript 7 dependencies are installed
+- **When** the developer runs the root check and web build commands
+- **Then** both commands complete successfully
+
+### TYPESCRIPT-7-003 — Compiler impact is measurable
+
+Project Space MUST provide a repeatable benchmark comparing TypeScript 5.9.3 and 7.0.2 on
+the same root project, with cold and incremental runs and observable timing and memory results.
+
+#### Scenario: Reproduce compiler comparison
+
+- **Given** the root dependencies and network/cache access for the legacy compiler are available
+- **When** the developer runs `bun run benchmark:typescript`
+- **Then** the command reports both compiler versions, successful exit status, elapsed time,
+  peak RSS, platform, and runtime metadata for each run
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

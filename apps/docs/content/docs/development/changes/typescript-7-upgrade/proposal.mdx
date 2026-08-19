@@ -1,0 +1,41 @@
+---
+title: Proposal
+description: Upgrade Project Space to the native TypeScript 7 compiler and measure the effect.
+---
+
+Change status: **Complete**
+
+Change kind: **Maintenance**
+
+Issue: **[#806](https://github.com/DotNaos/project-space/issues/806)**
+Requirements: **Required**
+
+## Summary
+
+Upgrade the root, documentation, and mobile development toolchains to TypeScript 7.0.2,
+adapt the path configuration required by the native compiler, and provide a repeatable
+comparison against the previous TypeScript 5.9.3 root compiler.
+
+## Problem
+
+The repository's three first-party TypeScript toolchains are split across two older compiler
+generations, so developers do not receive the native compiler's performance or one consistent
+compatibility result.
+
+## Scope
+
+- Use TypeScript 7.0.2 in all first-party Bun package manifests and lockfiles.
+- Keep the existing `tsc -b` project-reference entry point.
+- Make only the TypeScript 7 path and CSS-subpath compatibility changes required by checks.
+- Add a benchmark that measures cold and incremental checks, runtime, peak RSS, exit status,
+  compiler versions, platform, and runtime versions.
+
+## Out of scope
+
+- Replacing tools that require the older TypeScript API.
+- Changing production behavior, deployment, or application runtime code.
+
+## Delivery
+
+The dependency, configuration, benchmark, and change specification ship through the normal
+pull-request flow. No production deployment or runtime data migration is required.

@@ -1,0 +1,63 @@
+---
+title: Design
+description: TypeScript 7 compatibility boundary and benchmark design.
+---
+
+## Context
+
+The repository used TypeScript 5.9.3 at the root, TypeScript 6.0.3 for docs, and TypeScript
+5.9.3 for mobile. TypeScript 7 removes `baseUrl` and reports unresolved CSS subpath side-effect
+imports more strictly.
+
+## Goals and non-goals
+
+The goal is one current compiler version for first-party packages with measured build impact.
+The change does not migrate TypeScript's programmatic API consumers or alter application runtime
+behavior.
+
+## Architecture
+
+The root and first-party package manifests declare TypeScript 7.0.2 and their Bun lockfiles
+resolve the native platform packages. The existing project-reference graph remains the compiler
+boundary. A Bun-run benchmark invokes the old and new compiler independently against the same
+checkout and reports structured samples.
+
+## Decisions
+
+- Keep `tsc -b` as the root compiler entry point.
+- Replace the root `baseUrl` alias with a relative `paths` target, preserving the existing `@/*`
+  import contract.
+- Declare the provider-owned `@wterm/dom/css` stylesheet subpath as an ambient module; Vite
+  remains responsible for loading the stylesheet.
+- Benchmark the legacy compiler through an exact Bun package invocation and TypeScript 7 through
+  the checked-out local binary. Each cold sample clears only the two generated project-reference
+  build-info files; each incremental sample performs a warmup first.
+- Record raw samples and mean/median summaries as JSON rather than committing machine-specific
+  benchmark output.
+
+## Validation boundary
+
+The root check and web build are authoritative for the main application. Docs use Next.js's
+TypeScript CLI backend so route-type generation and production builds invoke the installed
+TypeScript 7 compiler without requiring the removed JavaScript compiler API.
+
+## Risks and mitigations
+
+- **Removed compiler options:** remove only `baseUrl` and make the existing alias target relative.
+- **Stricter side-effect import resolution:** add one ambient declaration for the known CSS
+  subpath while leaving stylesheet loading to Vite.
+- **Machine-dependent benchmark noise:** run three samples per mode and report raw and summary
+  values with platform and runtime metadata.
+- **Legacy API consumers:** keep this change limited to compiler invocation and configuration;
+  tools needing the old API remain outside this upgrade.
+
+## Migration and rollout
+
+No data migration is needed. A frozen Bun install picks up TypeScript 7.0.2, and the pull request
+must pass the root checks, web build, tests, docs validation, and benchmark before review.
+
+## Validation
+
+Run `bun run check`, `bun test --isolate`, `bun run build:web`,
+`bun run ci:check -- docs-dependencies docs-typecheck docs-build`, and
+`bun run benchmark:typescript`.

@@ -1,0 +1,32 @@
+---
+title: Tasks
+description: Implementation and verification checklist for the TypeScript 7 upgrade.
+---
+
+## 1. Compiler dependencies
+
+- [x] 1.1 Upgrade root, docs, and mobile TypeScript dependencies to 7.0.2
+  - **Evidence:** All three package manifests and Bun lockfiles resolve TypeScript 7.0.2.
+- [x] 1.2 Apply the required TypeScript 7 configuration and module declarations
+  - **Evidence:** `tsconfig.app.json` uses a relative alias target without `baseUrl`, and the
+    Vite environment declarations cover `@wterm/dom/css`.
+
+## 2. Benchmark
+
+- [x] 2.1 Add a reproducible compiler benchmark command
+  - **Evidence:** `bun run benchmark:typescript` compares exact 5.9.3 and 7.0.2 commands,
+    cold and incremental runs, timing, RSS, status, and environment metadata.
+
+## 3. Verification
+
+- [x] 3.1 Run root typecheck, tests, and web build
+  - **Evidence:** Root check, 3,007 tests with 7 skipped integrations, and both web builds pass.
+- [x] 3.2 Run docs TypeScript validation
+  - **Evidence:** Generated route types, direct docs TypeScript 7 checking, and the production docs
+    build pass through Next.js's TypeScript CLI backend.
+- [x] 3.3 Run the benchmark on the same revision
+  - **Evidence:** Three-run benchmark completed successfully on macOS arm64 with Bun 1.3.14.
+
+## 4. Deferred follow-ups
+
+None.
