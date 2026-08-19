@@ -18,8 +18,9 @@ Verification status: **Complete**
 - [x] The required `baseUrl` and CSS-subpath compatibility changes are minimal and typed.
 - [x] 3,007 tests pass and 7 environment-gated integrations remain skipped.
 - [x] The web application and prototype builds pass.
-- [x] Docs route type generation and direct TypeScript 7 checking pass.
+- [x] Docs route type generation, TypeScript 7 checking, and the production build pass through
+  Next.js's TypeScript CLI backend.
 - [x] Three benchmark runs per compiler and mode pass on the same revision.
 
-The docs wrapper's automatic secondary-manager fallback is not claimed as a passing Bun workflow; it is
-kept outside the implementation and recorded as a follow-up repository tooling issue.
+Next.js's TypeScript CLI backend keeps route generation and production builds on the canonical
+TypeScript 7 compiler without a secondary package manager or legacy compiler alias.

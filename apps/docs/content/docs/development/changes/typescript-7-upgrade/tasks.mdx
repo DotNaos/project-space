@@ -22,8 +22,8 @@ description: Implementation and verification checklist for the TypeScript 7 upgr
 - [x] 3.1 Run root typecheck, tests, and web build
   - **Evidence:** Root check, 3,007 tests with 7 skipped integrations, and both web builds pass.
 - [x] 3.2 Run docs TypeScript validation
-  - **Evidence:** Generated route types and direct docs TypeScript 7 checking pass; the wrapper's
-    automatic secondary-manager installation is documented as a repository-policy limitation.
+  - **Evidence:** Generated route types, direct docs TypeScript 7 checking, and the production docs
+    build pass through Next.js's TypeScript CLI backend.
 - [x] 3.3 Run the benchmark on the same revision
   - **Evidence:** Three-run benchmark completed successfully on macOS arm64 with Bun 1.3.14.
 

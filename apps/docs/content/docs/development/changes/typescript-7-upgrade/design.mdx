@@ -37,10 +37,9 @@ checkout and reports structured samples.
 
 ## Validation boundary
 
-The root check and web build are authoritative for the main application. Docs' generated route
-types and direct TypeScript 7 check are validated separately because the current docs command
-can auto-create a secondary package-manager lockfile when it thinks TypeScript is missing, which violates this
-repository's Bun-only policy.
+The root check and web build are authoritative for the main application. Docs use Next.js's
+TypeScript CLI backend so route-type generation and production builds invoke the installed
+TypeScript 7 compiler without requiring the removed JavaScript compiler API.
 
 ## Risks and mitigations
 
@@ -59,6 +58,6 @@ must pass the root checks, web build, tests, docs validation, and benchmark befo
 
 ## Validation
 
-Run `bun run check`, `bun test --isolate`, `bun run build:web`, direct docs route/type generation,
-and `bun run benchmark:typescript`. Treat the docs command's automatic secondary-manager fallback as a
-separate repository tooling limitation rather than silently accepting a competing lockfile.
+Run `bun run check`, `bun test --isolate`, `bun run build:web`,
+`bun run ci:check -- docs-dependencies docs-typecheck docs-build`, and
+`bun run benchmark:typescript`.
