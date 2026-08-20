@@ -10,6 +10,10 @@ test('processes merged intents through one exact-tag release queue', () => {
     'scripts/publish-merged-release.ts',
     'utf8',
   );
+  const queueValidation = readFileSync(
+    'scripts/release-queue-validation.ts',
+    'utf8',
+  );
   const releaseWorkflow = readFileSync(
     '.github/workflows/release.yml',
     'utf8',
@@ -86,7 +90,9 @@ test('processes merged intents through one exact-tag release queue', () => {
   expect(publisher).toContain('isFirstParentAncestor');
   expect(publisher).toContain("'rev-list', '--first-parent', '--reverse'");
   expect(publisher).toContain('releaseIntentEnforcementPath');
-  expect(publisher).toContain('connectorReleaseSensitivePaths');
+  expect(publisher).toContain('validateMergedIntentOnlyQueueItem');
+  expect(queueValidation).toContain('isReleaseIntentFileName');
+  expect(queueValidation).toContain('must declare intent none');
   expect(publisher).toContain('changes package version before queue assignment');
   expect(publisher).toContain('tagReservations');
   expect(publisher).toContain('activeReleaseTombstones');
