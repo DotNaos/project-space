@@ -12,7 +12,11 @@ import type {
   CodexMachineTaskReportingTask,
   CodexMachineTaskWorkerSelection
 } from '../../src/shared/codex-machine-tasks-api';
-import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
+import type {
+  ComputeEnvironmentRecord,
+  ComputeHostRecord,
+  ComputeInventorySnapshot
+} from '../../src/shared/compute-environment-api';
 import { builtInEnvironmentDefinition } from '../../src/shared/compute-environment-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../../src/shared/project-space-api';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
@@ -108,7 +112,6 @@ export interface WorkspaceRuntimeCodexBridge {
  */
 export function createWorkspaceRuntimeCodexBridge(options: {
   loadInventory(userId: string): Promise<ComputeInventorySnapshot>;
-  loadPhysicalMachines?(userId: string): Promise<PhysicalMachineRecord[]>;
   sessions: WorkspaceRuntimeSessionService;
   resolveWorkspaceBinding?(input: {
     branch: string;
@@ -295,9 +298,6 @@ export function createWorkspaceRuntimeCodexBridge(options: {
   return {
     async inventory(userId) {
       const base = await options.loadInventory(userId);
-      const catalogPhysicalMachines = options.loadPhysicalMachines
-        ? await options.loadPhysicalMachines(userId)
-        : [];
       const computeInventory: ComputeInventorySnapshot = {
         ...base,
         connectors: [...base.connectors],
@@ -310,14 +310,7 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       const snapshots = await options.sessions.list(userId);
       const connectors: MachineRecord[] = [];
       const physicalMachines: PhysicalMachineRecord[] = [];
-      const physicalMachinesByConnector = new Map<string, PhysicalMachineRecord[]>();
-      for (const physicalMachine of catalogPhysicalMachines) {
-        for (const connectorId of physicalMachine.connectorIds) {
-          const matches = physicalMachinesByConnector.get(connectorId) ?? [];
-          matches.push(physicalMachine);
-          physicalMachinesByConnector.set(connectorId, matches);
-        }
-      }
+      const physicalMachinesByHost = new Map<string, PhysicalMachineRecord>();
       const runtimeStatuses = new Map<string, {
         capabilities: string[]; machineId: string; online: boolean; update: { state: 'up-to-date' }
       }>();
@@ -336,13 +329,23 @@ export function createWorkspaceRuntimeCodexBridge(options: {
         }
         connectors.push(syntheticConnector(machineId, snapshot, online));
         // A Workspace Environment is not a physical host. Only project the
-        // catalog host when this runtime connector has exactly one persisted
-        // physical-machine binding; ambiguity and missing evidence stay
+        // canonical compute Host when its exact Environment has one
+        // verified/manual association and that Host is present exactly once
+        // in the owner-scoped inventory. Ambiguity and missing evidence stay
         // fail-closed instead of manufacturing a selectable identity.
-        const boundPhysicalMachines = physicalMachinesByConnector.get(machineId) ?? [];
-        if (boundPhysicalMachines.length === 1 &&
-            !physicalMachines.some(({ id }) => id === boundPhysicalMachines[0]!.id)) {
-          physicalMachines.push(boundPhysicalMachines[0]!);
+        const environment = computeInventory.environments.filter(({ id }) => id === snapshot.environmentId);
+        const host = environment.length === 1
+          ? canonicalRuntimeHost(environment[0]!, computeInventory.hosts)
+          : undefined;
+        if (host) {
+          const physicalMachine = physicalMachinesByHost.get(host.id) ?? {
+            connectorIds: [], id: host.id, name: host.name
+          };
+          if (!physicalMachine.connectorIds.includes(machineId)) {
+            physicalMachine.connectorIds.push(machineId);
+          }
+          physicalMachinesByHost.set(host.id, physicalMachine);
+          if (!physicalMachines.includes(physicalMachine)) physicalMachines.push(physicalMachine);
         }
         runtimeStatuses.set(machineId, {
           capabilities: ['codex.machine-tasks.v1'], machineId, online, update: { state: 'up-to-date' }
@@ -478,6 +481,16 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       }
     }
   };
+}
+
+function canonicalRuntimeHost(
+  environment: ComputeEnvironmentRecord,
+  hosts: readonly ComputeHostRecord[]
+) {
+  const association = environment.hostAssociation;
+  if (association.resolution !== 'verified' && association.resolution !== 'manual') return undefined;
+  const matches = hosts.filter(({ id }) => id === association.hostId);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function runtimeMachineId(snapshot: Pick<RuntimeSnapshot, 'workspaceId' | 'environmentId' | 'generation'>) {

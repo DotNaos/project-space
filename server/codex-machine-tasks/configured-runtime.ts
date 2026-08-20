@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { ProjectSpaceBackend } from '../../src/shared/project-space-api';
+import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
 import type { CodexSessionsRuntime } from '../codex-sessions/runtime';
 import type { MachineConnectionRuntime } from '../machine-connection-runtime';
 import { CodexAttachLeaseStore } from './attach-lease-store';
@@ -14,8 +15,7 @@ import { isProjectSpaceAuthRequired, readAuthSessionFromRequest } from '../local
 import {
   getCodexSessionsDatabaseClient,
   isDatabaseConfigured,
-  listComputeInventory,
-  listPhysicalMachines
+  listComputeInventory
 } from '../local-database-store';
 import { createConfiguredCodexSessionsRuntime } from '../codex-sessions/configured-runtime';
 import { createWorkspaceRuntimeCodexBridge } from './workspace-runtime';
@@ -35,6 +35,8 @@ export interface ConfiguredCodexMachineTasksOptions {
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
   /** Test seam for the already-authorized database boundary. */
   database?: TransactionalDatabaseQueryClient;
+  /** Test seam for the canonical compute inventory boundary. */
+  inventory?: (userId: string) => Promise<ComputeInventorySnapshot>;
   taskStore?: CodexMachineTasksServiceOptions['store'];
   workspaceBindingStore?: Pick<PostgresTaskExecutionStore, 'list' | 'readWorkspace'>;
   sessionsRuntime?: Promise<CodexSessionsRuntime>;
@@ -134,14 +136,12 @@ export async function createConfiguredCodexMachineTasksRuntime(
   const taskExecutions = options.workspaceBindingStore ?? new PostgresTaskExecutionStore(database);
   const bridge = createWorkspaceRuntimeCodexBridge({
     loadInventory: async (userId) => {
+      if (options.inventory) return options.inventory(userId);
       if (!isDatabaseConfigured()) {
         return { connectors: [], environmentDefinitions: [], environments: [], hosts: [], platforms: [], violations: [] };
       }
       return listComputeInventory(userId);
     },
-    loadPhysicalMachines: async (userId) => (
-      isDatabaseConfigured() ? listPhysicalMachines(userId) : []
-    ),
     sessions: options.runtimeSessions,
     resolveWorkspaceBinding: async ({ branch, commit, environmentId, ownerUserId, workspaceId }) => {
       const candidates = await taskExecutions.list({
