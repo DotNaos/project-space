@@ -6,12 +6,14 @@ import {
   createConfiguredCodexAuthorizationHandler
 } from '../server/codex-authorization/configured-runtime';
 import {
-  createConfiguredCodexMachineTasksHandler
+  createConfiguredCodexMachineTasksHandler,
+  createConfiguredCodexMachineTasksRuntime
 } from '../server/codex-machine-tasks/configured-runtime';
 import { createConfiguredMachineReadinessHandler } from '../server/machine-readiness/configured-runtime';
 import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import type { WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
 import { workspaceRuntimeCodexCapability } from '../src/shared/workspace-runtime-codex-api';
+import { memoryStore } from './fixtures/codex-machine-tasks-service';
 
 function responseCapture() {
   let statusCode = 0;
@@ -72,7 +74,7 @@ describe('Codex runtime retirement boundary', () => {
       schemaVersion: 1,
       sessionId: 'session-1',
       type: 'runtime.codex.command-accepted',
-      workspaceId: 'workspace-1'
+      workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     };
 
     await expect(service.acceptCodex({
@@ -81,6 +83,33 @@ describe('Codex runtime retirement boundary', () => {
       } as never,
       sessionId: 'session-1'
     }, message)).resolves.toBe(message);
+  });
+
+  test('initializes the canonical task service without awaiting retired Chat compatibility', async () => {
+    const neverSettles = new Promise<never>(() => {});
+    const runtime = createConfiguredCodexMachineTasksRuntime({
+      backend: {} as never,
+      database: {
+        async query() { return { rowCount: 0, rows: [] }; },
+        async transaction() { throw new Error('unused test transaction'); }
+      },
+      runtimeSessions: {
+        list: async () => [],
+        onCodexMessage: () => () => true,
+        dispatchCodex() {}
+      } as never,
+      sessionsRuntime: neverSettles,
+      taskStore: memoryStore(),
+      workspaceBindingStore: {
+        list: async () => [],
+        readWorkspace: async () => undefined
+      }
+    });
+    const result = await Promise.race([
+      runtime.then(() => 'ready' as const),
+      Bun.sleep(100).then(() => 'blocked' as const)
+    ]);
+    expect(result).toBe('ready');
   });
 
 });

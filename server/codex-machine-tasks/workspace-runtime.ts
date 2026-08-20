@@ -14,6 +14,7 @@ import type { MachineRecord, PhysicalMachineRecord } from '../../src/shared/proj
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
 import type { WorkspaceRuntimeSessionService } from '../workspace-runtime-session/service';
 import { generationNumber } from '../workspace-runtime-codex-host/validation';
+import { isWorkspaceRuntimeWorkspaceId } from '../../src/shared/workspace-runtime-session-api';
 
 type RuntimeSnapshot = Awaited<ReturnType<WorkspaceRuntimeSessionService['list']>>[number];
 
@@ -121,7 +122,8 @@ export function createWorkspaceRuntimeCodexBridge(options: {
   async function runtime(userId: string, machineId: string) {
     const snapshots = await options.sessions.list(userId);
     const snapshot = snapshots.find((candidate) => runtimeMachineId(candidate) === machineId);
-    if (!snapshot || snapshot.connectionState !== 'online' ||
+    if (!snapshot || !isWorkspaceRuntimeWorkspaceId(snapshot.workspaceId) ||
+        snapshot.connectionState !== 'online' ||
         !snapshot.capabilities.includes('runtime.codex.v1')) {
       throw new Error('The selected Workspace Runtime Codex capability is unavailable.');
     }
@@ -301,6 +303,7 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       }>();
       const environmentIds = new Set(computeInventory.environments.map(({ id }) => id));
       for (const snapshot of snapshots) {
+        if (!isWorkspaceRuntimeWorkspaceId(snapshot.workspaceId)) continue;
         snapshotOwnerByWorkspace.set(snapshot.workspaceId, userId);
         const machineId = runtimeMachineId(snapshot);
         const online = snapshot.connectionState === 'online' && snapshot.lifecycleState === 'running';

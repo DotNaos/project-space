@@ -166,7 +166,7 @@ describe('canonical Codex session executor', () => {
         environmentId: '11111111-1111-4111-8111-111111111111',
         issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
         repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
-        workspaceId: 'ws_0123456789abcdef01234567',
+        workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         worktreeId: 'worktree-763'
       },
       machineId,
@@ -189,7 +189,7 @@ describe('canonical Codex session executor', () => {
       'Repository: DotNaos/project-space (R_project-space)',
       'Branch: issue-763-dispatch',
       `Commit: ${'a'.repeat(40)}`,
-      'Managed workspace: ws_0123456789abcdef01234567; worktree: worktree-763'
+      'Managed workspace: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa; worktree: worktree-763'
     ].join('\n');
     const calls: string[] = [];
     const manager = {
@@ -236,7 +236,7 @@ describe('canonical Codex session executor', () => {
         environmentId: '11111111-1111-4111-8111-111111111111',
         issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
         repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
-        workspaceId: 'ws_0123456789abcdef01234567', worktreeId: 'worktree-763'
+        workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', worktreeId: 'worktree-763'
       },
       machineId,
       operationId: 'codex-ui:start:handoff-0002'

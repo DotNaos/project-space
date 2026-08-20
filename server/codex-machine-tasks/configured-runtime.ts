@@ -18,6 +18,7 @@ import type { WorkspaceRuntimeSessionService } from '../workspace-runtime-sessio
 import { PostgresTaskExecutionStore } from '../task-execution/execution-store';
 import type { CodexMachineTasksServiceOptions } from './contracts';
 import type { WorkspaceRuntimeCodexBridge } from './workspace-runtime';
+import type { TransactionalDatabaseQueryClient } from '../machine-connection-database-store';
 
 export interface ConfiguredCodexMachineTasksOptions {
   attachLeases?: CodexAttachLeaseStore;
@@ -27,6 +28,10 @@ export interface ConfiguredCodexMachineTasksOptions {
     'getGitHubRepositoryDetails' | 'getMachineRuntime'
   >;
   machineConnection?: Pick<MachineConnectionRuntime, 'resolveMachineCredentialIdentity'>;
+  /** Test seam for the already-authorized database boundary. */
+  database?: TransactionalDatabaseQueryClient;
+  taskStore?: CodexMachineTasksServiceOptions['store'];
+  workspaceBindingStore?: Pick<PostgresTaskExecutionStore, 'list' | 'readWorkspace'>;
   sessionsRuntime?: Promise<CodexSessionsRuntime>;
   runtimeSessions?: WorkspaceRuntimeSessionService;
 }
@@ -119,8 +124,8 @@ export async function createConfiguredCodexMachineTasksRuntime(
   options: ConfiguredCodexMachineTasksOptions
 ): Promise<ConfiguredCodexMachineTasksRuntime> {
   if (!options.runtimeSessions) throw new CodexMachineTasksRetiredError();
-  const database = await getCodexSessionsDatabaseClient();
-  const taskExecutions = new PostgresTaskExecutionStore(database);
+  const database = options.database ?? await getCodexSessionsDatabaseClient();
+  const taskExecutions = options.workspaceBindingStore ?? new PostgresTaskExecutionStore(database);
   const bridge = createWorkspaceRuntimeCodexBridge({
     loadInventory: async (userId) => {
       if (!isDatabaseConfigured()) {
@@ -153,18 +158,19 @@ export async function createConfiguredCodexMachineTasksRuntime(
     }
   });
   // The canonical Environment/Workspace Runtime start path must not depend on
-  // the deferred Chat sessions compatibility runtime. Keep that runtime lazy
-  // and report it as unavailable to its downstream callers when it rejects.
-  let sessions: CodexSessionsRuntime;
-  try {
-    sessions = await (options.sessionsRuntime ?? createConfiguredCodexSessionsRuntime());
-  } catch {
-    sessions = unavailableCodexSessionsRuntime();
-  }
+  // the deferred Chat sessions compatibility runtime. Keep that runtime lazy:
+  // a rejected or never-settling compatibility promise must not delay service
+  // construction, while downstream compatibility callers still get the real
+  // runtime if it eventually becomes available.
+  const compatibility = Promise.resolve(
+    options.sessionsRuntime ?? createConfiguredCodexSessionsRuntime()
+  ).catch(() => unavailableCodexSessionsRuntime());
+  void compatibility.catch(() => undefined);
+  const sessions = createLazyCodexSessionsRuntime(compatibility);
   const service = createConfiguredCodexMachineTasksService({
     bridge,
     issue: createCodexMachineTaskIssueProvider(options.backend),
-    store: new PostgresCodexMachineTasksStore(database),
+    store: options.taskStore ?? new PostgresCodexMachineTasksStore(database),
     taskUrl: (machineId, threadId) => {
       const origin = (process.env.PROJECT_SPACE_PUBLIC_URL ?? 'https://projects.os-home.net').replace(/\/$/, '');
       return `${origin}/codex/machines/${encodeURIComponent(machineId)}/threads/${encodeURIComponent(threadId)}`;
@@ -180,5 +186,25 @@ function unavailableCodexSessionsRuntime(): CodexSessionsRuntime {
   return {
     handleRequest: async () => false,
     service: new Proxy({}, { get: () => unavailable }) as CodexSessionsRuntime['service']
+  };
+}
+
+export function createLazyCodexSessionsRuntime(
+  compatibility: Promise<CodexSessionsRuntime>
+): CodexSessionsRuntime {
+  const service = new Proxy({}, {
+    get(_target, property: string) {
+      return (...args: unknown[]) => compatibility.then((runtime) => {
+        const method = Reflect.get(runtime.service, property);
+        if (typeof method !== 'function') {
+          throw new Error('The deferred Codex Chat sessions runtime is unavailable.');
+        }
+        return Reflect.apply(method, runtime.service, args);
+      });
+    }
+  }) as CodexSessionsRuntime['service'];
+  return {
+    handleRequest: async (...args) => (await compatibility).handleRequest(...args),
+    service
   };
 }

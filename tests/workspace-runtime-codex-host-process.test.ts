@@ -19,7 +19,7 @@ test('runs the real host process over bounded private stdio without a listener',
     journalPath: join(directory, 'host-journal.json'),
     operationSnapshotPath: join(directory, 'codex-operations.json'),
     ownerUserId: 'user_owner',
-    workspaceId: 'ws_0123456789abcdef01234567'
+    workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   }), { mode: 0o600 });
   const child = spawn(process.execPath, [
     'server/workspace-runtime-codex-host/cli.ts',
@@ -47,7 +47,7 @@ test('runs the real host process over bounded private stdio without a listener',
       generation: '22222222-2222-4222-8222-222222222222', kind: 'runtime-start',
       operationId: 'operation.start', request: { operationId: 'operation.start' },
       schemaVersion: 1, sessionId: 'socket-one', type: 'runtime.codex.command',
-      workspaceId: 'ws_0123456789abcdef01234567'
+      workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     },
     type: 'controller.command'
   })}\n`);

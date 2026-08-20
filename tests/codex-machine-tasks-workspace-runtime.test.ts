@@ -7,7 +7,7 @@ import { createWorkspaceRuntimeCodexBridge } from '../server/codex-machine-tasks
 import { generationNumber } from '../server/workspace-runtime-codex-host/validation';
 
 const userId = 'user-owner';
-const workspaceId = 'workspace-1';
+const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const environmentId = 'environment-1';
 const branch = 'issue-763-dispatch';
 const commit = 'a'.repeat(40);

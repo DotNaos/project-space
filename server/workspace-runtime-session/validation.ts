@@ -4,6 +4,7 @@ import {
   workspaceRuntimeMutationCapability,
   workspaceRuntimeReadyCapabilities,
   workspaceRuntimeSessionSchemaVersion,
+  isWorkspaceRuntimeWorkspaceId,
   type WorkspaceRuntimeBaseCapability,
   type WorkspaceRuntimeReadyCapability,
   type WorkspaceRuntimeCredentialRequest,
@@ -23,7 +24,6 @@ import {
 import { RuntimeSessionError } from './contracts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const workspace = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const digest = /^[a-f0-9]{64}$/;
 const commit = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const eventId = /^[A-Za-z0-9:._-]{1,128}$/;
@@ -37,7 +37,7 @@ const readyCapabilitySet = new Set<string>([
 export function validateCredentialIssue(input: IssueRuntimeCredentialInput) {
   const expiresInSeconds = input.expiresInSeconds ?? 300;
   if (!input.ownerUserId.trim() || input.ownerUserId.length > 256 ||
-    !workspace.test(input.workspaceId) || !uuid.test(input.environmentId) || !uuid.test(input.generation) ||
+    !isWorkspaceRuntimeWorkspaceId(input.workspaceId) || !uuid.test(input.environmentId) || !uuid.test(input.generation) ||
     !commit.test(input.commit) || !digest.test(input.manifestDigest) ||
     !/^[A-Za-z0-9:._-]{1,256}$/.test(input.operationId) ||
     !Number.isSafeInteger(expiresInSeconds) || expiresInSeconds < 30 || expiresInSeconds > 3_600) invalid();
@@ -60,7 +60,7 @@ export function parseCredentialRequest(value: unknown): WorkspaceRuntimeCredenti
   exactKeys(input, ['capabilities', 'environmentId', 'expiresInSeconds', 'generation', 'workspaceId'], ['expiresInSeconds']);
   const capabilities = parseCapabilities(input.capabilities);
   if (!uuid.test(string(input.environmentId)) || !uuid.test(string(input.generation)) ||
-    !workspace.test(string(input.workspaceId))) invalid();
+    !isWorkspaceRuntimeWorkspaceId(string(input.workspaceId))) invalid();
   if (input.expiresInSeconds !== undefined &&
     (!Number.isSafeInteger(input.expiresInSeconds) || Number(input.expiresInSeconds) < 30 || Number(input.expiresInSeconds) > 3_600)) invalid();
   return {
@@ -90,7 +90,7 @@ export function parseRegistration(value: unknown): WorkspaceRuntimeRegistration 
     !optionalSequence(input.resumeAfterControlCommandSequence) ||
     !optionalSequence(input.resumeAfterControlEventSequence) ||
     !uuid.test(string(input.environmentId)) ||
-    !uuid.test(string(input.generation)) || !workspace.test(string(input.workspaceId)) ||
+    !uuid.test(string(input.generation)) || !isWorkspaceRuntimeWorkspaceId(string(input.workspaceId)) ||
     !digest.test(string(input.manifestDigest)) || !commit.test(string(input.commit))) invalid();
   const readyCapabilities = input.readyCapabilities === undefined
     ? undefined
