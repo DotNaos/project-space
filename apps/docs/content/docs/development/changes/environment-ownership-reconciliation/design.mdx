@@ -48,8 +48,9 @@ returns built-in `a`, user-defined `x`, maps only the deployment reference to `a
 the user reference to `x`. The duplicate user slug remains a reported inventory violation.
 
 The configured runtime only projects a physical Host when the Environment has verified or
-manual evidence resolving to exactly one Host. Unresolved, conflicting, wrong-owner, and
-missing evidence remain unavailable through the service and HTTP route.
+manual evidence resolving to exactly one Host. The supported start and send path retains that
+same selected Host and Environment; unresolved, deployment-only, duplicate same-UUID, and
+missing evidence remain unavailable through the configured service.
 
 ## Risks and mitigations
 
@@ -59,7 +60,7 @@ missing evidence remain unavailable through the service and HTTP route.
   return.
 - **Hidden ambiguity:** existing duplicate violations remain visible and fail-closed.
 - **Fabricated target:** configured runtime projection requires exact owner-valid Host evidence;
-  otherwise the route returns the existing actionable unavailable result.
+  otherwise the service returns the existing actionable unavailable result before dispatch.
 
 ## Migration and rollout
 
@@ -70,5 +71,7 @@ the combined inventory; existing persisted migration and projection boundaries r
 
 - Focused model and repository regressions cover the canonical `a`, deployment `x`, and
   user-defined `x` collision.
+- The configured start/send regression captures the exact Host and Environment command boundary
+  and proves deployment-only and duplicate same-UUID evidence fail closed.
 - Type checking, the full Bun test suite, and the project/prototype build pass locally.
 - The exact pull-request head is checked by the repository preflight before push.

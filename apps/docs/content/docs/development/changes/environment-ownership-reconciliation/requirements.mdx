@@ -29,23 +29,26 @@ canonicalization.
 
 ### ENV-ROUTE-001 — Configured Host selection MUST remain evidence-based
 
-The configured Codex service and HTTP route MUST select a physical Host only from valid
-persisted Environment evidence and MUST report an actionable unavailable state otherwise.
+The configured Codex service MUST select and retain a physical Host only from valid persisted
+Environment evidence for both task start and subsequent message send, and MUST report an
+actionable unavailable state otherwise.
 
 #### Scenario: Verified exact Host evidence is available
 
 - **Given** a configured native macOS Environment has verified Host evidence for the exact
   Host `24000000-0000-4000-8000-000000000002` named `os-macbook`
-- **When** the configured `/api/codex/tasks/start` route receives that exact Host selector
-- **Then** the dry-run is ready and returns that Host as the selected physical machine
+- **When** a supported task start receives that exact Host selector and the resulting task sends
+  a message through the configured service
+- **Then** both operations use the same owner-bound Environment, the send is accepted, and the
+  selected physical machine remains that exact Host
 
 #### Scenario: Host evidence is unresolved or missing
 
-- **Given** the configured Environment has unresolved, conflicting, wrong-owner, or missing
-  Host evidence
-- **When** the configured start route receives the Host selector
-- **Then** the request is blocked with `Select one exact physical machine.` and no Host is
-  fabricated
+- **Given** the configured Environment has deployment-only evidence or duplicate same-UUID Host
+  evidence across owner scopes
+- **When** the configured start service receives the user-owned Host selector
+- **Then** the request is blocked with `Select one exact physical machine.` and no start or send
+  dispatch is attempted
 
 ## CHANGED Requirements
 
