@@ -1,0 +1,30 @@
+---
+title: Verification
+description: Evidence and final reconciliation for canonical Codex dispatch.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+CODEX-DISPATCH is covered by the Workspace Runtime bridge, dry-run branch-write guard,
+runtime cwd normalization, and canonical Environment selector support. CODEX-RECONCILIATION
+is covered by the existing durable Task Execution and machine-task reservation tests,
+plus the runtime-boundary unavailable response.
+
+The start API records the authenticated caller's caller-supplied initiating-task
+evidence and never infers Project Manager ownership from the thread header. It does
+not automatically report or hand off based on that UUID. The #819 local `worktree
+context` gate must prove the main/Project Manager context before invoking dispatch;
+this service preserves the initiating evidence for user-scoped durability.
+
+## Final reconciliation
+
+- [x] Requirements and canonical Environment boundaries are represented in the contract
+- [x] Runtime bridge and dry-run safety are implemented
+- [x] Focused Bun and Go tests pass on the current revision
+- [ ] Changed-path preflight is green on the exact pull-request revision
+- [ ] Project Manager review and delivery are complete
+
+The remaining checks are pull-request delivery gates; no production deployment or merge
+has been performed by this task.

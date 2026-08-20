@@ -1,0 +1,28 @@
+---
+title: Tasks
+description: Implementation and verification checklist for canonical Codex dispatch.
+---
+
+## 1. Canonical runtime path
+
+- [x] 1.1 Replace the configured Codex task 410 boundary with a lazy canonical runtime handler
+  - **Evidence:** `server/codex-machine-tasks/configured-runtime.ts` wires the service only with database and Workspace Runtime dependencies and returns sanitized 503 otherwise.
+- [x] 1.2 Bridge typed Workspace Runtime Codex commands and correlate responses
+  - **Evidence:** `server/codex-machine-tasks/workspace-runtime.ts` and the session listener in `server/workspace-runtime-session/service.ts`.
+- [x] 1.3 Normalize the runtime start cwd and fence branch/commit mismatches
+  - **Evidence:** `server/workspace-runtime-codex-host/controller.ts` and the bridge start guard.
+
+## 2. Contract and safety
+
+- [x] 2.1 Keep dry-run issue preparation free of branch writes
+  - **Evidence:** `server/codex-machine-tasks/issue-provider.ts` and `tests/codex-machine-task-issue-provider.test.ts`.
+- [x] 2.2 Add canonical Environment selection to the Go client and CLI
+  - **Evidence:** `internal/codextask` and `cmd/project/codex.go` support `environmentId` and `--environment-id`.
+- [x] 2.3 Expose issue, base, workspace, worktree, thread, and operation identity
+  - **Evidence:** `src/shared/codex-machine-tasks-api.ts` and the service start result.
+
+## 3. Verification and delivery
+
+- [x] 3.1 Run focused Bun and Go tests
+  - **Evidence:** Codex machine-task HTTP/service, Task Execution, runtime-boundary, issue-provider, Go client, and CLI suites pass locally.
+- [ ] 3.2 Run changed-path preflight and complete pull-request review

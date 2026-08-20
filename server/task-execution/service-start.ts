@@ -194,6 +194,17 @@ export function createTaskExecutionStarter(
       });
       return readResult(actor, executionId, request.operationId);
       }
+      if (!started.task.worktree) {
+      execution = await move(
+        dependencies, execution, 'uncertain', now(),
+        'The Codex start did not return a verified Project-managed worktree binding.'
+      );
+      await dependencies.operations.transition({
+        action: 'start_task_execution', executionId, fingerprint,
+        operationId: request.operationId, ownerUserId: actor.userId, state: 'uncertain'
+      });
+      return readResult(actor, executionId, request.operationId);
+      }
       const targetEnvironmentId = started.task.environment?.id;
       if (targetEnvironmentId && targetEnvironmentId !== execution.environmentId) {
       throw new TaskExecutionConflictError('The executor started in a different Environment.');

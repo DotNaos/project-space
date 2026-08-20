@@ -32,12 +32,16 @@ const staleAfterSeconds = 45;
 
 interface ActiveConnection {
   connection: RuntimeSessionConnection;
+  codexAcceptedCommandSequence: number;
   scope: RuntimeCredentialScope;
   sessionId: string;
 }
 
 export class WorkspaceRuntimeSessionService {
   private readonly connections = new Map<string, ActiveConnection>();
+  private readonly codexListeners = new Set<(
+    message: WorkspaceRuntimeCodexMessage
+  ) => Promise<void> | void>();
   private readonly controlListeners = new Set<(
     message: WorkspaceRuntimeControlMessage
   ) => Promise<void> | void>();
@@ -75,7 +79,11 @@ export class WorkspaceRuntimeSessionService {
       const active = this.connections.get(workspaceKey(ownerUserId, snapshot.workspaceId));
       return active?.sessionId === snapshot.sessionId &&
         active.scope.generation === snapshot.generation
-        ? { ...snapshot, capabilities: [...active.scope.capabilities] }
+        ? {
+            ...snapshot,
+            capabilities: [...active.scope.capabilities],
+            codexAcceptedCommandSequence: active.codexAcceptedCommandSequence
+          }
         : snapshot;
     });
   }
@@ -132,7 +140,13 @@ export class WorkspaceRuntimeSessionService {
     };
     const key = workspaceKey(scope.ownerUserId, scope.workspaceId);
     const previous = this.connections.get(key);
-    this.connections.set(key, { connection, scope: activeScope, sessionId });
+    const codexAcceptedCommandSequence = registration.resumeAfterCodexCommandSequence ?? 0;
+    this.connections.set(key, {
+      codexAcceptedCommandSequence,
+      connection,
+      scope: activeScope,
+      sessionId
+    });
     if (previous && previous.connection !== connection) {
       previous.connection.close(1012, 'Workspace Runtime session replaced.');
     }
@@ -145,7 +159,11 @@ export class WorkspaceRuntimeSessionService {
       replayed: false,
       schemaVersion: workspaceRuntimeSessionSchemaVersion,
       sessionId,
-      snapshot: { ...result.snapshot, capabilities: [...activeScope.capabilities] },
+      snapshot: {
+        ...result.snapshot,
+        capabilities: [...activeScope.capabilities],
+        codexAcceptedCommandSequence
+      },
       staleAfterSeconds,
       type: 'runtime.registered'
     };
@@ -177,14 +195,27 @@ export class WorkspaceRuntimeSessionService {
     return { response, stopped: result.snapshot.lifecycleState === 'stopped' };
   }
 
-  acceptCodex(
+  async acceptCodex(
     active: { scope: RuntimeCredentialScope; sessionId: string },
     message: WorkspaceRuntimeCodexMessage
   ) {
     if (!active.scope.capabilities.includes('runtime.codex.v1')) {
       throw new RuntimeSessionError('invalid_message', 'Workspace Runtime Codex authority is unavailable.');
     }
+    const connection = this.connections.get(workspaceKey(active.scope.ownerUserId, active.scope.workspaceId));
+    if (message.type === 'runtime.codex.command-accepted' &&
+        connection?.sessionId === active.sessionId &&
+        message.acceptedCommandSequence === message.commandSequence &&
+        message.commandSequence > connection.codexAcceptedCommandSequence) {
+      connection.codexAcceptedCommandSequence = message.commandSequence;
+    }
+    for (const listener of this.codexListeners) await listener(message);
     return message;
+  }
+
+  onCodexMessage(listener: (message: WorkspaceRuntimeCodexMessage) => Promise<void> | void) {
+    this.codexListeners.add(listener);
+    return () => this.codexListeners.delete(listener);
   }
 
   async acceptControl(
@@ -276,6 +307,7 @@ export class WorkspaceRuntimeSessionService {
       active.connection.close(1001, 'Project Space is shutting down.');
     }
     this.connections.clear();
+    this.codexListeners.clear();
     this.controlListeners.clear();
     this.controlRegistrationListeners.clear();
   }

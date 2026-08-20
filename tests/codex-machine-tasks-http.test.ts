@@ -149,6 +149,65 @@ describe('Codex machine-task HTTP boundary', () => {
     }]);
   });
 
+  test('rejects a non-boolean dryRun before invoking the service', async () => {
+    const { calls, stub } = service();
+    const origin = await startApi(stub);
+    const response = await fetch(`${origin}/api/codex/tasks/start`, mutation('start-malformed-dry-run', {
+      dryRun: 'true',
+      issue: 262,
+      physicalMachineId: 'physical-pc',
+      repositoryId: 'R_repo'
+    }));
+
+    expect(response.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  test('rejects an environment and physical-machine selector combination', async () => {
+    const { calls, stub } = service();
+    const origin = await startApi(stub);
+    const response = await fetch(`${origin}/api/codex/tasks/start`, mutation('start-conflicting-selector', {
+      environmentId: 'environment-local',
+      issue: 262,
+      physicalMachineId: 'physical-pc',
+      repositoryId: 'R_repo'
+    }));
+
+    expect(response.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  test('passes the complete read-only start plan through the HTTP response', async () => {
+    const { calls, stub } = service();
+    stub.start = async (_actor, request) => ({
+      apiVersion: 1,
+      operationId: request.operationId,
+      plan: {
+        base: { branch: 'issue-262', commit: 'a'.repeat(40) },
+        environment: { id: 'environment-local', name: 'Local Environment' },
+        issue: { number: request.issue, url: 'https://github.com/DotNaos/project-space/issues/262' },
+        operation: { id: request.operationId, state: 'ready' },
+        repository: { id: 'R_repo', nameWithOwner: 'DotNaos/project-space' },
+        workspace: { branch: 'issue-262', commit: 'a'.repeat(40), id: 'workspace-local' }
+      },
+      state: 'ready',
+      target: { connector: { generation: 1, id: 'connector-wsl', name: 'WSL' },
+        environment: { id: 'environment-local', name: 'Local Environment' },
+        physicalMachine: { id: 'environment-local', name: 'Local Environment' } }
+    });
+    const origin = await startApi(stub);
+    const response = await fetch(`${origin}/api/codex/tasks/start`, mutation('start-plan', {
+      dryRun: true,
+      environmentId: 'environment-local',
+      issue: 262,
+      repositoryId: 'R_repo'
+    }));
+    const body = await response.json() as { plan?: { workspace?: { id?: string } } };
+    expect(response.status).toBe(200);
+    expect(body.plan?.workspace?.id).toBe('workspace-local');
+    expect(calls).toEqual([]);
+  });
+
   test('passes the exact original start request to explicit recovery', async () => {
     const { calls, stub } = service();
     const origin = await startApi(stub);

@@ -1,5 +1,13 @@
 export const workspaceRuntimeSessionSchemaVersion = 1 as const;
 
+/** Canonical managed Workspace identity shared by Runtime and Codex host wire contracts. */
+export const workspaceRuntimeWorkspaceIdPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function isWorkspaceRuntimeWorkspaceId(value: unknown): value is string {
+  return typeof value === 'string' && workspaceRuntimeWorkspaceIdPattern.test(value);
+}
+
 export const workspaceRuntimeBaseCapabilities = [
   'runtime.lifecycle',
   'runtime.heartbeat',
@@ -133,6 +141,8 @@ export type WorkspaceRuntimeEvent =
 export interface WorkspaceRuntimeSessionSnapshot {
   branch: string;
   capabilities: WorkspaceRuntimeCapability[];
+  /** Authoritative Codex host command watermark supplied during registration. */
+  codexAcceptedCommandSequence?: number;
   commit: string;
   connectionState: WorkspaceRuntimeConnectionState;
   devServers: WorkspaceRuntimeDevServer[];

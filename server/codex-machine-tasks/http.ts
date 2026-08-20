@@ -6,20 +6,26 @@ import type {
   CodexMachineTaskSendRequest,
   CodexMachineTaskStartRequest
 } from '../../src/shared/codex-machine-tasks-api';
+import type { CodexMachineTaskReportingTask } from '../../src/shared/codex-machine-tasks-api';
 import { CODEX_MACHINE_TASKS_API_VERSION } from '../../src/shared/codex-machine-tasks-api';
 import {
   CODEX_OPERATION_ID_PATTERN,
   CODEX_THREAD_ID_PATTERN
 } from '../../src/shared/codex-sessions-api';
+import { CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN } from '../../src/shared/codex-machine-tasks-api';
 import { writeJson } from '../project-space-http-response';
 import { CodexMachineTasksAuthError } from './auth-context';
-import { codexAttachToken, CodexMachineTasksConflictError } from './service';
+import {
+  codexAttachToken,
+  CodexMachineTasksConflictError,
+  CodexMachineTasksInputError
+} from './service';
 
 const maximumBodyBytes = 32 * 1024;
 const safeSelector = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 
 export interface CodexMachineTasksHttpService {
-  attach(actor: { callerMachineId?: string; userId: string }, request: {
+  attach(actor: { callerMachineId?: string; reportingTask?: CodexMachineTaskReportingTask; userId: string }, request: {
     connectorId?: string;
     environmentId?: string;
     operationId: string;
@@ -31,10 +37,10 @@ export interface CodexMachineTasksHttpService {
   read(actor: { userId: string }, request: CodexMachineTaskReadRequest): Promise<unknown>;
   send(actor: { userId: string }, request: CodexMachineTaskSendRequest): Promise<unknown>;
   recoverStart(
-    actor: { callerMachineId?: string; userId: string },
+    actor: { callerMachineId?: string; reportingTask?: CodexMachineTaskReportingTask; userId: string },
     request: CodexMachineTaskStartRequest
   ): Promise<unknown>;
-  start(actor: { callerMachineId?: string; userId: string }, request: CodexMachineTaskStartRequest): Promise<unknown>;
+  start(actor: { callerMachineId?: string; reportingTask?: CodexMachineTaskReportingTask; userId: string }, request: CodexMachineTaskStartRequest): Promise<unknown>;
   stream(
     actor: { userId: string },
     request: CodexMachineTaskReadRequest & { afterSequence?: number },
@@ -54,6 +60,7 @@ export function createCodexMachineTasksHttpApi(
   service: CodexMachineTasksHttpService,
   resolveActor: (request: IncomingMessage) => Promise<{
     callerMachineId?: string;
+    reportingTask?: CodexMachineTaskReportingTask;
     userId: string;
   }>
 ): CodexMachineTasksHttpHandler {
@@ -78,10 +85,11 @@ export function createCodexMachineTasksHttpApi(
         requireIdempotency(request, operationId);
         const issue = Number(body.issue);
         if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
+        const dryRun = parseDryRun(body);
+        const selector = startSelectorFromBody(body);
         writeJson(response, 200, await service.start(actor, {
-          connectorId: optionalSelector(body.connectorId),
-          environmentId: optionalSelector(body.environmentId),
-          dryRun: body.dryRun === true,
+          ...selector,
+          dryRun,
           expectedBranch: optionalSelector(body.expectedBranch),
           expectedCommit: optionalCommit(body.expectedCommit),
           expectedPullRequestNumber: optionalPositiveInteger(
@@ -89,9 +97,9 @@ export function createCodexMachineTasksHttpApi(
             'Pull request must be positive.'
           ),
           issue,
+          model: optionalWorkerSelector(body.model, 'Model'),
           operationId,
-          physicalMachineId: optionalSelector(body.physicalMachineId),
-          physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
+          reasoningEffort: optionalWorkerSelector(body.reasoningEffort, 'Reasoning effort'),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -102,10 +110,11 @@ export function createCodexMachineTasksHttpApi(
         requireIdempotency(request, operationId);
         const issue = Number(body.issue);
         if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
+        const dryRun = parseDryRun(body);
+        const selector = startSelectorFromBody(body);
         writeJson(response, 200, await service.recoverStart(actor, {
-          connectorId: optionalSelector(body.connectorId),
-          environmentId: optionalSelector(body.environmentId),
-          dryRun: body.dryRun === true,
+          ...selector,
+          dryRun,
           expectedBranch: optionalSelector(body.expectedBranch),
           expectedCommit: optionalCommit(body.expectedCommit),
           expectedPullRequestNumber: optionalPositiveInteger(
@@ -113,9 +122,9 @@ export function createCodexMachineTasksHttpApi(
             'Pull request must be positive.'
           ),
           issue,
+          model: optionalWorkerSelector(body.model, 'Model'),
           operationId,
-          physicalMachineId: optionalSelector(body.physicalMachineId),
-          physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
+          reasoningEffort: optionalWorkerSelector(body.reasoningEffort, 'Reasoning effort'),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -188,6 +197,10 @@ export function createCodexMachineTasksHttpApi(
       } else if (error instanceof CodexMachineTasksConflictError) {
         writeJson(response, 409, {
           error: { code: 'operation_conflict', message: error.message }
+        });
+      } else if (error instanceof CodexMachineTasksInputError) {
+        writeJson(response, 400, {
+          error: { code: 'invalid_request', message: error.message }
         });
       } else if (error instanceof HttpError) {
         writeJson(response, error.statusCode, {
@@ -262,7 +275,7 @@ async function stream(
 }
 
 function selectorFromUrl(url: URL, threadId: string): CodexMachineTaskReadRequest {
-  return {
+  const selector = {
     connectorId: optionalSelector(url.searchParams.get('connectorId') ?? undefined),
     environmentId: optionalSelector(url.searchParams.get('environmentId') ?? undefined),
     physicalMachineId: optionalSelector(url.searchParams.get('physicalMachineId') ?? undefined),
@@ -271,16 +284,47 @@ function selectorFromUrl(url: URL, threadId: string): CodexMachineTaskReadReques
     ),
     threadId
   };
+  validateSelectorConflict(selector);
+  return selector;
 }
 
 function selectorFromBody(body: Record<string, unknown>, threadId: string) {
-  return {
+  const selector = {
     connectorId: optionalSelector(body.connectorId),
     environmentId: optionalSelector(body.environmentId),
     physicalMachineId: optionalSelector(body.physicalMachineId),
     physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
     threadId
   };
+  validateSelectorConflict(selector);
+  return selector;
+}
+
+function startSelectorFromBody(body: Record<string, unknown>) {
+  const selector = selectorFromBody(body, '');
+  return {
+    connectorId: selector.connectorId,
+    ...(selector.environmentId ? { environmentId: selector.environmentId } : {}),
+    physicalMachineId: selector.physicalMachineId,
+    physicalMachineName: selector.physicalMachineName
+  };
+}
+
+function validateSelectorConflict(selector: {
+  environmentId?: string;
+  physicalMachineId?: string;
+  physicalMachineName?: string;
+}) {
+  if (selector.environmentId && (selector.physicalMachineId || selector.physicalMachineName)) {
+    throw invalid('environmentId cannot be combined with a physical machine selector.');
+  }
+}
+
+function parseDryRun(body: Record<string, unknown>) {
+  if (Object.prototype.hasOwnProperty.call(body, 'dryRun') && typeof body.dryRun !== 'boolean') {
+    throw invalid('dryRun must be a boolean.');
+  }
+  return body.dryRun === true;
 }
 
 async function readBody(request: IncomingMessage) {
@@ -305,6 +349,14 @@ function optionalSelector(value: unknown) {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || !safeSelector.test(value)) throw invalid('Target selector is invalid.');
   return value;
+}
+
+function optionalWorkerSelector(value: unknown, label: string) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(value.trim())) {
+    throw invalid(`${label} is invalid.`);
+  }
+  return value.trim();
 }
 
 function delivery(value: unknown) {

@@ -1,0 +1,63 @@
+---
+title: Design
+description: Design for canonical Environment-backed Codex task dispatch.
+---
+
+## Context
+
+Task Execution already owns issue preparation, Environment selection, workspace
+preparation, persistence, and retry state. Workspace Runtime already exposes a typed
+Codex command channel. The retired machine-task HTTP layer still provides the CLI and
+task-page contract, so it is adapted to the canonical runtime rather than restored as a
+Connector transport.
+
+## Goals and non-goals
+
+The goal is a reliable, observable, and retry-safe start through the canonical
+Environment and its assigned runtime. The change does not add a second runtime protocol,
+restore Connector targeting, or change provider authentication.
+
+The start path is intentionally self-contained: it sends the issue handoff and initial
+turn through the typed Workspace Runtime Codex command. It does not claim to replace the
+general Chat transport (read/send, approvals, user input, interrupts, or stream/wait
+terminal-event forwarding). Those capabilities remain a downstream boundary for #724 and
+#726; this change must not rely on the retired sessions runtime or general stream wait.
+
+## Architecture
+
+The configured HTTP handler lazily creates the existing machine-task service only when a
+database and Workspace Runtime session service are available. Its bridge projects live
+runtime sessions into private compatibility records for the service's readiness model,
+while request selection remains `environmentId`. Commands cross the typed runtime
+channel and responses are correlated by session and operation ID.
+
+Task identity responses carry the issue, Environment, base commit/branch, workspace and
+worktree identity, thread ID, and operation state. Runtime generation and durable store
+reservations fence retries. Dry-run issue preparation refuses branch creation.
+
+## Decisions
+
+- Connector-shaped records are internal adapters only; callers use Environment IDs.
+- A runtime branch/commit mismatch blocks the start rather than opening the wrong folder.
+
+## Risks and mitigations
+
+- **Runtime disconnects during start:** return a sanitized unavailable or uncertain state
+  and preserve the operation reservation for reconciliation.
+- **Wrong workspace identity:** compare runtime branch and commit before dispatching.
+- **Credential leakage:** return only bounded, generic error messages.
+
+## Migration and rollout
+
+No data migration is needed. Existing Task Execution records remain authoritative, and
+the HTTP adapter is enabled only when the database and Workspace Runtime are available.
+The pull request is the rollout surface; production deployment remains outside this task.
+
+## Runtime decision
+
+The runtime host resolves the relative compatibility cwd to its own managed workspace.
+
+## Validation
+
+Run the focused Codex machine-task, Task Execution, runtime-boundary, issue-provider,
+Go client, and CLI tests. Run the changed-path preflight before opening the pull request.

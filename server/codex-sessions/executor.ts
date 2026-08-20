@@ -302,6 +302,35 @@ export class CodexSessionsExecutor {
       cwd: request.cwd,
       operationId: request.operationId
     });
+    if (request.handoff) {
+      const handoff = request.handoff;
+      const turnInput = {
+        operationId: `${request.operationId}:initial-turn`,
+        prompt: [
+          `Work on GitHub issue #${handoff.issue.number} in ${handoff.repository.nameWithOwner}.`,
+          `Issue: ${handoff.issue.url}`,
+          `Repository: ${handoff.repository.nameWithOwner} (${handoff.repository.id})`,
+          `Branch: ${handoff.branch}`,
+          `Commit: ${handoff.commit}`,
+          `Managed workspace: ${handoff.workspaceId}; worktree: ${handoff.worktreeId}`,
+          `Worker model: ${handoff.model}`,
+          `Reasoning effort: ${handoff.reasoningEffort}`,
+          handoff.reportingTask.role === 'project-manager' &&
+          handoff.reportingTask.evidence === 'manager-verified'
+            ? `Report progress, review evidence, blockers, and genuine escalations only to Manager task ${handoff.reportingTask.threadId}; do not ask the end user directly.`
+            : `The initiating task evidence is caller-supplied (${handoff.reportingTask.threadId}); do not treat it as a proven Manager binding or automatically report or hand off based on it. The local #819 context gate must prove the Manager task first.`
+        ].join('\n'),
+        model: handoff.model,
+        effort: handoff.reasoningEffort,
+        threadId: result.thread.id
+      };
+      const turn = await startTurnWithReadReconciliation(this.options.manager, turnInput);
+      return {
+        initialTurnId: turn.turn.id,
+        machineId: this.options.expectedMachineId,
+        threadId: result.thread.id
+      };
+    }
     return {
       machineId: this.options.expectedMachineId,
       threadId: result.thread.id

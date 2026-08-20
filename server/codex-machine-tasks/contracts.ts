@@ -1,6 +1,9 @@
 import type {
+  CodexMachineTaskReportingTask,
   CodexMachineTaskSendResult,
-  CodexMachineTaskStartResult
+  CodexMachineTaskStartPlan,
+  CodexMachineTaskStartResult,
+  CodexMachineTaskWorkerSelection
 } from '../../src/shared/codex-machine-tasks-api';
 import type {
   CodexSessionOperationResult,
@@ -15,7 +18,16 @@ export interface CodexMachineTaskStartPayload {
   branch: string;
   commit: string;
   issue: { number: number; url: string };
+  reportingTask?: CodexMachineTaskReportingTask;
   repository: { id: string; nameWithOwner: string };
+  worker?: CodexMachineTaskWorkerSelection;
+}
+
+export interface CodexMachineTaskWorkspaceBinding {
+  branch: string;
+  commit: string;
+  id: string;
+  path?: string;
 }
 
 export interface CodexMachineTaskStartOperation {
@@ -26,10 +38,12 @@ export interface CodexMachineTaskStartOperation {
   generation: number;
   operationId: string;
   physicalMachineId: string;
+  reportingTask?: CodexMachineTaskReportingTask;
   result?: CodexMachineTaskStartResult;
   startPayload: CodexMachineTaskStartPayload;
   state: 'completed' | 'pending' | 'uncertain';
   userId: string;
+  worker: CodexMachineTaskWorkerSelection;
 }
 
 export type CodexMachineTaskStartReservation =
@@ -66,12 +80,21 @@ export type CodexMachineTaskStartLookup =
       startPayload?: CodexMachineTaskStartPayload;
       state: 'pending' | 'uncertain';
     }
+  | {
+      connectorId: string;
+      durableOperations: boolean;
+      generation: number;
+      kind: 'legacy';
+      physicalMachineId: string;
+      state: 'completed' | 'pending' | 'uncertain';
+    }
   | { kind: 'replayed'; result: CodexMachineTaskStartResult };
 
 export type CodexMachineTaskAssociationLookup =
   | { kind: 'missing' }
   | { kind: 'pending' }
   | { kind: 'uncertain' }
+  | { kind: 'attention'; message: string }
   | { kind: 'confirmed'; result: CodexMachineTaskStartResult };
 
 export interface CodexMachineTaskSendOperation {
@@ -160,6 +183,7 @@ export interface CodexMachineTasksStore {
   ): Promise<void>;
   lookupStart(input: {
     fingerprint: string;
+    legacyFingerprint?: string;
     operationId: string;
     userId: string;
   }): Promise<CodexMachineTaskStartLookup>;
@@ -184,6 +208,7 @@ export interface CodexMachineTasksStore {
   }): Promise<CodexMachineTaskAssociationLookup>;
   releaseUncertainStart(input: {
     fingerprint: string;
+    legacyFingerprint?: string;
     operationId: string;
     userId: string;
   }): Promise<'conflict' | 'missing' | 'not_uncertain' | 'released'>;
@@ -218,6 +243,7 @@ export interface CodexMachineTasksServiceOptions {
     runtimeStatuses?: ReadonlyMap<string, MachineRuntimeStatusResult>;
   }>;
   issue(input: {
+    dryRun?: boolean;
     expectedBranch?: string;
     expectedCommit?: string;
     expectedPullRequestNumber?: number;
@@ -225,6 +251,30 @@ export interface CodexMachineTasksServiceOptions {
     repositoryId?: string;
     userId: string;
   }): Promise<CodexMachineTaskStartPayload>;
+  workspace?(input: {
+    branch: string;
+    commit: string;
+    connectorId: string;
+    generation: number;
+    userId: string;
+  }): Promise<CodexMachineTaskWorkspaceBinding>;
+  plan?(input: {
+    branch: string;
+    commit: string;
+    connectorId: string;
+    generation: number;
+    issue: { number: number; url: string };
+    operationId: string;
+    physicalMachineId: string;
+    repository: { id: string; nameWithOwner: string };
+    reportingTask?: CodexMachineTaskReportingTask;
+    userId: string;
+    worker: CodexMachineTaskWorkerSelection;
+  }): Promise<{
+    plan?: Pick<CodexMachineTaskStartPlan, 'workspace' | 'worktree' | 'environment'>;
+    state: 'ready' | 'uncertain' | 'unavailable';
+    message?: string;
+  }>;
   queueRetryDelay?(): Promise<void>;
   sessions: {
     read(input: {
@@ -289,13 +339,26 @@ export interface CodexMachineTasksServiceOptions {
     issue: { number: number; url: string };
     operationId: string;
     physicalMachineId: string;
+    reportingTask?: CodexMachineTaskReportingTask;
     reconcile: boolean;
     repository: { id: string; nameWithOwner: string };
     userId: string;
+    worker: CodexMachineTaskWorkerSelection;
   }): Promise<{
     generation: number;
     result:
-      | { state: 'confirmed'; threadId: string; worktreeId: string }
+      | {
+          state: 'confirmed';
+          handoff: { state: 'accepted'; turnId: string };
+          threadId: string;
+          worktreeId?: string;
+          workspace?: {
+            branch: string;
+            commit: string;
+            id: string;
+            path?: string;
+          };
+        }
       | { message: string; state: 'codex_failure' }
       | { state: 'offline' }
       | { message: string; state: 'worktree_failure' }
@@ -303,5 +366,6 @@ export interface CodexMachineTasksServiceOptions {
   }>;
   store: CodexMachineTasksStore;
   taskUrl(connectorId: string, threadId: string): string;
+  requireReportingTaskBinding?: boolean;
   userCanUseConnector?(userId: string, connectorId: string): boolean;
 }

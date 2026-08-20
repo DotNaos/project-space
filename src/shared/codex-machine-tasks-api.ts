@@ -10,12 +10,55 @@ export const CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY =
 export const CODEX_RUNTIME_CONNECTOR_CAPABILITY = 'codex.runtime.v1';
 export const CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY =
   'codex.machine-tasks.durable-operations.v1';
+export const CODEX_MACHINE_TASK_DEFAULT_MODEL = 'gpt-5.6-luna';
+export const CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT = 'high';
+export const CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
+
+export function normalizeCodexMachineTaskWorker(input: {
+  model?: unknown;
+  reasoningEffort?: unknown;
+}): CodexMachineTaskWorkerSelection | undefined {
+  const model = typeof input.model === 'string' ? input.model.trim() : input.model;
+  const reasoningEffort = typeof input.reasoningEffort === 'string'
+    ? input.reasoningEffort.trim()
+    : input.reasoningEffort;
+  if (model !== undefined && model !== '' &&
+      (typeof model !== 'string' || !CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(model))) return undefined;
+  if (reasoningEffort !== undefined && reasoningEffort !== '' &&
+      (typeof reasoningEffort !== 'string' || !CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(reasoningEffort))) return undefined;
+  return {
+    model: model || CODEX_MACHINE_TASK_DEFAULT_MODEL,
+    reasoningEffort: reasoningEffort || CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT
+  };
+}
+
+export interface CodexMachineTaskWorkerSelection {
+  model: string;
+  reasoningEffort: string;
+}
+
+/** The initiating task bound to worker progress and escalations.
+ *
+ * `initiator` is the honest server-side binding. `project-manager` remains a
+ * compatibility value for callers that have already passed the Project
+ * Manager gate (the gate itself is enforced by the caller-side #819 context
+ * check, not inferred from this header).
+ */
+export interface CodexMachineTaskReportingTask {
+  role: 'initiator' | 'project-manager';
+  threadId: string;
+  /** The server can only verify that the caller supplied this task id. */
+  evidence?: 'caller-supplied' | 'manager-verified';
+}
+
+export const CODEX_MACHINE_TASK_LEGACY_UNBOUND_REASON = 'legacy_unbound' as const;
 
 export type CodexMachineTaskBlockedReason =
   | 'approval_required'
   | 'codex_start_failed'
   | 'connector_required'
   | 'input_required'
+  | typeof CODEX_MACHINE_TASK_LEGACY_UNBOUND_REASON
   | 'machine_not_ready'
   | 'offline'
   | 'stale_connector'
@@ -44,7 +87,15 @@ export interface CodexMachineTaskTarget {
 }
 
 export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
+  base?: {
+    branch: string;
+    commit: string;
+  };
   canonicalTaskUrl: string;
+  handoff?: {
+    state: 'accepted';
+    turnId: string;
+  };
   issue: {
     number: number;
     url: string;
@@ -53,8 +104,16 @@ export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
     id: string;
     nameWithOwner: string;
   };
+  reportingTask?: CodexMachineTaskReportingTask;
   threadId: string;
-  worktree: {
+  worker: CodexMachineTaskWorkerSelection;
+  workspace?: {
+    branch: string;
+    commit?: string;
+    id: string;
+    path?: string;
+  };
+  worktree?: {
     branch: string;
     id: string;
   };
@@ -68,10 +127,12 @@ export interface CodexMachineTaskStartRequest {
   expectedCommit?: string;
   expectedPullRequestNumber?: number;
   issue: number;
+  model?: string;
   operationId: string;
   physicalMachineId?: string;
   physicalMachineName?: string;
   repositoryId?: string;
+  reasoningEffort?: string;
 }
 
 export interface CodexMachineTaskExistingRequest {
@@ -102,6 +163,41 @@ export interface CodexMachineTaskStartRecoveryResult {
   apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;
   operationId: string;
   state: 'released';
+}
+
+export interface CodexMachineTaskStartPlan {
+  base: {
+    branch: string;
+    commit: string;
+  };
+  environment: {
+    id: string;
+    name: string;
+  };
+  issue: {
+    number: number;
+    url: string;
+  };
+  operation: {
+    id: string;
+    state: 'ready';
+  };
+  repository: {
+    id: string;
+    nameWithOwner: string;
+  };
+  reportingTask?: CodexMachineTaskReportingTask;
+  workspace: {
+    branch: string;
+    commit: string;
+    id: string;
+    path?: string;
+  };
+  worktree?: {
+    branch: string;
+    id: string;
+  };
+  worker: CodexMachineTaskWorkerSelection;
 }
 
 export interface CodexMachineTaskConnectorStartRequest {
@@ -140,6 +236,7 @@ export type CodexMachineTaskStartResult =
       operationId: string;
       state: 'ready';
       target: CodexMachineTaskTarget;
+      plan: CodexMachineTaskStartPlan;
     }
   | {
       apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;

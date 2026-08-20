@@ -332,6 +332,12 @@
                 "inherited": false
               },
               {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
+                "inherited": false
+              },
+              {
                 "name": "help",
                 "shorthand": "h",
                 "type": "bool",
@@ -383,6 +389,12 @@
                 "name": "connector",
                 "type": "string",
                 "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
                 "inherited": false
               },
               {
@@ -446,6 +458,12 @@
                 "inherited": false
               },
               {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
+                "inherited": false
+              },
+              {
                 "name": "format",
                 "type": "string",
                 "description": "output format: json",
@@ -497,6 +515,12 @@
                 "name": "connector",
                 "type": "string",
                 "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
                 "inherited": false
               },
               {
@@ -584,6 +608,12 @@
                 "inherited": false
               },
               {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
+                "inherited": false
+              },
+              {
                 "name": "format",
                 "type": "string",
                 "description": "output format: text or json",
@@ -621,9 +651,21 @@
                 "inherited": false
               },
               {
+                "name": "model",
+                "type": "string",
+                "description": "worker model",
+                "inherited": false
+              },
+              {
                 "name": "operation-id",
                 "type": "string",
                 "description": "stable idempotency key for safe retries",
+                "inherited": false
+              },
+              {
+                "name": "reasoning-effort",
+                "type": "string",
+                "description": "worker reasoning effort",
                 "inherited": false
               },
               {

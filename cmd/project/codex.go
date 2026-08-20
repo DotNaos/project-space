@@ -22,10 +22,11 @@ type codexTaskAPI interface {
 }
 
 type codexTargetOptions struct {
-	connectorID string
-	here        bool
-	machineID   string
-	machineName string
+	connectorID   string
+	environmentID string
+	here          bool
+	machineID     string
+	machineName   string
 }
 
 type codexOutcomeError struct{ message string }
@@ -55,6 +56,7 @@ func newCodexCommandWithDependencies(dependencies codexCommandDependencies) *cob
 func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command {
 	target := codexTargetOptions{}
 	issue, operationID, repositoryID, format := 0, "", "", "text"
+	model, reasoningEffort := codextask.DefaultModel, codextask.DefaultReasoningEffort
 	dryRun := false
 	command := &cobra.Command{
 		Use:   "start",
@@ -87,8 +89,9 @@ func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command 
 				return err
 			}
 			result, err := runtime.client.Start(command.Context(), codextask.StartRequest{
-				Selector: selector, DryRun: dryRun, Issue: issue,
-				OperationID: operationID, RepositoryID: repositoryID,
+				Selector: selector, DryRun: dryRun, Issue: issue, Model: model,
+				ReasoningEffort: reasoningEffort,
+				OperationID:     operationID, RepositoryID: repositoryID,
 			})
 			if err != nil {
 				if codexMutationMayBeUncertain(err) {
@@ -113,6 +116,8 @@ func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command 
 	command.Flags().IntVar(&issue, "issue", 0, "GitHub issue number")
 	command.Flags().StringVar(&repositoryID, "repository", "", "exact GitHub owner/name or repository ID")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "resolve the exact target without starting a task")
+	command.Flags().StringVar(&model, "model", codextask.DefaultModel, "worker model")
+	command.Flags().StringVar(&reasoningEffort, "reasoning-effort", codextask.DefaultReasoningEffort, "worker reasoning effort")
 	command.Flags().StringVar(&operationID, "operation-id", "", "stable idempotency key for safe retries")
 	command.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	addCodexTargetFlags(command, &target, true)
@@ -228,6 +233,7 @@ func newCodexSendCommand(dependencies codexCommandDependencies) *cobra.Command {
 }
 
 func addCodexTargetFlags(command *cobra.Command, target *codexTargetOptions, allowHere bool) {
+	command.Flags().StringVar(&target.environmentID, "environment-id", "", "exact canonical Environment ID")
 	command.Flags().StringVar(&target.machineName, "machine", "", "exact physical machine name")
 	command.Flags().StringVar(&target.machineID, "machine-id", "", "exact physical machine ID")
 	command.Flags().StringVar(&target.connectorID, "connector", "", "exact connector installation ID")
@@ -237,9 +243,15 @@ func addCodexTargetFlags(command *cobra.Command, target *codexTargetOptions, all
 }
 
 func (target codexTargetOptions) startSelector(localMachineName string) (codextask.Selector, error) {
+	if target.environmentID != "" && target.connectorID != "" {
+		return codextask.Selector{}, errors.New("--environment-id cannot be combined with the legacy --connector selector")
+	}
+	if target.environmentID != "" && (target.machineID != "" || target.machineName != "") {
+		return codextask.Selector{}, errors.New("--environment-id cannot be combined with --machine or --machine-id")
+	}
 	if target.here {
-		if target.machineID != "" || target.machineName != "" {
-			return codextask.Selector{}, errors.New("--here cannot be combined with --machine or --machine-id")
+		if target.environmentID != "" || target.machineID != "" || target.machineName != "" {
+			return codextask.Selector{}, errors.New("--here cannot be combined with --environment-id, --machine, or --machine-id")
 		}
 		if strings.TrimSpace(localMachineName) == "" {
 			return codextask.Selector{}, errors.New("the connected machine has no local identity")
@@ -257,11 +269,14 @@ func (target codexTargetOptions) selector(required bool) (codextask.Selector, er
 	if target.machineID != "" && target.machineName != "" {
 		return codextask.Selector{}, errors.New("select a machine with --machine or --machine-id, not both")
 	}
-	if required && target.machineID == "" && target.machineName == "" {
-		return codextask.Selector{}, errors.New("--machine or --machine-id is required")
+	if target.environmentID != "" && (target.machineID != "" || target.machineName != "") {
+		return codextask.Selector{}, errors.New("select an environment or physical machine, not both")
+	}
+	if required && target.environmentID == "" && target.machineID == "" && target.machineName == "" {
+		return codextask.Selector{}, errors.New("--environment-id, --machine, or --machine-id is required")
 	}
 	return codextask.Selector{
-		ConnectorID: target.connectorID, PhysicalMachineID: target.machineID,
+		ConnectorID: target.connectorID, EnvironmentID: target.environmentID, PhysicalMachineID: target.machineID,
 		PhysicalMachineName: target.machineName,
 	}, nil
 }

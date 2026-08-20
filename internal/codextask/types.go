@@ -6,6 +6,8 @@ import (
 )
 
 const APIVersion = 1
+const DefaultModel = "gpt-5.6-luna"
+const DefaultReasoningEffort = "high"
 
 type ResultState string
 
@@ -22,8 +24,10 @@ type BlockedReason string
 
 const (
 	BlockedApprovalRequired  BlockedReason = "approval_required"
+	BlockedCodexStartFailed  BlockedReason = "codex_start_failed"
 	BlockedConnectorRequired BlockedReason = "connector_required"
 	BlockedInputRequired     BlockedReason = "input_required"
+	BlockedLegacyUnbound     BlockedReason = "legacy_unbound"
 	BlockedMachineNotReady   BlockedReason = "machine_not_ready"
 	BlockedOffline           BlockedReason = "offline"
 	BlockedStaleConnector    BlockedReason = "stale_connector"
@@ -34,6 +38,7 @@ const (
 
 type Selector struct {
 	ConnectorID         string `json:"connectorId,omitempty"`
+	EnvironmentID       string `json:"environmentId,omitempty"`
 	PhysicalMachineID   string `json:"physicalMachineId,omitempty"`
 	PhysicalMachineName string `json:"physicalMachineName,omitempty"`
 }
@@ -45,14 +50,33 @@ type Target struct {
 		ID          string `json:"id"`
 		Name        string `json:"name"`
 	} `json:"connector"`
+	Environment *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"environment,omitempty"`
 	PhysicalMachine struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"physicalMachine"`
 }
 
+type WorkerSelection struct {
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoningEffort"`
+}
+
+type ReportingTask struct {
+	Role     string `json:"role"`
+	ThreadID string `json:"threadId"`
+	Evidence string `json:"evidence,omitempty"`
+}
+
 type TaskIdentity struct {
 	Target
+	Base *struct {
+		Branch string `json:"branch"`
+		Commit string `json:"commit"`
+	} `json:"base,omitempty"`
 	CanonicalTaskURL string `json:"canonicalTaskUrl"`
 	Issue            struct {
 		Number int    `json:"number"`
@@ -62,7 +86,14 @@ type TaskIdentity struct {
 		ID            string `json:"id"`
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
-	ThreadID string `json:"threadId"`
+	ReportingTask *ReportingTask  `json:"reportingTask,omitempty"`
+	ThreadID      string          `json:"threadId"`
+	Worker        WorkerSelection `json:"worker"`
+	Workspace     *struct {
+		Branch string `json:"branch"`
+		ID     string `json:"id"`
+		Path   string `json:"path,omitempty"`
+	} `json:"workspace,omitempty"`
 	Worktree struct {
 		Branch string `json:"branch"`
 		ID     string `json:"id"`
@@ -71,10 +102,47 @@ type TaskIdentity struct {
 
 type StartRequest struct {
 	Selector
-	DryRun       bool   `json:"dryRun,omitempty"`
-	Issue        int    `json:"issue"`
-	OperationID  string `json:"operationId"`
-	RepositoryID string `json:"repositoryId,omitempty"`
+	DryRun          bool   `json:"dryRun,omitempty"`
+	Issue           int    `json:"issue"`
+	Model           string `json:"model,omitempty"`
+	OperationID     string `json:"operationId"`
+	RepositoryID    string `json:"repositoryId,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+}
+
+type StartPlan struct {
+	Base struct {
+		Branch string `json:"branch"`
+		Commit string `json:"commit"`
+	} `json:"base"`
+	Environment struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"environment"`
+	Issue struct {
+		Number int    `json:"number"`
+		URL    string `json:"url"`
+	} `json:"issue"`
+	Operation struct {
+		ID    string      `json:"id"`
+		State ResultState `json:"state"`
+	} `json:"operation"`
+	Repository struct {
+		ID            string `json:"id"`
+		NameWithOwner string `json:"nameWithOwner"`
+	} `json:"repository"`
+	ReportingTask ReportingTask `json:"reportingTask"`
+	Workspace     struct {
+		Branch string `json:"branch"`
+		Commit string `json:"commit"`
+		ID     string `json:"id"`
+		Path   string `json:"path,omitempty"`
+	} `json:"workspace"`
+	Worktree *struct {
+		Branch string `json:"branch"`
+		ID     string `json:"id"`
+	} `json:"worktree,omitempty"`
+	Worker WorkerSelection `json:"worker"`
 }
 
 type StartResult struct {
@@ -84,6 +152,7 @@ type StartResult struct {
 	Reason      BlockedReason `json:"reason,omitempty"`
 	Reconcile   string        `json:"reconcile,omitempty"`
 	State       ResultState   `json:"state"`
+	Plan        *StartPlan    `json:"plan,omitempty"`
 	Target      *Target       `json:"target,omitempty"`
 	Task        *TaskIdentity `json:"task,omitempty"`
 }

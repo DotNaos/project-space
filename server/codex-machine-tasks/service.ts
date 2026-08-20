@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import {
+  normalizeCodexMachineTaskWorker
+} from '../../src/shared/codex-machine-tasks-api';
 import type {
   CodexMachineTaskAttachRequest,
   CodexMachineTaskAttachResult,
@@ -12,7 +15,9 @@ import type {
   CodexMachineTaskStartRecoveryResult,
   CodexMachineTaskStartRequest,
   CodexMachineTaskStartResult,
-  CodexMachineTaskTarget
+  CodexMachineTaskTarget,
+  CodexMachineTaskReportingTask,
+  CodexMachineTaskWorkerSelection
 } from '../../src/shared/codex-machine-tasks-api';
 import { CODEX_MACHINE_TASKS_API_VERSION } from '../../src/shared/codex-machine-tasks-api';
 import type { CodexSessionOperationResult, CodexSessionStreamEvent } from '../../src/shared/codex-sessions-api';
@@ -61,7 +66,19 @@ export class CodexMachineTasksConflictError extends Error {
     this.name = 'CodexMachineTasksConflictError';
   }
 }
+export class CodexMachineTasksInputError extends Error {
+  constructor() {
+    super('The worker selection is invalid.');
+    this.name = 'CodexMachineTasksInputError';
+  }
+}
 export const codexAttachToken = Symbol('codexAttachToken');
+type CodexMachineTaskActor = {
+  callerMachineId?: string;
+  reportingTask?: CodexMachineTaskReportingTask;
+  userId: string;
+};
+
 export function createCodexMachineTasksService(options: CodexMachineTasksServiceOptions) {
   const queueDispatcher = createCodexMachineTaskQueueDispatcher(options);
   void queueDispatcher.start().catch(() => undefined);
@@ -83,6 +100,13 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           message: found.kind === 'uncertain'
             ? 'The existing Codex task start needs recovery before another task can be created.'
             : 'The existing Codex task is still starting.',
+          state: 'attention'
+        };
+      }
+      if (found.kind === 'attention') {
+        return {
+          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+          message: found.message,
           state: 'attention'
         };
       }
@@ -130,11 +154,16 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
     },
 
     async recoverStart(
-      actor: { callerMachineId?: string; userId: string },
+      actor: CodexMachineTaskActor,
       request: CodexMachineTaskStartRequest
     ): Promise<CodexMachineTaskStartRecoveryResult> {
       const released = await options.store.releaseUncertainStart({
-        fingerprint: fingerprint({ request, userId: actor.userId }),
+        fingerprint: fingerprint({
+          request: normalizedStartRequest(request),
+          reportingTask: actor.reportingTask,
+          userId: actor.userId
+        }),
+        legacyFingerprint: fingerprint({ request: legacyStartRequest(request), userId: actor.userId }),
         operationId: request.operationId,
         userId: actor.userId
       });
@@ -149,20 +178,39 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
     },
 
     async start(
-      actor: { callerMachineId?: string; userId: string },
+      actor: CodexMachineTaskActor,
       request: CodexMachineTaskStartRequest
     ): Promise<CodexMachineTaskStartResult> {
-      const requestFingerprint = fingerprint({ request, userId: actor.userId });
+      const worker = workerSelection(request);
+      const reportingTask = actor.reportingTask;
+      const requestFingerprint = fingerprint({
+        request: normalizedStartRequest(request), reportingTask, userId: actor.userId
+      });
+      const legacyFingerprint = fingerprint({ request: legacyStartRequest(request), userId: actor.userId });
+      if (options.requireReportingTaskBinding && !reportingTask) {
+        return blocked(
+          request.operationId,
+          'unauthorized',
+          'An initiating Codex task binding is required for worker dispatch.'
+        );
+      }
       const lookup = request.dryRun
         ? { kind: 'missing' as const }
         : await options.store.lookupStart({
             fingerprint: requestFingerprint,
+            legacyFingerprint,
             operationId: request.operationId,
             userId: actor.userId
           });
       if (lookup.kind === 'conflict') throw new CodexMachineTasksConflictError();
       if (lookup.kind === 'replayed') {
         return { ...lookup.result, operationId: request.operationId };
+      }
+      if (lookup.kind === 'legacy') {
+        const message = 'This pre-upgrade Codex task has no proven worker or initiating-task binding and will not be redispatched automatically.';
+        return lookup.state === 'completed'
+          ? blocked(request.operationId, 'legacy_unbound', message)
+          : uncertain(request.operationId, undefined, message);
       }
       let selected: CodexMachineTaskTarget;
       try {
@@ -181,14 +229,6 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         if (lookup.kind === 'reserved') return uncertain(request.operationId);
         return blocked(request.operationId, error.reason, error.message);
       }
-      if (request.dryRun) {
-        return {
-          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
-          operationId: request.operationId,
-          state: 'ready',
-          target: selected
-        };
-      }
       let issue: CodexMachineTaskStartPayload;
       if (lookup.kind === 'reserved') {
         if (!lookup.startPayload) {
@@ -201,6 +241,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       } else {
         try {
           issue = await options.issue({
+            dryRun: request.dryRun,
             expectedBranch: request.expectedBranch,
             expectedCommit: request.expectedCommit,
             expectedPullRequestNumber: request.expectedPullRequestNumber,
@@ -212,6 +253,111 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           if (!(error instanceof CodexMachineTaskIssueError)) throw error;
           return blocked(request.operationId, error.reason, error.message, selected);
         }
+      }
+      issue = {
+        ...issue,
+        ...(reportingTask ? { reportingTask } : {}),
+        worker
+      };
+      if (request.dryRun) {
+        const planned = await options.plan?.({
+          branch: issue.branch,
+          commit: issue.commit,
+          connectorId: selected.connector.id,
+          generation: selected.connector.generation,
+          issue: issue.issue,
+          operationId: request.operationId,
+          physicalMachineId: selected.physicalMachine.id,
+          repository: issue.repository,
+          ...(reportingTask ? { reportingTask } : {}),
+          userId: actor.userId,
+          worker
+        });
+        if (planned?.state === 'uncertain') {
+          return uncertain(request.operationId, selected, planned.message);
+        }
+        if (!planned || planned.state !== 'ready' || !planned.plan?.workspace) {
+          return blocked(
+            request.operationId,
+            'worktree_failure',
+            planned?.message ?? 'The selected Environment has no verified managed workspace.',
+            selected
+          );
+        }
+        const environment = planned.plan.environment ?? selected.environment;
+        const workspace = planned.plan.workspace;
+        if (!environment || workspace.branch !== issue.branch || !workspace.id ||
+            !/^[0-9a-f]{40,64}$/i.test(issue.commit) ||
+            (planned.plan.worktree && planned.plan.worktree.branch !== issue.branch)) {
+          return blocked(
+            request.operationId,
+            'worktree_failure',
+            'The selected Environment workspace could not be verified for this issue revision.',
+            selected
+          );
+        }
+        return {
+          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+          operationId: request.operationId,
+          plan: {
+            base: { branch: issue.branch, commit: issue.commit },
+            environment,
+            issue: issue.issue,
+            operation: { id: request.operationId, state: 'ready' as const },
+            repository: issue.repository,
+            workspace,
+            ...(reportingTask ? { reportingTask } : {}),
+            worker,
+            ...(planned.plan.worktree ? { worktree: planned.plan.worktree } : {})
+          },
+          state: 'ready' as const,
+          target: selected
+        };
+      }
+      let plannedWorkspace: {
+        branch: string;
+        commit?: string;
+        id: string;
+        path?: string;
+        worktree?: { branch: string; id: string };
+      } | undefined;
+      if (options.plan) {
+        const planned = await options.plan({
+          branch: issue.branch,
+          commit: issue.commit,
+          connectorId: selected.connector.id,
+          generation: selected.connector.generation,
+          issue: issue.issue,
+          operationId: request.operationId,
+          physicalMachineId: selected.physicalMachine.id,
+          repository: issue.repository,
+          ...(reportingTask ? { reportingTask } : {}),
+          userId: actor.userId,
+          worker
+        });
+        if (planned.state === 'uncertain') {
+          return uncertain(request.operationId, selected, planned.message);
+        }
+        if (planned.state !== 'ready' || !planned.plan?.workspace) {
+          return blocked(
+            request.operationId,
+            'worktree_failure',
+            planned.message ?? 'The selected Environment has no verified managed workspace.',
+            selected
+          );
+        }
+        if (!planned.plan.worktree) {
+          return blocked(
+            request.operationId,
+            'worktree_failure',
+            'The selected Environment has no verified Project-managed worktree binding.',
+            selected
+          );
+        }
+        plannedWorkspace = {
+          ...planned.plan.workspace,
+          worktree: planned.plan.worktree
+        };
       }
       const operation: CodexMachineTaskStartOperation = {
         associationKey: fingerprint({
@@ -230,9 +376,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         generation: selected.connector.generation,
         operationId: request.operationId,
         physicalMachineId: selected.physicalMachine.id,
+        ...(reportingTask ? { reportingTask } : {}),
         startPayload: issue,
         state: 'pending',
-        userId: actor.userId
+        userId: actor.userId,
+        worker
       };
       const reservation = await options.store.reserveStart(operation);
       if (reservation.kind === 'conflict') throw new CodexMachineTasksConflictError();
@@ -275,9 +423,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         issue: issue.issue,
         operationId: operation.operationId,
         physicalMachineId: selected.physicalMachine.id,
+        reportingTask: reportingTask!,
         reconcile: reservation.kind !== 'new',
         repository: issue.repository,
-        userId: actor.userId
+        userId: actor.userId,
+        worker
       });
       const started = start.result;
       const executionTarget = targetAtGeneration(selected, start.generation);
@@ -318,13 +468,38 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         await options.store.releaseStart(operation);
         return result;
       }
+      const worktree = started.worktreeId
+        ? { branch: issue.branch, id: started.worktreeId }
+        : plannedWorkspace?.worktree;
+      if (!worktree) {
+        await options.store.markStartUncertain(operation);
+        return uncertain(
+          request.operationId,
+          executionTarget,
+          'Codex started, but the Project-managed worktree binding was not verified.'
+        );
+      }
+      const workspace = started.workspace ?? plannedWorkspace ?? {
+        branch: issue.branch,
+        id: worktree.id
+      };
       const task: CodexMachineTaskIdentity = {
         ...executionTarget,
+        base: { branch: issue.branch, commit: issue.commit },
         canonicalTaskUrl: options.taskUrl(executionTarget.connector.id, started.threadId),
         issue: issue.issue,
         repository: issue.repository,
+        ...(reportingTask ? { reportingTask } : {}),
         threadId: started.threadId,
-        worktree: { branch: issue.branch, id: started.worktreeId }
+        ...(started.handoff ? { handoff: started.handoff } : {}),
+        worktree,
+        worker,
+        workspace: {
+          branch: workspace.branch,
+          ...(workspace.commit ? { commit: workspace.commit } : {}),
+          id: workspace.id,
+          ...(workspace.path ? { path: workspace.path } : {})
+        }
       };
       const storedResult: CodexMachineTaskStartResult = {
         apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
@@ -697,4 +872,25 @@ function sameStartPayload(
   right: CodexMachineTaskStartPayload
 ) {
   return canonicalJson(left) === canonicalJson(right);
+}
+
+function workerSelection(request: CodexMachineTaskStartRequest): CodexMachineTaskWorkerSelection {
+  const worker = normalizeCodexMachineTaskWorker(request);
+  if (!worker) throw new CodexMachineTasksInputError();
+  return worker;
+}
+
+function normalizedStartRequest(request: CodexMachineTaskStartRequest) {
+  const worker = workerSelection(request);
+  return {
+    ...request,
+    model: worker.model,
+    reasoningEffort: worker.reasoningEffort
+  };
+}
+
+/** The f0d7b422 request shape, before worker selection became part of start. */
+function legacyStartRequest(request: CodexMachineTaskStartRequest) {
+  const { model: _model, reasoningEffort: _reasoningEffort, ...legacy } = request;
+  return legacy;
 }

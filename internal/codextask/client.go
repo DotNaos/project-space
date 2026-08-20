@@ -104,6 +104,7 @@ func NewClient(config Config) (*Client, error) {
 }
 
 func (client *Client) Start(ctx context.Context, request StartRequest) (StartResult, error) {
+	request = normalizeStartRequest(request)
 	if err := validateStartRequest(request); err != nil {
 		return StartResult{}, err
 	}
@@ -115,6 +116,18 @@ func (client *Client) Start(ctx context.Context, request StartRequest) (StartRes
 		return StartResult{}, err
 	}
 	return result, nil
+}
+
+func normalizeStartRequest(request StartRequest) StartRequest {
+	request.Model = strings.TrimSpace(request.Model)
+	request.ReasoningEffort = strings.TrimSpace(request.ReasoningEffort)
+	if request.Model == "" {
+		request.Model = DefaultModel
+	}
+	if request.ReasoningEffort == "" {
+		request.ReasoningEffort = DefaultReasoningEffort
+	}
+	return request
 }
 
 func (client *Client) Read(ctx context.Context, request ReadRequest) (ReadResult, error) {
@@ -274,6 +287,9 @@ func selectorQuery(selector Selector) url.Values {
 	if selector.ConnectorID != "" {
 		query.Set("connectorId", selector.ConnectorID)
 	}
+	if selector.EnvironmentID != "" {
+		query.Set("environmentId", selector.EnvironmentID)
+	}
 	if selector.PhysicalMachineID != "" {
 		query.Set("physicalMachineId", selector.PhysicalMachineID)
 	}
@@ -350,12 +366,14 @@ func validateStartResult(result StartResult, request StartRequest) error {
 	switch result.State {
 	case StateReady:
 		if !request.DryRun || result.Target == nil || validateTarget(*result.Target) != nil ||
-			!targetMatchesSelector(*result.Target, request.Selector) || result.Task != nil {
+			!targetMatchesSelector(*result.Target, request.Selector) || result.Task != nil || result.Plan == nil ||
+			validateStartPlan(*result.Plan, request, *result.Target) != nil {
 			return ErrInvalidResponse
 		}
 	case StateConfirmed:
 		if request.DryRun || result.Task == nil || validateTask(*result.Task) != nil ||
 			!targetMatchesSelector(result.Task.Target, request.Selector) ||
+			result.Task.Worker.Model != request.Model || result.Task.Worker.ReasoningEffort != request.ReasoningEffort ||
 			result.Task.Issue.Number != request.Issue ||
 			(request.RepositoryID != "" && result.Task.Repository.ID != request.RepositoryID && result.Task.Repository.NameWithOwner != request.RepositoryID) {
 			return ErrInvalidResponse

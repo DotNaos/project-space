@@ -14,10 +14,15 @@ var (
 	operationIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$`)
 	repositoryPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	threadIDPattern    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	commitPattern      = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+	workerPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
 )
 
 func validateStartRequest(request StartRequest) error {
 	if request.Issue <= 0 || !operationIDPattern.MatchString(request.OperationID) {
+		return ErrInvalidInput
+	}
+	if !workerPattern.MatchString(request.Model) || !workerPattern.MatchString(request.ReasoningEffort) {
 		return ErrInvalidInput
 	}
 	if request.RepositoryID != "" && !identifierPattern.MatchString(request.RepositoryID) && !repositoryPattern.MatchString(request.RepositoryID) {
@@ -54,6 +59,9 @@ func validateAttachRequest(request AttachRequest) error {
 }
 
 func validateSelector(selector Selector, allowCurrent bool) error {
+	if selector.EnvironmentID != "" && !identifierPattern.MatchString(selector.EnvironmentID) {
+		return ErrInvalidInput
+	}
 	if selector.PhysicalMachineID != "" && !identifierPattern.MatchString(selector.PhysicalMachineID) {
 		return ErrInvalidInput
 	}
@@ -63,8 +71,11 @@ func validateSelector(selector Selector, allowCurrent bool) error {
 	if selector.PhysicalMachineID != "" && selector.PhysicalMachineName != "" {
 		return errors.New("select a physical machine by ID or name, not both")
 	}
-	if !allowCurrent && selector.PhysicalMachineID == "" && selector.PhysicalMachineName == "" {
-		return errors.New("a physical machine ID or name is required")
+	if selector.EnvironmentID != "" && (selector.PhysicalMachineID != "" || selector.PhysicalMachineName != "") {
+		return errors.New("select an environment or physical machine, not both")
+	}
+	if !allowCurrent && selector.EnvironmentID == "" && selector.PhysicalMachineID == "" && selector.PhysicalMachineName == "" {
+		return errors.New("an environment ID or physical machine ID or name is required")
 	}
 	if selector.ConnectorID != "" && !identifierPattern.MatchString(selector.ConnectorID) {
 		return ErrInvalidInput
@@ -98,11 +109,16 @@ func validateTarget(target Target) error {
 	if target.Connector.Environment != "" && !validText(target.Connector.Environment, 128) {
 		return ErrInvalidResponse
 	}
+	if target.Environment != nil && (!identifierPattern.MatchString(target.Environment.ID) ||
+		!validText(target.Environment.Name, 256)) {
+		return ErrInvalidResponse
+	}
 	return nil
 }
 
 func targetMatchesSelector(target Target, selector Selector) bool {
 	return (selector.ConnectorID == "" || selector.ConnectorID == target.Connector.ID) &&
+		(selector.EnvironmentID == "" || (target.Environment != nil && selector.EnvironmentID == target.Environment.ID)) &&
 		(selector.PhysicalMachineID == "" || selector.PhysicalMachineID == target.PhysicalMachine.ID) &&
 		(selector.PhysicalMachineName == "" || selector.PhysicalMachineName == target.PhysicalMachine.Name)
 }
@@ -111,7 +127,18 @@ func validateTask(task TaskIdentity) error {
 	if validateTarget(task.Target) != nil || !threadIDPattern.MatchString(task.ThreadID) ||
 		task.Issue.Number <= 0 || !identifierPattern.MatchString(task.Worktree.ID) ||
 		!validText(task.Worktree.Branch, 512) || !identifierPattern.MatchString(task.Repository.ID) ||
-		!validText(task.Repository.NameWithOwner, 512) {
+		!validText(task.Repository.NameWithOwner, 512) ||
+		!workerPattern.MatchString(task.Worker.Model) ||
+		!workerPattern.MatchString(task.Worker.ReasoningEffort) ||
+		!validReportingTask(task.ReportingTask) {
+		return ErrInvalidResponse
+	}
+	if task.Base != nil && (!validText(task.Base.Branch, 512) || !validText(task.Base.Commit, 128)) {
+		return ErrInvalidResponse
+	}
+	if task.Workspace != nil && (!identifierPattern.MatchString(task.Workspace.ID) ||
+		!validText(task.Workspace.Branch, 512) ||
+		(task.Workspace.Path != "" && !validText(task.Workspace.Path, 2048))) {
 		return ErrInvalidResponse
 	}
 	parsed, err := url.Parse(task.CanonicalTaskURL)
@@ -132,13 +159,52 @@ func loopbackHost(host string) bool {
 
 func validBlockedReason(reason BlockedReason) bool {
 	switch reason {
-	case BlockedApprovalRequired, BlockedConnectorRequired, BlockedInputRequired,
+	case BlockedApprovalRequired, BlockedCodexStartFailed, BlockedConnectorRequired, BlockedInputRequired,
 		BlockedMachineNotReady, BlockedOffline, BlockedStaleConnector,
-		BlockedThreadActive, BlockedUnauthorized, BlockedWorktreeFailure:
+		BlockedThreadActive, BlockedUnauthorized, BlockedWorktreeFailure, BlockedLegacyUnbound:
 		return true
 	default:
 		return false
 	}
+}
+
+func validateStartPlan(plan StartPlan, request StartRequest, target Target) error {
+	if plan.Issue.Number != request.Issue || plan.Operation.ID != request.OperationID ||
+		plan.Operation.State != StateReady || plan.Environment.ID == "" ||
+		!validText(plan.Environment.Name, 256) || !validText(plan.Base.Branch, 512) ||
+		!commitPattern.MatchString(plan.Base.Commit) || plan.Repository.ID == "" ||
+		!validText(plan.Repository.NameWithOwner, 512) || plan.Workspace.ID == "" ||
+		!validText(plan.Workspace.Branch, 512) || !commitPattern.MatchString(plan.Workspace.Commit) ||
+		plan.Workspace.Branch != plan.Base.Branch || !strings.EqualFold(plan.Workspace.Commit, plan.Base.Commit) ||
+		!validText(plan.Issue.URL, 2048) || target.Environment == nil ||
+		target.Environment.ID != plan.Environment.ID ||
+		!workerPattern.MatchString(plan.Worker.Model) ||
+		!workerPattern.MatchString(plan.Worker.ReasoningEffort) ||
+		plan.Worker.Model != request.Model || plan.Worker.ReasoningEffort != request.ReasoningEffort ||
+		!validReportingTaskValue(plan.ReportingTask) {
+		return ErrInvalidResponse
+	}
+	if plan.Workspace.Path != "" && !validText(plan.Workspace.Path, 2048) {
+		return ErrInvalidResponse
+	}
+	if plan.Worktree != nil && (!identifierPattern.MatchString(plan.Worktree.ID) ||
+		!validText(plan.Worktree.Branch, 512) || plan.Worktree.Branch != plan.Base.Branch) {
+		return ErrInvalidResponse
+	}
+	if request.RepositoryID != "" && plan.Repository.ID != request.RepositoryID &&
+		plan.Repository.NameWithOwner != request.RepositoryID {
+		return ErrInvalidResponse
+	}
+	return nil
+}
+
+func validReportingTask(task *ReportingTask) bool {
+	return task != nil && validReportingTaskValue(*task)
+}
+
+func validReportingTaskValue(task ReportingTask) bool {
+	return (task.Role == "project-manager" || task.Role == "initiator") && threadIDPattern.MatchString(task.ThreadID) &&
+		(task.Evidence == "" || task.Evidence == "caller-supplied" || task.Evidence == "manager-verified")
 }
 
 func validateCommonResult(apiVersion int, operationID string, state ResultState, reason BlockedReason, reconcile string) error {

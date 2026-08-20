@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 
 import {
   CodexMachineTasksConflictError,
+  CodexMachineTasksInputError,
   codexAttachToken
 } from '../server/codex-machine-tasks/service';
+import { canonicalJson } from '../server/codex-sessions/canonical-json';
 import { CodexMachineTaskIssueError } from '../server/codex-machine-tasks/issue-provider';
 import {
   connector,
@@ -15,6 +18,178 @@ import {
 } from './fixtures/codex-machine-tasks-service';
 
 describe('Codex machine-task service', () => {
+  test('persists the selected worker and Manager reporting binding across start and retry fingerprints', async () => {
+    const store = memoryStore();
+    const reportingTask = { role: 'project-manager' as const, threadId };
+    let starts = 0;
+    const tasks = service({
+      start: async (input) => {
+        starts += 1;
+        expect(input.worker).toEqual({ model: 'gpt-5.6-luna', reasoningEffort: 'high' });
+        expect(input.reportingTask).toEqual(reportingTask);
+        return { state: 'confirmed' as const, threadId, worktreeId: 'wt-worker' };
+      },
+      store
+    });
+    const first = await tasks.start({ userId: 'user-owner', reportingTask }, {
+      ...request, model: 'gpt-5.6-luna', reasoningEffort: 'high'
+    });
+    expect(first).toMatchObject({
+      state: 'confirmed',
+      task: { reportingTask, worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' } }
+    });
+    await expect(tasks.start({ userId: 'user-owner', reportingTask }, {
+      ...request, model: 'gpt-5.6-sol', reasoningEffort: 'high'
+    })).rejects.toBeInstanceOf(CodexMachineTasksConflictError);
+    expect(starts).toBe(1);
+  });
+
+  test('treats a changed initiating thread as an idempotency conflict', async () => {
+    const store = memoryStore();
+    const tasks = service({
+      start: async () => ({ state: 'confirmed' as const, threadId, worktreeId: 'wt-reporting' }),
+      store
+    });
+    const firstActor = { userId: 'user-owner', reportingTask: { role: 'initiator' as const, threadId } };
+    await tasks.start(firstActor, request);
+    await expect(tasks.start({
+      userId: 'user-owner',
+      reportingTask: { role: 'initiator', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399d' }
+    }, request)).rejects.toBeInstanceOf(CodexMachineTasksConflictError);
+  });
+
+  test('validates worker selectors before reserving a durable start and canonicalizes whitespace defaults', async () => {
+    const store = memoryStore();
+    await expect(service({ store }).start({ userId: 'user-owner' }, {
+      ...request,
+      model: `${'x'.repeat(256)}/overflow`
+    })).rejects.toBeInstanceOf(CodexMachineTasksInputError);
+    expect(store.operations.size).toBe(0);
+    const result = await service({
+      start: async (input) => {
+        expect(input.worker).toEqual({ model: 'gpt-5.6-luna', reasoningEffort: 'high' });
+        return { state: 'confirmed' as const, threadId, worktreeId: 'wt-default-worker' };
+      },
+      store
+    }).start({ userId: 'user-owner' }, { ...request, model: '   ', reasoningEffort: '  ' });
+    expect(result.state).toBe('confirmed');
+  });
+
+  test('holds a legacy reservation as uncertain and never redispatches it during upgrade recovery', async () => {
+    const store = memoryStore();
+    store.lookupStart = async () => ({
+      connectorId: 'connector-local',
+      durableOperations: true,
+      generation: 1,
+      kind: 'legacy' as const,
+      physicalMachineId: 'physical-local',
+      state: 'uncertain' as const
+    });
+    let starts = 0;
+    const result = await service({
+      start: async () => {
+        starts += 1;
+        throw new Error('legacy reservation must not dispatch');
+      },
+      store
+    }).start({ userId: 'user-owner', reportingTask: { role: 'initiator', threadId } }, request);
+    expect(result).toMatchObject({ state: 'uncertain', reconcile: 'required', message: expect.stringContaining('pre-upgrade') });
+    expect(starts).toBe(0);
+  });
+
+  test('matches the actual pre-worker fingerprint when current retries include defaults', async () => {
+    const store = memoryStore();
+    const currentRequest = { ...request, model: 'gpt-5.6-luna', reasoningEffort: 'high' };
+    const preWorkerRequest = { ...request };
+    const oldFingerprint = createHash('sha256')
+      .update(canonicalJson({ request: preWorkerRequest, userId: 'user-owner' }))
+      .digest('hex');
+    store.lookupStart = async (input) => {
+      expect(input.legacyFingerprint).toBe(oldFingerprint);
+      return {
+        connectorId: 'connector-local',
+        durableOperations: true,
+        generation: 1,
+        kind: 'legacy' as const,
+        physicalMachineId: 'physical-local',
+        state: 'uncertain' as const
+      };
+    };
+    let starts = 0;
+    const result = await service({
+      start: async () => {
+        starts += 1;
+        throw new Error('legacy reservation must not dispatch');
+      },
+      store
+    }).start({ userId: 'user-owner', reportingTask: { role: 'initiator', threadId } }, currentRequest);
+    expect(result).toMatchObject({ state: 'uncertain', message: expect.stringContaining('pre-upgrade') });
+    expect(starts).toBe(0);
+  });
+
+  test('replays a legacy completed row as an explicit attention result', async () => {
+    const store = memoryStore();
+    store.lookupStart = async () => ({
+      connectorId: 'connector-local',
+      durableOperations: true,
+      generation: 1,
+      kind: 'legacy' as const,
+      physicalMachineId: 'physical-local',
+      state: 'completed' as const
+    });
+    const result = await service({ store }).start({
+      userId: 'user-owner', reportingTask: { role: 'initiator', threadId }
+    }, request);
+    expect(result).toMatchObject({ state: 'blocked', reason: 'legacy_unbound' });
+  });
+
+  test('resolves a complete dry-run plan without reserving or starting a task', async () => {
+    const store = memoryStore();
+    let issueDryRun = false;
+    let starts = 0;
+    const result = await service({
+      issue: async (input) => {
+        issueDryRun = input.dryRun === true;
+        return {
+          branch: 'issue-262-build-codex-machine-task-core-and-cli',
+          commit: 'a'.repeat(40),
+          issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
+          repository: { id: 'R_test', nameWithOwner: 'DotNaos/project-space' }
+        };
+      },
+      plan: async () => ({
+        environment: { id: 'environment-local', name: 'Local Environment' },
+        workspace: {
+          branch: 'issue-262-build-codex-machine-task-core-and-cli',
+          commit: 'a'.repeat(40),
+          id: 'workspace-local'
+        }
+      }),
+      start: async () => {
+        starts += 1;
+        return { state: 'confirmed', threadId, worktreeId: 'must-not-start' };
+      },
+      store
+    }).start({
+      userId: 'user-owner',
+      reportingTask: { role: 'project-manager', threadId }
+    }, { ...request, dryRun: true, model: 'gpt-5.6-luna', reasoningEffort: 'high' });
+
+    expect(result).toEqual(expect.objectContaining({ state: 'ready', target: expect.anything() }));
+    expect(result.state === 'ready' && result.plan).toEqual(expect.objectContaining({
+      base: { branch: 'issue-262-build-codex-machine-task-core-and-cli', commit: 'a'.repeat(40) },
+      environment: { id: 'environment-local', name: 'Local Environment' },
+      issue: expect.objectContaining({ number: 262 }),
+      operation: { id: request.operationId, state: 'ready' },
+      reportingTask: { role: 'project-manager', threadId },
+      workspace: expect.objectContaining({ id: 'workspace-local' }),
+      worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' }
+    }));
+    expect(issueDryRun).toBeTrue();
+    expect(starts).toBe(0);
+    expect(store.operations.size).toBe(0);
+  });
+
   test('confirms a target-created persistent thread and replays identical starts', async () => {
     const store = memoryStore();
     let starts = 0;

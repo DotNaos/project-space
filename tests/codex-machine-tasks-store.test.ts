@@ -47,7 +47,9 @@ const operation: CodexMachineTaskStartOperation = {
     branch: 'issue-262-work',
     commit: 'c'.repeat(40),
     issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
-    repository: { id: 'R_one', nameWithOwner: 'DotNaos/project-space' }
+    reportingTask: { role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+    repository: { id: 'R_one', nameWithOwner: 'DotNaos/project-space' },
+    worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' }
   },
   state: 'pending',
   userId: 'user-owner'
@@ -63,7 +65,9 @@ const completed = {
     issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
     physicalMachine: { id: 'physical-one', name: 'Machine' },
     repository: { id: 'R_one', nameWithOwner: 'DotNaos/project-space' },
+    reportingTask: { role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
     threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c',
+    worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' },
     worktree: { branch: 'issue-262-work', id: 'worktree-one' }
   }
 };
@@ -224,6 +228,134 @@ describe('Codex machine-task durable start store', () => {
       startPayload: sha256Payload,
       state: 'uncertain'
     });
+  });
+
+  test('recognizes pre-upgrade reservations through their legacy fingerprint without replay or redispatch', async () => {
+    const database = new FakeDatabase();
+    const legacyPayload = { ...operation.startPayload };
+    delete (legacyPayload as { worker?: unknown }).worker;
+    database.responses.push({ rows: [{
+      ...row({ start_payload: legacyPayload, result: null, state: 'uncertain' }),
+      fingerprint_sha256: 'l'.repeat(64)
+    }] });
+    await expect(new PostgresCodexMachineTasksStore(database).lookupStart({
+      fingerprint: operation.fingerprint,
+      legacyFingerprint: 'l'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).resolves.toEqual({
+      connectorId: operation.connectorId,
+      durableOperations: true,
+      generation: operation.generation,
+      kind: 'legacy',
+      physicalMachineId: operation.physicalMachineId,
+      state: 'uncertain'
+    });
+  });
+
+  test('classifies a migration-era NULL payload only with its historical fingerprint', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{
+      ...row({ start_payload: null, result: null, state: 'uncertain' }),
+      fingerprint_sha256: 'n'.repeat(64)
+    }] });
+    await expect(new PostgresCodexMachineTasksStore(database).lookupStart({
+      fingerprint: operation.fingerprint,
+      legacyFingerprint: 'n'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).resolves.toMatchObject({ kind: 'legacy', state: 'uncertain' });
+
+    const malformed = new FakeDatabase();
+    malformed.responses.push({ rows: [{
+      ...row({ start_payload: null, result: null, state: 'uncertain' }),
+      fingerprint_sha256: operation.fingerprint
+    }] });
+    await expect(new PostgresCodexMachineTasksStore(malformed).lookupStart({
+      fingerprint: operation.fingerprint,
+      legacyFingerprint: 'n'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).resolves.toMatchObject({ kind: 'reserved', state: 'uncertain' });
+  });
+
+  test('holds a migration-era NULL completed row for attention during exact recovery lookup', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [{
+      ...row({ start_payload: null, result: null, state: 'completed' }),
+      fingerprint_sha256: 'n'.repeat(64)
+    }] });
+    await expect(new PostgresCodexMachineTasksStore(database).lookupStart({
+      fingerprint: operation.fingerprint,
+      legacyFingerprint: 'n'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).resolves.toMatchObject({ kind: 'legacy', state: 'completed' });
+  });
+
+  test('does not discover an unidentifiable NULL row as another issue association', async () => {
+    const database = new FakeDatabase();
+    database.responses.push({ rows: [] });
+    await expect(new PostgresCodexMachineTasksStore(database).findStart({
+      connectorId: operation.connectorId,
+      issue: 999,
+      repositoryId: 'DotNaos/other-repository',
+      userId: operation.userId
+    })).resolves.toEqual({ kind: 'missing' });
+    expect(database.calls[0]?.sql).not.toContain('start_payload is null');
+  });
+
+  test('does not accept malformed reporting evidence as a durable current payload', async () => {
+    const database = new FakeDatabase();
+    const malformed = structuredClone(operation.startPayload);
+    (malformed.reportingTask as Record<string, unknown>).evidence = 'spoofed';
+    database.responses.push({ rows: [{
+      ...row({ start_payload: malformed, result: null, state: 'pending' }),
+      fingerprint_sha256: operation.fingerprint
+    }] });
+    const lookup = await new PostgresCodexMachineTasksStore(database).lookupStart({
+      fingerprint: operation.fingerprint,
+      operationId: operation.operationId,
+      userId: operation.userId
+    });
+    expect(lookup).toMatchObject({ kind: 'reserved', state: 'pending' });
+    expect(lookup.kind === 'reserved' && lookup.startPayload).toBeUndefined();
+  });
+
+  test('allows only explicit recovery to release a legacy uncertain reservation', async () => {
+    const database = new FakeDatabase();
+    const legacyPayload = { ...operation.startPayload };
+    delete (legacyPayload as { worker?: unknown }).worker;
+    database.responses.push(
+      { rows: [{
+        association_key: operation.associationKey,
+        fingerprint_sha256: 'l'.repeat(64),
+        state: 'uncertain',
+        start_payload: legacyPayload,
+        result: null
+      }] },
+      { rows: [] },
+      { rows: [{ association_key: operation.associationKey }] }
+    );
+    await expect(new PostgresCodexMachineTasksStore(database).releaseUncertainStart({
+      fingerprint: operation.fingerprint,
+      legacyFingerprint: 'l'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).resolves.toBe('released');
+  });
+
+  test('holds a pre-upgrade completed result for attention instead of replaying an unbound task', async () => {
+    const database = new FakeDatabase();
+    const legacyResult = structuredClone(completed);
+    delete (legacyResult.task as { worker?: unknown }).worker;
+    database.responses.push({ rows: [row({ result: legacyResult })] });
+    await expect(new PostgresCodexMachineTasksStore(database).findStart({
+      connectorId: operation.connectorId,
+      issue: operation.startPayload.issue.number,
+      repositoryId: operation.startPayload.repository.nameWithOwner,
+      userId: operation.userId
+    })).resolves.toMatchObject({ kind: 'attention' });
   });
 
   test('rejects changed input during an early start lookup', async () => {

@@ -75,6 +75,15 @@ class FakeSessionManager {
     this.calls.push(`start:${input.cwd}:${input.operationId}`);
     return { thread: { ephemeral: false, id: threadId, status: { type: 'idle' as const } } };
   }
+
+  async startTurn(input: { operationId: string; prompt: string; threadId: string }) {
+    this.calls.push(`turn:${input.threadId}:${input.operationId}:${input.prompt}`);
+    return { turn: { id: 'turn-initial', status: 'inProgress' } };
+  }
+
+  operationSnapshot() { return []; }
+  async reconcileOperationCompleted() {}
+  async reconcileOperationNotApplied() {}
 }
 
 function fixture() {
@@ -143,6 +152,134 @@ describe('canonical Codex session executor', () => {
     });
     expect(manager.calls).toEqual([
       'start:/managed/worktrees/issue-479:codex-ui:start:test-0001'
+    ]);
+    executor.close();
+  });
+
+  test('accepts the complete issue handoff only after the initial turn is accepted', async () => {
+    const { executor, manager } = fixture();
+    const result = await executor.executeBound('start', {
+      cwd: '/managed/worktrees/issue-763',
+      handoff: {
+        branch: 'issue-763-dispatch',
+        commit: 'a'.repeat(40),
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
+        model: 'gpt-5.6-luna',
+        reasoningEffort: 'high',
+        reportingTask: { evidence: 'manager-verified', role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+        repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
+        workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        worktreeId: 'worktree-763'
+      },
+      machineId,
+      operationId: 'codex-ui:start:handoff-0001'
+    }, 4);
+
+    expect(result).toEqual({
+      operation: 'start',
+      result: { initialTurnId: 'turn-initial', machineId, threadId }
+    });
+    expect(manager.calls.at(-1)).toContain('Work on GitHub issue #763');
+    expect(manager.calls.at(-1)).toContain('Branch: issue-763-dispatch');
+    executor.close();
+  });
+
+  test('does not upgrade a legacy Manager role without positive verification evidence', async () => {
+    const { executor, manager } = fixture();
+    await executor.executeBound('start', {
+      cwd: '/managed/worktrees/issue-763',
+      handoff: {
+        branch: 'issue-763-dispatch',
+        commit: 'a'.repeat(40),
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
+        model: 'gpt-5.6-luna',
+        reasoningEffort: 'high',
+        reportingTask: { role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+        repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
+        workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        worktreeId: 'worktree-763'
+      },
+      machineId,
+      operationId: 'codex-ui:start:legacy-manager-0001'
+    }, 4);
+    const prompt = manager.calls.at(-1) ?? '';
+    expect(prompt).toContain('caller-supplied');
+    expect(prompt).not.toContain('only to Manager task');
+    executor.close();
+  });
+
+  test('reconciles an uncertain initial handoff without starting a duplicate turn', async () => {
+    const prompt = [
+      'Work on GitHub issue #763 in DotNaos/project-space.',
+      'Issue: https://github.com/DotNaos/project-space/issues/763',
+      'Repository: DotNaos/project-space (R_project-space)',
+      'Branch: issue-763-dispatch',
+      `Commit: ${'a'.repeat(40)}`,
+      'Managed workspace: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa; worktree: worktree-763',
+      'Worker model: gpt-5.6-luna',
+      'Reasoning effort: high',
+      'Report progress, review evidence, blockers, and genuine escalations only to Manager task 019f6d33-6aad-7302-a45e-bb7a33fc399c; do not ask the end user directly.'
+    ].join('\n');
+    const calls: string[] = [];
+    const manager = {
+      close: async () => {},
+      listLoadedThreads: async () => ({ data: [] }),
+      subscribe: () => () => true,
+      startThread: async () => ({ thread: { id: threadId } }),
+      startTurn: async () => { throw new Error('duplicate initial turn'); },
+      operationSnapshot: () => [{
+        fingerprint: 'fingerprint', operationId: 'codex-ui:start:handoff-0002:initial-turn',
+        state: 'uncertain'
+      }],
+      async readThread() {
+        calls.push('read-thread');
+        return {
+          thread: {
+            id: threadId,
+            status: { type: 'idle' as const },
+            turns: [{
+              id: 'turn-recovered',
+              items: [{
+                type: 'userMessage',
+                content: [{ text: prompt, type: 'text' }]
+              }]
+            }]
+          }
+        };
+      },
+      async reconcileOperationCompleted(operationId: string) {
+        calls.push(`completed:${operationId}`);
+      },
+      async reconcileOperationNotApplied() {}
+    } as unknown as CodexSessionManager;
+    const executor = new CodexSessionsExecutor({
+      expectedGeneration: 4,
+      expectedMachineId: machineId,
+      machineName: 'Workspace Runtime',
+      manager
+    });
+    const result = await executor.executeBound('start', {
+      cwd: '/managed/worktrees/issue-763',
+      handoff: {
+        branch: 'issue-763-dispatch', commit: 'a'.repeat(40),
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
+        model: 'gpt-5.6-luna', reasoningEffort: 'high',
+        reportingTask: { evidence: 'manager-verified', role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+        repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
+        workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', worktreeId: 'worktree-763'
+      },
+      machineId,
+      operationId: 'codex-ui:start:handoff-0002'
+    }, 4);
+    expect(result).toEqual({
+      operation: 'start',
+      result: { initialTurnId: 'turn-recovered', machineId, threadId }
+    });
+    expect(calls).toEqual([
+      'read-thread', 'completed:codex-ui:start:handoff-0002:initial-turn'
     ]);
     executor.close();
   });

@@ -202,9 +202,12 @@ export class WorkspaceRuntimeCodexHostController {
       return { state: 'stopped' };
     }
     const operation = command.kind as CodexSessionsBoundOperation;
+    const request = command.kind === 'start' && command.request.cwd === '.'
+      ? { ...command.request, cwd: process.cwd() }
+      : command.request;
     const wireResult = await this.executor.executeBound(
       operation,
-      command.request,
+      request,
       generationNumber(this.options.generation)
     );
     return wireResult.result as WorkspaceRuntimeCodexResult;
@@ -265,7 +268,7 @@ async function settleWithin(operation: Promise<unknown>, timeoutMs: number) {
 
 function runtimeMachineId(options: WorkspaceRuntimeCodexHostOptions) {
   const digest = createHash('sha256').update([
-    options.workspaceId, options.environmentId, options.generation
+    options.workspaceId, options.environmentId
   ].join('\0')).digest('hex').slice(0, 32);
   return `workspace-runtime:${digest}`;
 }

@@ -369,6 +369,7 @@ const blockedLabels: Record<CodexMachineTaskBlockedReason, string> = {
   codex_start_failed: 'Codex unavailable',
   connector_required: 'Connector required',
   input_required: 'Input required',
+  legacy_unbound: 'Legacy task needs attention',
   machine_not_ready: 'Machine not ready',
   offline: 'Offline',
   stale_connector: 'Connector state stale',

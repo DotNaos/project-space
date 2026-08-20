@@ -6,12 +6,14 @@ import {
   createConfiguredCodexAuthorizationHandler
 } from '../server/codex-authorization/configured-runtime';
 import {
-  createConfiguredCodexMachineTasksHandler
+  createConfiguredCodexMachineTasksHandler,
+  createConfiguredCodexMachineTasksRuntime
 } from '../server/codex-machine-tasks/configured-runtime';
 import { createConfiguredMachineReadinessHandler } from '../server/machine-readiness/configured-runtime';
 import { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import type { WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
 import { workspaceRuntimeCodexCapability } from '../src/shared/workspace-runtime-codex-api';
+import { memoryStore } from './fixtures/codex-machine-tasks-service';
 
 function responseCapture() {
   let statusCode = 0;
@@ -42,14 +44,21 @@ describe('Codex runtime retirement boundary', () => {
     for (const [handler, path] of handlers) {
       const capture = responseCapture();
       await handler(request, capture.response, new URL(path, 'https://projects.example.test'));
-      expect(capture.result().statusCode).toBe(410);
-      expect(JSON.parse(capture.result().body)).toMatchObject({
-        code: 'canonical_runtime_required'
-      });
+      if (path === '/api/codex/tasks/existing') {
+        expect(capture.result().statusCode).toBe(503);
+        expect(JSON.parse(capture.result().body)).toMatchObject({
+          error: { code: 'codex_machine_tasks_unavailable' }
+        });
+      } else {
+        expect(capture.result().statusCode).toBe(410);
+        expect(JSON.parse(capture.result().body)).toMatchObject({
+          code: 'canonical_runtime_required'
+        });
+      }
     }
   });
 
-  test('keeps canonical runtime.codex.v1 messages accepted by the Workspace Runtime session', () => {
+  test('keeps canonical runtime.codex.v1 messages accepted by the Workspace Runtime session', async () => {
     const service = new WorkspaceRuntimeSessionService({} as never);
     const message: WorkspaceRuntimeCodexMessage = {
       acceptedCommandSequence: 1,
@@ -65,15 +74,42 @@ describe('Codex runtime retirement boundary', () => {
       schemaVersion: 1,
       sessionId: 'session-1',
       type: 'runtime.codex.command-accepted',
-      workspaceId: 'workspace-1'
+      workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     };
 
-    expect(service.acceptCodex({
+    await expect(service.acceptCodex({
       scope: {
         capabilities: [workspaceRuntimeCodexCapability]
       } as never,
       sessionId: 'session-1'
-    }, message)).toBe(message);
+    }, message)).resolves.toBe(message);
+  });
+
+  test('initializes the canonical task service without awaiting retired Chat compatibility', async () => {
+    const neverSettles = new Promise<never>(() => {});
+    const runtime = createConfiguredCodexMachineTasksRuntime({
+      backend: {} as never,
+      database: {
+        async query() { return { rowCount: 0, rows: [] }; },
+        async transaction() { throw new Error('unused test transaction'); }
+      },
+      runtimeSessions: {
+        list: async () => [],
+        onCodexMessage: () => () => true,
+        dispatchCodex() {}
+      } as never,
+      sessionsRuntime: neverSettles,
+      taskStore: memoryStore(),
+      workspaceBindingStore: {
+        list: async () => [],
+        readWorkspace: async () => undefined
+      }
+    });
+    const result = await Promise.race([
+      runtime.then(() => 'ready' as const),
+      Bun.sleep(100).then(() => 'blocked' as const)
+    ]);
+    expect(result).toBe('ready');
   });
 
 });

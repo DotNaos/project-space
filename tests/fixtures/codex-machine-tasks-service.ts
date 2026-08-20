@@ -336,7 +336,7 @@ export function service(options: {
     connectors: MachineRecord[];
     physicalMachines: Array<{ connectorIds: string[]; id: string; name: string }>;
   }>;
-  issue?: () => Promise<{
+  issue?: (input: { dryRun?: boolean }) => Promise<{
     branch: string;
     commit: string;
     issue: { number: number; url: string };
@@ -348,6 +348,11 @@ export function service(options: {
       activity?: { currentTurnId?: string };
     };
     turns: Array<{ id: string; status: 'in-progress' }>;
+  }>;
+  plan?: () => Promise<{
+    environment: { id: string; name: string };
+    workspace: { branch: string; commit: string; id: string; path?: string };
+    worktree?: { branch: string; id: string };
   }>;
   queueRetryDelay?: () => Promise<void>;
   send?: (input: {
@@ -413,6 +418,9 @@ export function service(options: {
       repository: { id: 'R_test', nameWithOwner: 'DotNaos/project-space' }
     })),
     generationFor: options.generationFor ?? (() => 7),
+    ...(options.plan ? {
+      plan: async () => ({ state: 'ready' as const, plan: await options.plan!() })
+    } : {}),
     durableGenerationFor: options.durableGenerationFor ?? (() => true),
     sessions: {
       read: options.read ?? (async () => ({

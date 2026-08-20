@@ -10,7 +10,7 @@ import type { CodexSessionManager } from '../server/codex-sessions';
 import type { CodexSessionEventListener } from '../server/codex-sessions/contracts';
 import { WorkspaceRuntimeCodexHostController } from '../server/workspace-runtime-codex-host/controller';
 
-const workspaceId = 'ws_0123456789abcdef01234567';
+const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const environmentId = '11111111-1111-4111-8111-111111111111';
 const generation = '22222222-2222-4222-8222-222222222222';
 const ownerUserId = 'user_owner';
@@ -94,7 +94,7 @@ describe('Workspace Runtime Codex host controller', () => {
     await first.start();
     first.bind('socket-one', 0);
     const machineId = `workspace-runtime:${createHash('sha256').update([
-      workspaceId, environmentId, generation
+      workspaceId, environmentId
     ].join('\0')).digest('hex').slice(0, 32)}`;
     await first.command({
       ...runtimeStartCommand('socket-one'),

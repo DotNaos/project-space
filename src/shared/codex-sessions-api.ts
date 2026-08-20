@@ -139,6 +139,22 @@ export interface CodexSessionListResult {
 
 export interface CodexSessionStartRequest {
   cwd: string;
+  handoff?: {
+    branch: string;
+    commit: string;
+    environmentId: string;
+    issue: { number: number; url: string };
+    repository: { id: string; nameWithOwner: string };
+    reportingTask: {
+      role: 'initiator' | 'project-manager';
+      threadId: string;
+      evidence?: 'caller-supplied' | 'manager-verified';
+    };
+    reasoningEffort: string;
+    model: string;
+    workspaceId: string;
+    worktreeId: string;
+  };
   machineId: string;
   operationId: string;
 }
@@ -146,6 +162,7 @@ export interface CodexSessionStartRequest {
 export interface CodexSessionStartResult {
   machineId: string;
   threadId: string;
+  initialTurnId?: string;
 }
 
 export type CodexConversationItemKind =

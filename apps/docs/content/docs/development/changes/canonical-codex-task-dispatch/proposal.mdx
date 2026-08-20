@@ -1,0 +1,48 @@
+---
+title: Proposal
+description: Restore canonical issue-to-Codex task dispatch through Environments and Workspace Runtimes.
+---
+
+Change status: **Active**
+
+Change kind: **Bugfix**
+
+Issue: **[#763](https://github.com/DotNaos/project-space/issues/763)**
+Requirements: **Changed**
+
+## Summary
+
+Restore the supported issue-to-Codex start path. A signed-in client must resolve one
+canonical Environment and its assigned Workspace Runtime, keep dry-runs read-only, and
+make repeated starts recoverable without duplicate worktrees or tasks.
+
+## Problem
+
+The configured `/api/codex/tasks` entry point was retired with HTTP 410 even though the
+canonical Task Execution and Workspace Runtime path remained available. The CLI could
+not express an Environment selector, and start results did not expose enough identity
+to reconcile a retry safely.
+
+## Scope
+
+- Bridge the HTTP task service to the typed Workspace Runtime Codex channel.
+- Keep Environment and Workspace Runtime as the authoritative selectors.
+- Preserve exact issue, base, branch, workspace, thread, and operation state in results.
+- Prevent dry-run branch creation and return sanitized unavailable/uncertain states.
+- Extend the Go client and CLI with `--environment-id`.
+
+## Out of scope
+
+- Reintroducing Connector inventory or Connector-owned targeting as a primary path.
+- Changing GitHub authentication, provider credentials, or production deployment.
+- Creating a new runtime protocol or changing Task Execution persistence semantics.
+
+## Delivery
+
+The change ships through the normal pull-request and Project review flow. It has no
+database migration and does not start a production deployment from this task.
+
+## Requirements rationale
+
+This restores observable task dispatch and changes the client/server contract, so the
+requirement delta records the supported behavior and its reconciliation guarantees.
