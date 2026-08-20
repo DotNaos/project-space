@@ -48,9 +48,8 @@ to Project Space and would make stale or ambiguous target evidence unsafe.
 ## Delivery
 
 This is a minor release because it adds a user-facing CLI capability. The dispatch/runtime
-assumptions were reconciled against final #763 commit
-`f0d7b422bbe6007b9add605c882879fac7ddce41`; #724 does not call that start endpoint. The browser
-surface remains informational until the separately tracked local bridge in #831 exists.
-The PR-owned UUID release-intent file is present, while the release-gate and authoring-policy
-implementation remains owned by #819; #724 must be rebased after #819 lands before it can be
-reported green or merge-ready.
+assumptions were reconciled against the landed #763 contract at merge commit `b92d411c`; #724
+does not call that start endpoint. The browser surface remains informational until the separately
+tracked local bridge in #831 exists.
+The current trusted changelog contract is satisfied by the PR-owned `changelog/830.md` record;
+this change does not add a release-intent UUID file or duplicate the shared release-policy gate.

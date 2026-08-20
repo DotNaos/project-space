@@ -20,14 +20,15 @@ Verification status: **Incomplete** (browser launch intentionally deferred to #8
 - [x] The server path contains no SSH relay, credentials, sockets, commands, or terminal traffic
 - [x] Focused tests, TypeScript build, all Go tests, CLI docs, and specification checks pass
 - [x] Allowed direct and blocked non-tailnet/stale/host-key paths are covered by deterministic tests
-- [x] Exact #763 dispatch and runtime contracts are reconciled against
-  `f0d7b422bbe6007b9add605c882879fac7ddce41`
+- [x] Exact #763 dispatch and runtime contracts are reconciled against landed merge commit
+  `b92d411c`
 - [x] Compute UI is informational and states that local Tailscale/SSH checks are required
+- [x] Current trusted changelog contract is satisfied by `changelog/830.md`; no release-intent
+  UUID file is part of this change
 - [ ] Trusted browser-to-local launch bridge is available (#831)
-- [ ] Release-policy gate is reconciled by the designated #819 owner and #830 is rebased
 - [ ] Visual browser dogfood is still pending because no browser connector is available in this task
 
 The incomplete status is deliberate: the CLI boundary is reviewable, but browser launch is not
 claimed until #831 supplies a trusted local bridge. Any full-suite environment failures are listed
-separately from this product boundary. The PR-owned UUID release intent is present, but the release
-gate itself is intentionally left to #819 and must be reconciled before merge-ready status.
+separately from this product boundary. Release-intent migration is outside this PR's scope; this
+PR contributes only its current changelog record under the trusted changelog contract.

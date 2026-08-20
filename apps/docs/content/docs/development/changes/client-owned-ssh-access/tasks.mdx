@@ -43,9 +43,10 @@ description: Implementation and reconciliation checklist for client-owned SSH ac
 ## 4. Reconciled dependency
 
 - [x] 4.1 Reconcile the exact #763 dispatch/runtime contract
-  - **Evidence:** Final commit `f0d7b422bbe6007b9add605c882879fac7ddce41` was inspected; its
-    canonical identity and explicit unavailable outcomes require no #724 code change because this
-    issue does not call the #763 start endpoint.
+  - **Evidence:** Landed merge commit `b92d411c` was inspected; its canonical Environment and
+    workspace identity, caller-supplied initiating-task evidence, local Project Manager worktree
+    gate, and explicit unavailable runtime outcomes require no #724 code change because this issue
+    does not call the #763 start endpoint.
 
 ## 5. Deferred follow-ups
 
@@ -56,10 +57,3 @@ description: Implementation and reconciliation checklist for client-owned SSH ac
   - **Acceptance criteria:** An authenticated local capability handshake enables the Compute action
     only after proving the local Project CLI, Tailscale, SSH, and host-key path; browser launch uses
     the direct client-owned boundary and never a localhost cookie or Project Space relay.
-
-- [ ] 5.2 Rebase onto the release-policy owner (#819)
-  - **Reason:** #819 owns the current changelog plus UUID-intent gate and authoring-policy migration;
-    #724 intentionally carries only its own UUID intent and does not duplicate that implementation.
-  - **Issue:** #819
-  - **Acceptance criteria:** After #819 lands, rebase #830, run the canonical release gate and
-    preflight, and retain exactly one PR-owned UUID intent without changing historical intent files.

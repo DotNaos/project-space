@@ -56,12 +56,12 @@ than introducing a server-side SSH fallback.
 
 ## Assumed dispatch/runtime contract
 
-The final #763 contract was reconciled against
-`f0d7b422bbe6007b9add605c882879fac7ddce41`. It retains canonical workspace and
-Environment identity validation, explicit unavailable outcomes, and local
-runtime ownership. #724 does not call the #763 start endpoint, so no shared
-payload change is required; an unavailable runtime remains unavailable and
-cannot become a server-originated SSH or Codex session.
+The final #763 contract was reconciled against landed merge commit `b92d411c`.
+It retains canonical workspace and Environment identity validation, caller-supplied
+initiating-task evidence, the local Project Manager worktree gate, explicit
+unavailable outcomes, and local runtime ownership. #724 does not call the #763
+start endpoint, so no shared payload change is required; an unavailable runtime
+remains unavailable and cannot become a server-originated SSH or Codex session.
 
 ## Validation matrix
 

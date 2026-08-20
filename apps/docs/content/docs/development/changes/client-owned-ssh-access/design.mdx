@@ -51,9 +51,8 @@ flowchart LR
    `0600` known-hosts file with strict checking for the interactive SSH process.
 5. Keep `codex_unavailable` in the shared contract for #726, while this CLI currently owns the
    local SSH phases.
-6. Reconcile the dispatch/runtime boundary with final #763 commit
-   `f0d7b422bbe6007b9add605c882879fac7ddce41`; #724 does not call its start endpoint and keeps
-   unavailable runtime states explicit.
+6. Reconcile the dispatch/runtime boundary with the landed #763 merge commit `b92d411c`; #724
+   does not call its start endpoint and keeps unavailable runtime states explicit.
 
 ## Risks and mitigations
 

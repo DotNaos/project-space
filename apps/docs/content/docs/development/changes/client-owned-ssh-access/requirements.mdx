@@ -72,8 +72,7 @@ runtime handoff contracts with the exact landed #763 implementation before merge
 
 #### Scenario: #763 lands with a changed contract
 
-- **Given** the exact landed #763 contract is
-  `f0d7b422bbe6007b9add605c882879fac7ddce41`
+- **Given** the exact landed #763 contract is represented by merge commit `b92d411c`
 - **When** this change is prepared for merge
 - **Then** the descriptor preserves canonical Environment/workspace identity and explicit unavailable
   outcomes, with no server SSH or Codex fallback
