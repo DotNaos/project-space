@@ -17,6 +17,7 @@ class InventoryClient implements DatabaseQueryClient {
   hasCurrentAssociation = false;
   rejectAssociationMove = false;
   retiredConnector = false;
+  sameUuidAcrossOwners = false;
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
@@ -46,6 +47,16 @@ class InventoryClient implements DatabaseQueryClient {
       return { rows: [{ id: 'platform-local', kind: 'local', name: 'Local & self-hosted' }] as Row[] };
     }
     if (sql.includes('from compute_hosts') && sql.includes('order by lower')) {
+      const owners = values[0];
+      if (this.sameUuidAcrossOwners) {
+        const rows = [
+          { id: 'shared-host', identity_key: 'account:user-host', identity_version: 1, name: 'User Host', platform_id: 'platform-local', resources: null },
+          ...(Array.isArray(owners) && owners.includes('project-space:tailscale-deployment')
+            ? [{ id: 'shared-host', identity_key: 'account:deployment-host', identity_version: 1, name: 'Deployment Host', platform_id: 'platform-local', resources: null }]
+            : [])
+        ];
+        return { rows: rows as Row[] };
+      }
       return { rows: [] as Row[] };
     }
     if (sql.includes('from compute_environments') && sql.includes('order by lower')) {
@@ -82,6 +93,21 @@ class InventoryClient implements DatabaseQueryClient {
         resources: null,
         legacy_tombstoned_only: false
       }] : [])];
+      const owners = values[0];
+      if (this.sameUuidAcrossOwners) {
+        environments[0] = {
+          ...environments[0]!,
+          id: 'shared-environment',
+          identity_key: 'account:user-environment'
+        };
+        if (Array.isArray(owners) && owners.includes('project-space:tailscale-deployment')) {
+          environments.push({
+            ...environments[0]!,
+            identity_key: 'account:deployment-environment',
+            name: 'Deployment Environment'
+          });
+        }
+      }
       return { rows: environments as Row[] };
     }
     if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
@@ -206,6 +232,36 @@ describe('compute inventory repository', () => {
     }
     expect(client.calls[4]?.sql).toContain('owner_user_id = $1');
     expect(client.calls[4]?.values).toEqual(['user-one']);
+  });
+
+  test('keeps same-ID deployment rows out of the strict Codex inventory boundary', async () => {
+    const client = new InventoryClient();
+    client.sameUuidAcrossOwners = true;
+    const repository = new ProjectSpaceDatabaseRepository(client);
+    const userInventory = await repository.listComputeInventory('user-one');
+    const widenedInventory = await repository.listComputeInventory('user-one', {
+      additionalOwnerUserIds: ['project-space:tailscale-deployment']
+    });
+
+    expect(userInventory.hosts.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'shared-host', name: 'User Host' }
+    ]);
+    expect(userInventory.environments.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'shared-environment', name: 'Ubuntu' }
+    ]);
+    expect(widenedInventory.hosts.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'shared-host', name: 'User Host' },
+      { id: 'shared-host', name: 'Deployment Host' }
+    ]);
+    expect(widenedInventory.environments.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'shared-environment', name: 'Ubuntu' },
+      { id: 'shared-environment', name: 'Deployment Environment' }
+    ]);
+    const inventoryQueries = client.calls.filter(({ sql }) => (
+      sql.includes('from compute_hosts') || sql.includes('from compute_environments')
+    ));
+    expect(inventoryQueries.at(-2)?.values).toEqual([['user-one', 'project-space:tailscale-deployment']]);
+    expect(inventoryQueries.at(-1)?.values).toEqual([['user-one', 'project-space:tailscale-deployment']]);
   });
 
   test('account-scopes a connector identity before persistence', async () => {

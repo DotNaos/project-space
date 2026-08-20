@@ -15,7 +15,7 @@ import { isProjectSpaceAuthRequired, readAuthSessionFromRequest } from '../local
 import {
   getCodexSessionsDatabaseClient,
   isDatabaseConfigured,
-  listComputeInventory
+  listCodexMachineTasksComputeInventory
 } from '../local-database-store';
 import { createConfiguredCodexSessionsRuntime } from '../codex-sessions/configured-runtime';
 import { createWorkspaceRuntimeCodexBridge } from './workspace-runtime';
@@ -140,7 +140,7 @@ export async function createConfiguredCodexMachineTasksRuntime(
       if (!isDatabaseConfigured()) {
         return { connectors: [], environmentDefinitions: [], environments: [], hosts: [], platforms: [], violations: [] };
       }
-      return listComputeInventory(userId);
+      return listCodexMachineTasksComputeInventory(userId);
     },
     sessions: options.runtimeSessions,
     resolveWorkspaceBinding: async ({ branch, commit, environmentId, ownerUserId, workspaceId }) => {

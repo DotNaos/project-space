@@ -353,6 +353,11 @@ export async function listComputeInventory(userId: string) {
   });
 }
 
+/** The Codex Runtime authorization boundary must remain strictly user-owned. */
+export async function listCodexMachineTasksComputeInventory(userId: string) {
+  return (await getDatabaseRepository()).listComputeInventory(userId);
+}
+
 export async function reconcileConnectorComputeInventory(
   userId: string,
   machines: readonly import('../src/shared/project-space-api').MachineRecord[]
