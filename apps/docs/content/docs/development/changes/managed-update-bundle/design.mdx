@@ -33,6 +33,13 @@ publish handoff is created.
 - Keep the target inventory explicit in both the updater and release validator.
 - Retain the v0.21.23 Darwin members as checked-in compatibility markers, including
   a non-installable Codex stub; the macOS installer ignores these members.
+- Verify the immutable v0.21.23 tag commit and compile its updater package in an
+  isolated temporary module. A protected test harness drives that exact old
+  `Apply` path against the archive emitted by the current builder, including the
+  candidate installer and its atomic pointer transaction.
+- Fetch full Git history in the macOS release job and preserve both the packaging
+  script and tagged-updater harness across the exact release-source checkout, so
+  release validation cannot silently replace the escaped compatibility test.
 - Exercise the Darwin path with a generated fixture so no installed user CLI or
   signed production artifact is overwritten.
 - Keep release intent at patch level because this repairs an existing update path.

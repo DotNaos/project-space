@@ -19,7 +19,7 @@ description: Implementation and verification checklist for the managed update bu
 - [x] 2.2 Cover malformed-bundle rejection and rollback/no-switch behavior
   - **Evidence:** `internal/selfupdate/archive_test.go`, `internal/selfupdate/update_test.go`, and `packaging/macos/test-release-packaging.sh` cover pre-installer rejection and failed-pair rollback.
 - [x] 2.3 Run the generated Darwin boundary against the v0.21.23 updater contract
-  - **Evidence:** `internal/selfupdate/archive_test.go` accepts the legacy contract and `packaging/macos/test-release-packaging.sh` asserts the generated archive's exact ten-member inventory.
+  - **Evidence:** `packaging/macos/testdata/v0.21.23-updater-contract_test.go` drives the exact tagged updater package, and `packaging/macos/test-release-packaging.sh` builds the real Darwin archive, runs that old `Apply` path against it, verifies the legacy metadata and `codex` stub, and confirms the old contract rejects the six-member shape.
 
 ## 3. Verification and delivery
 

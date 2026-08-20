@@ -2,6 +2,7 @@
 set -euo pipefail
 
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+repository_root=$(cd -- "$script_directory/../.." && pwd -P)
 temporary_root=$(mktemp -d)
 trap 'rm -rf -- "$temporary_root"' EXIT
 version=${1:-1.2.3}
@@ -57,9 +58,11 @@ cmp "$temporary_root/first/$archive" "$temporary_root/second/$archive"
 (cd "$temporary_root/first" && shasum -a 256 -c "${archive}.sha256")
 bash "$script_directory/../release/validate-machine-tools-bundle.sh" \
   "$temporary_root/first/$archive" darwin-arm64 "$version" >/dev/null
+
 mkdir "$temporary_root/extracted-v1"
 gtar -xzf "$temporary_root/first/$archive" -C "$temporary_root/extracted-v1"
 bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64-v${version}"
+
 expected_members=$'CODEX-LICENSE\nCODEX-NOTICE\nCODEX-VERSION\nSHA256SUMS.txt\nVERSION\ncodex\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
 [[ $actual_members == "$expected_members" ]]
@@ -94,6 +97,37 @@ if bash "$script_directory/../release/validate-machine-tools-bundle.sh" \
   echo 'Release validator accepted the published v0.27.2 macOS bundle shape.' >&2
   exit 1
 fi
+
+# Compile the exact tagged v0.21.23 updater in an isolated module, then drive
+# its real Apply path against both archives. The protected harness executes the
+# extracted candidate install.sh with temporary HOME and installation roots.
+legacy_updater_commit='bba0c549fde9903f877d8c478489ec2931926773'
+if [[ $(git -C "$repository_root" rev-parse 'v0.21.23^{commit}' 2>/dev/null) != "$legacy_updater_commit" ]]; then
+  echo 'The exact v0.21.23 updater source is unavailable or moved.' >&2
+  exit 66
+fi
+legacy_updater_root="$temporary_root/v0.21.23-updater"
+mkdir -p "$legacy_updater_root"
+git -C "$repository_root" archive v0.21.23 -- \
+  go.mod go.sum \
+  internal/selfupdate/archive.go \
+  internal/selfupdate/install_source.go \
+  internal/selfupdate/manifest.go \
+  internal/selfupdate/release-manifest-signing-public-key.pem \
+  internal/selfupdate/release_source.go \
+  internal/selfupdate/types.go | \
+  gtar -x -C "$legacy_updater_root"
+install -m 0644 \
+  "$script_directory/testdata/v0.21.23-updater-contract_test.go" \
+  "$legacy_updater_root/internal/selfupdate/v0.21.23-updater-contract_test.go"
+(
+  cd "$legacy_updater_root"
+  GOWORK=off \
+    PROJECT_CANDIDATE_ARCHIVE="$temporary_root/first/$archive" \
+    PROJECT_CANDIDATE_VERSION="$version" \
+    PROJECT_V0272_SHAPE_ARCHIVE="$legacy_incomplete_archive" \
+    go test -count=1 -run '^TestV02123DarwinUpdaterAgainstCurrentPackage$' -v ./internal/selfupdate
+)
 
 incomplete_staging="$temporary_root/incomplete-staging"
 mkdir -p "$incomplete_staging"
