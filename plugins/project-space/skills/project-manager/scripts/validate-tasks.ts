@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 const requiredHeadings = [
   '# Project Manager Task Ledger',
   '## Critical path',
+  '## Production blocker intake',
   '## Workers',
   '## Escalations',
   '## Completion checklist',
@@ -14,6 +15,41 @@ export function validateTasksDocument(source: string): string[] {
   const errors = requiredHeadings
     .filter((heading) => !source.includes(heading))
     .map((heading) => `missing required heading: ${heading}`);
+  const sourceLines = source.split('\n');
+  const productionHeaderIndex = sourceLines.findIndex((line) => line.startsWith('| bug/incident |'));
+  const productionHeader = productionHeaderIndex >= 0 ? sourceLines[productionHeaderIndex] : undefined;
+  const productionColumns = productionHeader
+    ?.split('|').slice(1, -1).map((column) => column.trim().toLowerCase());
+  const requiredProductionColumns = [
+    'bug/incident',
+    'search and issue action',
+    'affected task/stage',
+    'dependency edge and queue position',
+    'severity/owner',
+    'recovery and unblock evidence',
+  ];
+  if (!productionHeader || !requiredProductionColumns.every((column) => productionColumns?.includes(column))) {
+    errors.push('production blocker ledger must record search, issue action, affected stage, dependency edge, severity/owner, and recovery evidence');
+  } else {
+    const nextHeadingIndex = sourceLines.findIndex((line, index) => index > productionHeaderIndex && line.startsWith('## '));
+    const productionRows = sourceLines
+      .slice(productionHeaderIndex + 1, nextHeadingIndex >= 0 ? nextHeadingIndex : sourceLines.length)
+      .filter((line) => line.startsWith('|') && !line.startsWith('| ---') && line !== productionHeader);
+    if (productionRows.length === 0) {
+      errors.push('production blocker ledger must contain a no-blocker record or a reproduced blocker');
+    }
+    for (const line of productionRows) {
+      const columns = line.split('|').slice(1, -1).map((column) => column.trim());
+      if (columns.length !== requiredProductionColumns.length) {
+        errors.push('each production blocker row must record all six required fields');
+        continue;
+      }
+      if (/^none$/i.test(columns[0].replaceAll('`', '').trim())) continue;
+      if (columns.some((column) => column === '' || /^<[^>]+>$/.test(column))) {
+        errors.push('each reproduced production blocker must record concrete evidence, issue action, affected stage, queue edge, owner, and recovery');
+      }
+    }
+  }
   const workerRows = source
     .split('\n')
     .filter((line) => line.startsWith('| #') && !line.startsWith('| ---'));

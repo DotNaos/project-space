@@ -18,6 +18,8 @@ description: Implementation and verification checklist for the Project Manager r
   - **Evidence:** Skill and docs assertions pass.
 - [x] 2.3 Document exact-head review, Preview/browser dogfooding, same-worker feedback, and no-Preview alternatives.
   - **Evidence:** Skill, docs, and TASKS completion checklist assertions pass.
+- [x] 2.4 Document Production blocker intake, duplicate avoidance, honest queue ordering, and automatic unblock reconciliation.
+  - **Evidence:** Skill, TASKS ledger contract, requirements scenarios, and validator regressions cover existing, new, parallel, fixed, and human-decision cases.
 
 ## 3. Verification
 
@@ -34,4 +36,4 @@ description: Implementation and verification checklist for the Project Manager r
 ## 4. Dependency reconciliation
 
 - [ ] Reconcile the exact landed #763 dispatch contract before merge-ready status.
-  - **Evidence:** Candidate `f0d7b422` supports `--environment-id` and `--operation-id` on canonical `project codex start`, but does not yet carry model/reasoning or Manager-only reporting fields; keep this dependency open until the exact landed contract is reconciled.
+  - **Evidence:** Candidate `cea348d649e01bc3bedbcba6b08ee7ae4001802f` supports the canonical environment/operation dispatch and carries model/reasoning plus caller-supplied reporting evidence; reconcile the exact landed contract before merge-ready status.

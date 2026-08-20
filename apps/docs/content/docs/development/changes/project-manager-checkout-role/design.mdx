@@ -51,9 +51,16 @@ delivery evidence.
 5. Review corrections reuse the same task and integration/rebase/merge order is
    preserved even when development proceeds against explicit assumptions.
 6. Implementation dispatch uses the canonical #763 operation, not a local
-   worktree preparation followed by an untracked handoff. The exact candidate
-   `f0d7b422` currently lacks model/reasoning and Manager-only reporting fields;
-   those remain an explicit merge-readiness dependency.
+   worktree preparation followed by an untracked handoff. Candidate
+   `cea348d649e01bc3bedbcba6b08ee7ae4001802f` carries model/reasoning and
+   reporting-task fields, but reporting evidence remains caller-supplied. The
+   local main/Manager/current-thread gate is the workflow proof and the exact
+   landed contract remains a merge-readiness dependency.
+7. Production blocker intake searches open issues and equivalent incident
+   records before dispatch and on each heartbeat. Existing bugs are linked and
+   promoted, new reproduced blockers are filed and queued before the blocked
+   stage, nonblocking bugs remain parallel, and verified fixes resume dependent
+   work after the actual Production path is checked.
 
 ## Architecture
 
@@ -68,6 +75,8 @@ and records handoff, review, Preview, and delivery evidence in `TASKS.md`.
 - **Worker PR is mistaken for completion:** the skill requires exact-head review,
   Preview/browser proof, and same-worker correction.
 - **Resource fan-out:** the TASKS validator rejects more than three active rows.
+- **Production drift:** the TASKS validator requires an issue-search, queue-edge,
+  owner, and recovery record for every blocker or an explicit no-blocker row.
 
 ## Migration and rollout
 

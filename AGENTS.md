@@ -33,6 +33,12 @@ fail-closed: stop mutation and obtain a proven Project-managed context.
   established implementer claim and must not prepare or check the worktree
   using their distinct subagent thread IDs. A different main Codex chat must
   use a different worktree and must never overwrite the existing owner.
+- Before `project codex start` can dispatch, the local Manager caller gate must
+  prove `state=main`, `role=project-manager`, `mutatingAllowed=false`, and the
+  same current `CODEX_THREAD_ID` as the initiating/reporting task. Owned,
+  foreign, unmanaged, missing or invalid context, and caller-supplied role or
+  thread alternatives fail closed before network dispatch; remote task metadata
+  remains caller-supplied evidence until the Manager workflow verifies it.
 - If `CODEX_THREAD_ID` is unavailable, do not mutate the repository. Continue the work in a Codex chat that has a thread ID, then prepare its worktree.
 - If the current worktree is dirty, belongs to another task, or contains changes whose ownership is unclear, leave those changes untouched and prepare a fresh worktree based on the latest `origin/main`. Do not solve the collision by stashing, committing, resetting, or moving another task's files.
 - Integrate completed work through its dedicated branch and pull request. Reconcile with the latest `main` inside that task's worktree before merging, rather than using the shared worktree as an integration area.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/DotNaos/project-space/internal/codextask"
 	"github.com/DotNaos/project-space/internal/machineconnect"
+	"github.com/DotNaos/project-space/internal/worktreeownership"
 )
 
 type codexCommandRuntime struct {
@@ -24,6 +25,8 @@ type codexCommandDependencies struct {
 	AuthorizationPollInterval time.Duration
 	AttachLocal               func(context.Context, string, string, io.Reader, io.Writer, io.Writer) error
 	AttachRemote              func(context.Context, string, string, string, string, io.Reader, io.Writer, io.Writer) error
+	CurrentDirectory          func() (string, error)
+	InspectContext            func(string, string) (worktreeownership.CheckoutContext, error)
 	LoadRuntime               func(context.Context) (codexCommandRuntime, error)
 	LookupEnv                 func(string) (string, bool)
 	NewClient                 func(codextask.Config) (codexTaskAPI, error)
@@ -35,6 +38,12 @@ type codexCommandDependencies struct {
 }
 
 func normalizeCodexCommandDependencies(dependencies codexCommandDependencies) codexCommandDependencies {
+	if dependencies.CurrentDirectory == nil {
+		dependencies.CurrentDirectory = os.Getwd
+	}
+	if dependencies.InspectContext == nil {
+		dependencies.InspectContext = worktreeownership.InspectContext
+	}
 	if dependencies.LookupEnv == nil {
 		dependencies.LookupEnv = os.LookupEnv
 	}

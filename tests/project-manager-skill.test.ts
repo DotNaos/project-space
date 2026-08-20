@@ -7,7 +7,7 @@ const root = new URL('..', import.meta.url).pathname;
 test('versioned Project Manager skill owns completion and Preview dogfooding', async () => {
   const skill = await readFile(`${root}plugins/project-space/skills/project-manager/SKILL.md`, 'utf8');
   const agents = await readFile(`${root}AGENTS.md`, 'utf8');
-  expect(skill).toContain('version: 1.0.0');
+  expect(skill).toContain('version: 1.1.0');
   for (const phrase of [
     'main` is a read-only Project Manager surface',
     'gpt-5.6-luna` with high reasoning',
@@ -23,7 +23,19 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
     'Normal authentication checks, CI and Preview gates',
     'project codex start --issue <number> --environment-id <id> --operation-id <id>',
     'Do not locally run',
-    'f0d7b422',
+    'cea348d649e01bc3bedbcba6b08ee7ae4001802f',
+    'evidence=caller-supplied',
+    'state=main',
+    'mutatingAllowed=false',
+    'same current',
+    'caller-supplied role or thread alternative fail closed',
+    'Production blocker intake',
+    'known-issues/bug labels',
+    'Search before creating',
+    'dependency edge',
+    'nonblocking bug remains parallel',
+    'verified fix unblocks',
+    'missing human decision does not falsely',
   ]) {
     expect(skill).toContain(phrase);
   }
@@ -39,6 +51,8 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
     'project codex start --issue <number> --environment-id <id> --operation-id <id>',
     'only that implementer task owns',
     'returned worktree',
+    'same current `CODEX_THREAD_ID`',
+    'caller-supplied evidence',
   ]) {
     expect(agents).toContain(phrase);
   }
@@ -73,6 +87,17 @@ test('TASKS template and validator preserve the three-worker and proof contract'
   expect(validateTasksDocument(escalated.replace('`gpt-5.6-orion/medium`', '`escalated`'))).toContain(
     'each worker row must record a non-empty model/reasoning record',
   );
+
+  const malformedBlocker = template.replace(
+    '| none | searched open issues and Production records; no blocker found | none | no edge; queue unchanged | n/a | n/a |',
+    '| #901 | issue linked | delivery | before delivery | high | <recovery> |',
+  );
+  expect(validateTasksDocument(malformedBlocker)).toContain(
+    'each reproduced production blocker must record concrete evidence, issue action, affected stage, queue edge, owner, and recovery',
+  );
+  expect(validateTasksDocument(template.replace('## Production blocker intake', '## Removed intake'))).toContain(
+    'missing required heading: ## Production blocker intake',
+  );
 });
 
 test('workflow documentation repeats the no-Preview alternative', async () => {
@@ -81,5 +106,8 @@ test('workflow documentation repeats the no-Preview alternative', async () => {
   expect(docs).toContain('desktop and mobile sizes');
   expect(docs).toContain('Normal authentication checks, CI and Preview gates');
   expect(docs).toContain('project codex start --issue <n> --environment-id <id> --operation-id <id>');
-  expect(docs).toContain('f0d7b422');
+  expect(docs).toContain('cea348d649e01bc3bedbcba6b08ee7ae4001802f');
+  expect(docs).toContain('caller-supplied');
+  expect(docs).toContain('Existing evidence is linked and');
+  expect(docs).toContain('Nonblocking bugs remain parallel');
 });

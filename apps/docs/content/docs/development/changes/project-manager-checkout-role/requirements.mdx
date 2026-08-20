@@ -68,11 +68,53 @@ record model/reasoning and Manager-only reporting fields even when the exact
 landed dispatch contract does not yet carry them; #819 MUST remain non-merge-ready
 until that contract is reconciled.
 
-#### Scenario: Candidate dispatch lacks Manager handoff fields
+#### Scenario: Candidate dispatch preserves honest Manager evidence
 
-- **Given** the exact #763 candidate `f0d7b422` returns environment and operation identity but not model/reasoning or Manager-only reporting fields
+- **Given** the exact #763 candidate `cea348d649e01bc3bedbcba6b08ee7ae4001802f` returns environment, operation, model/reasoning, and reporting-task fields
 - **When** the Manager records the dispatch handoff
-- **Then** it records the missing fields explicitly and keeps #819 non-merge-ready until the landed contract is reconciled
+- **Then** it runs the local main/Manager/current-thread gate, records the remote reporting evidence as caller-supplied, and keeps #819 non-merge-ready until the landed contract is reconciled
+
+### PM-006 — Production blocker intake
+
+Before dispatching feature implementation and on every 30-minute heartbeat, the
+Manager MUST search the owning repository's open issues, known-issues/bug labels,
+and equivalent Production incident records for defects that plausibly affect
+runtime, Preview, delivery, authentication, transport, data, CI, or deployment.
+Existing issues MUST be linked and promoted rather than duplicated. A new
+focused bug MAY be filed only when no existing issue captures the evidence.
+
+A reproduced Production bug that blocks development, realistic verification,
+merge readiness, release, or delivery MUST be added to the active roadmap with
+the exact blocked tasks/stage, dependency edge, evidence, severity, owner, and
+shortest recovery path. The Delivery Queue MUST put it before the affected
+stage, while nonblocking work remains parallel under explicit assumptions.
+Production fixes are Manager-owned critical-path work within the three-worker
+cap; only a genuine human decision or exceptional approval/private input is a
+human blocker.
+
+#### Scenario: Existing known bug is found before dispatch
+
+- **Given** an open issue already records a Production defect affecting the feature path
+- **When** the Manager performs blocker intake
+- **Then** it links and promotes that issue without creating a duplicate
+
+#### Scenario: A new reproduced Production defect blocks delivery
+
+- **Given** no issue captures a reproduced defect and it blocks a feature's delivery stage
+- **When** the Manager files and records the defect
+- **Then** it inserts the bug before that stage with evidence, severity, owner, and a recovery path
+
+#### Scenario: A Production bug is nonblocking or fixed
+
+- **Given** a bug is nonblocking, or its fix has shipped
+- **When** the Manager rescans the path
+- **Then** nonblocking work stays parallel, while a verified Production fix relaxes the edge and resumes the dependent worker
+
+#### Scenario: No human decision is needed
+
+- **Given** a technical Production, CI, authentication, or delivery gate needs repair
+- **When** the Manager reconciles it
+- **Then** it continues Manager-owned work rather than falsely stopping for a user decision
 
 ## CHANGED Requirements
 

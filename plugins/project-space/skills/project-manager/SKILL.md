@@ -1,6 +1,6 @@
 ---
 name: project-manager
-version: 1.0.0
+version: 1.1.0
 description: Own Project Space delivery from a proven checkout context, route implementation into issue-bound worktrees, review workers, and complete the normal delivery workflow.
 ---
 
@@ -29,11 +29,19 @@ implementation belongs in a GitHub-issue-bound Project-managed worktree.
    idempotent, recoverable, and sent only through supported Project-managed
    dispatch.
 
-The #763 candidate contract at `f0d7b422` supplies the canonical environment and
-operation identity, but does not yet carry auditable model/reasoning or
-Manager-only reporting fields. Record those fields in the Manager handoff and
-keep #819 non-merge-ready until the exact landed #763 contract carries or
-explicitly binds them; never claim the current CLI enforces them.
+The #763 candidate contract at `cea348d649e01bc3bedbcba6b08ee7ae4001802f`
+supplies the canonical environment and operation identity plus auditable
+model/reasoning and reporting-task fields. Its server-side reporting task is
+explicitly `evidence=caller-supplied`; it is not server proof that the caller is
+the Manager and must not be fabricated as such. Before dispatch, the local
+`project codex start` caller gate must prove `state=main`,
+`role=project-manager`, `mutatingAllowed=false`, and the same current
+`CODEX_THREAD_ID` as the initiating/reporting task. Owned, foreign, unmanaged,
+missing or invalid context, missing or mismatched thread identity, and any
+caller-supplied role or thread alternative fail closed before network dispatch.
+The local gate is the canonical workflow proof. Keep #819 non-merge-ready until
+the exact landed #763 contract is reconciled; never claim remote caller metadata
+alone authenticates the Manager.
 
 The default worker is `gpt-5.6-luna` with high reasoning. Escalate only after
 specific feedback fails to converge, unusually broad architectural reasoning is
@@ -71,6 +79,38 @@ compact task status first; read deeper for blocked, failing, uncertain, drifting
 or input-waiting work. Update the roadmap and GitHub evidence when state changes.
 Do not send unchanged status noise. Disable the loop only after the managed
 roadmap reaches its configured terminal delivery condition.
+
+## Production blocker intake
+
+Before dispatching implementation for a feature, the Manager searches the
+owning repository's open issues and known-issues/bug labels, or equivalent
+Production incident records, for defects that plausibly affect the feature's
+runtime, Preview, delivery, authentication, transport, data, CI, or deployment
+path. Search before creating: link and promote an existing issue when it already
+captures the evidence, and create a focused bug only when no existing issue
+does. A reproduced Production bug that blocks development, realistic
+verification, merge readiness, release, or delivery is inserted into the active
+roadmap with the exact blocked tasks and stage, dependency edge, evidence,
+severity, owner/worker, and shortest recovery path.
+
+Reorder the dependency and Delivery Queue honestly so a blocker is handled
+before the affected stage. Do not invent an edge when work can proceed in
+parallel: record explicit assumptions and continue development, while keeping
+integration, verification, and delivery gated by the fix. Dispatch and drive a
+Production bug like any other critical-path item within the maximum three
+implementation workers. It is not a human blocker unless a genuine human
+decision or exceptional approval/private input is required.
+
+Every heartbeat rescans changed Production evidence and open bug/known-issue
+state, promotes newly discovered blockers, avoids duplicate issues, and
+resumes or redirects workers without waiting for the user. When fixed, verify
+the actual Production path, update or close the owning issue as appropriate,
+relax dependency edges only with evidence, and resume the previously blocked
+feature automatically. An existing known bug is linked and promoted, not
+duplicated; a new reproduced defect is filed and placed before its blocked
+delivery stage; a nonblocking bug remains parallel; a verified fix unblocks and
+resumes its dependent worker; and a missing human decision does not falsely
+stop Manager-owned technical progress.
 
 ## Completion ownership
 

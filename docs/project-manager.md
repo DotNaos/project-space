@@ -35,9 +35,13 @@ escalated.
 Implementation dispatch uses the canonical #763 operation
 `project codex start --issue <n> --environment-id <id> --operation-id <id> --format json`,
 which owns issue-bound preparation and returns the worker task. Candidate head
-`f0d7b422` does not yet carry model/reasoning and Manager-only reporting fields;
-those are recorded explicitly in the Manager handoff, and #819 is not
-merge-ready until that exact landed contract is reconciled.
+`cea348d649e01bc3bedbcba6b08ee7ae4001802f` carries auditable model/reasoning
+and reporting-task fields, but the server labels its reporting evidence
+`caller-supplied`; it does not authenticate a Manager. Before dispatch, the
+local caller gate proves `state=main`, `role=project-manager`,
+`mutatingAllowed=false`, and the current `CODEX_THREAD_ID` match. No caller
+supplied role or thread alternative is accepted. #819 remains non-merge-ready
+until this exact landed contract is reconciled.
 
 Every 30 minutes the Manager reconciles active worker state. Idle, interrupted,
 failed, timed-out, and completed turns are events to repair or advance, not
@@ -45,3 +49,14 @@ blockers. Only a genuine human-in-the-loop decision, exceptional risk, or
 human-only blocker stops the critical path. `TASKS.md` is maintained from the
 skill template and checked by its validator; it records assumptions, review and
 Preview evidence, and delivered-state proof.
+
+Before each implementation dispatch and every heartbeat, the Manager searches
+open issues, known-issues/bug labels, and equivalent Production incident records
+for defects affecting the feature's runtime, Preview, delivery, authentication,
+transport, data, CI, or deployment path. Existing evidence is linked and
+promoted rather than duplicated; a focused bug is filed only when no issue
+captures it. A reproduced blocker is added to `TASKS.md` with its blocked stage,
+dependency edge, evidence, severity, owner, queue position, and shortest
+recovery path. Nonblocking bugs remain parallel. After fixing one, the Manager
+verifies the actual Production path, relaxes the edge with evidence, and resumes
+the dependent worker.
