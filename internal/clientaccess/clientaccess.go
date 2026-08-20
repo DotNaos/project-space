@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -43,14 +44,22 @@ const (
 )
 
 type Failure struct {
-	Phase   FailurePhase
-	Code    FailureCode
-	Message string
+	Phase      FailurePhase
+	Code       FailureCode
+	Message    string
+	ExitStatus *int
 }
 
 func (failure *Failure) Error() string {
+	if failure.ExitStatus != nil {
+		return fmt.Sprintf("%s: %s (exit status %d)", failure.Code, failure.Message, *failure.ExitStatus)
+	}
 	return fmt.Sprintf("%s: %s", failure.Code, failure.Message)
 }
+
+// MaxReconnectAttempts is intentionally zero. Reconnecting requires a fresh
+// route authorization and host-key check rather than reusing stale evidence.
+const MaxReconnectAttempts = 0
 
 type Target struct {
 	Address                string
@@ -80,7 +89,7 @@ func DefaultDependencies() Dependencies {
 
 func TargetFromRoute(route computeinventory.AccessRoute) (Target, error) {
 	if route.Type != "ssh_private_network" || route.ProviderKind != "tailscale" ||
-		route.State != "ready" || route.ClientAccess == nil {
+		route.State != "ready" || route.ClientAccess == nil || !hasCapability(route.Capabilities, "interactive_shell") {
 		return Target{}, &Failure{
 			Phase: PhaseTarget, Code: CodeTargetUnavailable,
 			Message: "the Environment has no fresh, verified Tailscale SSH route",
@@ -101,6 +110,15 @@ func TargetFromRoute(route computeinventory.AccessRoute) (Target, error) {
 	}, nil
 }
 
+func hasCapability(capabilities []string, wanted string) bool {
+	for _, capability := range capabilities {
+		if capability == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func Open(ctx context.Context, target Target, input io.Reader, output, errorOutput io.Writer, dependencies Dependencies) error {
 	if dependencies.LookPath == nil || dependencies.Run == nil || dependencies.Interactive == nil {
 		return &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "the local SSH bridge is not configured"}
@@ -108,6 +126,9 @@ func Open(ctx context.Context, target Target, input io.Reader, output, errorOutp
 	if !isTailscaleIPv4(target.Address) || target.Port < 1 || target.Port > 65535 ||
 		target.User == "" || target.HostKeySHA256 == "" || target.TargetIdentityRevision == "" {
 		return &Failure{Phase: PhaseTarget, Code: CodeTargetUnavailable, Message: "the client-owned SSH target is invalid"}
+	}
+	if err := ctx.Err(); err != nil {
+		return &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "the local SSH session was cancelled"}
 	}
 	if _, err := dependencies.LookPath("tailscale"); err != nil {
 		return &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "Tailscale is not installed on this client"}
@@ -148,9 +169,12 @@ func Open(ctx context.Context, target Target, input io.Reader, output, errorOutp
 		return &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "the client could not finalize host-key verification"}
 	}
 	args := []string{
-		"-4", "-p", strconv.Itoa(target.Port),
+		"-4", "-F", os.DevNull, "-tt", "-p", strconv.Itoa(target.Port),
 		"-o", "BatchMode=no",
 		"-o", "GlobalKnownHostsFile=" + os.DevNull,
+		"-o", "ProxyCommand=none",
+		"-o", "ProxyJump=none",
+		"-o", "PermitLocalCommand=no",
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "UserKnownHostsFile=" + knownHostsPath,
 		target.User + "@" + target.Address,
@@ -159,6 +183,9 @@ func Open(ctx context.Context, target Target, input io.Reader, output, errorOutp
 	interactiveError := dependencies.Interactive(ctx, input, output, io.MultiWriter(errorOutput, &transcript), sshBinary, args)
 	if interactiveError == nil {
 		return nil
+	}
+	if ctx.Err() != nil {
+		return &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "the local SSH session was cancelled"}
 	}
 	return classifySSHFailure(interactiveError, transcript.String())
 }
@@ -204,20 +231,24 @@ func matchingHostKey(output, expected string) (string, bool) {
 
 func classifySSHFailure(commandError error, transcript string) *Failure {
 	message := strings.ToLower(commandError.Error() + " " + transcript)
+	var exitError *exec.ExitError
+	var exitStatus *int
+	if errors.As(commandError, &exitError) {
+		status := exitError.ExitCode()
+		exitStatus = &status
+	}
 	switch {
 	case strings.Contains(message, "permission denied"), strings.Contains(message, "authentication"), strings.Contains(message, "publickey"):
-		return &Failure{Phase: PhaseSSH, Code: CodeAuthenticationFailed, Message: "SSH authentication failed on the client"}
+		return &Failure{Phase: PhaseSSH, Code: CodeAuthenticationFailed, Message: "SSH authentication failed on the client", ExitStatus: exitStatus}
 	case strings.Contains(message, "no route"), strings.Contains(message, "timed out"), strings.Contains(message, "connection refused"), strings.Contains(message, "network is unreachable"):
-		return &Failure{Phase: PhaseTarget, Code: CodeTargetUnavailable, Message: "the Tailscale target could not be reached by the client"}
+		return &Failure{Phase: PhaseTarget, Code: CodeTargetUnavailable, Message: "the Tailscale target could not be reached by the client", ExitStatus: exitStatus}
 	default:
-		return &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "the client SSH session ended before it became usable"}
+		return &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "the client SSH session ended before it became usable", ExitStatus: exitStatus}
 	}
 }
 
 func commandFailure(stderr, fallback string) string {
-	if message := strings.TrimSpace(stderr); message != "" {
-		return message
-	}
+	_ = stderr
 	return fallback
 }
 

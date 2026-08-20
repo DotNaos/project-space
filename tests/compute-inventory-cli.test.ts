@@ -185,6 +185,7 @@ describe('agent-safe compute inventory', () => {
     const environment = snapshot.environments.find(({ kind }) => kind === 'native_windows')!;
     const networkId = '10000000-0000-4000-8000-000000000001';
     const inventory = buildProjectCliComputeInventory({
+      authorizedInteractiveRouteIds: new Set(['20000000-0000-4000-8000-000000000001']),
       checkedAt: '2026-08-11T10:01:00.000Z',
       connectors,
       privateNetworkInventory: {
@@ -197,7 +198,7 @@ describe('agent-safe compute inventory', () => {
         }],
         routes: [{
           allowedGatewayIds: ['private-gateway-id'], availability: 'available',
-          capabilities: ['project_cli'], credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
+          capabilities: ['interactive_shell'], credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY',
           enabled: true, freshnessSeconds: 60, hostKeySha256: `SHA256:${'A'.repeat(43)}`,
           id: '20000000-0000-4000-8000-000000000001',
           lastVerifiedAt: '2026-08-11T10:00:30.000Z', ownerUserId: 'owner-one',
@@ -222,7 +223,7 @@ describe('agent-safe compute inventory', () => {
     });
     expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.accessRoutes)
       .toContainEqual({
-        capabilities: ['project_cli'], id: expect.stringMatching(/^route-[a-f0-9]{32}$/),
+        capabilities: ['interactive_shell'], id: expect.stringMatching(/^route-[a-f0-9]{32}$/),
         clientAccess: {
           address: '100.64.0.10', hostKeySha256: `SHA256:${'A'.repeat(43)}`,
           port: 22, targetIdentityRevision: 'identity-1574b5d9fe2e71fbe5a09e1e2e29f149', user: 'private-user'
@@ -278,6 +279,48 @@ describe('agent-safe compute inventory', () => {
       .toMatchObject({ ssh: {
         hostKey: 'verified', projectCli: 'available', readiness: 'available'
       } });
+  });
+
+  test('does not project launch metadata without interactive-shell authorization or a canonical tailnet IP', () => {
+    const connectors = representativeConnectors();
+    const snapshot = computeInventoryFromConnectors({ connectors });
+    const environment = snapshot.environments[0]!;
+    const networkId = 'network-client-access-boundary';
+    const baseRoute = {
+      allowedGatewayIds: ['gateway-one'], availability: 'available' as const,
+      credentialReference: 'env://PROJECT_SPACE_SSH_PRIVATE_KEY', enabled: true,
+      freshnessSeconds: 60, hostKeySha256: `SHA256:${'A'.repeat(43)}`,
+      id: 'route-client-access-boundary', lastVerifiedAt: '2026-08-11T10:00:30.000Z',
+      ownerUserId: 'owner-one', policyState: 'approved' as const, priority: 100,
+      privateNetworkId: networkId, providerKind: 'tailscale' as const,
+      requiresInteractiveApproval: false, routeKind: 'ssh_private_network' as const,
+      sshPort: 22, sshUser: 'private-user', target: { id: environment.id, kind: 'environment' as const },
+      targetIdentityRevision: `${environment.identity.version}:${environment.identity.key}`,
+      verifiedUntil: '2026-08-11T10:05:00.000Z'
+    };
+    const network = {
+      approvalState: 'approved' as const, availability: 'available' as const, enabled: true,
+      credentialReference: 'env://PROJECT_SPACE_TAILSCALE_TOKEN', id: networkId,
+      lastVerifiedAt: '2026-08-11T10:00:30.000Z', name: 'Private network',
+      ownerUserId: 'owner-one', providerKind: 'tailscale' as const,
+      providerReference: 'private-provider-reference', verifiedUntil: '2026-08-11T10:05:00.000Z'
+    };
+    const build = (route: typeof baseRoute & { capabilities: string[]; privateAddress: string }) =>
+      buildProjectCliComputeInventory({
+        checkedAt: '2026-08-11T10:01:00.000Z', connectors,
+        privateNetworkInventory: { networks: [network], routes: [route] }, schemaVersion: 2, snapshot
+      });
+    for (const route of [
+      { ...baseRoute, capabilities: ['project_cli'], privateAddress: '100.64.0.10' },
+      { ...baseRoute, capabilities: ['interactive_shell'], privateAddress: '100.64.0.10' },
+      { ...baseRoute, capabilities: ['project_cli', 'interactive_shell'], privateAddress: 'fd00::10' },
+      { ...baseRoute, capabilities: ['project_cli', 'interactive_shell'], privateAddress: 'node.tailnet.ts.net' }
+    ]) {
+      const inventory = build(route);
+      const projected = inventory.environmentInstances.find(({ id }) => id === environment.id)!;
+      expect(projected.accessRoutes.find(({ type }) => type === 'ssh_private_network'))
+        .not.toHaveProperty('clientAccess');
+    }
   });
 
   test('keeps an authoritative empty Workspace inventory available', () => {

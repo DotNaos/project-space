@@ -23,8 +23,14 @@ description: Implementation and reconciliation checklist for client-owned SSH ac
   - **Evidence:** Key-scan fingerprint mismatch returns a typed failure and strict temporary
     known-hosts verification is used for the local process.
 - [x] 2.3 Expose the exact UI command and honest unavailable state
-  - **Evidence:** Environment details copy `project ssh --environment-id ...` only when metadata
-    exists and otherwise show unavailable until fresh local Tailnet evidence.
+  - **Evidence:** Environment details display `project ssh --environment-id ...` informationally,
+    identify the target as ready only with local client checks still required, and do not claim a
+    browser launch.
+
+- [x] 2.4 Define the bounded local session lifecycle
+  - **Evidence:** Direct SSH config disables user proxies, forces a PTY, returns exit status,
+    propagates cancellation, performs zero automatic reconnects, and removes temporary host-key
+    state.
 
 ## 3. Verification
 
@@ -34,16 +40,26 @@ description: Implementation and reconciliation checklist for client-owned SSH ac
   - **Evidence:** The full Bun run passes 2,801 tests; unrelated failures include the host Bun
     version policy and existing React-renderer/environment failures.
 
-## 4. Deferred reconciliation
+## 4. Reconciled dependency
 
-- [ ] 4.1 Reconcile the exact #763 dispatch/runtime contract
-  - **Status:** Blocked pending dependency landing, not pending human input.
-  - **Reason:** This implementation was developed against candidate
-    `9b952664fc6c4d519b15cea168157f513469d8a9` while #763 remains under review.
-  - **Blocked by:** #763
-  - **Unblocked when:** The exact #763 implementation lands and its dispatch identity,
-    unavailable-state, and runtime handoff contracts are available for comparison.
+- [x] 4.1 Reconcile the exact #763 dispatch/runtime contract
+  - **Evidence:** Final commit `f0d7b422bbe6007b9add605c882879fac7ddce41` was inspected; its
+    canonical identity and explicit unavailable outcomes require no #724 code change because this
+    issue does not call the #763 start endpoint.
 
 ## 5. Deferred follow-ups
 
-None.
+- [ ] 5.1 Provide a trusted browser-to-local Project CLI bridge (#831)
+  - **Reason:** The current web surface has no callable local process bridge; until it exists the
+    Compute action remains informational.
+  - **Issue:** #831
+  - **Acceptance criteria:** An authenticated local capability handshake enables the Compute action
+    only after proving the local Project CLI, Tailscale, SSH, and host-key path; browser launch uses
+    the direct client-owned boundary and never a localhost cookie or Project Space relay.
+
+- [ ] 5.2 Rebase onto the release-policy owner (#819)
+  - **Reason:** #819 owns the current changelog plus UUID-intent gate and authoring-policy migration;
+    #724 intentionally carries only its own UUID intent and does not duplicate that implementation.
+  - **Issue:** #819
+  - **Acceptance criteria:** After #819 lands, rebase #830, run the canonical release gate and
+    preflight, and retain exactly one PR-owned UUID intent without changing historical intent files.

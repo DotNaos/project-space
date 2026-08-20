@@ -51,8 +51,9 @@ flowchart LR
    `0600` known-hosts file with strict checking for the interactive SSH process.
 5. Keep `codex_unavailable` in the shared contract for #726, while this CLI currently owns the
    local SSH phases.
-6. Treat #763 candidate `9b952664fc6c4d519b15cea168157f513469d8a9` as an explicit dispatch/runtime
-   assumption only; reconcile with its exact landed contract before merge-ready status.
+6. Reconcile the dispatch/runtime boundary with final #763 commit
+   `f0d7b422bbe6007b9add605c882879fac7ddce41`; #724 does not call its start endpoint and keeps
+   unavailable runtime states explicit.
 
 ## Risks and mitigations
 
@@ -64,14 +65,15 @@ flowchart LR
 - **Ambiguous target selection:** only one highest-priority verified route is accepted.
 - **Local environment failures:** typed phase/code failures distinguish missing tools, offline
   Tailscale, target reachability, SSH, and host-key problems.
-- **Contract drift in #763:** the change specification and handoff explicitly keep reconciliation
-  open until the exact dependency revision is landed.
+- **Contract drift in #763:** the final identity and unavailable-state contract is recorded above;
+  no server relay or runtime fallback is introduced.
 
 ## Migration and rollout
 
-The descriptor is additive and preserves existing inventory consumers. The UI only enables its
-copy action when a fresh client route is present. No server deployment or data migration is part
-of this change; merge readiness depends on the #763 contract reconciliation.
+The descriptor is additive and preserves existing inventory consumers. The UI displays the command
+informationally when a fresh client route is present and states that local Tailscale and SSH checks
+are required. No server deployment or data migration is part of this change; browser launch remains
+deferred to #831.
 
 ## Validation
 

@@ -113,6 +113,15 @@ func resolveEnvironmentInstance(instances []computeinventory.EnvironmentInstance
 	return computeinventory.EnvironmentInstance{}, ambiguousSelector("Environment Instance", selector, candidates)
 }
 
+func resolveEnvironmentInstanceID(instances []computeinventory.EnvironmentInstance, selector string) (computeinventory.EnvironmentInstance, error) {
+	for _, instance := range instances {
+		if instance.ID == selector {
+			return instance, nil
+		}
+	}
+	return computeinventory.EnvironmentInstance{}, fmt.Errorf("Environment Instance ID %q was not found", selector)
+}
+
 func ambiguousSelector(kind, selector string, candidates []string) error {
 	sort.Strings(candidates)
 	return fmt.Errorf("%s selector %q is ambiguous; exact candidates: %s", kind, selector, strings.Join(candidates, ", "))

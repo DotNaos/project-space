@@ -52,17 +52,31 @@ host-key, authentication, and Codex failures without exposing secrets or raw pro
 - **When** the local SSH process reports an authentication failure
 - **Then** the client returns `authentication_failed` in the SSH phase
 
-### CLIENT-SSH-005 — Dispatch/runtime reconciliation
+### CLIENT-SSH-005 — Bounded local session lifecycle
+
+The local session MUST force direct SSH configuration, expose the SSH exit status when available,
+support terminal resize through a PTY, propagate interruption/cancellation, perform no automatic
+reconnect, and remove temporary host-key state on every exit path.
+
+#### Scenario: Local session ends or is interrupted
+
+- **Given** the local client has started an authorized direct session
+- **When** SSH exits or the caller cancels the session
+- **Then** the client returns the exit status or typed cancellation, cleans up temporary state, and
+  performs zero automatic reconnect attempts
+
+### CLIENT-SSH-006 — Dispatch/runtime reconciliation
 
 The access implementation MUST reconcile its assumed dispatch identity, unavailable-state, and
 runtime handoff contracts with the exact landed #763 implementation before merge-ready status.
 
 #### Scenario: #763 lands with a changed contract
 
-- **Given** the exact landed #763 contract differs from candidate `9b952664fc6c4d519b15cea168157f513469d8a9`
+- **Given** the exact landed #763 contract is
+  `f0d7b422bbe6007b9add605c882879fac7ddce41`
 - **When** this change is prepared for merge
-- **Then** the descriptor, shared failure contract, and runtime handoff are updated and re-tested
-  before the pull request is considered merge-ready
+- **Then** the descriptor preserves canonical Environment/workspace identity and explicit unavailable
+  outcomes, with no server SSH or Codex fallback
 
 ## CHANGED Requirements
 

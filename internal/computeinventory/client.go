@@ -376,6 +376,7 @@ func validAccessRoutes(routes []AccessRoute, schemaVersion int) bool {
 func validClientAccess(route AccessRoute) bool {
 	access := route.ClientAccess
 	if access == nil || route.Type != "ssh_private_network" || route.ProviderKind != "tailscale" ||
+		!containsCapability(route.Capabilities, "interactive_shell") ||
 		route.State != "ready" || access.Port < 1 || access.Port > 65535 ||
 		!identifierPattern.MatchString(access.User) || !identifierPattern.MatchString(access.TargetIdentityRevision) ||
 		!fingerprintPattern.MatchString(access.HostKeySHA256) {
@@ -387,6 +388,15 @@ func validClientAccess(route AccessRoute) bool {
 	}
 	octets := ip.To4()
 	return octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127
+}
+
+func containsCapability(capabilities []string, wanted string) bool {
+	for _, capability := range capabilities {
+		if capability == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func validControlledCapabilities(routeType string, capabilities []string) bool {

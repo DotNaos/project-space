@@ -13,6 +13,7 @@ import (
 
 func TestSSHCommandUsesExactEnvironmentIdentityAndLocalBridge(t *testing.T) {
 	var opened clientaccess.Target
+	var sshArgs []string
 	command := newSSHCommandWithDependencies(sshCommandDependencies{
 		Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
 			return inventoryAPI{inventory: computeinventory.Inventory{
@@ -37,7 +38,8 @@ func TestSSHCommandUsesExactEnvironmentIdentityAndLocalBridge(t *testing.T) {
 				}
 				return "100.64.0.10 ssh-ed25519 YWNjZXNzLWtleQ==", "", nil
 			},
-			Interactive: func(_ context.Context, _ io.Reader, _ io.Writer, _ io.Writer, _ string, _ []string) error {
+			Interactive: func(_ context.Context, _ io.Reader, _ io.Writer, _ io.Writer, _ string, args []string) error {
+				sshArgs = append([]string(nil), args...)
 				opened = clientaccess.Target{Address: "100.64.0.10", Port: 22, User: "project-user", TargetIdentityRevision: "1:environment-identity", HostKeySHA256: "SHA256:tUGJpNc2gXgnfVo/KzkCxfyqgRwITaruSw4CsbW8CXA"}
 				return nil
 			},
@@ -50,6 +52,27 @@ func TestSSHCommandUsesExactEnvironmentIdentityAndLocalBridge(t *testing.T) {
 	}
 	if opened.Address != "100.64.0.10" || opened.TargetIdentityRevision != "1:environment-identity" {
 		t.Fatalf("opened target = %#v", opened)
+	}
+	joined := strings.Join(sshArgs, " ")
+	if !strings.Contains(joined, "-F /dev/null") || !strings.Contains(joined, "ProxyCommand=none") ||
+		!strings.Contains(joined, "ProxyJump=none") {
+		t.Fatalf("ssh configuration was not forced direct: %s", joined)
+	}
+}
+
+func TestSSHEnvironmentIDRejectsReferenceAliasAndNameSelectors(t *testing.T) {
+	for _, selector := range []string{"platform-local/host-a/environment-a", "os-pc", "OS PC"} {
+		api := inventoryAPI{inventory: computeinventory.Inventory{EnvironmentInstances: []computeinventory.EnvironmentInstance{{
+			ID: "environment-a", Alias: "os-pc", Name: "OS PC", Reference: "platform-local/host-a/environment-a",
+		}}}}
+		command := newSSHCommandWithDependencies(sshCommandDependencies{
+			Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) { return api, nil }},
+		})
+		command.SetArgs([]string{"--environment-id", selector})
+		err := command.Execute()
+		if err == nil || !strings.Contains(err.Error(), "Environment Instance ID") {
+			t.Fatalf("selector %q error = %v", selector, err)
+		}
 	}
 }
 
@@ -81,6 +104,35 @@ func TestSSHCommandBlocksStaleAndNonTailnetRoutesBeforeLocalExecution(t *testing
 		if !errors.As(err, &failure) || failure.Code != clientaccess.CodeTargetUnavailable || opened {
 			t.Fatalf("route %#v error = %v opened = %t", route, err, opened)
 		}
+	}
+}
+
+func TestSSHCommandBlocksConflictedInventoryBeforeLocalExecution(t *testing.T) {
+	opened := false
+	command := newSSHCommandWithDependencies(sshCommandDependencies{
+		Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
+			return inventoryAPI{inventory: computeinventory.Inventory{
+				InventoryState: "conflict",
+				EnvironmentInstances: []computeinventory.EnvironmentInstance{{ID: "environment-1"}},
+			}}, nil
+		}},
+		Access: clientaccess.Dependencies{
+			LookPath: func(string) (string, error) { return "/usr/bin/tool", nil },
+			Run: func(context.Context, string, []string, []byte) (string, string, error) {
+				t.Fatal("conflicted inventory must not reach the local bridge")
+				return "", "", nil
+			},
+			Interactive: func(context.Context, io.Reader, io.Writer, io.Writer, string, []string) error {
+				opened = true
+				return nil
+			},
+		},
+	})
+	command.SetArgs([]string{"--environment-id", "environment-1"})
+	err := command.Execute()
+	var failure *clientaccess.Failure
+	if !errors.As(err, &failure) || failure.Code != clientaccess.CodeTargetUnavailable || opened {
+		t.Fatalf("conflicted inventory error = %v opened = %t", err, opened)
 	}
 }
 

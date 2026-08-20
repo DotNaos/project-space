@@ -38,4 +38,5 @@ export interface ClientOwnedAccessFailure {
   phase: ClientOwnedAccessPhase;
   retryable: boolean;
   state: 'blocked';
+  exitStatus?: number;
 }

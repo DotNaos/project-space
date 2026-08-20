@@ -47,7 +47,18 @@ func newSSHCommandWithDependencies(dependencies sshCommandDependencies) *cobra.C
 			if err != nil {
 				return fmt.Errorf("load current compute inventory: %w", err)
 			}
-			instance, err := resolveEnvironmentInstance(inventory.EnvironmentInstances, selector)
+			if inventory.InventoryState == "conflict" {
+				return &clientaccess.Failure{
+					Phase: clientaccess.PhaseTarget, Code: clientaccess.CodeTargetUnavailable,
+					Message: "the Compute inventory is conflicted; refresh it before selecting an Environment",
+				}
+			}
+			var instance computeinventory.EnvironmentInstance
+			if environmentID != "" {
+				instance, err = resolveEnvironmentInstanceID(inventory.EnvironmentInstances, selector)
+			} else {
+				instance, err = resolveEnvironmentInstance(inventory.EnvironmentInstances, selector)
+			}
 			if err != nil {
 				return err
 			}
@@ -73,7 +84,8 @@ func newSSHCommandWithDependencies(dependencies sshCommandDependencies) *cobra.C
 func selectClientAccessRoute(instance computeinventory.EnvironmentInstance) (computeinventory.AccessRoute, error) {
 	eligible := make([]computeinventory.AccessRoute, 0)
 	for _, route := range instance.AccessRoutes {
-		if route.Type == "ssh_private_network" && route.ProviderKind == "tailscale" && route.State == "ready" && route.ClientAccess != nil {
+		if route.Type == "ssh_private_network" && route.ProviderKind == "tailscale" &&
+			route.State == "ready" && route.ClientAccess != nil && hasInteractiveShellCapability(route.Capabilities) {
 			eligible = append(eligible, route)
 		}
 	}
@@ -107,6 +119,15 @@ func selectClientAccessRoute(instance computeinventory.EnvironmentInstance) (com
 		}
 	}
 	return preferred[0], nil
+}
+
+func hasInteractiveShellCapability(capabilities []string) bool {
+	for _, capability := range capabilities {
+		if capability == "interactive_shell" {
+			return true
+		}
+	}
+	return false
 }
 
 func clientAccessUnavailableMessage(instance computeinventory.EnvironmentInstance) string {

@@ -3,7 +3,7 @@ title: Verification
 description: Requirement evidence and dependency reconciliation for client-owned SSH access.
 ---
 
-Verification status: **Incomplete**
+Verification status: **Incomplete** (browser launch intentionally deferred to #831)
 
 ## Requirement evidence
 
@@ -11,7 +11,8 @@ Verification status: **Incomplete**
 - [x] CLIENT-SSH-002 — Exact target and host identity
 - [x] CLIENT-SSH-003 — Fresh local and remote readiness
 - [x] CLIENT-SSH-004 — Typed failure boundary
-- [ ] CLIENT-SSH-005 — Dispatch/runtime reconciliation with exact landed #763
+- [x] CLIENT-SSH-005 — Bounded local session lifecycle
+- [x] CLIENT-SSH-006 — Dispatch/runtime reconciliation with final #763
 
 ## Final reconciliation
 
@@ -19,10 +20,14 @@ Verification status: **Incomplete**
 - [x] The server path contains no SSH relay, credentials, sockets, commands, or terminal traffic
 - [x] Focused tests, TypeScript build, all Go tests, CLI docs, and specification checks pass
 - [x] Allowed direct and blocked non-tailnet/stale/host-key paths are covered by deterministic tests
-- [ ] Exact #763 dispatch and runtime contracts are reconciled after the dependency lands
+- [x] Exact #763 dispatch and runtime contracts are reconciled against
+  `f0d7b422bbe6007b9add605c882879fac7ddce41`
+- [x] Compute UI is informational and states that local Tailscale/SSH checks are required
+- [ ] Trusted browser-to-local launch bridge is available (#831)
+- [ ] Release-policy gate is reconciled by the designated #819 owner and #830 is rebased
 - [ ] Visual browser dogfood is still pending because no browser connector is available in this task
 
-The incomplete status is deliberate: the implementation is suitable for review, but the pull
-request is not merge-ready until #763's exact landed contract is reconciled. Full Bun validation
-also has unrelated host-environment failures: this machine runs Bun 1.3.9 while the repository
-requires 1.3.14, and several existing React-renderer tests fail under this runtime.
+The incomplete status is deliberate: the CLI boundary is reviewable, but browser launch is not
+claimed until #831 supplies a trusted local bridge. Any full-suite environment failures are listed
+separately from this product boundary. The PR-owned UUID release intent is present, but the release
+gate itself is intentionally left to #819 and must be reconciled before merge-ready status.
