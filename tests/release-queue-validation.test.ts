@@ -3,11 +3,16 @@ import { validateReleasePullRequest } from
   '../apps/docs/lib/releases/pull-request-gate';
 import { releaseIntentDirectory } from
   '../apps/docs/lib/releases/release-intent';
-import { validateMergedIntentOnlyQueueItem } from
-  '../scripts/release-queue-validation';
+import {
+  releaseIntentEnforcementAdoptionCommit,
+  validateMergedIntentOnlyQueueItem,
+  validateReleaseIntentEnforcementChange,
+} from '../scripts/release-queue-validation';
 
 const validPath =
   `${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`;
+const knownEnforcementAdoptionCommit =
+  '299a6d583ce2d13aa0a44c9f0e3cada64c765826';
 
 const validHistoricalItem = {
   allIntentChanges: [validPath],
@@ -15,6 +20,35 @@ const validHistoricalItem = {
   intentPaths: [validPath],
   productPaths: ['src/features/project-desktop/example.tsx'],
 };
+
+const enforcementAdoption = {
+  alreadyEnforced: false,
+  commit: knownEnforcementAdoptionCommit,
+  enforcementCommit: knownEnforcementAdoptionCommit,
+  markerAdded: true,
+  markerChanged: true,
+  markerMatches: true,
+};
+
+test('accepts only the known historical enforcement-adoption commit', () => {
+  expect(releaseIntentEnforcementAdoptionCommit).toBe(
+    knownEnforcementAdoptionCommit,
+  );
+  expect(validateReleaseIntentEnforcementChange(enforcementAdoption)).toBe(
+    true,
+  );
+});
+
+test('rejects another otherwise-shaped enforcement-marker commit', () => {
+  const commit = '1111111111111111111111111111111111111111';
+  expect(() => validateReleaseIntentEnforcementChange({
+    ...enforcementAdoption,
+    commit,
+    enforcementCommit: commit,
+  })).toThrow(
+    `Merged commit ${commit} changes the immutable release-intent enforcement marker.`,
+  );
+});
 
 test('accepts a valid historical intent-only compatibility item', () => {
   expect(() =>

@@ -37,7 +37,10 @@ import {
   manifestIssuedAt,
   tagReservations,
 } from './release-queue-evidence';
-import { validateMergedIntentOnlyQueueItem } from './release-queue-validation';
+import {
+  validateMergedIntentOnlyQueueItem,
+  validateReleaseIntentEnforcementChange,
+} from './release-queue-validation';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEntryDirectory = 'apps/docs/content/docs/releases/entries';
@@ -204,18 +207,16 @@ async function queuedMerges(
     const changedPaths = gitOutput([
       'diff', '--no-renames', '--name-only', parent, commit,
     ]).split('\n').filter(Boolean);
-    const isAdoptionCommit = !alreadyEnforced &&
-      commit === commits[enforcementIndex] &&
-      addedPaths(commit, releaseIntentDirectory).includes(
+    const isAdoptionCommit = validateReleaseIntentEnforcementChange({
+      alreadyEnforced,
+      commit,
+      enforcementCommit: commits[enforcementIndex],
+      markerAdded: addedPaths(commit, releaseIntentDirectory).includes(
         releaseIntentEnforcementPath,
-      ) && markerMatchesAt(commit);
-    if (changedPaths.includes(releaseIntentEnforcementPath)) {
-      if (!isAdoptionCommit) {
-        throw new Error(
-          `Merged commit ${commit} changes the immutable release-intent enforcement marker.`,
-        );
-      }
-    }
+      ),
+      markerChanged: changedPaths.includes(releaseIntentEnforcementPath),
+      markerMatches: markerMatchesAt(commit),
+    });
     const allIntentChanges = changedPaths.filter((path) =>
       path.startsWith(`${releaseIntentDirectory}/`) &&
       !(isAdoptionCommit && path === releaseIntentEnforcementPath),

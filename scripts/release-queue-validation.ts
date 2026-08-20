@@ -14,6 +14,34 @@ export interface MergedIntentOnlyQueueItem {
   productPaths: readonly string[];
 }
 
+export const releaseIntentEnforcementAdoptionCommit =
+  '299a6d583ce2d13aa0a44c9f0e3cada64c765826';
+
+export interface ReleaseIntentEnforcementChange {
+  alreadyEnforced: boolean;
+  commit: string;
+  enforcementCommit: string | undefined;
+  markerAdded: boolean;
+  markerChanged: boolean;
+  markerMatches: boolean;
+}
+
+export function validateReleaseIntentEnforcementChange(
+  change: ReleaseIntentEnforcementChange,
+) {
+  const isAdoptionCommit = !change.alreadyEnforced &&
+    change.commit === releaseIntentEnforcementAdoptionCommit &&
+    change.commit === change.enforcementCommit &&
+    change.markerAdded &&
+    change.markerMatches;
+  if (change.markerChanged && !isAdoptionCommit) {
+    throw new Error(
+      `Merged commit ${change.commit} changes the immutable release-intent enforcement marker.`,
+    );
+  }
+  return isAdoptionCommit;
+}
+
 export function validateMergedIntentOnlyQueueItem(
   item: MergedIntentOnlyQueueItem,
 ) {
