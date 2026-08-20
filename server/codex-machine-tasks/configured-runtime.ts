@@ -15,8 +15,8 @@ import { isProjectSpaceAuthRequired, readAuthSessionFromRequest } from '../local
 import {
   getCodexSessionsDatabaseClient,
   isDatabaseConfigured,
-  listCodexMachineTasksComputeInventory
 } from '../local-database-store';
+import { ProjectSpaceDatabaseRepository } from '../database/repository';
 import { createConfiguredCodexSessionsRuntime } from '../codex-sessions/configured-runtime';
 import { createWorkspaceRuntimeCodexBridge } from './workspace-runtime';
 import type { WorkspaceRuntimeSessionService } from '../workspace-runtime-session/service';
@@ -133,14 +133,18 @@ export async function createConfiguredCodexMachineTasksRuntime(
 ): Promise<ConfiguredCodexMachineTasksRuntime> {
   if (!options.runtimeSessions) throw new CodexMachineTasksRetiredError();
   const database = options.database ?? await getCodexSessionsDatabaseClient();
+  const inventoryRepository = new ProjectSpaceDatabaseRepository(database);
   const taskExecutions = options.workspaceBindingStore ?? new PostgresTaskExecutionStore(database);
   const bridge = createWorkspaceRuntimeCodexBridge({
     loadInventory: async (userId) => {
       if (options.inventory) return options.inventory(userId);
-      if (!isDatabaseConfigured()) {
+      if (!options.database && !isDatabaseConfigured()) {
         return { connectors: [], environmentDefinitions: [], environments: [], hosts: [], platforms: [], violations: [] };
       }
-      return listCodexMachineTasksComputeInventory(userId);
+      // The configured Codex boundary intentionally lists only the requesting
+      // user's repository scope. The broader deployment inventory is reserved
+      // for non-Codex presentation paths.
+      return inventoryRepository.listComputeInventory(userId);
     },
     sessions: options.runtimeSessions,
     resolveWorkspaceBinding: async ({ branch, commit, environmentId, ownerUserId, workspaceId }) => {

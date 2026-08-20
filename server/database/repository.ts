@@ -36,6 +36,8 @@ import type {
   ConnectorEnvironmentAssociation,
   ConnectorComputeMetadata,
   EnvironmentDefinitionRecord,
+  OwnedComputeEnvironmentRecord,
+  OwnedEnvironmentDefinitionRecord,
   ResourceProfile
 } from '../../src/shared/compute-environment-api';
 import {
@@ -125,6 +127,7 @@ interface EnvironmentDefinitionRow {
   name: string;
   operating_system_family: EnvironmentDefinitionRecord['operatingSystemFamily'];
   ownership: EnvironmentDefinitionRecord['ownership'];
+  owner_user_id: string;
   slug: string;
   supported_architectures: string[];
 }
@@ -141,6 +144,7 @@ interface ComputeEnvironmentRow {
   kind: ComputeEnvironmentRecord['kind'];
   legacy_tombstoned_only?: boolean;
   name: string;
+  owner_user_id: string;
   parent_environment_id: string | null;
   platform_id: string;
   resource_mode: ComputeEnvironmentRecord['resourceMode'];
@@ -184,6 +188,22 @@ function requireValue(value: string, name: string) {
   }
 
   return normalized;
+}
+
+function stripEnvironmentDefinitionOwner(
+  record: EnvironmentDefinitionRecord | OwnedEnvironmentDefinitionRecord
+): EnvironmentDefinitionRecord {
+  if (!('ownerUserId' in record)) return record;
+  const { ownerUserId: _ownerUserId, ...withoutOwner } = record;
+  return withoutOwner;
+}
+
+function stripComputeEnvironmentOwner(
+  record: ComputeEnvironmentRecord | OwnedComputeEnvironmentRecord
+): ComputeEnvironmentRecord {
+  if (!('ownerUserId' in record)) return record;
+  const { ownerUserId: _ownerUserId, ...withoutOwner } = record;
+  return withoutOwner;
 }
 
 function normalizeAllowedHosts(hosts: readonly string[]) {
@@ -259,7 +279,7 @@ export class ProjectSpaceDatabaseRepository {
     ])];
     const [definitionResult, platformResult, hostResult, environmentResult, connectorResult] = await Promise.all([
       this.client.query<EnvironmentDefinitionRow>(
-        `select id, slug, name, kind, operating_system_family, supported_architectures,
+        `select owner_user_id, id, slug, name, kind, operating_system_family, supported_architectures,
                 bootstrap_strategy, ownership
            from compute_environment_definitions
           where owner_user_id = any($1::text[]) order by lower(name), id`,
@@ -301,7 +321,7 @@ export class ProjectSpaceDatabaseRepository {
         [visibleOwnerUserIds]
       ),
       this.client.query<ComputeEnvironmentRow>(
-        `select id, environment_definition_id, platform_id, host_id,
+        `select owner_user_id, id, environment_definition_id, platform_id, host_id,
                 parent_environment_id, identity_version,
                 identity_key, identity_resolution, kind, name, host_resolution, host_evidence,
                 resource_mode, resources,
@@ -345,7 +365,7 @@ export class ProjectSpaceDatabaseRepository {
       platformId: row.platform_id,
       resources: row.resources ?? undefined
     }));
-    const environments: ComputeEnvironmentRecord[] = visibleEnvironmentRows.map((row) => ({
+    const environments: OwnedComputeEnvironmentRecord[] = visibleEnvironmentRows.map((row) => ({
       environmentDefinitionId: row.environment_definition_id,
       hostAssociation: row.host_resolution === 'verified'
         ? { evidence: row.host_evidence as 'provider' | 'tpm' | 'smbios' | 'host_broker', hostId: row.host_id!, resolution: 'verified' }
@@ -364,9 +384,10 @@ export class ProjectSpaceDatabaseRepository {
       parentEnvironmentId: row.parent_environment_id ?? undefined,
       platformId: row.platform_id,
       resourceMode: row.resource_mode,
-      resources: row.resources ?? undefined
+      resources: row.resources ?? undefined,
+      ownerUserId: row.owner_user_id
     }));
-    const environmentDefinitions: EnvironmentDefinitionRecord[] = definitionResult.rows.map((row) => ({
+    const environmentDefinitions: OwnedEnvironmentDefinitionRecord[] = definitionResult.rows.map((row) => ({
       bootstrapStrategy: row.bootstrap_strategy,
       id: row.id,
       kind: row.kind,
@@ -374,7 +395,8 @@ export class ProjectSpaceDatabaseRepository {
       operatingSystemFamily: row.operating_system_family,
       ownership: row.ownership,
       slug: row.slug,
-      supportedArchitectures: row.supported_architectures
+      supportedArchitectures: row.supported_architectures,
+      ownerUserId: row.owner_user_id
     }));
     const platforms: ComputePlatformRecord[] = platformResult.rows;
     const connectors: ConnectorEnvironmentAssociation[] = connectorResult.rows.map((row) => ({
@@ -386,7 +408,14 @@ export class ProjectSpaceDatabaseRepository {
       environmentDefinitions,
       environments
     });
-    const input = { ...reconciled, connectors, hosts, platforms };
+    const input = {
+      ...reconciled,
+      connectors,
+      environmentDefinitions: reconciled.environmentDefinitions.map(stripEnvironmentDefinitionOwner),
+      environments: reconciled.environments.map(stripComputeEnvironmentOwner),
+      hosts,
+      platforms
+    };
     return { ...input, violations: validateComputeInventory(input) };
   }
 

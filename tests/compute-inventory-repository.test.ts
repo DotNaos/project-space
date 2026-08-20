@@ -9,6 +9,7 @@ class InventoryClient implements DatabaseQueryClient {
   currentHostEvidence = 'user';
   currentHostIdentityKey: string | null = null;
   currentHostResolution = 'manual';
+  crossOwnerDefinitionCollision = false;
   duplicateBuiltInDefinitions = false;
   incompatibleBuiltInFields: Array<
     'name' | 'operating_system_family' | 'supported_architectures' | 'bootstrap_strategy'
@@ -22,6 +23,43 @@ class InventoryClient implements DatabaseQueryClient {
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
     if (sql.includes('from compute_environment_definitions') && sql.includes('order by lower')) {
+      if (this.crossOwnerDefinitionCollision) {
+        return { rows: [
+          {
+            bootstrap_strategy: 'ssh',
+            id: 'a',
+            kind: 'native_linux',
+            name: 'Linux',
+            operating_system_family: 'linux',
+            ownership: 'built_in',
+            owner_user_id: 'user-one',
+            slug: 'linux',
+            supported_architectures: []
+          },
+          {
+            bootstrap_strategy: 'ssh',
+            id: 'x',
+            kind: 'native_linux',
+            name: 'Linux',
+            operating_system_family: 'linux',
+            ownership: 'built_in',
+            owner_user_id: 'project-space:tailscale-deployment',
+            slug: 'linux',
+            supported_architectures: []
+          },
+          {
+            bootstrap_strategy: 'ssh',
+            id: 'x',
+            kind: 'native_linux',
+            name: 'User Linux',
+            operating_system_family: 'linux',
+            ownership: 'user_defined',
+            owner_user_id: 'user-one',
+            slug: 'linux',
+            supported_architectures: []
+          }
+        ] as Row[] };
+      }
       const definitions = [{
         bootstrap_strategy: 'ssh',
         id: 'definition-linux',
@@ -60,6 +98,64 @@ class InventoryClient implements DatabaseQueryClient {
       return { rows: [] as Row[] };
     }
     if (sql.includes('from compute_environments') && sql.includes('order by lower')) {
+      if (this.crossOwnerDefinitionCollision) {
+        return { rows: [
+          {
+            host_evidence: 'none',
+            host_id: null,
+            host_resolution: 'unresolved',
+            id: 'environment-canonical',
+            environment_definition_id: 'a',
+            identity_key: 'account:canonical',
+            identity_resolution: 'resolved',
+            identity_version: 1,
+            kind: 'native_linux',
+            name: 'Canonical Linux',
+            owner_user_id: 'user-one',
+            parent_environment_id: null,
+            platform_id: 'platform-local',
+            resource_mode: 'dedicated',
+            resources: null,
+            legacy_tombstoned_only: false
+          },
+          {
+            host_evidence: 'none',
+            host_id: null,
+            host_resolution: 'unresolved',
+            id: 'environment-deployment',
+            environment_definition_id: 'x',
+            identity_key: 'account:deployment',
+            identity_resolution: 'resolved',
+            identity_version: 1,
+            kind: 'native_linux',
+            name: 'Deployment Linux',
+            owner_user_id: 'project-space:tailscale-deployment',
+            parent_environment_id: null,
+            platform_id: 'platform-local',
+            resource_mode: 'dedicated',
+            resources: null,
+            legacy_tombstoned_only: false
+          },
+          {
+            host_evidence: 'none',
+            host_id: null,
+            host_resolution: 'unresolved',
+            id: 'environment-user',
+            environment_definition_id: 'x',
+            identity_key: 'account:user-defined',
+            identity_resolution: 'resolved',
+            identity_version: 1,
+            kind: 'native_linux',
+            name: 'User Linux',
+            owner_user_id: 'user-one',
+            parent_environment_id: null,
+            platform_id: 'platform-local',
+            resource_mode: 'dedicated',
+            resources: null,
+            legacy_tombstoned_only: false
+          }
+        ] as Row[] };
+      }
       const environments = [{
         host_evidence: 'none',
         host_id: null,
@@ -111,6 +207,7 @@ class InventoryClient implements DatabaseQueryClient {
       return { rows: environments as Row[] };
     }
     if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
+      if (this.crossOwnerDefinitionCollision) return { rows: [] as Row[] };
       return { rows: this.retiredConnector ? [] : [{
         associated_at: '2026-08-08T00:00:00.000Z',
         connector_id: 'connector-one',
@@ -176,6 +273,29 @@ const reported = {
 };
 
 describe('compute inventory repository', () => {
+  test('preserves user evidence when a cross-owner built-in aliases through a shared definition ID', async () => {
+    const client = new InventoryClient();
+    client.crossOwnerDefinitionCollision = true;
+    const inventory = await new ProjectSpaceDatabaseRepository(client).listComputeInventory('user-one', {
+      additionalOwnerUserIds: ['project-space:tailscale-deployment']
+    });
+
+    expect(inventory.environmentDefinitions.map(({ id, ownership }) => ({ id, ownership }))).toEqual([
+      { id: 'a', ownership: 'built_in' },
+      { id: 'x', ownership: 'user_defined' }
+    ]);
+    expect(inventory.environments.map(({ id, environmentDefinitionId }) => ({
+      id, environmentDefinitionId
+    }))).toEqual([
+      { id: 'environment-canonical', environmentDefinitionId: 'a' },
+      { id: 'environment-deployment', environmentDefinitionId: 'a' },
+      { id: 'environment-user', environmentDefinitionId: 'x' }
+    ]);
+    expect(inventory.violations).toEqual([{
+      code: 'duplicate_environment_definition_slug', id: 'linux'
+    }]);
+  });
+
   test('reconciles equivalent built-ins before validating the combined owner scopes', async () => {
     const client = new InventoryClient();
     client.duplicateBuiltInDefinitions = true;

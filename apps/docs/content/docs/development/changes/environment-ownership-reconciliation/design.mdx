@@ -1,0 +1,83 @@
+---
+title: Design
+description: Owner-preserving boundaries for Environment definition reconciliation.
+---
+
+## Context
+
+The inventory query intentionally reads a user scope and an explicit deployment scope
+together. The previous reconciliation pass removed `owner_user_id` before aliasing, so a
+deployment built-in and a user-defined definition with the same UUID were indistinguishable.
+
+## Goals and non-goals
+
+Goals:
+
+- Preserve owner provenance through the in-memory reconciliation boundary.
+- Canonicalize equivalent built-ins without touching user-defined evidence.
+- Keep public snapshots, duplicate violations, and authorization boundaries unchanged.
+- Preserve configured Codex Host selection as an evidence-based boundary.
+
+Non-goals:
+
+- Repairing or deleting persisted rows as part of inventory presentation.
+- Making a conflicted user catalog silently valid.
+
+## Architecture
+
+Database rows retain `owner_user_id` in typed intermediate records. The shared reconciler
+builds built-in aliases from the visible catalog, keys each alias by owner and definition ID,
+then strips the temporary owner field before returning the existing public snapshot.
+
+## Decisions
+
+1. Keep owner scope on database-derived definitions and Environment records until reconciliation
+   and validation finish.
+2. Continue canonicalizing equivalent built-ins across the explicitly visible scopes, but key
+   aliases by owner and definition ID.
+3. Filter and remap only the built-in alias entry in its owner scope; user-defined rows are
+   never removed or remapped by a built-in alias.
+4. Strip the temporary owner field before returning the existing public inventory shape.
+5. Keep the persisted migration, Tailscale projection, and downstream target projections
+   owner-scoped; duplicate ambiguity remains fail-closed.
+
+## Validation model
+
+For canonical built-in `a`, deployment built-in `x`, and user-defined `x`, reconciliation
+returns built-in `a`, user-defined `x`, maps only the deployment reference to `a`, and retains
+the user reference to `x`. The duplicate user slug remains a reported inventory violation.
+
+The configured runtime only projects a physical Host when the Environment has verified or
+manual evidence resolving to exactly one Host. The supported start and send path retains that
+same selected Host and Environment; unresolved, deployment-only, duplicate same-UUID, and
+missing evidence remain unavailable through the configured service.
+
+Integration coverage starts with representative owner-scoped database query rows. A real
+`ProjectSpaceDatabaseRepository` reconciles the combined collision rows, then the configured
+runtime constructs its own strict user-scoped repository over the same persisted fixture before
+the HTTP start/send boundary. No preconstructed inventory snapshot bypasses either path.
+
+## Risks and mitigations
+
+- **Alias leakage into user records:** owner-scoped keys and built-in-only filtering prevent
+  cross-owner remapping or removal.
+- **Public contract drift:** intermediate ownership fields are stripped before validation and
+  return.
+- **Hidden ambiguity:** existing duplicate violations remain visible and fail-closed.
+- **Fabricated target:** configured runtime projection requires exact owner-valid Host evidence;
+  otherwise the service returns the existing actionable unavailable result before dispatch.
+
+## Migration and rollout
+
+No migration or production data change is required. The fix takes effect when the server reads
+the combined inventory; existing persisted migration and projection boundaries remain unchanged.
+
+## Validation
+
+- Focused model and repository regressions cover the canonical `a`, deployment `x`, and
+  user-defined `x` collision, including equal built-in UUIDs across owners.
+- The configured repository/HTTP regression captures repository reconciliation, HTTP start and
+  send, and proves deployment-only, duplicate same-UUID, missing, and conflicting Host evidence
+  fail closed before dispatch.
+- Type checking, the full Bun test suite, and the project/prototype build pass locally.
+- The exact pull-request head is checked by the repository preflight before push.
