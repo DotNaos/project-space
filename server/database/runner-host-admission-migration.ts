@@ -120,6 +120,10 @@ export const runnerHostAdmissionMigrationSql = `
       char_length(absence_proof->>'checkedAt') between 1 and 64 and
       absence_proof->>'checkedAt' !~ '[[:cntrl:]]' and
       absence_proof->>'checkedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$' and
+      to_char(
+        ((absence_proof->>'checkedAt')::timestamptz at time zone 'UTC'),
+        'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+      ) = absence_proof->>'checkedAt' and
       jsonb_typeof(absence_proof->'resourcesAbsent') = 'boolean' and
       absence_proof->'resourcesAbsent' = 'true'::jsonb
     ))

@@ -589,6 +589,12 @@ describe('database migrations', () => {
     expect(runnerHostAdmissionMigrationSql).toContain(
       "absence_proof->>'checkedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$'"
     );
+    expect(runnerHostAdmissionMigrationSql).toContain(
+      "((absence_proof->>'checkedAt')::timestamptz at time zone 'UTC')"
+    );
+    expect(runnerHostAdmissionMigrationSql).toContain(
+      "'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'"
+    );
     expect(runnerHostAdmissionMigrationSql).toContain('jsonb_object_length(identity) = 13');
     expect(runnerHostAdmissionMigrationSql).toContain("identity->>'hostId' = host_id");
     expect(runnerHostAdmissionMigrationSql).toContain("identity->>'reservationId' = reservation_id");

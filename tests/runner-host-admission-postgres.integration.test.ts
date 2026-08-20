@@ -133,6 +133,9 @@ describe('PostgreSQL runner admission concurrency integration', () => {
         'db-contract-proof-unparseable-checked-at', { ...proof, checkedAt: 'not-a-date' }
       )).rejects.toThrow();
       await expect(insertReleasedWithProof(
+        'db-contract-proof-impossible-checked-at', { ...proof, checkedAt: '2026-99-99T99:99:99.999Z' }
+      )).rejects.toThrow();
+      await expect(insertReleasedWithProof(
         'db-contract-proof-long-checked-at', { ...proof, checkedAt: 'a'.repeat(65) }
       )).rejects.toThrow();
       const services = [1, 2, 3].map(() => new RunnerHostAdmissionService(
