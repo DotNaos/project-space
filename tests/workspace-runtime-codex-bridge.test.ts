@@ -153,6 +153,7 @@ describe('Workspace Runtime Codex bridge', () => {
       })
     });
     const connectorId = (await fixture.bridge.inventory('user-owner')).connectors[0]!.id;
+    expect(fixture.bridge.durableGenerationFor(connectorId, generationNumber(generation))).toBeTrue();
     await fixture.bridge.start({ ...input, connectorId });
     fixture.replaceSnapshot({
       codexAcceptedCommandSequence: 0,
@@ -161,6 +162,11 @@ describe('Workspace Runtime Codex bridge', () => {
     });
     const replacement = (await fixture.bridge.inventory('user-owner')).connectors[0]!.id;
     expect(replacement).toBe(connectorId);
+    expect(fixture.bridge.durableGenerationFor(
+      replacement,
+      generationNumber('33333333-3333-4333-8333-333333333333')
+    )).toBeTrue();
+    expect(fixture.bridge.durableGenerationFor(replacement, generationNumber(generation))).toBeFalse();
     await fixture.bridge.start({
       ...input,
       connectorId: replacement,
@@ -168,6 +174,14 @@ describe('Workspace Runtime Codex bridge', () => {
       operationId: 'start-763-reconnect'
     });
     expect(fixture.commands.map((command) => command.commandSequence)).toEqual([1, 1]);
+  });
+
+  test('does not claim durable retries without host resume evidence', async () => {
+    const fixture = createBridgeFixture();
+    const connectorId = (await fixture.bridge.inventory('user-owner')).connectors[0]!.id;
+    fixture.replaceSnapshot({ codexAcceptedCommandSequence: undefined });
+    await fixture.bridge.inventory('user-owner');
+    expect(fixture.bridge.durableGenerationFor(connectorId, generationNumber(generation))).toBeFalse();
   });
 
   test('fences an unresolved old-generation reservation before dispatch', async () => {

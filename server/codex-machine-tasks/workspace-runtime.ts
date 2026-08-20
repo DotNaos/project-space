@@ -30,6 +30,8 @@ export interface WorkspaceRuntimeCodexBridge {
     }>;
   }>;
   generationFor(machineId: string): number | undefined;
+  /** The generation has authoritative host command-resume evidence. */
+  durableGenerationFor(machineId: string, generation: number): boolean;
   plan(input: {
     branch: string;
     commit: string;
@@ -113,6 +115,7 @@ export function createWorkspaceRuntimeCodexBridge(options: {
   } | undefined>;
 }) : WorkspaceRuntimeCodexBridge {
   const generations = new Map<string, number>();
+  const durableGenerations = new Map<string, number>();
   const sequences = new Map<string, { generation: string; sequence: number }>();
 
   async function runtime(userId: string, machineId: string) {
@@ -123,7 +126,13 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       throw new Error('The selected Workspace Runtime Codex capability is unavailable.');
     }
     snapshotOwnerByWorkspace.set(snapshot.workspaceId, userId);
-    generations.set(machineId, generationNumber(snapshot.generation));
+    const generation = generationNumber(snapshot.generation);
+    generations.set(machineId, generation);
+    if (snapshot.codexAcceptedCommandSequence !== undefined) {
+      durableGenerations.set(machineId, generation);
+    } else {
+      durableGenerations.delete(machineId);
+    }
     return snapshot;
   }
 
@@ -295,7 +304,13 @@ export function createWorkspaceRuntimeCodexBridge(options: {
         snapshotOwnerByWorkspace.set(snapshot.workspaceId, userId);
         const machineId = runtimeMachineId(snapshot);
         const online = snapshot.connectionState === 'online' && snapshot.lifecycleState === 'running';
-        generations.set(machineId, generationNumber(snapshot.generation));
+        const generation = generationNumber(snapshot.generation);
+        generations.set(machineId, generation);
+        if (online && snapshot.codexAcceptedCommandSequence !== undefined) {
+          durableGenerations.set(machineId, generation);
+        } else {
+          durableGenerations.delete(machineId);
+        }
         connectors.push(syntheticConnector(machineId, snapshot, online));
         physicalMachines.push({ connectorIds: [machineId], id: snapshot.environmentId, name: snapshot.environmentId });
         runtimeStatuses.set(machineId, {
@@ -318,6 +333,9 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       return { computeInventory, connectors, physicalMachines, runtimeStatuses };
     },
     generationFor(machineId) { return generations.get(machineId); },
+    durableGenerationFor(machineId, generation) {
+      return durableGenerations.get(machineId) === generation;
+    },
     plan: planBinding,
     async start(input) {
       try {

@@ -16,6 +16,8 @@ import { createConfiguredCodexSessionsRuntime } from '../codex-sessions/configur
 import { createWorkspaceRuntimeCodexBridge } from './workspace-runtime';
 import type { WorkspaceRuntimeSessionService } from '../workspace-runtime-session/service';
 import { PostgresTaskExecutionStore } from '../task-execution/execution-store';
+import type { CodexMachineTasksServiceOptions } from './contracts';
+import type { WorkspaceRuntimeCodexBridge } from './workspace-runtime';
 
 export interface ConfiguredCodexMachineTasksOptions {
   attachLeases?: CodexAttachLeaseStore;
@@ -32,6 +34,30 @@ export interface ConfiguredCodexMachineTasksOptions {
 export interface ConfiguredCodexMachineTasksRuntime {
   service: ReturnType<typeof createCodexMachineTasksService>;
   sessions: CodexSessionsRuntime;
+}
+
+/**
+ * Compose the production task service from the canonical Workspace Runtime
+ * bridge. Keeping this seam explicit makes it impossible to omit durable
+ * generation evidence when another configured entry point is added.
+ */
+export function createConfiguredCodexMachineTasksService(input: {
+  bridge: WorkspaceRuntimeCodexBridge;
+  issue: CodexMachineTasksServiceOptions['issue'];
+  store: CodexMachineTasksServiceOptions['store'];
+  taskUrl: NonNullable<CodexMachineTasksServiceOptions['taskUrl']>;
+}) {
+  return createCodexMachineTasksService({
+    durableGenerationFor: input.bridge.durableGenerationFor,
+    generationFor: input.bridge.generationFor,
+    inventory: input.bridge.inventory,
+    issue: input.issue,
+    plan: input.bridge.plan,
+    sessions: input.bridge.sessions,
+    start: input.bridge.start,
+    store: input.store,
+    taskUrl: input.taskUrl
+  });
 }
 
 export class CodexMachineTasksRetiredError extends Error {
@@ -135,13 +161,9 @@ export async function createConfiguredCodexMachineTasksRuntime(
   } catch {
     sessions = unavailableCodexSessionsRuntime();
   }
-  const service = createCodexMachineTasksService({
-    generationFor: bridge.generationFor,
-    inventory: bridge.inventory,
+  const service = createConfiguredCodexMachineTasksService({
+    bridge,
     issue: createCodexMachineTaskIssueProvider(options.backend),
-    sessions: bridge.sessions,
-    plan: bridge.plan,
-    start: bridge.start,
     store: new PostgresCodexMachineTasksStore(database),
     taskUrl: (machineId, threadId) => {
       const origin = (process.env.PROJECT_SPACE_PUBLIC_URL ?? 'https://projects.os-home.net').replace(/\/$/, '');
