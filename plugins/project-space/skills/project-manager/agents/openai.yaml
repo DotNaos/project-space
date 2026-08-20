@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Manager"
+  short_description: "Route, review, and complete Project Space work"
+  default_prompt: "Use $project-manager to route work from a proven checkout context and own completion."

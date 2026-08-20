@@ -1,0 +1,54 @@
+---
+title: Requirement delta
+description: Role routing and Project Manager completion requirements.
+---
+
+## ADDED Requirements
+
+### PM-001 — Proven checkout role
+
+`project worktree context --format json` MUST classify `main`, `owned`, `foreign`,
+and `unmanaged` checkouts. Only the exact owner of a valid Project-managed issue
+worktree may mutate.
+
+#### Scenario: Agent starts in shared main
+
+- **Given** the current checkout is the repository's shared `main`
+- **When** the agent requests worktree context
+- **Then** the result is `main`, routes to Project Manager, and is non-mutating
+
+### PM-002 — Manager-owned completion
+
+After a worker reports ready, the Project Manager MUST inspect the exact PR head,
+unresolved feedback, required CI, and realistic user-flow proof. If the surface
+supports Preview, it MUST obtain the exact-head Preview and dogfood primary and
+critical edge paths at desktop and mobile sizes through the browser. Findings
+MUST return to the same worker until clean. A no-Preview surface MUST record the
+fact and strongest alternative proof.
+
+#### Scenario: Worker reports a green PR
+
+- **Given** a worker reports a PR with green tests
+- **When** the Manager reconciles the worker
+- **Then** it reviews the exact head and Preview or alternative proof before readiness
+
+### PM-003 — Durable coordination
+
+The Manager MUST be the sole user communicator, maintain at most three active
+implementation workers, default to `gpt-5.6-luna` with high reasoning, and run a
+30-minute support heartbeat. Idle, interrupted, failed, timed-out, and completed
+turns are reconciliation events, not blockers.
+
+#### Scenario: Worker turn becomes idle
+
+- **Given** a worker turn is idle, interrupted, failed, timed out, or complete
+- **When** the Manager heartbeat runs
+- **Then** the Manager resumes, repairs, changes approach, or advances the queue
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

@@ -1,0 +1,36 @@
+---
+title: Verification
+description: Evidence for checkout routing and Project Manager completion ownership.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+- [x] PM-001 — Proven checkout role
+- [x] PM-002 — Manager-owned completion workflow documented and tested
+- [x] PM-003 — Durable coordination rules documented and tested
+
+## Recorded checks
+
+- [x] `go test ./...`
+- [x] `bun test --isolate tests/project-manager-skill.test.ts`
+- [x] `bun run docs:specs:check`
+- [x] `bun run docs:cli:check`
+- [x] `git diff --check`
+- [ ] `bun run check` — host has Bun 1.3.9; repository policy requires 1.3.14.
+- [ ] Canonical PR preflight — run after PR creation.
+
+## Reconciliation
+
+The #763 dispatch dependency is allowed to develop in parallel, but this change
+does not become merge-ready until its exact landed contract is reviewed against
+the Manager handoff record.
+
+## Final reconciliation
+
+- [x] Requirements, design, tasks, and verification describe the same boundary.
+- [x] Focused and repository Go tests pass.
+- [x] Skill, TASKS template, validator, and docs assertions pass.
+- [ ] Bun policy check passes on a host with the required Bun 1.3.14 runtime.
+- [ ] Exact #763 dispatch contract is reconciled after landing.

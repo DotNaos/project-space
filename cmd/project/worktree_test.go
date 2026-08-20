@@ -24,6 +24,9 @@ func TestWorktreeCommandExposesOwnershipCommands(t *testing.T) {
 	if _, _, err := command.Find([]string{"check"}); err != nil {
 		t.Fatalf("check command missing: %v", err)
 	}
+	if _, _, err := command.Find([]string{"context"}); err != nil {
+		t.Fatalf("context command missing: %v", err)
+	}
 	if _, _, err := command.Find([]string{"materialize"}); err != nil {
 		t.Fatalf("materialize command missing: %v", err)
 	}

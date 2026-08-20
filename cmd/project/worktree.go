@@ -29,9 +29,42 @@ func newWorktreeCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newWorktreePrepareCommand())
 	cmd.AddCommand(newWorktreeCheckCommand())
+	cmd.AddCommand(newWorktreeContextCommand())
 	cmd.AddCommand(newWorktreeMaterializeCommand())
 	cmd.AddCommand(newWorktreeRecoverCommand())
 	cmd.AddCommand(newWorktreePurgeCommand())
+	return cmd
+}
+
+func newWorktreeContextCommand() *cobra.Command {
+	var directory, threadID, format string
+	cmd := &cobra.Command{
+		Use:   "context",
+		Short: "Describe the read-only role implied by the current checkout",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validateWorktreeFormat(format); err != nil {
+				return err
+			}
+			if strings.TrimSpace(threadID) == "" {
+				threadID = strings.TrimSpace(os.Getenv("CODEX_THREAD_ID"))
+			}
+			result, err := worktreeownership.InspectContext(directory, threadID)
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				encoder := json.NewEncoder(cmd.OutOrStdout())
+				encoder.SetIndent("", "  ")
+				return encoder.Encode(result)
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s checkout: %s (%s)\nRole: %s\nPath: %s\nReason: %s\n", result.State, result.Project, result.Branch, result.Role, result.Path, result.Reason)
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&directory, "directory", ".", "checkout to inspect")
+	cmd.Flags().StringVar(&threadID, "thread-id", "", "current Codex task UUID (defaults to CODEX_THREAD_ID)")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	return cmd
 }
 

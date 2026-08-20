@@ -4201,6 +4201,42 @@
             "commands": []
           },
           {
+            "path": "project worktree context",
+            "name": "context",
+            "usage": "context",
+            "short": "Describe the read-only role implied by the current checkout",
+            "aliases": [],
+            "runnable": true,
+            "flags": [
+              {
+                "name": "directory",
+                "type": "string",
+                "description": "checkout to inspect",
+                "inherited": false
+              },
+              {
+                "name": "format",
+                "type": "string",
+                "description": "output format: text or json",
+                "inherited": false
+              },
+              {
+                "name": "help",
+                "shorthand": "h",
+                "type": "bool",
+                "description": "help for context",
+                "inherited": false
+              },
+              {
+                "name": "thread-id",
+                "type": "string",
+                "description": "current Codex task UUID (defaults to CODEX_THREAD_ID)",
+                "inherited": false
+              }
+            ],
+            "commands": []
+          },
+          {
             "path": "project worktree materialize",
             "name": "materialize",
             "usage": "materialize",
