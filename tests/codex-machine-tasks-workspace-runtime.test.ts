@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
 import type { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import { createWorkspaceRuntimeCodexBridge } from '../server/codex-machine-tasks/workspace-runtime';
+import { generationNumber } from '../server/workspace-runtime-codex-host/validation';
 
 const userId = 'user-owner';
 const workspaceId = 'workspace-1';
@@ -82,10 +83,12 @@ const input = {
   branch,
   commit,
   connectorId,
-  generation: 1,
+  durableOperations: true,
+  generation: generationNumber(generationId),
   issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
   operationId: 'operation-763',
   physicalMachineId: environmentId,
+  reconcile: false,
   repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
   userId
 };
@@ -130,7 +133,7 @@ describe('Workspace Runtime Codex bridge', () => {
       state: 'unavailable'
     });
     await expect(fixture.bridge.start(input)).resolves.toEqual({
-      generation: 1,
+      generation: generationNumber(generationId),
       result: {
         message: 'The Project-managed workspace/worktree binding is unavailable.',
         state: 'worktree_failure'

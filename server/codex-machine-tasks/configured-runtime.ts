@@ -92,7 +92,6 @@ async function createConfiguredCodexMachineTasksHandlerInner(
 export async function createConfiguredCodexMachineTasksRuntime(
   options: ConfiguredCodexMachineTasksOptions
 ): Promise<ConfiguredCodexMachineTasksRuntime> {
-  const sessions = await (options.sessionsRuntime ?? createConfiguredCodexSessionsRuntime());
   if (!options.runtimeSessions) throw new CodexMachineTasksRetiredError();
   const database = await getCodexSessionsDatabaseClient();
   const taskExecutions = new PostgresTaskExecutionStore(database);
@@ -127,6 +126,15 @@ export async function createConfiguredCodexMachineTasksRuntime(
       return undefined;
     }
   });
+  // The canonical Environment/Workspace Runtime start path must not depend on
+  // the deferred Chat sessions compatibility runtime. Keep that runtime lazy
+  // and report it as unavailable to its downstream callers when it rejects.
+  let sessions: CodexSessionsRuntime;
+  try {
+    sessions = await (options.sessionsRuntime ?? createConfiguredCodexSessionsRuntime());
+  } catch {
+    sessions = unavailableCodexSessionsRuntime();
+  }
   const service = createCodexMachineTasksService({
     generationFor: bridge.generationFor,
     inventory: bridge.inventory,
@@ -141,4 +149,14 @@ export async function createConfiguredCodexMachineTasksRuntime(
     }
   });
   return { service, sessions };
+}
+
+function unavailableCodexSessionsRuntime(): CodexSessionsRuntime {
+  const unavailable = async () => {
+    throw new Error('The deferred Codex Chat sessions runtime is unavailable.');
+  };
+  return {
+    handleRequest: async () => false,
+    service: new Proxy({}, { get: () => unavailable }) as CodexSessionsRuntime['service']
+  };
 }

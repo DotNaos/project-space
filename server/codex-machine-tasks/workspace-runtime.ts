@@ -53,10 +53,12 @@ export interface WorkspaceRuntimeCodexBridge {
     branch: string;
     commit: string;
     connectorId: string;
+    durableOperations: boolean;
     generation: number;
     issue: { number: number; url: string };
     operationId: string;
     physicalMachineId: string;
+    reconcile: boolean;
     repository: { id: string; nameWithOwner: string };
     userId: string;
   }): Promise<{
@@ -208,6 +210,12 @@ export function createWorkspaceRuntimeCodexBridge(options: {
   }) {
     try {
       const snapshot = await runtime(input.userId, input.connectorId);
+      if (generationNumber(snapshot.generation) !== input.generation) {
+        return {
+          message: 'The reserved Codex task belongs to a replaced Workspace Runtime generation.',
+          state: 'uncertain' as const
+        };
+      }
       if (snapshot.branch !== input.branch || snapshot.commit.toLowerCase() !== input.commit.toLowerCase()) {
         return {
           message: 'The Workspace Runtime is attached to a different branch or commit.',
@@ -313,6 +321,12 @@ export function createWorkspaceRuntimeCodexBridge(options: {
     plan: planBinding,
     async start(input) {
       try {
+        if (input.reconcile && !input.durableOperations) {
+          return {
+            generation: input.generation,
+            result: { state: 'uncertain' }
+          };
+        }
         const planned = await planBinding(input);
         if (planned.state === 'unavailable') {
           if (!planned.message?.includes('workspace/worktree binding')) {
@@ -324,6 +338,12 @@ export function createWorkspaceRuntimeCodexBridge(options: {
               message: planned.message ?? 'The Project-managed workspace/worktree binding is unavailable.',
               state: 'worktree_failure'
             }
+          };
+        }
+        if (planned.state === 'uncertain') {
+          return {
+            generation: input.generation,
+            result: { state: 'uncertain' }
           };
         }
         if (planned.state !== 'ready' || !planned.plan?.worktree) {

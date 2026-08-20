@@ -304,7 +304,7 @@ export class CodexSessionsExecutor {
     });
     if (request.handoff) {
       const handoff = request.handoff;
-      const turn = await this.options.manager.startTurn({
+      const turnInput = {
         operationId: `${request.operationId}:initial-turn`,
         prompt: [
           `Work on GitHub issue #${handoff.issue.number} in ${handoff.repository.nameWithOwner}.`,
@@ -315,7 +315,8 @@ export class CodexSessionsExecutor {
           `Managed workspace: ${handoff.workspaceId}; worktree: ${handoff.worktreeId}`
         ].join('\n'),
         threadId: result.thread.id
-      });
+      };
+      const turn = await startTurnWithReadReconciliation(this.options.manager, turnInput);
       return {
         initialTurnId: turn.turn.id,
         machineId: this.options.expectedMachineId,

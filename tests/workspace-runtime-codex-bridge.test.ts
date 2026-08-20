@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { createWorkspaceRuntimeCodexBridge } from '../server/codex-machine-tasks/workspace-runtime';
+import { generationNumber } from '../server/workspace-runtime-codex-host/validation';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
 
 const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -73,10 +74,12 @@ const input = {
   branch,
   commit,
   connectorId: '',
-  generation: 1,
+  durableOperations: true,
+  generation: generationNumber(generation),
   issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
   operationId: 'start-763-runtime',
   physicalMachineId: environmentId,
+  reconcile: false,
   repository: { id: 'DotNaos/project-space', nameWithOwner: 'DotNaos/project-space' },
   userId: 'user-owner'
 };
@@ -158,7 +161,26 @@ describe('Workspace Runtime Codex bridge', () => {
     });
     const replacement = (await fixture.bridge.inventory('user-owner')).connectors[0]!.id;
     expect(replacement).toBe(connectorId);
-    await fixture.bridge.start({ ...input, connectorId: replacement, operationId: 'start-763-reconnect' });
+    await fixture.bridge.start({
+      ...input,
+      connectorId: replacement,
+      generation: generationNumber('33333333-3333-4333-8333-333333333333'),
+      operationId: 'start-763-reconnect'
+    });
     expect(fixture.commands.map((command) => command.commandSequence)).toEqual([1, 1]);
+  });
+
+  test('fences an unresolved old-generation reservation before dispatch', async () => {
+    const fixture = createBridgeFixture({
+      resolveWorkspaceBinding: async () => ({
+        branch, commit, id: workspaceId,
+        worktree: { branch, id: 'worktree-763' }
+      })
+    });
+    const connectorId = (await fixture.bridge.inventory('user-owner')).connectors[0]!.id;
+    fixture.replaceSnapshot({ generation: '33333333-3333-4333-8333-333333333333' });
+    const result = await fixture.bridge.start({ ...input, connectorId, reconcile: true });
+    expect(result.result).toEqual({ state: 'uncertain' });
+    expect(fixture.commands).toHaveLength(0);
   });
 });

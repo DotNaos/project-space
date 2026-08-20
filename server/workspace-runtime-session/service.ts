@@ -203,7 +203,9 @@ export class WorkspaceRuntimeSessionService {
       throw new RuntimeSessionError('invalid_message', 'Workspace Runtime Codex authority is unavailable.');
     }
     const connection = this.connections.get(workspaceKey(active.scope.ownerUserId, active.scope.workspaceId));
-    if (connection?.sessionId === active.sessionId &&
+    if (message.type === 'runtime.codex.command-accepted' &&
+        connection?.sessionId === active.sessionId &&
+        message.acceptedCommandSequence === message.commandSequence &&
         message.commandSequence > connection.codexAcceptedCommandSequence) {
       connection.codexAcceptedCommandSequence = message.commandSequence;
     }

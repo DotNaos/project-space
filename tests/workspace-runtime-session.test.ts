@@ -212,6 +212,23 @@ describe('Workspace Runtime outbound sessions', () => {
       workspaceId
     });
     expect((await runtime.service.list('owner'))[0]?.codexAcceptedCommandSequence).toBe(1);
+    await runtime.service.acceptCodex(active, {
+      actorId: workspaceId,
+      actorKind: 'human',
+      actorUserId: 'owner',
+      commandId: 'command-error',
+      commandSequence: 9,
+      code: 'unavailable',
+      environmentId,
+      generation,
+      message: 'The Codex host rejected the command.',
+      operationId: 'operation.error',
+      schemaVersion: 1,
+      sessionId: active.sessionId,
+      type: 'runtime.codex.error',
+      workspaceId
+    });
+    expect((await runtime.service.list('owner'))[0]?.codexAcceptedCommandSequence).toBe(1);
   });
 
   test('supersedes the same Workspace across environment and generation bindings', async () => {

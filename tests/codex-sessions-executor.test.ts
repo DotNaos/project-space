@@ -80,6 +80,10 @@ class FakeSessionManager {
     this.calls.push(`turn:${input.threadId}:${input.operationId}:${input.prompt}`);
     return { turn: { id: 'turn-initial', status: 'inProgress' } };
   }
+
+  operationSnapshot() { return []; }
+  async reconcileOperationCompleted() {}
+  async reconcileOperationNotApplied() {}
 }
 
 function fixture() {
@@ -173,9 +177,77 @@ describe('canonical Codex session executor', () => {
       operation: 'start',
       result: { initialTurnId: 'turn-initial', machineId, threadId }
     });
-    expect(manager.calls).toHaveLength(2);
-    expect(manager.calls[1]).toContain('Work on GitHub issue #763');
-    expect(manager.calls[1]).toContain('Branch: issue-763-dispatch');
+    expect(manager.calls.at(-1)).toContain('Work on GitHub issue #763');
+    expect(manager.calls.at(-1)).toContain('Branch: issue-763-dispatch');
+    executor.close();
+  });
+
+  test('reconciles an uncertain initial handoff without starting a duplicate turn', async () => {
+    const prompt = [
+      'Work on GitHub issue #763 in DotNaos/project-space.',
+      'Issue: https://github.com/DotNaos/project-space/issues/763',
+      'Repository: DotNaos/project-space (R_project-space)',
+      'Branch: issue-763-dispatch',
+      `Commit: ${'a'.repeat(40)}`,
+      'Managed workspace: ws_0123456789abcdef01234567; worktree: worktree-763'
+    ].join('\n');
+    const calls: string[] = [];
+    const manager = {
+      close: async () => {},
+      listLoadedThreads: async () => ({ data: [] }),
+      subscribe: () => () => true,
+      startThread: async () => ({ thread: { id: threadId } }),
+      startTurn: async () => { throw new Error('duplicate initial turn'); },
+      operationSnapshot: () => [{
+        fingerprint: 'fingerprint', operationId: 'codex-ui:start:handoff-0002:initial-turn',
+        state: 'uncertain'
+      }],
+      async readThread() {
+        calls.push('read-thread');
+        return {
+          thread: {
+            id: threadId,
+            status: { type: 'idle' as const },
+            turns: [{
+              id: 'turn-recovered',
+              items: [{
+                type: 'userMessage',
+                content: [{ text: prompt, type: 'text' }]
+              }]
+            }]
+          }
+        };
+      },
+      async reconcileOperationCompleted(operationId: string) {
+        calls.push(`completed:${operationId}`);
+      },
+      async reconcileOperationNotApplied() {}
+    } as unknown as CodexSessionManager;
+    const executor = new CodexSessionsExecutor({
+      expectedGeneration: 4,
+      expectedMachineId: machineId,
+      machineName: 'Workspace Runtime',
+      manager
+    });
+    const result = await executor.executeBound('start', {
+      cwd: '/managed/worktrees/issue-763',
+      handoff: {
+        branch: 'issue-763-dispatch', commit: 'a'.repeat(40),
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
+        repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
+        workspaceId: 'ws_0123456789abcdef01234567', worktreeId: 'worktree-763'
+      },
+      machineId,
+      operationId: 'codex-ui:start:handoff-0002'
+    }, 4);
+    expect(result).toEqual({
+      operation: 'start',
+      result: { initialTurnId: 'turn-recovered', machineId, threadId }
+    });
+    expect(calls).toEqual([
+      'read-thread', 'completed:codex-ui:start:handoff-0002:initial-turn'
+    ]);
     executor.close();
   });
 });
