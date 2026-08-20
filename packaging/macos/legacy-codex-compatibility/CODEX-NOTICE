@@ -1,0 +1,2 @@
+This compatibility marker is retained for managed updaters released before v0.27.0.
+The macOS machine-tools installer does not install a standalone Codex runtime.

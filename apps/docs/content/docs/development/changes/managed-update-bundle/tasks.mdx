@@ -6,9 +6,11 @@ description: Implementation and verification checklist for the managed update bu
 ## 1. Bundle contract
 
 - [x] 1.1 Make the updater use target-specific Darwin and Linux member inventories
-  - **Evidence:** `internal/selfupdate/archive.go` accepts the six-member Darwin bundle while retaining the Linux Codex members.
+  - **Evidence:** `internal/selfupdate/archive.go` accepts the modern six-member Darwin contract, the legacy v0.21.23 ten-member Darwin contract, and the Linux contract without allowing unknown members.
 - [x] 1.2 Add a release-finalize archive inventory and checksum validator
   - **Evidence:** `packaging/release/validate-machine-tools-bundle.sh` is called for Darwin and Linux in `.github/workflows/release.yml`.
+- [x] 1.3 Preserve the legacy Darwin contract in newly generated bundles
+  - **Evidence:** `packaging/macos/build-machine-tools.sh` adds the four checked-in compatibility members, each covered by `SHA256SUMS.txt` and the release validator.
 
 ## 2. Regression coverage
 
@@ -16,6 +18,8 @@ description: Implementation and verification checklist for the managed update bu
   - **Evidence:** `internal/selfupdate/update_test.go` exercises the real artifact installer with the Darwin fixture.
 - [x] 2.2 Cover malformed-bundle rejection and rollback/no-switch behavior
   - **Evidence:** `internal/selfupdate/archive_test.go`, `internal/selfupdate/update_test.go`, and `packaging/macos/test-release-packaging.sh` cover pre-installer rejection and failed-pair rollback.
+- [x] 2.3 Run the generated Darwin boundary against the v0.21.23 updater contract
+  - **Evidence:** `packaging/macos/testdata/v0.21.23-updater-contract_test.go` drives the exact tagged updater package, and `packaging/macos/test-release-packaging.sh` builds the real Darwin archive, runs that old `Apply` path against it, verifies the legacy metadata and `codex` stub, and confirms the old contract rejects the six-member shape.
 
 ## 3. Verification and delivery
 

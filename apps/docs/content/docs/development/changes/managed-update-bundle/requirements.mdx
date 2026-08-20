@@ -21,6 +21,12 @@ Requirements: **Changed**
 - **When** the updater extracts the artifact
 - **Then** it MUST reject the bundle before invoking the installer or changing the installation
 
+#### Scenario: Preserve compatibility with the older managed updater
+
+- **Given** a supported managed macOS arm64 installation still running the v0.21.23 updater
+- **When** it downloads a newly published Darwin machine-tools artifact
+- **Then** the artifact MUST retain the v0.21.23 ten-member archive contract with verified checksums, while the current updater MAY also accept the modern six-member contract for already-published releases
+
 ### SELFUPDATE-ROLLBACK — Managed updates MUST preserve the previous release on failure
 
 #### Scenario: Candidate verification fails

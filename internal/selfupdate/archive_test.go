@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -136,6 +137,30 @@ func TestManagedArtifactInstallerRejectsIncompleteDarwinBundleBeforeInstaller(t 
 	)
 	if err == nil || !strings.Contains(err.Error(), "bundle is incomplete") || calls != 0 {
 		t.Fatalf("Apply() = %v, installer calls = %d", err, calls)
+	}
+}
+
+func TestManagedArtifactInstallerAcceptsLegacyDarwinBundleContract(t *testing.T) {
+	archive := testArtifactArchiveWithMembers(
+		t,
+		"darwin-arm64",
+		"0.27.2",
+		legacyDarwinBundleMembers(),
+		nil,
+	)
+	archivePath := filepath.Join(t.TempDir(), "artifact.tar.gz")
+	if err := os.WriteFile(archivePath, archive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{}).(*managedArtifactInstaller)
+	bundleRoot, err := installer.extract(archivePath, t.TempDir(), "darwin-arm64", "0.27.2")
+	if err != nil {
+		t.Fatalf("extract() rejected the v0.21.23 Darwin contract: %v", err)
+	}
+	for name := range legacyDarwinBundleMembers() {
+		if _, err := os.Stat(filepath.Join(bundleRoot, name)); err != nil {
+			t.Fatalf("legacy member %q was not extracted: %v", name, err)
+		}
 	}
 }
 
@@ -399,6 +424,16 @@ func testArtifactArchive(
 	if !ok {
 		t.Fatal("unsupported test target")
 	}
+	return testArtifactArchiveWithMembers(t, target, version, members, mutate)
+}
+
+func testArtifactArchiveWithMembers(
+	t *testing.T,
+	target, version string,
+	members map[string]fs.FileMode,
+	mutate func(map[string][]byte) map[string][]byte,
+) []byte {
+	t.Helper()
 	files := make(map[string][]byte, len(members))
 	for name := range members {
 		if name != "SHA256SUMS.txt" {

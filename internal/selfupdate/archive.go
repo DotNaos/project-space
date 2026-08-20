@@ -230,10 +230,11 @@ func (installer *managedArtifactInstaller) extract(
 	archivePath, transactionRoot, target, version string,
 ) (string, error) {
 	expectedAsset := fmt.Sprintf("project-space-machine-tools-%s-v%s", target, version)
-	members, ok := archiveBundleMembers(target)
+	contracts, ok := archiveBundleContracts(target)
 	if !ok {
 		return "", errors.New("managed archive target is unsupported")
 	}
+	allowedMembers := archiveBundleMemberUnion(contracts)
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return "", err
@@ -245,7 +246,7 @@ func (installer *managedArtifactInstaller) extract(
 	}
 	defer compressed.Close()
 	reader := tar.NewReader(compressed)
-	seen := make(map[string]bool, len(members)+1)
+	seen := make(map[string]bool, len(allowedMembers)+1)
 	bundleRoot := filepath.Join(transactionRoot, expectedAsset)
 	var extractedBytes int64
 	for {
@@ -280,7 +281,7 @@ func (installer *managedArtifactInstaller) extract(
 			continue
 		}
 		memberName := strings.TrimPrefix(name, expectedAsset+"/")
-		mode, allowed := members[memberName]
+		mode, allowed := allowedMembers[memberName]
 		if !allowed || (header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA) {
 			return "", errors.New("release artifact contains an unexpected member")
 		}
@@ -303,13 +304,9 @@ func (installer *managedArtifactInstaller) extract(
 			return "", errors.Join(copyErr, syncErr, closeErr)
 		}
 	}
-	if len(seen) != len(members)+1 || !seen[expectedAsset] {
+	members, ok := matchingArchiveBundleContract(contracts, seen, expectedAsset)
+	if !ok {
 		return "", errors.New("release artifact bundle is incomplete")
-	}
-	for name := range members {
-		if !seen[expectedAsset+"/"+name] {
-			return "", errors.New("release artifact bundle is incomplete")
-		}
 	}
 	versionBody, err := os.ReadFile(filepath.Join(bundleRoot, "VERSION"))
 	if err != nil || string(versionBody) != version+"\n" {
@@ -322,18 +319,29 @@ func (installer *managedArtifactInstaller) extract(
 }
 
 func archiveBundleMembers(target string) (map[string]fs.FileMode, bool) {
+	contracts, ok := archiveBundleContracts(target)
+	if !ok {
+		return nil, false
+	}
+	return contracts[0], true
+}
+
+func archiveBundleContracts(target string) ([]map[string]fs.FileMode, bool) {
 	switch target {
 	case "darwin-arm64":
-		return map[string]fs.FileMode{
-			"SHA256SUMS.txt":     0o600,
-			"VERSION":            0o600,
-			"install.sh":         0o700,
-			"project":            0o700,
-			"project-codex-host": 0o700,
-			"release-manifest-signing-public-key.pem": 0o600,
+		return []map[string]fs.FileMode{
+			{
+				"SHA256SUMS.txt":     0o600,
+				"VERSION":            0o600,
+				"install.sh":         0o700,
+				"project":            0o700,
+				"project-codex-host": 0o700,
+				"release-manifest-signing-public-key.pem": 0o600,
+			},
+			legacyDarwinBundleMembers(),
 		}, true
 	case "linux-x64":
-		return map[string]fs.FileMode{
+		return []map[string]fs.FileMode{{
 			"CODEX-LICENSE":      0o600,
 			"CODEX-NOTICE":       0o600,
 			"CODEX-VERSION":      0o600,
@@ -344,10 +352,61 @@ func archiveBundleMembers(target string) (map[string]fs.FileMode, bool) {
 			"project":            0o700,
 			"project-codex-host": 0o700,
 			"release-manifest-signing-public-key.pem": 0o600,
-		}, true
+		}}, true
 	default:
 		return nil, false
 	}
+}
+
+func legacyDarwinBundleMembers() map[string]fs.FileMode {
+	// v0.21.23 used the Linux-era ten-member contract for both Unix targets.
+	// Keep accepting that exact inventory so a new signed bundle can update
+	// installations that still run that updater.
+	return map[string]fs.FileMode{
+		"CODEX-LICENSE":      0o600,
+		"CODEX-NOTICE":       0o600,
+		"CODEX-VERSION":      0o600,
+		"SHA256SUMS.txt":     0o600,
+		"VERSION":            0o600,
+		"codex":              0o700,
+		"install.sh":         0o700,
+		"project":            0o700,
+		"project-codex-host": 0o700,
+		"release-manifest-signing-public-key.pem": 0o600,
+	}
+}
+
+func archiveBundleMemberUnion(contracts []map[string]fs.FileMode) map[string]fs.FileMode {
+	union := make(map[string]fs.FileMode)
+	for _, contract := range contracts {
+		for name, mode := range contract {
+			union[name] = mode
+		}
+	}
+	return union
+}
+
+func matchingArchiveBundleContract(
+	contracts []map[string]fs.FileMode,
+	seen map[string]bool,
+	expectedAsset string,
+) (map[string]fs.FileMode, bool) {
+	for _, contract := range contracts {
+		if len(seen) != len(contract)+1 || !seen[expectedAsset] {
+			continue
+		}
+		matches := true
+		for name := range contract {
+			if !seen[expectedAsset+"/"+name] {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return contract, true
+		}
+	}
+	return nil, false
 }
 
 func safeArchiveName(name, expectedRoot string) (string, error) {

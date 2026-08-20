@@ -6,9 +6,12 @@ description: Design for the managed macOS update bundle repair.
 ## Context
 
 Linux machine-tools bundles include the managed Codex runtime and its metadata.
-macOS arm64 bundles contain only the Project CLI, Codex host, installer, version,
-checksums, and release-manifest trust root. The updater had one shared allowlist,
-so it rejected a correctly built Darwin archive.
+Modern macOS arm64 bundles contain only the Project CLI, Codex host, installer,
+version, checksums, and release-manifest trust root. The v0.21.23 updater,
+however, used the older ten-member Unix contract on Darwin and rejects the modern
+six-member artifact as incomplete. Newly generated Darwin bundles therefore retain
+four explicit legacy compatibility members; the current updater accepts both known
+contracts so already-published six-member releases remain readable.
 
 ## Goals and non-goals
 
@@ -19,15 +22,24 @@ installer's atomic pointer transaction.
 
 ## Architecture
 
-The managed artifact extractor returns a target-specific member map. Darwin and
-Linux retain their existing exact member modes and checksum validation. A release
-validation script independently enumerates and verifies the expected archive
-members, version, and checksums on the Ubuntu release-finalize runner before the
+The managed artifact extractor selects one of the two known Darwin member maps or
+the single Linux map. It never accepts an unknown member. A release validation
+script independently enumerates and verifies the ten-member Darwin release
+contract, version, and checksums on the Ubuntu release-finalize runner before the
 publish handoff is created.
 
 ## Decisions
 
 - Keep the target inventory explicit in both the updater and release validator.
+- Retain the v0.21.23 Darwin members as checked-in compatibility markers, including
+  a non-installable Codex stub; the macOS installer ignores these members.
+- Verify the immutable v0.21.23 tag commit and compile its updater package in an
+  isolated temporary module. A protected test harness drives that exact old
+  `Apply` path against the archive emitted by the current builder, including the
+  candidate installer and its atomic pointer transaction.
+- Fetch full Git history in the macOS release job and preserve both the packaging
+  script and tagged-updater harness across the exact release-source checkout, so
+  release validation cannot silently replace the escaped compatibility test.
 - Exercise the Darwin path with a generated fixture so no installed user CLI or
   signed production artifact is overwritten.
 - Keep release intent at patch level because this repairs an existing update path.
