@@ -163,6 +163,10 @@ import {
   environmentDefinitionReconciliationMigrationId,
   environmentDefinitionReconciliationMigrationSql
 } from './environment-definition-reconciliation-migration';
+import {
+  tailscaleEnvironmentOwnershipMigrationId,
+  tailscaleEnvironmentOwnershipMigrationSql
+} from './tailscale-environment-ownership-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -907,6 +911,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: environmentDefinitionReconciliationMigrationId,
     sql: environmentDefinitionReconciliationMigrationSql
+  },
+  {
+    id: tailscaleEnvironmentOwnershipMigrationId,
+    sql: tailscaleEnvironmentOwnershipMigrationSql
   }
 ];
 
