@@ -13,7 +13,9 @@ import {
   type ComputeHostRecord,
   type ComputeInventoryInput,
   type ComputePlatformRecord,
-  type ConnectorEnvironmentAssociation
+  type ConnectorEnvironmentAssociation,
+  type OwnedComputeEnvironmentRecord,
+  type OwnedEnvironmentDefinitionRecord
 } from '../src/shared/compute-environment-api';
 
 const local: ComputePlatformRecord = { id: 'local', kind: 'local', name: 'Local devices' };
@@ -158,6 +160,37 @@ describe('compute hierarchy and connector invariants', () => {
       ...inventory({ environments: result.environments }),
       environmentDefinitions: result.environmentDefinitions
     }).map(({ code }) => code)).toContain('duplicate_environment_definition_slug');
+  });
+
+  test('scopes aliases by owner when a deployment built-in shares a user definition ID', () => {
+    const canonical: OwnedEnvironmentDefinitionRecord = {
+      ...definition('native_linux'), id: 'a', ownerUserId: 'user-one'
+    };
+    const deploymentBuiltIn: OwnedEnvironmentDefinitionRecord = {
+      ...canonical, id: 'x', ownerUserId: 'project-space:tailscale-deployment'
+    };
+    const userDefined: OwnedEnvironmentDefinitionRecord = {
+      ...canonical, id: 'x', name: 'User Linux', ownership: 'user_defined', ownerUserId: 'user-one'
+    };
+    const environments: OwnedComputeEnvironmentRecord[] = [
+      { ...environment('canonical', { environmentDefinitionId: canonical.id, kind: 'native_linux' }), ownerUserId: canonical.ownerUserId },
+      { ...environment('deployment', { environmentDefinitionId: deploymentBuiltIn.id, kind: 'native_linux' }), ownerUserId: deploymentBuiltIn.ownerUserId },
+      { ...environment('user', { environmentDefinitionId: userDefined.id, kind: 'native_linux' }), ownerUserId: userDefined.ownerUserId }
+    ];
+
+    const result = reconcileBuiltInEnvironmentDefinitions({
+      environmentDefinitions: [canonical, deploymentBuiltIn, userDefined],
+      environments
+    });
+
+    expect(result.environmentDefinitions).toEqual([canonical, userDefined]);
+    expect(result.environments.map(({ environmentDefinitionId, ownerUserId }) => ({
+      environmentDefinitionId, ownerUserId
+    }))).toEqual([
+      { environmentDefinitionId: 'a', ownerUserId: 'user-one' },
+      { environmentDefinitionId: 'a', ownerUserId: 'project-space:tailscale-deployment' },
+      { environmentDefinitionId: 'x', ownerUserId: 'user-one' }
+    ]);
   });
 
   test('separates reusable definitions from concrete execution targets', () => {

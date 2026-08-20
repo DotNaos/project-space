@@ -44,6 +44,11 @@ export interface EnvironmentDefinitionRecord {
   supportedArchitectures: readonly string[];
 }
 
+/** A persisted definition while owner scope is still needed for reconciliation. */
+export interface OwnedEnvironmentDefinitionRecord extends EnvironmentDefinitionRecord {
+  ownerUserId: string;
+}
+
 export type EnvironmentDefinitionBlueprint = Omit<EnvironmentDefinitionRecord, 'id'>;
 
 const builtInDefinitionBlueprints: Record<
@@ -109,10 +114,13 @@ export function builtInEnvironmentDefinition(
  * blueprints, remain distinct so inventory validation can fail closed.
  */
 export function reconcileBuiltInEnvironmentDefinitions(input: {
-  environmentDefinitions: readonly EnvironmentDefinitionRecord[];
-  environments: readonly ComputeEnvironmentRecord[];
+  environmentDefinitions: readonly (EnvironmentDefinitionRecord | OwnedEnvironmentDefinitionRecord)[];
+  environments: readonly (ComputeEnvironmentRecord | OwnedComputeEnvironmentRecord)[];
 }) {
-  const canonicalByBlueprint = new Map<string, EnvironmentDefinitionRecord>();
+  const canonicalByBlueprint = new Map<
+    string,
+    EnvironmentDefinitionRecord | OwnedEnvironmentDefinitionRecord
+  >();
   const aliases = new Map<string, string>();
 
   for (const definition of [...input.environmentDefinitions].sort((left, right) => (
@@ -130,7 +138,7 @@ export function reconcileBuiltInEnvironmentDefinitions(input: {
     });
     const canonical = canonicalByBlueprint.get(blueprint);
     if (canonical && canonical.id !== definition.id) {
-      aliases.set(definition.id, canonical.id);
+      aliases.set(scopedDefinitionKey(definition, definition.id), canonical.id);
     } else if (!canonical) {
       canonicalByBlueprint.set(blueprint, definition);
     }
@@ -144,14 +152,30 @@ export function reconcileBuiltInEnvironmentDefinitions(input: {
   }
 
   return {
-    environmentDefinitions: input.environmentDefinitions.filter(({ id }) => !aliases.has(id)),
+    environmentDefinitions: input.environmentDefinitions.filter((definition) => (
+      !aliases.has(scopedDefinitionKey(definition, definition.id))
+    )),
     environments: input.environments.map((environment) => {
-      const canonicalId = aliases.get(environment.environmentDefinitionId);
+      const canonicalId = aliases.get(scopedDefinitionKey(
+        environment,
+        environment.environmentDefinitionId
+      ));
       return canonicalId
         ? { ...environment, environmentDefinitionId: canonicalId }
         : environment;
     })
   };
+}
+
+function scopedDefinitionKey(
+  record: EnvironmentDefinitionRecord | OwnedEnvironmentDefinitionRecord |
+    ComputeEnvironmentRecord | OwnedComputeEnvironmentRecord,
+  definitionId: string
+) {
+  const ownerUserId = 'ownerUserId' in record && typeof record.ownerUserId === 'string'
+    ? record.ownerUserId
+    : '';
+  return `${ownerUserId}\u0000${definitionId}`;
 }
 
 export type HostResolution =
@@ -244,6 +268,11 @@ export interface ComputeEnvironmentRecord {
   platformId: string;
   resourceMode: EnvironmentResourceMode;
   resources?: ResourceProfile;
+}
+
+/** A persisted environment while owner scope is still needed for reconciliation. */
+export interface OwnedComputeEnvironmentRecord extends ComputeEnvironmentRecord {
+  ownerUserId: string;
 }
 
 /** A persisted connector always names exactly one immutable environment. */

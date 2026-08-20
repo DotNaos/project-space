@@ -1,0 +1,36 @@
+---
+title: Requirement delta
+description: Ownership and fail-closed requirements for Environment reconciliation.
+---
+
+## ADDED Requirements
+
+### ENV-OWN-001 — Owner-preserving built-in aliases
+
+Compute inventory reconciliation MUST retain owner provenance until built-in alias filtering
+and reference remapping are complete.
+
+#### Scenario: Cross-owner UUID collision
+
+- **Given** canonical built-in definition `a`, equivalent deployment built-in definition `x`, and user-defined definition `x`
+- **When** the user and deployment scopes are reconciled
+- **Then** the deployment built-in reference maps to `a`, the user-defined definition and reference remain `x`, and the user evidence is not deleted
+
+### ENV-OWN-002 — Fail-closed duplicate behavior
+
+Reconciliation MUST preserve existing duplicate and incompatibility violations after owner-safe
+canonicalization.
+
+#### Scenario: User definition remains ambiguous
+
+- **Given** the surviving built-in and user-defined definitions share a catalog slug
+- **When** the reconciled inventory is validated
+- **Then** the user record remains present and the duplicate-slug violation is reported
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

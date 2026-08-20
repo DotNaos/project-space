@@ -1,0 +1,42 @@
+---
+title: Proposal
+description: Preserve owner-scoped Environment evidence during built-in reconciliation.
+---
+
+Change status: **Active**
+
+Change kind: **Bug fix**
+
+Issue: **[#842](https://github.com/DotNaos/project-space/issues/842)**
+Requirements: **Required**
+
+## Summary
+
+Keep database owner provenance through compute-inventory reconciliation so an equivalent
+deployment built-in can be canonicalized without changing a user-defined Environment that
+shares the same UUID.
+
+## Problem
+
+The combined inventory view intentionally reads more than one owner scope, but the
+reconciliation boundary treated definition IDs as globally unique. A user-owned definition
+could therefore be removed or have its Environment references rewritten by an equivalent
+built-in from deployment infrastructure.
+
+## Scope
+
+- Carry owner scope through definition and Environment reconciliation.
+- Key built-in aliases by owner and definition ID.
+- Preserve user-defined definitions and references, including fail-closed duplicate findings.
+- Leave persisted migrations and projections owner-scoped and unchanged.
+
+## Out of scope
+
+- Rewriting persisted user or deployment data.
+- Relaxing duplicate, incompatible-definition, or Codex runtime authorization failures.
+- Changing the public inventory response shape or adding a release-bearing CLI change.
+
+## Delivery
+
+This is an internal server and shared-model correctness fix. It requires no data migration,
+production data mutation, or release-bearing CLI change.

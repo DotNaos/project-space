@@ -1,0 +1,31 @@
+---
+title: Tasks
+description: Implementation and verification checklist for Environment ownership reconciliation.
+---
+
+## 1. Ownership boundary
+
+- [x] 1.1 Carry database owner scope into the reconciliation records
+  - **Evidence:** `server/database/repository.ts` selects and carries `owner_user_id` through the shared reconciliation pass, then removes only the temporary projection field.
+- [x] 1.2 Scope aliases and references by owner
+  - **Evidence:** `src/shared/compute-environment-api.ts` keys aliases by owner and definition ID and limits them to built-in records.
+
+## 2. Regression and compatibility
+
+- [x] 2.1 Add the exact three-definition UUID collision regression
+  - **Evidence:** Focused model and repository tests preserve the user-defined `x` record/reference while canonicalizing only the deployment built-in `x` to `a`.
+- [x] 2.2 Preserve fail-closed duplicate and runtime authorization behavior
+  - **Evidence:** The regression expects the duplicate-slug violation; the full test suite passes without changes to authorization boundaries.
+- [x] 2.3 Audit persisted and projected paths
+  - **Evidence:** Migration updates/deletes, Tailscale projections, and target projections remain owner-scoped or ambiguity-failing.
+
+## 3. Delivery evidence
+
+- [x] 3.1 Run focused tests, type check, full tests, and build
+  - **Evidence:** Focused tests, `bun run check`, `bun test --isolate`, and `bun run build` pass.
+- [ ] 3.2 Publish the draft pull request
+  - **Evidence:** Pending pull-request creation and CI exact-head preflight.
+
+## 4. Deferred follow-ups
+
+None.
