@@ -27,6 +27,7 @@ const (
 	BlockedCodexStartFailed  BlockedReason = "codex_start_failed"
 	BlockedConnectorRequired BlockedReason = "connector_required"
 	BlockedInputRequired     BlockedReason = "input_required"
+	BlockedLegacyUnbound     BlockedReason = "legacy_unbound"
 	BlockedMachineNotReady   BlockedReason = "machine_not_ready"
 	BlockedOffline           BlockedReason = "offline"
 	BlockedStaleConnector    BlockedReason = "stale_connector"

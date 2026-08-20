@@ -85,6 +85,47 @@ describe('local simulation HTTP runtime', () => {
     expect((await json('/api/codex/tasks/existing?connectorId=local-simulation-machine&issue=616&repositoryId=DotNaos%2Fproject-space')).state).toBe('missing');
   });
 
+  test('keeps the simulated start route compatible with the canonical client contract', async () => {
+    const dryRun = await json('/api/codex/tasks/start', {
+      body: JSON.stringify({
+        dryRun: true,
+        issue: 616,
+        model: 'provider/gpt-5.6-luna',
+        operationId: 'local-simulation-dry-run',
+        reasoningEffort: 'high'
+      }),
+      method: 'POST'
+    });
+    expect(dryRun).toMatchObject({
+      plan: {
+        base: { branch: expect.any(String), commit: expect.stringMatching(/^[0-9a-f]{40}$/) },
+        environment: { id: 'local-simulation' },
+        issue: { number: 616, url: 'https://github.com/DotNaos/project-space/issues/616' },
+        operation: { id: 'local-simulation-dry-run', state: 'ready' },
+        reportingTask: { role: 'initiator', threadId: expect.any(String) },
+        worker: { model: 'provider/gpt-5.6-luna', reasoningEffort: 'high' },
+        workspace: { id: 'local-simulation-worktree' },
+        worktree: { id: 'local-simulation-worktree' }
+      },
+      state: 'ready'
+    });
+    const confirmed = await json('/api/codex/tasks/start', {
+      body: JSON.stringify({ issue: 616, model: 'provider/gpt-5.6-luna', operationId: 'local-simulation-confirmed' }),
+      method: 'POST'
+    });
+    expect(confirmed).toMatchObject({
+      state: 'confirmed',
+      task: {
+        canonicalTaskUrl: expect.stringMatching(/^https?:\/\//),
+        issue: { url: 'https://github.com/DotNaos/project-space/issues/616' },
+        reportingTask: { role: 'initiator' },
+        worker: { model: 'provider/gpt-5.6-luna', reasoningEffort: 'high' },
+        workspace: { id: 'local-simulation-worktree' },
+        worktree: { id: 'local-simulation-worktree' }
+      }
+    });
+  });
+
   test('keeps simulated provider identities coherent', async () => {
     const details = await json('/api/github/repository-details?fullName=DotNaos%2Fproject-space');
     const worktrees = await json('/api/projects/worktrees?projectId=github%3ADotNaos%2Fproject-space');

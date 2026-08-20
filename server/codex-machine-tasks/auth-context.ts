@@ -50,7 +50,10 @@ function reportingTask(request: IncomingMessage) {
   const threadId = singleHeader(request, callerThreadHeader);
   if (threadId === undefined) return {};
   if (!CODEX_THREAD_ID_PATTERN.test(threadId)) throw new CodexMachineTasksAuthError(403);
-  return { reportingTask: { role: 'project-manager' as const, threadId } };
+  // This header identifies the initiating Codex task only. The server cannot
+  // infer Project Manager ownership from an arbitrary caller-supplied UUID;
+  // #819's worktree-context gate must prove that role before dispatch.
+  return { reportingTask: { role: 'initiator' as const, threadId } };
 }
 
 function singleHeader(request: IncomingMessage, name: string) {

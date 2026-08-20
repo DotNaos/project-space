@@ -80,12 +80,21 @@ export type CodexMachineTaskStartLookup =
       startPayload?: CodexMachineTaskStartPayload;
       state: 'pending' | 'uncertain';
     }
+  | {
+      connectorId: string;
+      durableOperations: boolean;
+      generation: number;
+      kind: 'legacy';
+      physicalMachineId: string;
+      state: 'completed' | 'pending' | 'uncertain';
+    }
   | { kind: 'replayed'; result: CodexMachineTaskStartResult };
 
 export type CodexMachineTaskAssociationLookup =
   | { kind: 'missing' }
   | { kind: 'pending' }
   | { kind: 'uncertain' }
+  | { kind: 'attention'; message: string }
   | { kind: 'confirmed'; result: CodexMachineTaskStartResult };
 
 export interface CodexMachineTaskSendOperation {
@@ -174,6 +183,7 @@ export interface CodexMachineTasksStore {
   ): Promise<void>;
   lookupStart(input: {
     fingerprint: string;
+    legacyFingerprint?: string;
     operationId: string;
     userId: string;
   }): Promise<CodexMachineTaskStartLookup>;
@@ -198,6 +208,7 @@ export interface CodexMachineTasksStore {
   }): Promise<CodexMachineTaskAssociationLookup>;
   releaseUncertainStart(input: {
     fingerprint: string;
+    legacyFingerprint?: string;
     operationId: string;
     userId: string;
   }): Promise<'conflict' | 'missing' | 'not_uncertain' | 'released'>;

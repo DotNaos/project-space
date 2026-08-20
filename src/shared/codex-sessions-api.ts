@@ -146,7 +146,7 @@ export interface CodexSessionStartRequest {
     issue: { number: number; url: string };
     repository: { id: string; nameWithOwner: string };
     reportingTask: {
-      role: 'project-manager';
+      role: 'initiator' | 'project-manager';
       threadId: string;
     };
     reasoningEffort: string;

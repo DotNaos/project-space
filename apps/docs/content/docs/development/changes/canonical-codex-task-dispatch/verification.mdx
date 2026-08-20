@@ -12,6 +12,11 @@ runtime cwd normalization, and canonical Environment selector support. CODEX-REC
 is covered by the existing durable Task Execution and machine-task reservation tests,
 plus the runtime-boundary unavailable response.
 
+The start API binds the authenticated caller's initiating Codex task and never infers
+Project Manager ownership from the caller-supplied thread header. The #819 local
+`worktree context` gate must prove the main/Project Manager context before invoking
+dispatch; this service preserves the initiating binding for user-scoped durability.
+
 ## Final reconciliation
 
 - [x] Requirements and canonical Environment boundaries are represented in the contract

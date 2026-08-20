@@ -13,6 +13,7 @@ import type {
   CodexMachineTaskSendOperation,
   CodexMachineTasksStore
 } from './contracts';
+import { CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN } from '../../src/shared/codex-machine-tasks-api';
 
 interface StartRow {
   connector_generation: string | number;
@@ -54,7 +55,7 @@ interface SendRow {
 export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
   constructor(private readonly client: DatabaseQueryClient) {}
 
-  async lookupStart(input: { fingerprint: string; operationId: string; userId: string }) {
+  async lookupStart(input: { fingerprint: string; legacyFingerprint?: string; operationId: string; userId: string }) {
     const result = await this.client.query<StartLookupRow>(
       `select o.fingerprint_sha256, s.dispatch_operation_id,
               s.connector_generation, s.connector_id, s.durable_operations,
@@ -67,7 +68,23 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
     );
     const row = result.rows[0];
     if (!row) return { kind: 'missing' } as const;
-    if (row.fingerprint_sha256 !== input.fingerprint) return { kind: 'conflict' } as const;
+    const legacy = isLegacyStartPayload(row.start_payload) || isLegacyStartResult(row.result);
+    if (row.fingerprint_sha256 !== input.fingerprint &&
+        !(legacy && input.legacyFingerprint === row.fingerprint_sha256)) {
+      return { kind: 'conflict' } as const;
+    }
+    if (legacy) {
+      const generation = Number(row.connector_generation);
+      if (!Number.isSafeInteger(generation) || generation < 1) return { kind: 'conflict' } as const;
+      return {
+        connectorId: row.connector_id,
+        durableOperations: row.durable_operations,
+        generation,
+        kind: 'legacy',
+        physicalMachineId: row.physical_machine_id,
+        state: row.state
+      } as const;
+    }
     if (row.state === 'completed' && isStartResult(row.result)) {
       return { kind: 'replayed', result: row.result } as const;
     }
@@ -189,6 +206,12 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
     );
     const row = result.rows[0];
     if (!row) return { kind: 'missing' };
+    if (row.state === 'completed' && isLegacyStartResult(row.result)) {
+      return {
+        kind: 'attention',
+        message: 'This pre-upgrade Codex task has no proven worker or initiating-task binding and will not be redispatched automatically.'
+      };
+    }
     if (row.state === 'completed' && isStartResult(row.result)) {
       return { kind: 'confirmed', result: row.result };
     }
@@ -197,6 +220,7 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
 
   async releaseUncertainStart(input: {
     fingerprint: string;
+    legacyFingerprint?: string;
     operationId: string;
     userId: string;
   }) {
@@ -205,8 +229,10 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
         association_key: string;
         fingerprint_sha256: string;
         state: string | null;
+        start_payload: unknown;
+        result: unknown;
       }>(
-        `select o.association_key, o.fingerprint_sha256, s.state
+        `select o.association_key, o.fingerprint_sha256, s.state, s.start_payload, s.result
            from codex_machine_task_start_operations o
            join codex_machine_task_starts s
              on s.owner_user_id = o.owner_user_id and s.association_key = o.association_key
@@ -216,7 +242,9 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       );
       const row = current.rows[0];
       if (!row) return 'missing' as const;
-      if (row.fingerprint_sha256 !== input.fingerprint) return 'conflict' as const;
+      const legacy = isLegacyStartPayload(row.start_payload) || isLegacyStartResult(row.result);
+      if (row.fingerprint_sha256 !== input.fingerprint &&
+          !(legacy && input.legacyFingerprint === row.fingerprint_sha256)) return 'conflict' as const;
       if (row.state !== 'uncertain') return 'not_uncertain' as const;
       await client.query(
         `delete from codex_machine_task_start_operations
@@ -288,7 +316,12 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
         [operation.userId, operation.associationKey]
       );
       const row = existing.rows[0];
-      if (!row || !isStartPayload(row.start_payload)) return { kind: 'conflict' } as const;
+      if (!row) return { kind: 'conflict' } as const;
+      if (isLegacyStartPayload(row.start_payload) || isLegacyStartResult(row.result)) {
+        return { kind: 'conflict' } as const;
+      }
+      if (!isStartPayload(row.start_payload)) return { kind: 'conflict' } as const;
+      const startPayload = row.start_payload;
       if (insertedAssociation.rows.length > 0 && insertedOperation.rows.length > 0) {
         return { kind: 'new' } as const;
       }
@@ -305,14 +338,14 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
             durableOperations: row.durable_operations,
             generation, kind: 'uncertain',
             sameOperation: row.dispatch_operation_id === operation.operationId,
-            startPayload: row.start_payload
+            startPayload
           } as const
         : {
             dispatchOperationId: row.dispatch_operation_id,
             durableOperations: row.durable_operations,
             generation, kind: 'pending',
             sameOperation: row.dispatch_operation_id === operation.operationId,
-            startPayload: row.start_payload
+            startPayload
           } as const;
     };
     return this.client.transaction ? this.client.transaction(run) : run(this.client);
@@ -569,29 +602,49 @@ function isStartResult(value: unknown): value is CodexMachineTaskStartResult {
     ['blocked', 'confirmed', 'ready', 'uncertain'].includes(result.state);
 }
 
-function isStartPayload(value: unknown): value is CodexMachineTaskStartPayload {
+function isWorkerSelection(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const worker = value as Record<string, unknown>;
+  return typeof worker.model === 'string' && CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(worker.model) &&
+    typeof worker.reasoningEffort === 'string' && CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(worker.reasoningEffort);
+}
+
+function isLegacyStartResult(value: unknown) {
+  if (!isStartResult(value) || value.state !== 'confirmed') return false;
+  const task = (value as { task?: unknown }).task;
+  return !task || typeof task !== 'object' || Array.isArray(task) ||
+    !isWorkerSelection((task as Record<string, unknown>).worker);
+}
+
+function isBasicStartPayload(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const payload = value as Record<string, unknown>;
   if (typeof payload.branch !== 'string' || !/\S/.test(payload.branch) ||
-    typeof payload.commit !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(payload.commit)) {
-    return false;
-  }
-  if (!payload.issue || typeof payload.issue !== 'object' || Array.isArray(payload.issue) ||
-    !payload.repository || typeof payload.repository !== 'object' || Array.isArray(payload.repository)) {
-    return false;
-  }
-  const issue = payload.issue as Record<string, unknown>;
-  const repository = payload.repository as Record<string, unknown>;
+    typeof payload.commit !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(payload.commit)) return false;
+  const issue = payload.issue;
+  const repository = payload.repository;
+  if (!issue || typeof issue !== 'object' || Array.isArray(issue) ||
+      !repository || typeof repository !== 'object' || Array.isArray(repository)) return false;
+  const issueRecord = issue as Record<string, unknown>;
+  const repositoryRecord = repository as Record<string, unknown>;
+  return Number.isSafeInteger(issueRecord.number) && Number(issueRecord.number) > 0 &&
+    typeof issueRecord.url === 'string' && /^https:\/\//.test(issueRecord.url) &&
+    typeof repositoryRecord.id === 'string' && /\S/.test(repositoryRecord.id) &&
+    typeof repositoryRecord.nameWithOwner === 'string' && /\S+\/\S+/.test(repositoryRecord.nameWithOwner);
+}
+
+function isLegacyStartPayload(value: unknown) {
+  return isBasicStartPayload(value) && !isWorkerSelection((value as Record<string, unknown>).worker);
+}
+
+function isStartPayload(value: unknown): value is CodexMachineTaskStartPayload {
+  if (!isBasicStartPayload(value)) return false;
+  const payload = value as Record<string, unknown>;
   const worker = payload.worker as Record<string, unknown> | undefined;
   const reportingTask = payload.reportingTask as Record<string, unknown> | undefined;
-  return Number.isSafeInteger(issue.number) && Number(issue.number) > 0 &&
-    typeof issue.url === 'string' && /^https:\/\//.test(issue.url) &&
-    typeof repository.id === 'string' && /\S/.test(repository.id) &&
-    typeof repository.nameWithOwner === 'string' && /\S+\/\S+/.test(repository.nameWithOwner) &&
-    !!worker && typeof worker.model === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(worker.model) &&
-    typeof worker.reasoningEffort === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(worker.reasoningEffort) &&
+  return isWorkerSelection(worker) &&
     (reportingTask === undefined || (
-      reportingTask.role === 'project-manager' &&
+      (reportingTask.role === 'project-manager' || reportingTask.role === 'initiator') &&
       typeof reportingTask.threadId === 'string' &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportingTask.threadId)
     ));

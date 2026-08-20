@@ -315,7 +315,9 @@ export class CodexSessionsExecutor {
           `Managed workspace: ${handoff.workspaceId}; worktree: ${handoff.worktreeId}`,
           `Worker model: ${handoff.model}`,
           `Reasoning effort: ${handoff.reasoningEffort}`,
-          `Report progress, review evidence, blockers, and genuine escalations only to Manager task ${handoff.reportingTask.threadId}; do not ask the end user directly.`
+          handoff.reportingTask.role === 'project-manager'
+            ? `Report progress, review evidence, blockers, and genuine escalations only to Manager task ${handoff.reportingTask.threadId}; do not ask the end user directly.`
+            : `Report progress, review evidence, blockers, and genuine escalations only to the initiating task ${handoff.reportingTask.threadId}; do not ask the end user directly.`
         ].join('\n'),
         model: handoff.model,
         effort: handoff.reasoningEffort,

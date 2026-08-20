@@ -12,9 +12,14 @@ import {
   CODEX_OPERATION_ID_PATTERN,
   CODEX_THREAD_ID_PATTERN
 } from '../../src/shared/codex-sessions-api';
+import { CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN } from '../../src/shared/codex-machine-tasks-api';
 import { writeJson } from '../project-space-http-response';
 import { CodexMachineTasksAuthError } from './auth-context';
-import { codexAttachToken, CodexMachineTasksConflictError } from './service';
+import {
+  codexAttachToken,
+  CodexMachineTasksConflictError,
+  CodexMachineTasksInputError
+} from './service';
 
 const maximumBodyBytes = 32 * 1024;
 const safeSelector = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
@@ -55,6 +60,7 @@ export function createCodexMachineTasksHttpApi(
   service: CodexMachineTasksHttpService,
   resolveActor: (request: IncomingMessage) => Promise<{
     callerMachineId?: string;
+    reportingTask?: CodexMachineTaskReportingTask;
     userId: string;
   }>
 ): CodexMachineTasksHttpHandler {
@@ -91,9 +97,9 @@ export function createCodexMachineTasksHttpApi(
             'Pull request must be positive.'
           ),
           issue,
-          model: optionalSelector(body.model),
+          model: optionalWorkerSelector(body.model, 'Model'),
           operationId,
-          reasoningEffort: optionalSelector(body.reasoningEffort),
+          reasoningEffort: optionalWorkerSelector(body.reasoningEffort, 'Reasoning effort'),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -116,9 +122,9 @@ export function createCodexMachineTasksHttpApi(
             'Pull request must be positive.'
           ),
           issue,
-          model: optionalSelector(body.model),
+          model: optionalWorkerSelector(body.model, 'Model'),
           operationId,
-          reasoningEffort: optionalSelector(body.reasoningEffort),
+          reasoningEffort: optionalWorkerSelector(body.reasoningEffort, 'Reasoning effort'),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -191,6 +197,10 @@ export function createCodexMachineTasksHttpApi(
       } else if (error instanceof CodexMachineTasksConflictError) {
         writeJson(response, 409, {
           error: { code: 'operation_conflict', message: error.message }
+        });
+      } else if (error instanceof CodexMachineTasksInputError) {
+        writeJson(response, 400, {
+          error: { code: 'invalid_request', message: error.message }
         });
       } else if (error instanceof HttpError) {
         writeJson(response, error.statusCode, {
@@ -339,6 +349,14 @@ function optionalSelector(value: unknown) {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || !safeSelector.test(value)) throw invalid('Target selector is invalid.');
   return value;
+}
+
+function optionalWorkerSelector(value: unknown, label: string) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(value.trim())) {
+    throw invalid(`${label} is invalid.`);
+  }
+  return value.trim();
 }
 
 function delivery(value: unknown) {

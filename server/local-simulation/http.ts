@@ -4,6 +4,7 @@ import {
   type TailscaleDeviceClassification
 } from '../../src/shared/tailscale-inventory-api';
 import type { RuntimeBindingEvidence } from '../runtime-binding';
+import { normalizeCodexMachineTaskWorker } from '../../src/shared/codex-machine-tasks-api';
 import { readJson, writeJson } from '../project-space-http-response';
 import { legacyConnectorRetirement } from '../legacy-connector-retirement';
 import { localSimulationAvatarUrl, localSimulationIdentity } from './seed';
@@ -23,6 +24,14 @@ const simulatedTailscaleDevices = [
   { addresses: ['100.101.0.2', 'fd7a:115c:a1e0::2'], id: 'local-sim-device-a', name: 'development-mac', online: true, os: 'macOS' },
   { addresses: ['100.101.0.3', 'fd7a:115c:a1e0::3'], id: 'local-sim-device-b', name: 'remote-linux', online: false, os: 'linux' }
 ] as const;
+
+function currentWorktree(state: LocalSimulationState) {
+  const worktree = state.worktrees[0];
+  if (!worktree || !worktree.branchName || !worktree.headSha) {
+    throw new Error('Local simulation worktree identity is missing.');
+  }
+  return { ...worktree, branchName: worktree.branchName, headSha: worktree.headSha };
+}
 
 function simulatedTailscaleConnection(state: LocalSimulationState) {
   return {
@@ -369,26 +378,59 @@ export function createLocalSimulationRequestHandler(options: {
       const payload = await readJson<{
         dryRun?: boolean;
         issue: number;
+        model?: string;
         operationId: string;
+        reasoningEffort?: string;
       }>(request);
+      if (payload.dryRun !== undefined && typeof payload.dryRun !== 'boolean') {
+        writeJson(response, 400, { error: 'dryRun must be a boolean.' });
+        return;
+      }
+      const worker = normalizeCodexMachineTaskWorker(payload);
+      if (!worker) {
+        writeJson(response, 400, { error: 'Worker selection is invalid.' });
+        return;
+      }
+      const { model, reasoningEffort } = worker;
       const target = {
         connector: { generation: 1, id: state.machine.id, name: state.machine.name },
         environment: { id: 'local-simulation', name: 'Local simulation' },
         physicalMachine: { id: 'local-computer', name: 'Local computer' }
       };
       if (payload.dryRun) {
-        writeJson(response, 200, { apiVersion: 1, operationId: payload.operationId, state: 'ready', target });
+        const worktree = currentWorktree(state);
+        writeJson(response, 200, {
+          apiVersion: 1,
+          operationId: payload.operationId,
+          plan: {
+            base: { branch: localSimulationIdentity.branchName, commit: localSimulationIdentity.headSha },
+            environment: { id: 'local-simulation', name: 'Local simulation' },
+            issue: { number: payload.issue, url: `https://github.com/${repository.fullName}/issues/${payload.issue}` },
+            operation: { id: payload.operationId, state: 'ready' },
+            repository: { id: repository.fullName, nameWithOwner: repository.fullName },
+            reportingTask: { role: 'initiator', threadId: '61600000-0000-4000-8000-000000000001' },
+            worker: { model, reasoningEffort },
+            workspace: { branch: worktree.branchName, commit: worktree.headSha, id: worktree.id, path: worktree.path },
+            worktree: { branch: worktree.branchName, id: worktree.id }
+          },
+          state: 'ready',
+          target
+        });
         return;
       }
       const task = await store.update((current) => {
+        const worktree = currentWorktree(current);
         current.codexTask = {
           ...target,
-          canonicalTaskUrl: '/codex/local-simulation-thread',
-          issue: { number: payload.issue, url: '' },
+          base: { branch: localSimulationIdentity.branchName, commit: localSimulationIdentity.headSha },
+          canonicalTaskUrl: 'http://127.0.0.1/codex/local-simulation-thread',
+          issue: { number: payload.issue, url: `https://github.com/${repository.fullName}/issues/${payload.issue}` },
           repository: { id: repository.fullName, nameWithOwner: repository.fullName },
+          reportingTask: { role: 'initiator', threadId: '61600000-0000-4000-8000-000000000001' },
           threadId: '61600000-0000-4000-8000-000000000001',
-          worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' },
-          worktree: { branch: localSimulationIdentity.branchName, id: current.worktrees[0]!.id }
+          worker: { model, reasoningEffort },
+          workspace: { branch: worktree.branchName, commit: worktree.headSha, id: worktree.id, path: worktree.path },
+          worktree: { branch: worktree.branchName, id: worktree.id }
         };
         current.codexMessages = [{
           id: 'local-simulation-welcome',

@@ -119,6 +119,8 @@ func (client *Client) Start(ctx context.Context, request StartRequest) (StartRes
 }
 
 func normalizeStartRequest(request StartRequest) StartRequest {
+	request.Model = strings.TrimSpace(request.Model)
+	request.ReasoningEffort = strings.TrimSpace(request.ReasoningEffort)
 	if request.Model == "" {
 		request.Model = DefaultModel
 	}

@@ -128,6 +128,38 @@ func TestClientStartAcceptsCompleteDryRunPlan(t *testing.T) {
 	}
 }
 
+func TestClientStartAcceptsInitiatorBindingAndSharedWorkerSelectorSyntax(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		plan := testStartPlan()
+		plan.ReportingTask.Role = "initiator"
+		plan.Worker.Model = "provider/gpt-5.6-luna"
+		target := testTarget()
+		target.Environment = &struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}{ID: "environment-1", Name: "Environment 1"}
+		writeTestJSON(t, response, StartResult{
+			APIVersion: APIVersion, OperationID: testOperationID,
+			State: StateReady, Target: target, Plan: plan,
+		})
+	}))
+	defer server.Close()
+
+	result, err := testClient(t, server.URL, Config{}).Start(context.Background(), StartRequest{
+		Selector: Selector{PhysicalMachineID: "physical-remote"},
+		DryRun: true, Issue: 262, Model: " provider/gpt-5.6-luna ",
+		OperationID: testOperationID, ReasoningEffort: " high ",
+		RepositoryID: "DotNaos/project-space",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Plan == nil || result.Plan.ReportingTask.Role != "initiator" ||
+		result.Plan.Worker.Model != "provider/gpt-5.6-luna" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientRejectsConflictingEnvironmentAndPhysicalSelectors(t *testing.T) {
 	_, err := testClient(t, "https://projects.example", Config{}).Start(context.Background(), StartRequest{
 		Selector: Selector{EnvironmentID: "environment-1", PhysicalMachineID: "physical-remote"},

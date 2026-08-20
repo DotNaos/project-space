@@ -15,13 +15,14 @@ var (
 	repositoryPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	threadIDPattern    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	commitPattern      = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+	workerPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
 )
 
 func validateStartRequest(request StartRequest) error {
 	if request.Issue <= 0 || !operationIDPattern.MatchString(request.OperationID) {
 		return ErrInvalidInput
 	}
-	if !identifierPattern.MatchString(request.Model) || !identifierPattern.MatchString(request.ReasoningEffort) {
+	if !workerPattern.MatchString(request.Model) || !workerPattern.MatchString(request.ReasoningEffort) {
 		return ErrInvalidInput
 	}
 	if request.RepositoryID != "" && !identifierPattern.MatchString(request.RepositoryID) && !repositoryPattern.MatchString(request.RepositoryID) {
@@ -127,8 +128,8 @@ func validateTask(task TaskIdentity) error {
 		task.Issue.Number <= 0 || !identifierPattern.MatchString(task.Worktree.ID) ||
 		!validText(task.Worktree.Branch, 512) || !identifierPattern.MatchString(task.Repository.ID) ||
 		!validText(task.Repository.NameWithOwner, 512) ||
-		!identifierPattern.MatchString(task.Worker.Model) ||
-		!identifierPattern.MatchString(task.Worker.ReasoningEffort) ||
+		!workerPattern.MatchString(task.Worker.Model) ||
+		!workerPattern.MatchString(task.Worker.ReasoningEffort) ||
 		!validReportingTask(task.ReportingTask) {
 		return ErrInvalidResponse
 	}
@@ -160,7 +161,7 @@ func validBlockedReason(reason BlockedReason) bool {
 	switch reason {
 	case BlockedApprovalRequired, BlockedCodexStartFailed, BlockedConnectorRequired, BlockedInputRequired,
 		BlockedMachineNotReady, BlockedOffline, BlockedStaleConnector,
-		BlockedThreadActive, BlockedUnauthorized, BlockedWorktreeFailure:
+		BlockedThreadActive, BlockedUnauthorized, BlockedWorktreeFailure, BlockedLegacyUnbound:
 		return true
 	default:
 		return false
@@ -177,8 +178,8 @@ func validateStartPlan(plan StartPlan, request StartRequest, target Target) erro
 		plan.Workspace.Branch != plan.Base.Branch || !strings.EqualFold(plan.Workspace.Commit, plan.Base.Commit) ||
 		!validText(plan.Issue.URL, 2048) || target.Environment == nil ||
 		target.Environment.ID != plan.Environment.ID ||
-		!identifierPattern.MatchString(plan.Worker.Model) ||
-		!identifierPattern.MatchString(plan.Worker.ReasoningEffort) ||
+		!workerPattern.MatchString(plan.Worker.Model) ||
+		!workerPattern.MatchString(plan.Worker.ReasoningEffort) ||
 		plan.Worker.Model != request.Model || plan.Worker.ReasoningEffort != request.ReasoningEffort ||
 		!validReportingTaskValue(plan.ReportingTask) {
 		return ErrInvalidResponse
@@ -198,11 +199,11 @@ func validateStartPlan(plan StartPlan, request StartRequest, target Target) erro
 }
 
 func validReportingTask(task *ReportingTask) bool {
-	return task != nil && task.Role == "project-manager" && threadIDPattern.MatchString(task.ThreadID)
+	return task != nil && (task.Role == "project-manager" || task.Role == "initiator") && threadIDPattern.MatchString(task.ThreadID)
 }
 
 func validReportingTaskValue(task ReportingTask) bool {
-	return task.Role == "project-manager" && threadIDPattern.MatchString(task.ThreadID)
+	return (task.Role == "project-manager" || task.Role == "initiator") && threadIDPattern.MatchString(task.ThreadID)
 }
 
 func validateCommonResult(apiVersion int, operationID string, state ResultState, reason BlockedReason, reconcile string) error {

@@ -230,6 +230,65 @@ describe('Codex machine-task durable start store', () => {
     });
   });
 
+  test('recognizes pre-upgrade reservations through their legacy fingerprint without replay or redispatch', async () => {
+    const database = new FakeDatabase();
+    const legacyPayload = { ...operation.startPayload };
+    delete (legacyPayload as { worker?: unknown }).worker;
+    database.responses.push({ rows: [{
+      ...row({ start_payload: legacyPayload, result: null, state: 'uncertain' }),
+      fingerprint_sha256: 'l'.repeat(64)
+    }] });
+    await expect(new PostgresCodexMachineTasksStore(database).lookupStart({
+      fingerprint: operation.fingerprint,
+      legacyFingerprint: 'l'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).resolves.toEqual({
+      connectorId: operation.connectorId,
+      durableOperations: true,
+      generation: operation.generation,
+      kind: 'legacy',
+      physicalMachineId: operation.physicalMachineId,
+      state: 'uncertain'
+    });
+  });
+
+  test('allows only explicit recovery to release a legacy uncertain reservation', async () => {
+    const database = new FakeDatabase();
+    const legacyPayload = { ...operation.startPayload };
+    delete (legacyPayload as { worker?: unknown }).worker;
+    database.responses.push(
+      { rows: [{
+        association_key: operation.associationKey,
+        fingerprint_sha256: 'l'.repeat(64),
+        state: 'uncertain',
+        start_payload: legacyPayload,
+        result: null
+      }] },
+      { rows: [] },
+      { rows: [{ association_key: operation.associationKey }] }
+    );
+    await expect(new PostgresCodexMachineTasksStore(database).releaseUncertainStart({
+      fingerprint: operation.fingerprint,
+      legacyFingerprint: 'l'.repeat(64),
+      operationId: operation.operationId,
+      userId: operation.userId
+    })).resolves.toBe('released');
+  });
+
+  test('holds a pre-upgrade completed result for attention instead of replaying an unbound task', async () => {
+    const database = new FakeDatabase();
+    const legacyResult = structuredClone(completed);
+    delete (legacyResult.task as { worker?: unknown }).worker;
+    database.responses.push({ rows: [row({ result: legacyResult })] });
+    await expect(new PostgresCodexMachineTasksStore(database).findStart({
+      connectorId: operation.connectorId,
+      issue: operation.startPayload.issue.number,
+      repositoryId: operation.startPayload.repository.nameWithOwner,
+      userId: operation.userId
+    })).resolves.toMatchObject({ kind: 'attention' });
+  });
+
   test('rejects changed input during an early start lookup', async () => {
     const database = new FakeDatabase();
     database.responses.push({ rows: [{

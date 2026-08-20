@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   CodexMachineTasksConflictError,
+  CodexMachineTasksInputError,
   codexAttachToken
 } from '../server/codex-machine-tasks/service';
 import { CodexMachineTaskIssueError } from '../server/codex-machine-tasks/issue-provider';
@@ -39,6 +40,75 @@ describe('Codex machine-task service', () => {
       ...request, model: 'gpt-5.6-sol', reasoningEffort: 'high'
     })).rejects.toBeInstanceOf(CodexMachineTasksConflictError);
     expect(starts).toBe(1);
+  });
+
+  test('treats a changed initiating thread as an idempotency conflict', async () => {
+    const store = memoryStore();
+    const tasks = service({
+      start: async () => ({ state: 'confirmed' as const, threadId, worktreeId: 'wt-reporting' }),
+      store
+    });
+    const firstActor = { userId: 'user-owner', reportingTask: { role: 'initiator' as const, threadId } };
+    await tasks.start(firstActor, request);
+    await expect(tasks.start({
+      userId: 'user-owner',
+      reportingTask: { role: 'initiator', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399d' }
+    }, request)).rejects.toBeInstanceOf(CodexMachineTasksConflictError);
+  });
+
+  test('validates worker selectors before reserving a durable start and canonicalizes whitespace defaults', async () => {
+    const store = memoryStore();
+    await expect(service({ store }).start({ userId: 'user-owner' }, {
+      ...request,
+      model: `${'x'.repeat(256)}/overflow`
+    })).rejects.toBeInstanceOf(CodexMachineTasksInputError);
+    expect(store.operations.size).toBe(0);
+    const result = await service({
+      start: async (input) => {
+        expect(input.worker).toEqual({ model: 'gpt-5.6-luna', reasoningEffort: 'high' });
+        return { state: 'confirmed' as const, threadId, worktreeId: 'wt-default-worker' };
+      },
+      store
+    }).start({ userId: 'user-owner' }, { ...request, model: '   ', reasoningEffort: '  ' });
+    expect(result.state).toBe('confirmed');
+  });
+
+  test('holds a legacy reservation as uncertain and never redispatches it during upgrade recovery', async () => {
+    const store = memoryStore();
+    store.lookupStart = async () => ({
+      connectorId: 'connector-local',
+      durableOperations: true,
+      generation: 1,
+      kind: 'legacy' as const,
+      physicalMachineId: 'physical-local',
+      state: 'uncertain' as const
+    });
+    let starts = 0;
+    const result = await service({
+      start: async () => {
+        starts += 1;
+        throw new Error('legacy reservation must not dispatch');
+      },
+      store
+    }).start({ userId: 'user-owner', reportingTask: { role: 'initiator', threadId } }, request);
+    expect(result).toMatchObject({ state: 'uncertain', reconcile: 'required', message: expect.stringContaining('pre-upgrade') });
+    expect(starts).toBe(0);
+  });
+
+  test('replays a legacy completed row as an explicit attention result', async () => {
+    const store = memoryStore();
+    store.lookupStart = async () => ({
+      connectorId: 'connector-local',
+      durableOperations: true,
+      generation: 1,
+      kind: 'legacy' as const,
+      physicalMachineId: 'physical-local',
+      state: 'completed' as const
+    });
+    const result = await service({ store }).start({
+      userId: 'user-owner', reportingTask: { role: 'initiator', threadId }
+    }, request);
+    expect(result).toMatchObject({ state: 'blocked', reason: 'legacy_unbound' });
   });
 
   test('resolves a complete dry-run plan without reserving or starting a task', async () => {

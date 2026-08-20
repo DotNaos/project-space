@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  CODEX_MACHINE_TASK_DEFAULT_MODEL,
-  CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT
+  normalizeCodexMachineTaskWorker
 } from '../../src/shared/codex-machine-tasks-api';
 import type {
   CodexMachineTaskAttachRequest,
@@ -67,6 +66,12 @@ export class CodexMachineTasksConflictError extends Error {
     this.name = 'CodexMachineTasksConflictError';
   }
 }
+export class CodexMachineTasksInputError extends Error {
+  constructor() {
+    super('The worker selection is invalid.');
+    this.name = 'CodexMachineTasksInputError';
+  }
+}
 export const codexAttachToken = Symbol('codexAttachToken');
 type CodexMachineTaskActor = {
   callerMachineId?: string;
@@ -95,6 +100,13 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           message: found.kind === 'uncertain'
             ? 'The existing Codex task start needs recovery before another task can be created.'
             : 'The existing Codex task is still starting.',
+          state: 'attention'
+        };
+      }
+      if (found.kind === 'attention') {
+        return {
+          apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
+          message: found.message,
           state: 'attention'
         };
       }
@@ -151,6 +163,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           reportingTask: actor.reportingTask,
           userId: actor.userId
         }),
+        legacyFingerprint: fingerprint({ request, userId: actor.userId }),
         operationId: request.operationId,
         userId: actor.userId
       });
@@ -173,23 +186,31 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       const requestFingerprint = fingerprint({
         request: normalizedStartRequest(request), reportingTask, userId: actor.userId
       });
+      const legacyFingerprint = fingerprint({ request, userId: actor.userId });
       if (options.requireReportingTaskBinding && !reportingTask) {
         return blocked(
           request.operationId,
           'unauthorized',
-          'A Project Manager reporting task is required for Codex worker dispatch.'
+          'An initiating Codex task binding is required for worker dispatch.'
         );
       }
       const lookup = request.dryRun
         ? { kind: 'missing' as const }
         : await options.store.lookupStart({
             fingerprint: requestFingerprint,
+            legacyFingerprint,
             operationId: request.operationId,
             userId: actor.userId
           });
       if (lookup.kind === 'conflict') throw new CodexMachineTasksConflictError();
       if (lookup.kind === 'replayed') {
         return { ...lookup.result, operationId: request.operationId };
+      }
+      if (lookup.kind === 'legacy') {
+        const message = 'This pre-upgrade Codex task has no proven worker or initiating-task binding and will not be redispatched automatically.';
+        return lookup.state === 'completed'
+          ? blocked(request.operationId, 'legacy_unbound', message)
+          : uncertain(request.operationId, undefined, message);
       }
       let selected: CodexMachineTaskTarget;
       try {
@@ -854,10 +875,9 @@ function sameStartPayload(
 }
 
 function workerSelection(request: CodexMachineTaskStartRequest): CodexMachineTaskWorkerSelection {
-  return {
-    model: request.model?.trim() || CODEX_MACHINE_TASK_DEFAULT_MODEL,
-    reasoningEffort: request.reasoningEffort?.trim() || CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT
-  };
+  const worker = normalizeCodexMachineTaskWorker(request);
+  if (!worker) throw new CodexMachineTasksInputError();
+  return worker;
 }
 
 function normalizedStartRequest(request: CodexMachineTaskStartRequest) {

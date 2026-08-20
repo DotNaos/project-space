@@ -12,23 +12,51 @@ export const CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY =
   'codex.machine-tasks.durable-operations.v1';
 export const CODEX_MACHINE_TASK_DEFAULT_MODEL = 'gpt-5.6-luna';
 export const CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT = 'high';
+export const CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
+
+export function normalizeCodexMachineTaskWorker(input: {
+  model?: unknown;
+  reasoningEffort?: unknown;
+}): CodexMachineTaskWorkerSelection | undefined {
+  const model = typeof input.model === 'string' ? input.model.trim() : input.model;
+  const reasoningEffort = typeof input.reasoningEffort === 'string'
+    ? input.reasoningEffort.trim()
+    : input.reasoningEffort;
+  if (model !== undefined && model !== '' &&
+      (typeof model !== 'string' || !CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(model))) return undefined;
+  if (reasoningEffort !== undefined && reasoningEffort !== '' &&
+      (typeof reasoningEffort !== 'string' || !CODEX_MACHINE_TASK_WORKER_SELECTOR_PATTERN.test(reasoningEffort))) return undefined;
+  return {
+    model: model || CODEX_MACHINE_TASK_DEFAULT_MODEL,
+    reasoningEffort: reasoningEffort || CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT
+  };
+}
 
 export interface CodexMachineTaskWorkerSelection {
   model: string;
   reasoningEffort: string;
 }
 
-/** Authenticated Manager task that owns worker progress and escalations. */
+/** The initiating task bound to worker progress and escalations.
+ *
+ * `initiator` is the honest server-side binding. `project-manager` remains a
+ * compatibility value for callers that have already passed the Project
+ * Manager gate (the gate itself is enforced by the caller-side #819 context
+ * check, not inferred from this header).
+ */
 export interface CodexMachineTaskReportingTask {
-  role: 'project-manager';
+  role: 'initiator' | 'project-manager';
   threadId: string;
 }
+
+export const CODEX_MACHINE_TASK_LEGACY_UNBOUND_REASON = 'legacy_unbound' as const;
 
 export type CodexMachineTaskBlockedReason =
   | 'approval_required'
   | 'codex_start_failed'
   | 'connector_required'
   | 'input_required'
+  | typeof CODEX_MACHINE_TASK_LEGACY_UNBOUND_REASON
   | 'machine_not_ready'
   | 'offline'
   | 'stale_connector'
