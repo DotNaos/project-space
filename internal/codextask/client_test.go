@@ -147,7 +147,7 @@ func TestClientStartAcceptsInitiatorBindingAndSharedWorkerSelectorSyntax(t *test
 
 	result, err := testClient(t, server.URL, Config{}).Start(context.Background(), StartRequest{
 		Selector: Selector{PhysicalMachineID: "physical-remote"},
-		DryRun: true, Issue: 262, Model: " provider/gpt-5.6-luna ",
+		DryRun:   true, Issue: 262, Model: " provider/gpt-5.6-luna ",
 		OperationID: testOperationID, ReasoningEffort: " high ",
 		RepositoryID: "DotNaos/project-space",
 	})
