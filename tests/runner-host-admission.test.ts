@@ -1,0 +1,530 @@
+import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
+
+import {
+  MemoryRunnerHostAdmissionStore,
+  RunnerHostAdmissionService,
+  validateAdmission
+} from '../server/runner-host/admission';
+import type {
+  RunnerHostCapacityEvidence,
+  RunnerResourceVector
+} from '../src/shared/runner-host-admission-api';
+import { evidence, hostId, isolation, policy, request, vector } from './runner-host-admission-fixtures';
+
+describe('VPS runner admission', () => {
+  test('reserves and replays one exact sandbox identity with bounded deadlines', async () => {
+    let now = Date.parse('2026-08-20T10:00:01.000Z');
+    const service = new RunnerHostAdmissionService(
+      new MemoryRunnerHostAdmissionStore(), policy, () => new Date(now)
+    );
+    const first = await service.reserve(evidence, request());
+    expect(first.kind).toBe('reserved');
+    if (first.kind !== 'reserved') return;
+    expect(first.reservation.state).toBe('active');
+    expect(first.reservation.leaseExpiresAt).toBe('2026-08-20T10:15:01.000Z');
+    expect((await service.reserve(evidence, request())).kind).toBe('replayed');
+    expect((await service.reserve(evidence, request('reservation-1', vector({ cpuMillis: 999 })))).kind).toBe('conflict');
+    now += 1_000;
+  });
+
+  test('fails closed for missing, stale, unhealthy, or uncertain evidence', () => {
+    const cases: Array<[string, RunnerHostCapacityEvidence | undefined, string]> = [
+      ['missing', undefined, 'capacity_evidence_missing'],
+      ['stale', { ...evidence, expiresAt: '2026-08-20T09:59:59.000Z' }, 'capacity_evidence_stale'],
+      ['unhealthy', { ...evidence, productionHealth: 'unknown' }, 'production_reservation_not_proven'],
+      ['uncertain', { ...evidence, cleanup: { ...evidence.cleanup, state: 'uncertain' } }, 'cleanup_uncertain']
+    ];
+    for (const [, candidate, reason] of cases) {
+      expect(validateAdmission(candidate, request(), policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason).toBe(reason);
+    }
+  });
+
+  test('reserves Production before development and limits aggregate usage', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    expect((await service.reserve(evidence, request('one'))).kind).toBe('reserved');
+    expect((await service.reserve(evidence, request('two'))).kind).toBe('reserved');
+    expect((await service.reserve(evidence, request('three')))).toMatchObject({
+      kind: 'blocked', reason: 'concurrency_limit'
+    });
+    const productionExhausted = {
+      ...evidence,
+      capacity: {
+        ...evidence.capacity,
+        productionUsage: vector({ cpuMillis: 4_001 }),
+        sandboxCount: 0
+      }
+    };
+    expect(validateAdmission(productionExhausted, request(), policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason)
+      .toBe('production_reservation_not_proven');
+  });
+
+  test('uses the larger of Production usage and reservation as the effective claim', () => {
+    const usageBelowReservation = {
+      ...evidence,
+      capacity: {
+        ...evidence.capacity,
+        productionUsage: vector({ cpuMillis: 1_500 }),
+        total: vector({ cpuMillis: 3_000, memoryBytes: 8_000, pids: 512 })
+      }
+    };
+    expect(validateAdmission(
+      usageBelowReservation, request('production-below-reservation'), policy, [],
+      new Date('2026-08-20T10:00:01.000Z')
+    )).toBeUndefined();
+
+    const usageAboveReservation = {
+      ...usageBelowReservation,
+      capacity: {
+        ...usageBelowReservation.capacity,
+        productionUsage: vector({ cpuMillis: 2_500 })
+      }
+    };
+    expect(validateAdmission(
+      usageAboveReservation, request('production-above-reservation'), policy, [],
+      new Date('2026-08-20T10:00:01.000Z')
+    )?.reason).toBe('resource_limit');
+  });
+
+  test('binds API version, host, generation, and cleanup evidence to admission', () => {
+    expect(validateAdmission(
+      { ...evidence, apiVersion: 99 as never }, request(), policy, [],
+      new Date('2026-08-20T10:00:01.000Z')
+    )?.reason).toBe('capacity_evidence_invalid');
+    expect(validateAdmission(
+      { ...evidence, hostId: 'vps:other' }, request(), policy, [],
+      new Date('2026-08-20T10:00:01.000Z')
+    )?.reason).toBe('host_identity_mismatch');
+    expect(validateAdmission(
+      { ...evidence, generation: 'host-generation-2' }, request(), policy, [],
+      new Date('2026-08-20T10:00:01.000Z')
+    )?.reason).toBe('host_identity_mismatch');
+    for (const checkedAt of ['2026-08-20T10:00:02.000Z', '2026-08-20T09:58:00.000Z']) {
+      expect(validateAdmission(
+        { ...evidence, cleanup: { checkedAt, state: 'proven' } }, request(), policy, [],
+        new Date('2026-08-20T10:00:01.000Z')
+      )?.reason).toBe('capacity_evidence_stale');
+    }
+  });
+
+  test('fails closed for malformed nested evidence and isolation inputs', () => {
+    const now = new Date('2026-08-20T10:00:01.000Z');
+    for (const candidate of [
+      { ...evidence, capacity: undefined as never },
+      { ...evidence, capacity: null as never },
+      { ...evidence, cleanup: undefined as never },
+      { ...evidence, cleanup: null as never }
+    ]) {
+      expect(validateAdmission(candidate, request(), policy, [], now)?.reason)
+        .toBe('capacity_evidence_invalid');
+    }
+    expect(validateAdmission(
+      evidence, { ...request(), isolation: undefined as never }, policy, [], now
+    )?.reason).toBe('resource_limit');
+    expect(validateAdmission(
+      evidence, request(), { ...policy, isolation: undefined as never }, [], now
+    )?.reason).toBe('resource_limit');
+  });
+
+  test('serializes concurrent admission so the host cannot be oversubscribed', async () => {
+    const service = new RunnerHostAdmissionService(
+      new MemoryRunnerHostAdmissionStore(), policy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    const results = await Promise.all([
+      service.reserve(evidence, request('parallel-one')),
+      service.reserve(evidence, request('parallel-two')),
+      service.reserve(evidence, request('parallel-three'))
+    ]);
+    expect(results.filter(({ kind }) => kind === 'reserved')).toHaveLength(2);
+    expect(results.filter(({ kind }) => kind === 'blocked')).toHaveLength(1);
+  });
+
+  test('checks every resource dimension and refuses unbounded lease windows', () => {
+    for (const dimension of Object.keys(vector()) as Array<keyof RunnerResourceVector>) {
+      const resources = vector();
+      resources[dimension] = (policy.sandboxMaximum[dimension] ?? 0) + 1;
+      expect(validateAdmission(evidence, request('limit', resources), policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason)
+        .toBe('resource_limit');
+    }
+    expect(validateAdmission(evidence, { ...request(), maximumRuntimeSeconds: policy.maximumRuntimeSeconds + 1 }, policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason)
+      .toBe('invalid_lease');
+    expect(validateAdmission(evidence, {
+      ...request(), isolation: { ...isolation, egress: 'open' as never }
+    }, policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason).toBe('resource_limit');
+  });
+
+  test('fences uncertain cleanup and requires positive absence proof before release', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const reserved = await service.reserve(evidence, request());
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    await service.markUncertain(hostId, reserved.reservation.identity.reservationId);
+    expect((await service.reserve(evidence, request('second'))).kind).toBe('blocked');
+    await expect(service.release(hostId, reserved.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: reserved.reservation.identity,
+      resourcesAbsent: false as never
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, reserved.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z',
+      identity: { ...reserved.reservation.identity, reservationId: 'vps:other:reservation' },
+      resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, reserved.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: reserved.reservation.identity, resourcesAbsent: true
+    })).resolves.toMatchObject({ state: 'released' });
+  });
+
+  test('binds absence proof to every stable identity field and freshness window', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const first = await service.reserve(evidence, request('proof-first'));
+    const second = await service.reserve(evidence, request('proof-second'));
+    if (first.kind !== 'reserved' || second.kind !== 'reserved') throw new Error('fixture did not reserve');
+    await service.markUncertain(hostId, first.reservation.identity.reservationId);
+    await service.markUncertain(hostId, second.reservation.identity.reservationId);
+
+    await expect(service.release(hostId, second.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T09:59:30.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:31.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z',
+      identity: { ...first.reservation.identity, taskId: 'task-other', operationId: 'operation-other' },
+      resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).resolves.toMatchObject({ state: 'released' });
+  });
+
+  test('rejects malformed runtime identities and malformed admission scalars', async () => {
+    const invalidIdentity = {
+      ...request().identity,
+      baseSha: '', branch: '', codexTaskId: '', ownerUserId: '', projectManagerTaskId: '',
+      repositoryId: '', taskId: '', workspaceId: '', issueNumber: -1
+    };
+    expect(validateAdmission(evidence, { ...request(), identity: invalidIdentity }, policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason)
+      .toBe('identity_invalid');
+
+    for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+      for (const field of ['sandboxCount', 'maxConcurrentSandboxes'] as const) {
+        const candidate = { ...evidence, capacity: { ...evidence.capacity, [field]: value } };
+        expect(validateAdmission(candidate, request('invalid-evidence'), policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason)
+          .toBe('capacity_evidence_invalid');
+      }
+    }
+
+    const activeService = new RunnerHostAdmissionService(
+      new MemoryRunnerHostAdmissionStore(), policy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    const active = await activeService.reserve(evidence, request('active'));
+    if (active.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const tinyRequest = request('invalid-active', vector({ cpuMillis: 1 }));
+    for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(validateAdmission(
+        { ...evidence, capacity: { ...evidence.capacity, sandboxCount: value as never } },
+        tinyRequest, policy, [active.reservation], new Date('2026-08-20T10:00:01.000Z')
+      )?.reason).toBe('capacity_evidence_invalid');
+    }
+    for (const field of ['idleTimeoutSeconds', 'maximumRuntimeSeconds'] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, { ...tinyRequest, [field]: value as never }, policy, [active.reservation],
+          new Date('2026-08-20T10:00:01.000Z')
+        )?.reason).toBe('invalid_lease');
+      }
+    }
+    for (const field of [
+      'absenceProofClockSkewSeconds', 'absenceProofMaxAgeSeconds', 'evidenceMaxAgeSeconds',
+      'maxConcurrentSandboxes'
+    ] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tinyRequest, { ...policy, [field]: value as never }, [active.reservation],
+          new Date('2026-08-20T10:00:01.000Z')
+        )?.reason).toBe('resource_limit');
+      }
+    }
+    for (const field of ['leaseSeconds', 'maximumRuntimeSeconds'] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tinyRequest, { ...policy, [field]: value as never }, [active.reservation],
+          new Date('2026-08-20T10:00:01.000Z')
+        )?.reason).toBe('invalid_lease');
+      }
+    }
+  });
+
+  test('fails closed on malformed durable reservations before capacity arithmetic', async () => {
+    const now = new Date('2026-08-20T10:00:01.000Z');
+    const service = new RunnerHostAdmissionService(new MemoryRunnerHostAdmissionStore(), policy, () => new Date(now));
+    const active = await service.reserve(evidence, request('durable-active'));
+    if (active.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const tiny = request('durable-tiny', vector({ cpuMillis: 1 }));
+    expect(validateAdmission(evidence, tiny, policy, [active.reservation], now)).toBeUndefined();
+
+    for (const dimension of Object.keys(vector()) as Array<keyof RunnerResourceVector>) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tiny, policy,
+          [{ ...active.reservation, resources: { ...active.reservation.resources, [dimension]: value } }], now
+        )?.reason).toBe('capacity_evidence_invalid');
+      }
+    }
+    for (const field of ['idleTimeoutSeconds', 'maximumRuntimeSeconds'] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tiny, policy, [{ ...active.reservation, [field]: value }], now
+        )?.reason).toBe('capacity_evidence_invalid');
+      }
+    }
+    const wrongFingerprint = `${active.reservation.fingerprint[0] === '0' ? '1' : '0'}${active.reservation.fingerprint.slice(1)}`;
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, fingerprint: wrongFingerprint }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy,
+      [{ ...active.reservation, isolation: { ...isolation, egress: 'open' as never } }], now
+    )?.reason).toBe('resource_limit');
+    expect(validateAdmission(
+      evidence, tiny, policy,
+      [{ ...active.reservation, leaseExpiresAt: '2026-08-20T10:15:02.000Z' }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy,
+      [{ ...active.reservation, runtimeExpiresAt: '2026-08-20T22:00:02.000Z' }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy,
+      [{ ...active.reservation, idleTimeoutSeconds: active.reservation.maximumRuntimeSeconds + 1 }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy,
+      [{ ...active.reservation, maximumRuntimeSeconds: policy.maximumRuntimeSeconds + 1 }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    for (const identity of [
+      { ...active.reservation.identity, branch: '' },
+      { ...active.reservation.identity, branch: undefined as never },
+      { ...active.reservation.identity, hostId: 'vps:other' },
+      { ...active.reservation.identity, generation: 'other-generation' }
+    ]) {
+      expect(validateAdmission(
+        evidence, tiny, policy, [{ ...active.reservation, identity }], now
+      )?.reason).toBe('identity_invalid');
+    }
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, hostGeneration: 'other-generation' }], now
+    )?.reason).toBe('identity_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, state: 'corrupt' as never }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    for (const field of ['createdAt', 'idleExpiresAt', 'leaseExpiresAt', 'runtimeExpiresAt'] as const) {
+      expect(validateAdmission(
+        evidence, tiny, policy, [{ ...active.reservation, [field]: 'not-a-timestamp' }], now
+      )?.reason).toBe('capacity_evidence_invalid');
+    }
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, idleExpiresAt: active.reservation.createdAt }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, fingerprint: 'not-a-fingerprint' }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+  });
+
+  test('does not fence malformed durable rows before rejecting admission', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const reserved = await service.reserve(evidence, request('pre-fence-valid'));
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const malformed = {
+      ...reserved.reservation,
+      fingerprint: `${reserved.reservation.fingerprint[0] === '0' ? '1' : '0'}${reserved.reservation.fingerprint.slice(1)}`,
+      leaseExpiresAt: '2026-08-20T09:00:00.000Z'
+    };
+    await store.save(hostId, malformed);
+    expect(await service.reserve(evidence, request('pre-fence-next'))).toMatchObject({
+      kind: 'blocked', reason: 'capacity_evidence_invalid'
+    });
+    expect(await service.fenceExpired(hostId)).toEqual([]);
+    expect((await store.read(hostId, malformed.identity.reservationId))?.state).toBe('active');
+  });
+
+  test('does not fence or reserve against durable rows under an oversized lease policy', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const seedService = new RunnerHostAdmissionService(
+      store, policy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    const reserved = await seedService.reserve(evidence, request('oversized-lease'));
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const expired = {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    };
+    await store.save(hostId, expired);
+
+    const oversizedPolicy = {
+      ...policy,
+      leaseSeconds: policy.maximumRuntimeSeconds + 1
+    };
+    const service = new RunnerHostAdmissionService(
+      store, oversizedPolicy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    expect(await service.fenceExpired(hostId)).toEqual([]);
+    expect((await store.read(hostId, expired.identity.reservationId))?.state).toBe('active');
+    expect(await service.reserve(evidence, request('oversized-lease-next'))).toMatchObject({
+      kind: 'blocked', reason: 'invalid_lease'
+    });
+    expect((await store.read(hostId, expired.identity.reservationId))?.state).toBe('active');
+  });
+
+  test('does not fence expired durable rows before rejecting malformed policy input', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const seedService = new RunnerHostAdmissionService(
+      store, policy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    const reserved = await seedService.reserve(evidence, request('malformed-policy-seed'));
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const expired = {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    };
+    await store.save(hostId, expired);
+
+    const malformedPolicy = { ...policy, aggregateMaximum: undefined as never };
+    const service = new RunnerHostAdmissionService(
+      store, malformedPolicy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    expect(await service.reserve(evidence, request('malformed-policy-next'))).toMatchObject({
+      kind: 'blocked', reason: 'resource_limit'
+    });
+    expect((await store.read(hostId, expired.identity.reservationId))?.state).toBe('active');
+  });
+
+  test('fences expired idle, lease, or runtime reservations before capacity reuse', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const reserved = await service.reserve(evidence, request());
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const expired = {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    };
+    await store.save(hostId, expired);
+    expect((await service.fenceExpired(hostId))).toHaveLength(1);
+    expect((await service.reserve(evidence, request('after-expiry')))).toMatchObject({
+      kind: 'blocked', reason: 'cleanup_uncertain'
+    });
+  });
+
+  test('fences an expired exact replay before returning it', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const reserved = await service.reserve(evidence, request());
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    await store.save(hostId, {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    });
+    const replay = await service.reserve(evidence, request());
+    expect(replay).toMatchObject({ kind: 'replayed', reservation: { state: 'uncertain' } });
+  });
+
+  test('serializes expiry fencing with a racing admission', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const reserved = await service.reserve(evidence, request());
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    await store.save(hostId, {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    });
+    const [, admission] = await Promise.all([
+      service.fenceExpired(hostId),
+      service.reserve(evidence, request('racing-expiry'))
+    ]);
+    expect(admission).toMatchObject({ kind: 'blocked', reason: 'cleanup_uncertain' });
+  });
+
+  test('canonicalizes request property order for exact replay', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const original = request('canonical');
+    expect((await service.reserve(evidence, original)).kind).toBe('reserved');
+    const reversedResources = Object.fromEntries(Object.entries(original.resources).reverse()) as RunnerResourceVector;
+    const reordered = {
+      resources: reversedResources,
+      maximumRuntimeSeconds: original.maximumRuntimeSeconds,
+      isolation: original.isolation,
+      identity: original.identity,
+      idleTimeoutSeconds: original.idleTimeoutSeconds
+    };
+    expect((await service.reserve(evidence, reordered)).kind).toBe('replayed');
+  });
+
+  test('captures one admission timestamp through validation and persistence', async () => {
+    let nowCalls = 0;
+    const service = new RunnerHostAdmissionService(
+      new MemoryRunnerHostAdmissionStore(),
+      policy,
+      () => {
+        nowCalls += 1;
+        return new Date('2026-08-20T10:00:01.000Z');
+      }
+    );
+    const result = await service.reserve(evidence, request('one-timestamp'));
+    expect(result.kind).toBe('reserved');
+    if (result.kind !== 'reserved') return;
+    expect(nowCalls).toBe(1);
+    expect(result.reservation.createdAt).toBe('2026-08-20T10:00:01.000Z');
+    expect(result.reservation.idleExpiresAt).toBe('2026-08-20T10:30:01.000Z');
+  });
+
+  test('keeps the checked-in VPS profile bounded and isolated', () => {
+    const profile = parse(readFileSync('.project/runner.yaml', 'utf8')) as {
+      capacity: {
+        absenceProofClockSkewSeconds: number;
+        absenceProofMaxAgeSeconds: number;
+        aggregateMaximum: RunnerResourceVector;
+        productionReservation: RunnerResourceVector;
+        sandboxMaximum: RunnerResourceVector;
+      };
+      isolation: Record<string, string>;
+    };
+    expect(profile.capacity.absenceProofClockSkewSeconds).toBe(0);
+    expect(profile.capacity.absenceProofMaxAgeSeconds).toBe(30);
+    for (const dimension of Object.keys(vector())) {
+      expect(profile.capacity.sandboxMaximum[dimension as keyof RunnerResourceVector]).toBeGreaterThanOrEqual(0);
+      expect(profile.capacity.aggregateMaximum[dimension as keyof RunnerResourceVector]).toBeGreaterThanOrEqual(
+        profile.capacity.sandboxMaximum[dimension as keyof RunnerResourceVector]
+      );
+      expect(profile.capacity.productionReservation[dimension as keyof RunnerResourceVector]).toBeGreaterThanOrEqual(0);
+    }
+    expect(profile.isolation).toEqual({
+      crossSandboxWritableVolumes: 'denied', deploymentCredentials: 'denied', dockerSocket: 'denied',
+      egress: 'development', hostNetwork: 'denied', productionDatabase: 'denied',
+      productionFilesystem: 'denied', sharedCaches: 'immutable-only'
+    });
+  });
+});

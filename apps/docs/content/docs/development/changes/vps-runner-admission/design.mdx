@@ -1,0 +1,79 @@
+---
+title: Design
+description: Durable fail-closed admission for VPS runner sandboxes.
+---
+
+## Context
+
+Issue #826 needs a persistent Project Manager and development sandboxes without allowing
+development work to consume Production capacity or host privileges. The existing runner
+execution provider is not yet the admission boundary, so this change establishes the
+contract and durable state needed for that integration.
+
+## Goals and non-goals
+
+The goal is a small, testable admission service that is conservative under stale
+observations, concurrent requests, uncertain cleanup, and identity replay. It covers all
+resource dimensions named by the issue, including CPU scheduling and I/O weights, and
+records an explicit isolation profile.
+
+The change does not provision the VPS, change firewall rules, start the manager, handle
+secrets, replace the current provider lifecycle, or prove end-to-end isolation and
+resource enforcement on a live VPS.
+
+## Architecture
+
+The service receives a host capacity snapshot and a stable reservation request. A per-host
+lock serializes replay, capacity, Production reservation, and concurrency decisions. The
+memory store supports conformance tests; the PostgreSQL store persists JSON identity,
+isolation, resource vectors, deadlines, state, fingerprints, and absence proofs while
+using a PostgreSQL advisory transaction lock for cross-process admission. Release proofs
+persist the exact full sandbox identity and are accepted only when checked within the
+30-second proof freshness window with zero tolerated future skew. A real PostgreSQL
+loopback integration test exercises concurrent reservations when the test database is
+configured; the default fake client is limited to deterministic SQL/transaction-boundary
+evidence and rejects query-only clients.
+
+Observed sandbox usage is combined with active control-plane reservations by taking the
+per-dimension maximum, preventing either telemetry or state lag from undercounting. A
+released reservation cannot be resurrected; uncertain and expired reservations are fenced
+until same-generation absence is proven. Before that aggregation, every active durable row
+is revalidated for exact host/generation identity, allowed state, bounded resource/scalar
+values, coherent deadlines, and a recomputed canonical fingerprint that matches the stored
+value; malformed rows block admission. PostgreSQL also requires absence proofs to have the
+exact typed three-field shape, including Boolean `true` and a bounded checkedAt string. Before
+expiry fencing, rows must also match the current isolation policy and its bounded idle, runtime,
+and lease deadline rules.
+
+## Decisions
+
+- Use explicit vectors for every resource dimension so a new limit cannot be silently omitted.
+- Require exact replay fingerprints and stable identity fields for idempotent lifecycle calls.
+- Treat the larger of actual Production usage and the reserved Production claim as occupied capacity.
+- Treat missing, stale, invalid, unhealthy, or uncertain evidence as blocked rather than guessed.
+- Validate every identity and count/duration scalar at the admission boundary; reject missing,
+  fractional, negative, NaN, and unsafe-integer values before arithmetic.
+- Keep the isolation profile deny-by-default for host and Production boundaries.
+- Keep the checked-in `.project/runner.yaml` declarative and bounded for later VPS integration.
+
+## Risks and mitigations
+
+- **Telemetry lag could over-admit:** active reservations and observed usage are combined conservatively.
+- **A lost cleanup response could leak capacity:** uncertainty fences reuse until positive same-generation proof.
+- **A host restart could invalidate absence proof:** proof includes the host generation.
+- **A caller could omit an isolation control:** every isolation field is required and validated exactly.
+
+## Migration and rollout
+
+The migration creates only the reservation table and is safe to apply before provider
+integration. No Production or VPS mutation is performed by this change. A later integration
+must call admission before Runner Workspace creation and preserve the same identities and
+release/uncertain lifecycle.
+
+## Validation
+
+Focused admission and migration tests cover every resource dimension, effective Production
+claims, host/API/generation binding, concurrency serialization, replay conflicts, isolation,
+deadline fencing, uncertain cleanup, canonical fingerprints, PostgreSQL store behavior, and
+positive same-generation absence. TypeScript, the web build, exact Bun 1.3.14 full tests,
+repository checks, and staged docs validation are required before delivery.

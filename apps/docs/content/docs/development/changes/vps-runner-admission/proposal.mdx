@@ -1,0 +1,49 @@
+---
+title: Bounded VPS runner admission
+description: Fail-closed resource reservations and isolation evidence for development sandboxes.
+---
+
+Change status: **Complete**
+
+Change kind: **Feature**
+
+Issue: **[#826](https://github.com/DotNaos/project-space/issues/826)**
+Parent architecture: **[#446](https://github.com/DotNaos/project-space/issues/446)**
+Requirements: **Required**
+
+## Summary
+
+Add a durable admission boundary for the Project Manager and development sandboxes on
+the VPS. Admission reserves bounded resources only when current host capacity, the
+Production reservation, cleanup state, stable task identities, and sandbox isolation
+are all proven.
+
+## Problem
+
+The existing execution path can create development work without one authoritative
+reservation covering aggregate host capacity, Production headroom, cleanup uncertainty,
+and all required resource and isolation dimensions. A persistent manager therefore needs
+a fail-closed boundary before it can safely schedule sandboxes.
+
+## Scope
+
+- Define stable reservation, workspace, task, operation, and generation identities.
+- Validate CPU, memory/swap, PIDs, open files, disk/inodes, logs, I/O, network,
+  connections/ports, model concurrency, leases, idle time, and aggregate concurrency.
+- Require fresh capacity evidence, healthy Production reservation, positive same-generation
+  absence proof before uncertain cleanup is reused, and explicit sandbox isolation.
+- Persist reservations with a host lock and expose checked-in VPS policy plus conformance tests.
+
+## Out of scope
+
+- Changing Production, VPS firewall/network configuration, secrets, or deployment state.
+- Replacing the existing task execution provider integration in this milestone.
+- Granting a host Docker socket, Production filesystem/database, deployment credentials,
+  or unrestricted Production-service access to a sandbox.
+
+## Delivery
+
+This is an independently reviewable backend and operations contract. It adds no new
+machine-tool or CLI release and is not deployed by this change. The existing execution
+provider remains the compatibility path until a follow-up wires it to call admission
+before creating a Runner Workspace.

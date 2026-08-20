@@ -159,6 +159,10 @@ import {
   legacyConnectorRemovalMigrationId,
   legacyConnectorRemovalMigrationSql
 } from './legacy-connector-removal-migration';
+import {
+  runnerHostAdmissionMigrationId,
+  runnerHostAdmissionMigrationSql
+} from './runner-host-admission-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -899,6 +903,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: legacyConnectorRemovalMigrationId,
     sql: legacyConnectorRemovalMigrationSql
+  },
+  {
+    id: runnerHostAdmissionMigrationId,
+    sql: runnerHostAdmissionMigrationSql
   }
 ];
 
