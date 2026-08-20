@@ -159,6 +159,10 @@ import {
   legacyConnectorRemovalMigrationId,
   legacyConnectorRemovalMigrationSql
 } from './legacy-connector-removal-migration';
+import {
+  environmentDefinitionReconciliationMigrationId,
+  environmentDefinitionReconciliationMigrationSql
+} from './environment-definition-reconciliation-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -899,6 +903,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: legacyConnectorRemovalMigrationId,
     sql: legacyConnectorRemovalMigrationSql
+  },
+  {
+    id: environmentDefinitionReconciliationMigrationId,
+    sql: environmentDefinitionReconciliationMigrationSql
   }
 ];
 

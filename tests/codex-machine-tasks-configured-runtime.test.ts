@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import { createConfiguredCodexMachineTasksService } from '../server/codex-machine-tasks/configured-runtime';
+import {
+  createConfiguredCodexMachineTasksRuntime,
+  createConfiguredCodexMachineTasksService
+} from '../server/codex-machine-tasks/configured-runtime';
 import type { WorkspaceRuntimeCodexBridge } from '../server/codex-machine-tasks/workspace-runtime';
+import type { ComputeEnvironmentRecord, ComputeInventorySnapshot } from '../src/shared/compute-environment-api';
+import type { CodexSessionsRuntime } from '../server/codex-sessions/runtime';
 import {
   connector,
   memoryStore,
@@ -9,7 +14,174 @@ import {
   threadId
 } from './fixtures/codex-machine-tasks-service';
 
+const configuredWorkspaceId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const configuredEnvironmentId = '11111111-1111-4111-8111-111111111111';
+const configuredHostId = '24000000-0000-4000-8000-000000000002';
+const configuredBranch = '262-build-codex-machine-task-core-and-cli';
+const configuredCommit = 'a'.repeat(40);
+
+function configuredInventory(
+  hostAssociation: ComputeEnvironmentRecord['hostAssociation'],
+  hosts = [{
+    id: configuredHostId,
+    identity: { key: 'host:canonical-macos', version: 1 },
+    name: 'os-macbook',
+    platformId: 'platform-local'
+  }]
+): ComputeInventorySnapshot {
+  return {
+    connectors: [],
+    environmentDefinitions: [],
+    environments: [{
+      environmentDefinitionId: 'definition-macos',
+      hostAssociation,
+      id: configuredEnvironmentId,
+      identity: { key: 'environment:canonical-macos', version: 1 },
+      kind: 'native_macos',
+      name: 'macOS Workspace Runtime',
+      platformId: 'platform-local',
+      resourceMode: 'dedicated'
+    }],
+    hosts,
+    platforms: [{ id: 'platform-local', kind: 'local', name: 'Local & self-hosted' }],
+    violations: []
+  };
+}
+
+function configuredRuntimeSessions() {
+  const snapshot = {
+    branch: configuredBranch,
+    capabilities: ['runtime.codex.v1'],
+    codexAcceptedCommandSequence: 0,
+    commit: configuredCommit,
+    connectionState: 'online',
+    devServers: [],
+    environmentId: configuredEnvironmentId,
+    expiresAt: '2026-08-20T12:00:00.000Z',
+    generation: '22222222-2222-4222-8222-222222222222',
+    lastEventAt: '2026-08-20T11:59:00.000Z',
+    lastHeartbeatAt: '2026-08-20T11:59:00.000Z',
+    lastSequence: 1,
+    lifecycleState: 'running',
+    manifestDigest: 'b'.repeat(64),
+    runtimeVersion: '0.4.66',
+    schemaVersion: 1,
+    sessionId: 'configured-session-1',
+    workspaceId: configuredWorkspaceId
+  };
+  return { list: async () => [snapshot] } as never;
+}
+
+async function configuredService(inventory: ComputeInventorySnapshot) {
+  const workspaceBindingStore = {
+    list: async () => [{ id: 'execution-835' }],
+    readWorkspace: async () => ({
+      branch: configuredBranch,
+      commit: configuredCommit,
+      id: configuredWorkspaceId,
+      state: 'ready',
+      target: { kind: 'project_worktree', reference: 'worktree-835' }
+    })
+  } as never;
+  const backend = {
+    async getGitHubCatalog() {
+      return {
+        checkedAt: '',
+        repositories: [{
+          defaultBranch: 'main', fullName: 'DotNaos/project-space', id: 42,
+          isPrivate: true, name: 'project-space', owner: 'DotNaos',
+          projectConfig: { projectYaml: true, status: 'complete' as const, templateLock: true },
+          url: 'https://github.com/DotNaos/project-space'
+        }],
+        status: 'connected' as const
+      };
+    },
+    async getGitHubRepositoryDetails() {
+      return {
+        branches: [{ commitSha: configuredCommit, isDefault: false, name: configuredBranch }],
+        checkedAt: '',
+        issues: [{
+          labels: [], number: 262, state: 'open' as const,
+          title: 'Build Codex machine task core and CLI',
+          url: 'https://github.com/DotNaos/project-space/issues/262'
+        }],
+        pullRequests: [], status: 'connected' as const
+      };
+    }
+  } as never;
+  const runtime = await createConfiguredCodexMachineTasksRuntime({
+    backend,
+    database: { query: async () => { throw new Error('legacy database boundary was used'); } } as never,
+    inventory: async () => inventory,
+    runtimeSessions: configuredRuntimeSessions(),
+    sessionsRuntime: Promise.reject(new Error('compatibility runtime is not part of this path')) as Promise<CodexSessionsRuntime>,
+    taskStore: memoryStore(),
+    workspaceBindingStore
+  });
+  return runtime.service;
+}
+
 describe('configured Codex machine-task runtime', () => {
+  test('resolves the canonical Host through the configured service without a legacy mapping', async () => {
+    const service = await configuredService(configuredInventory({
+      evidence: 'smbios', hostId: configuredHostId, resolution: 'verified'
+    }));
+    const result = await service.start(
+      { userId: 'user-owner', reportingTask: { role: 'project-manager', threadId } },
+      {
+        ...request,
+        dryRun: true,
+        physicalMachineId: configuredHostId,
+        repositoryId: 'DotNaos/project-space',
+        worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' }
+      }
+    );
+
+    expect(result).toMatchObject({
+      state: 'ready',
+      target: { physicalMachine: { id: configuredHostId, name: 'os-macbook' } }
+    });
+  });
+
+  test('fails closed for unresolved, conflicting, missing, and wrong-owner Host evidence', async () => {
+    const cases: Array<{
+      name: string;
+      inventory: ComputeInventorySnapshot;
+    }> = [
+      {
+        name: 'unresolved',
+        inventory: configuredInventory({ evidence: 'none', resolution: 'unresolved' })
+      },
+      {
+        name: 'conflict',
+        inventory: configuredInventory({ evidence: 'host_broker', expectedHostId: configuredHostId, resolution: 'conflict' })
+      },
+      {
+        name: 'missing host',
+        inventory: configuredInventory({ evidence: 'smbios', hostId: configuredHostId, resolution: 'verified' }, [])
+      },
+      {
+        name: 'wrong owner',
+        inventory: configuredInventory({ evidence: 'smbios', hostId: '24000000-0000-4000-8000-000000000099', resolution: 'verified' })
+      }
+    ];
+    for (const candidate of cases) {
+      const service = await configuredService(candidate.inventory);
+      const result = await service.start(
+        { userId: 'user-owner', reportingTask: { role: 'project-manager', threadId } },
+        {
+          ...request,
+          dryRun: true,
+          operationId: `start-262-${candidate.name.replaceAll(' ', '-')}`,
+          physicalMachineId: configuredHostId,
+          repositoryId: 'DotNaos/project-space',
+          worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' }
+        }
+      );
+      expect(result).toMatchObject({ reason: 'unauthorized', state: 'blocked' });
+    }
+  });
+
   test('reconciles an uncertain initial handoff exactly once after a runtime restart', async () => {
     const starts: Array<{ durableOperations: boolean; reconcile: boolean }> = [];
     let readReconciliationCount = 0;

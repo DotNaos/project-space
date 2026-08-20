@@ -1,0 +1,46 @@
+---
+title: Proposal
+description: Reconcile duplicate built-in Environment definitions before inventory conflicts.
+---
+
+Change status: **Active**
+
+Change kind: **Bugfix**
+
+Issue: **[#835](https://github.com/DotNaos/project-space/issues/835)**
+Requirements: **Changed**
+
+## Summary
+
+Ensure each built-in Environment blueprint is represented once in the visible inventory,
+while preserving an explicit conflict when user-owned definitions cannot be reconciled.
+
+## Problem
+
+User and deployment inventory scopes can expose equivalent built-in `macos` definitions.
+The combined snapshot currently reports a duplicate slug and blocks otherwise valid
+physical-host Codex routing. Older startup paths can also reuse a deterministic definition
+ID without first reading the ID that already won an insert conflict.
+
+## Scope
+
+- Reconcile equivalent built-in definitions deterministically before validation.
+- Repair legacy same-owner duplicates and preserve all Environment references.
+- Make connector startup return the existing built-in definition ID safely.
+- Keep exact physical-machine selection independent of unrelated catalog conflicts.
+
+## Out of scope
+
+- Merging user-owned definitions into built-in definitions.
+- Choosing between incompatible built-in blueprints or modifying production data directly.
+- Changing physical-machine authorization, connector capability checks, or deployment policy.
+
+## Delivery
+
+The change ships through a draft pull request for issue #835 and the normal review and
+preflight gates. No production deployment or data mutation is performed by this task.
+
+## Requirements rationale
+
+This changes observable inventory and startup behavior, so the requirement delta records
+the deterministic reconciliation and fail-closed conflict guarantees.

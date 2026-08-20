@@ -1,0 +1,26 @@
+---
+title: Tasks
+description: Implementation and verification checklist for Environment reconciliation.
+---
+
+## 1. Catalog safety
+
+- [x] 1.1 Canonicalize equivalent built-in definitions before inventory validation
+  - **Evidence:** `src/shared/compute-environment-api.ts` and `server/database/repository.ts` remap equivalent built-in references deterministically.
+- [x] 1.2 Preserve user-owned and incompatible definition conflicts
+  - **Evidence:** `tests/compute-environment-model.test.ts` verifies fail-closed validation without user-owned remapping.
+- [x] 1.3 Add the idempotent database reconciliation migration
+  - **Evidence:** `server/database/environment-definition-reconciliation-migration.ts` repairs references, guards uniqueness, and uses the existing definition ID returned from the conflict path.
+
+## 2. Codex targeting
+
+- [x] 2.1 Preserve exact physical-machine selection beside catalog conflicts
+  - **Evidence:** `tests/codex-machine-task-target-resolver.test.ts` verifies an exact ID remains routable when the catalog reports an unrelated conflict.
+- [x] 2.2 Retain supported start and send selector contracts
+  - **Evidence:** Existing Go CLI and Codex client tests cover exact physical selectors and are included in the focused verification run.
+
+## 3. Verification and delivery
+
+- [x] 3.1 Run focused Bun and Go tests
+  - **Evidence:** Model, repository, migration, target-resolver, and Go test suites pass on the current revision.
+- [ ] 3.2 Run exact-head preflight and complete pull-request review

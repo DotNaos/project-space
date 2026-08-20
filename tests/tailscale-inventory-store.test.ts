@@ -8,6 +8,7 @@ type Classification = { actorId: string; classification: string; revision: numbe
 class InventoryDatabase implements DatabaseQueryClient {
   readonly audits: Array<Record<string, unknown>> = []; readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   blockProjectionDelete = false;
+  incompatibleBuiltInField?: 'name' | 'operating_system_family' | 'supported_architectures' | 'bootstrap_strategy';
   private readonly classifications = new Map<string, Classification>(); private readonly observations = new Map<string, Observation>();
   private readonly projections = new Map<string, string>();
   async query<Row>(sql: string, values: readonly unknown[] = []) {
@@ -37,7 +38,10 @@ class InventoryDatabase implements DatabaseQueryClient {
       const current = this.classifications.get(this.key(owner, id)); const expected = Number(values[4]); if ((current?.revision ?? 0) !== expected) return { rows: [] as Row[] }; const next = { actorId: String(values[3]), classification: String(values[2]), revision: expected + 1 }; this.classifications.set(this.key(owner, id), next); return { rows: [{ classification: next.classification, revision: next.revision } as Row] };
     }
     if (sql.includes('insert into compute_platforms')) return { rows: [{ id: `platform-${owner}` } as Row] };
-    if (sql.includes('insert into compute_environment_definitions')) return { rows: [{ id: `definition-${String(values[4])}` } as Row] };
+    if (sql.includes('insert into compute_environment_definitions')) {
+      if (this.incompatibleBuiltInField) return { rows: [] as Row[] };
+      return { rows: [{ id: `definition-${String(values[4])}` } as Row] };
+    }
     if (sql.includes('insert into compute_environments')) return { rows: [{ id: `environment-${owner}-${id}` } as Row] };
     if (sql.includes('insert into tailscale_compute_environment_projections')) { this.projections.set(this.key(owner, id), String(values[2])); return { rows: [] as Row[] }; }
     if (sql.includes('select environment_id from tailscale_compute_environment_projections')) { const environmentId = this.projections.get(this.key(owner, id)); return { rows: environmentId ? [{ environment_id: environmentId } as Row] : [] }; }
@@ -102,6 +106,23 @@ describe('Tailscale inventory store', () => {
     expect(environment?.sql).toContain("'unresolved', 'none'");
     expect(environment?.values.join(' ')).not.toContain('100.64.9.9');
     expect(db.calls.some(({ sql }) => sql.includes('compute_hosts') || sql.includes('connector_compute_environments'))).toBe(false);
+  });
+  test('does not reuse a Tailscale built-in definition with an incompatible blueprint field', async () => {
+    const fields = [
+      'name', 'operating_system_family', 'supported_architectures', 'bootstrap_strategy'
+    ] as const;
+    for (const field of fields) {
+      const db = new InventoryDatabase();
+      db.incompatibleBuiltInField = field;
+      await reconcile(db, 'owner-one', [device(`device-${field}`, 'mac', '100.64.0.1', 'macos')]);
+      await expect(storeFor(db).setClassification({
+        actorId: 'owner-one', classification: 'environment', deviceId: `device-${field}`,
+        expectedRevision: 0, ownerUserId: 'owner-one'
+      })).rejects.toThrow('The Tailscale Environment definition could not be reconciled.');
+      const query = db.calls.find(({ sql }) => sql.includes('insert into compute_environment_definitions'))?.sql;
+      expect(query).toContain("compute_environment_definitions.ownership = 'built_in'");
+      expect(query).toContain(`compute_environment_definitions.${field} = excluded.${field}`);
+    }
   });
   test('removes only a projection Environment and turns dependency conflicts into a safe revision conflict', async () => {
     const db = new InventoryDatabase(); const store = storeFor(db);

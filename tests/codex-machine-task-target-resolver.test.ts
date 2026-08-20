@@ -77,6 +77,38 @@ describe('Codex machine-task target resolution', () => {
     });
   });
 
+  test('keeps exact physical selection independent of an unrelated catalog conflict', () => {
+    expect(resolveCodexMachineTaskTarget({
+      computeInventory: {
+        connectors: [],
+        environmentDefinitions: [{
+          bootstrapStrategy: 'ssh',
+          id: 'user-macos',
+          kind: 'native_macos',
+          name: 'My Mac',
+          operatingSystemFamily: 'macos',
+          ownership: 'user_defined',
+          slug: 'macos',
+          supportedArchitectures: []
+        }],
+        environments: [],
+        hosts: [],
+        platforms: [],
+        violations: [{
+          code: 'duplicate_environment_definition_slug',
+          id: 'macos'
+        }]
+      },
+      connectors: [connector('mac-local')],
+      generationFor: () => 7,
+      physicalMachineId: 'physical-local',
+      physicalMachines
+    })).toMatchObject({
+      connector: { id: 'mac-local' },
+      physicalMachine: { id: 'physical-local' }
+    });
+  });
+
   test('requires an exact connector when multiple eligible installations exist', () => {
     expect(() => resolveCodexMachineTaskTarget({
       connectors: [connector('pc-windows'), connector('pc-wsl')],

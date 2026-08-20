@@ -12,7 +12,11 @@ import type {
   CodexMachineTaskReportingTask,
   CodexMachineTaskWorkerSelection
 } from '../../src/shared/codex-machine-tasks-api';
-import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
+import type {
+  ComputeEnvironmentRecord,
+  ComputeHostRecord,
+  ComputeInventorySnapshot
+} from '../../src/shared/compute-environment-api';
 import { builtInEnvironmentDefinition } from '../../src/shared/compute-environment-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../../src/shared/project-space-api';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../../src/shared/workspace-runtime-codex-api';
@@ -306,6 +310,7 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       const snapshots = await options.sessions.list(userId);
       const connectors: MachineRecord[] = [];
       const physicalMachines: PhysicalMachineRecord[] = [];
+      const physicalMachinesByHost = new Map<string, PhysicalMachineRecord>();
       const runtimeStatuses = new Map<string, {
         capabilities: string[]; machineId: string; online: boolean; update: { state: 'up-to-date' }
       }>();
@@ -323,7 +328,25 @@ export function createWorkspaceRuntimeCodexBridge(options: {
           durableGenerations.delete(machineId);
         }
         connectors.push(syntheticConnector(machineId, snapshot, online));
-        physicalMachines.push({ connectorIds: [machineId], id: snapshot.environmentId, name: snapshot.environmentId });
+        // A Workspace Environment is not a physical host. Only project the
+        // canonical compute Host when its exact Environment has one
+        // verified/manual association and that Host is present exactly once
+        // in the owner-scoped inventory. Ambiguity and missing evidence stay
+        // fail-closed instead of manufacturing a selectable identity.
+        const environment = computeInventory.environments.filter(({ id }) => id === snapshot.environmentId);
+        const host = environment.length === 1
+          ? canonicalRuntimeHost(environment[0]!, computeInventory.hosts)
+          : undefined;
+        if (host) {
+          const physicalMachine = physicalMachinesByHost.get(host.id) ?? {
+            connectorIds: [], id: host.id, name: host.name
+          };
+          if (!physicalMachine.connectorIds.includes(machineId)) {
+            physicalMachine.connectorIds.push(machineId);
+          }
+          physicalMachinesByHost.set(host.id, physicalMachine);
+          if (!physicalMachines.includes(physicalMachine)) physicalMachines.push(physicalMachine);
+        }
         runtimeStatuses.set(machineId, {
           capabilities: ['codex.machine-tasks.v1'], machineId, online, update: { state: 'up-to-date' }
         });
@@ -458,6 +481,16 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       }
     }
   };
+}
+
+function canonicalRuntimeHost(
+  environment: ComputeEnvironmentRecord,
+  hosts: readonly ComputeHostRecord[]
+) {
+  const association = environment.hostAssociation;
+  if (association.resolution !== 'verified' && association.resolution !== 'manual') return undefined;
+  const matches = hosts.filter(({ id }) => id === association.hostId);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function runtimeMachineId(snapshot: Pick<RuntimeSnapshot, 'workspaceId' | 'environmentId' | 'generation'>) {

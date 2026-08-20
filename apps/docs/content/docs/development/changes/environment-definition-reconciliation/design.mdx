@@ -1,0 +1,51 @@
+---
+title: Design
+description: Design for deterministic Environment definition reconciliation.
+---
+
+## Context
+
+Environment definitions are reusable catalog records scoped by owner. Inventory presentation
+combines the signed-in user's scope with deployment-owned infrastructure, so equivalent
+built-ins can appear twice even though they describe the same supported platform.
+
+## Goals and non-goals
+
+The goal is a stable, idempotent catalog view and a safe persistence repair. The design does
+not merge user intent, weaken inventory validation, or broaden physical-machine access.
+
+## Architecture
+
+The repository maps database rows into the shared inventory model, then canonicalizes
+equivalent built-in blueprints by a stable sorted ID order. Environment references to an
+alias are remapped before the existing validator runs. A database migration repairs legacy
+same-owner duplicates, updates foreign-key references before deletion, adds a built-in
+uniqueness guard, and replaces the connector trigger with an `INSERT ... RETURNING id`
+reconciliation path.
+
+## Decisions
+
+- Canonicalization compares the complete built-in blueprint, not only the slug.
+- User-owned rows and incompatible built-ins remain visible so validation fails closed.
+- Physical-machine selection remains exact-ID or exact-name matching followed by existing
+  connector readiness and authorization checks.
+
+## Risks and mitigations
+
+- **Ambiguous ownership:** preserve the rows and conflict instead of silently selecting one.
+- **Dangling references:** update Environment references before deleting a duplicate.
+- **Startup races:** retain database uniqueness and use the returned existing definition ID.
+
+## Migration and rollout
+
+Migration `0058_environment_definition_reconciliation` runs transactionally after the
+legacy connector-removal migration. Equivalent same-owner rows converge to the
+lexicographically smallest ID; conflicting rows abort the migration without destructive
+selection. Cross-scope equivalent rows are reconciled at inventory presentation time.
+
+## Validation
+
+Focused Bun tests cover model, repository, migration, and exact-host regressions. Go tests
+cover the CLI and Codex client contracts. The changed-path preflight is run on the exact
+draft pull-request head; full TypeScript checking is subject to the checkout's installed
+dependencies.

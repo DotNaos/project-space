@@ -4,6 +4,7 @@ import {
   groupComputeInventory,
   builtInEnvironmentDefinition,
   hostAssociationLabel,
+  reconcileBuiltInEnvironmentDefinitions,
   resolveDerivedIdentity,
   resourceCapacityOwner,
   validateComputeInventory,
@@ -97,6 +98,68 @@ describe('compute identity resolution', () => {
 });
 
 describe('compute hierarchy and connector invariants', () => {
+  test('reconciles equivalent built-in definitions deterministically across scopes', () => {
+    const canonical = {
+      ...definition('native_macos'),
+      id: '204ef6c6-688f-4df5-ae08-e2df1d6cb762'
+    };
+    const duplicate = { ...canonical, id: '2462cc6a-24e6-49e0-80c7-02d69b038a9b' };
+    const result = reconcileBuiltInEnvironmentDefinitions({
+      environmentDefinitions: [duplicate, canonical],
+      environments: [environment('mac', {
+        environmentDefinitionId: duplicate.id,
+        kind: 'native_macos'
+      })]
+    });
+
+    expect(result.environmentDefinitions.map(({ id }) => id)).toEqual([canonical.id]);
+    expect(result.environments[0]?.environmentDefinitionId).toBe(canonical.id);
+    expect(validateComputeInventory({
+      ...inventory({ environments: result.environments }),
+      environmentDefinitions: result.environmentDefinitions
+    })).toEqual([]);
+  });
+
+  test('keeps user-owned definitions and references when built-in aliases collapse', () => {
+    const builtIn = { ...definition('native_macos'), id: 'built-in-macos' };
+    const duplicateBuiltIn = { ...builtIn, id: 'duplicate-built-in-macos' };
+    const userOwned = {
+      ...builtIn,
+      id: 'user-macos',
+      name: 'My macOS',
+      ownership: 'user_defined' as const
+    };
+    const conflictingBuiltIn = { ...builtIn, id: 'other-built-in-macos', name: 'Different macOS' };
+    const environments = [
+      environment('built-in-environment', {
+        environmentDefinitionId: builtIn.id,
+        kind: 'native_macos'
+      }),
+      environment('duplicate-built-in-environment', {
+        environmentDefinitionId: duplicateBuiltIn.id,
+        kind: 'native_macos'
+      }),
+      environment('user-environment', {
+        environmentDefinitionId: userOwned.id,
+        kind: 'native_macos'
+      })
+    ];
+    const result = reconcileBuiltInEnvironmentDefinitions({
+      environmentDefinitions: [builtIn, duplicateBuiltIn, userOwned, conflictingBuiltIn],
+      environments
+    });
+
+    expect(result.environmentDefinitions.map(({ id }) => id)).toEqual([
+      builtIn.id, userOwned.id, conflictingBuiltIn.id
+    ]);
+    expect(result.environments.map(({ environmentDefinitionId }) => environmentDefinitionId))
+      .toEqual([builtIn.id, builtIn.id, userOwned.id]);
+    expect(validateComputeInventory({
+      ...inventory({ environments: result.environments }),
+      environmentDefinitions: result.environmentDefinitions
+    }).map(({ code }) => code)).toContain('duplicate_environment_definition_slug');
+  });
+
   test('separates reusable definitions from concrete execution targets', () => {
     const first = environment('windows-01', { kind: 'native_windows' });
     const second = environment('windows-02', {
