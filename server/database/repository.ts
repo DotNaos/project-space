@@ -40,6 +40,7 @@ import type {
 } from '../../src/shared/compute-environment-api';
 import {
   builtInEnvironmentDefinition,
+  reconcileBuiltInEnvironmentDefinitions,
   validateComputeInventory
 } from '../../src/shared/compute-environment-api';
 
@@ -381,7 +382,11 @@ export class ProjectSpaceDatabaseRepository {
       connectorId: row.connector_id,
       environmentId: row.environment_id
     }));
-    const input = { connectors, environmentDefinitions, environments, hosts, platforms };
+    const reconciled = reconcileBuiltInEnvironmentDefinitions({
+      environmentDefinitions,
+      environments
+    });
+    const input = { ...reconciled, connectors, hosts, platforms };
     return { ...input, violations: validateComputeInventory(input) };
   }
 

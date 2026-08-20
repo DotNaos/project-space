@@ -1,0 +1,26 @@
+---
+title: Verification
+description: Evidence and final reconciliation for Environment definition safety.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+ENV-CATALOG is covered by deterministic blueprint reconciliation, migration references,
+and repository validation tests. ENV-OWNERSHIP is covered by the preserved user-owned and
+incompatible-built-in conflict tests. ENV-DISPATCH is covered by the exact physical target
+resolver regression and the existing CLI/client selector tests.
+
+## Final reconciliation
+
+- [x] Equivalent built-in definitions are reconciled before inventory conflict validation
+- [x] User-owned and incompatible definitions remain fail-closed
+- [x] Existing Environment references are updated before duplicate deletion
+- [x] Exact physical-machine selection and supported Codex selectors are covered
+- [x] Focused Bun and Go tests pass on the current revision
+- [ ] Changed-path preflight is green on the exact pull-request revision
+- [ ] Project Manager review and delivery are complete
+
+The remaining checks are pull-request delivery gates. No production deployment or data
+mutation has been performed by this task.

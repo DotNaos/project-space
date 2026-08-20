@@ -103,6 +103,57 @@ export function builtInEnvironmentDefinition(
   return builtInDefinitionBlueprints[kind];
 }
 
+/**
+ * Collapse equivalent built-in catalog rows that came from different visible
+ * ownership scopes. User-defined rows, and built-ins with different
+ * blueprints, remain distinct so inventory validation can fail closed.
+ */
+export function reconcileBuiltInEnvironmentDefinitions(input: {
+  environmentDefinitions: readonly EnvironmentDefinitionRecord[];
+  environments: readonly ComputeEnvironmentRecord[];
+}) {
+  const canonicalByBlueprint = new Map<string, EnvironmentDefinitionRecord>();
+  const aliases = new Map<string, string>();
+
+  for (const definition of [...input.environmentDefinitions].sort((left, right) => (
+    left.id.localeCompare(right.id)
+  ))) {
+    if (definition.ownership !== 'built_in') continue;
+    const blueprint = JSON.stringify({
+      bootstrapStrategy: definition.bootstrapStrategy,
+      kind: definition.kind,
+      name: definition.name,
+      operatingSystemFamily: definition.operatingSystemFamily,
+      ownership: definition.ownership,
+      slug: definition.slug,
+      supportedArchitectures: [...definition.supportedArchitectures].sort()
+    });
+    const canonical = canonicalByBlueprint.get(blueprint);
+    if (canonical && canonical.id !== definition.id) {
+      aliases.set(definition.id, canonical.id);
+    } else if (!canonical) {
+      canonicalByBlueprint.set(blueprint, definition);
+    }
+  }
+
+  if (aliases.size === 0) {
+    return {
+      environmentDefinitions: [...input.environmentDefinitions],
+      environments: [...input.environments]
+    };
+  }
+
+  return {
+    environmentDefinitions: input.environmentDefinitions.filter(({ id }) => !aliases.has(id)),
+    environments: input.environments.map((environment) => {
+      const canonicalId = aliases.get(environment.environmentDefinitionId);
+      return canonicalId
+        ? { ...environment, environmentDefinitionId: canonicalId }
+        : environment;
+    })
+  };
+}
+
 export type HostResolution =
   | 'verified'
   | 'manual'

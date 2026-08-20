@@ -1,0 +1,38 @@
+---
+title: Requirement delta
+description: Requirements for safe built-in Environment definition reconciliation.
+---
+
+Requirements: **Changed**
+
+## CHANGED Requirements
+
+### ENV-CATALOG — Equivalent built-in definitions MUST reconcile deterministically
+
+#### Scenario: Duplicate built-in definitions are visible in two scopes
+
+- **Given** two built-in definitions have the same complete blueprint and slug
+- **When** the user inventory combines its visible ownership scopes
+- **Then** Project Space MUST expose one deterministic canonical definition and remap every referenced Environment to it
+
+#### Scenario: Built-in blueprints differ
+
+- **Given** two built-in definitions share a slug but differ in blueprint fields
+- **When** the reconciliation runs
+- **Then** Project Space MUST preserve the definitions and report an inventory conflict rather than choosing one
+
+### ENV-OWNERSHIP — User-owned definition conflicts MUST remain fail-closed
+
+#### Scenario: User-owned and built-in definitions share a slug
+
+- **Given** a user-owned definition conflicts with a built-in definition
+- **When** the inventory is validated or an Environment is reconciled
+- **Then** Project Space MUST not silently remap the user-owned definition and MUST preserve the explicit conflict
+
+### ENV-DISPATCH — Exact physical Codex targeting MUST remain available
+
+#### Scenario: Catalog conflict does not affect an exact physical host
+
+- **Given** the catalog has an unrelated definition conflict and one exact physical machine is selected
+- **When** a Codex start or send request uses that physical machine ID
+- **Then** Project Space MUST retain exact host selection and connector readiness checks without guessing from a name

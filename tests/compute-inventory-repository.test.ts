@@ -9,6 +9,7 @@ class InventoryClient implements DatabaseQueryClient {
   currentHostEvidence = 'user';
   currentHostIdentityKey: string | null = null;
   currentHostResolution = 'manual';
+  duplicateBuiltInDefinitions = false;
   hasCurrentAssociation = false;
   rejectAssociationMove = false;
   retiredConnector = false;
@@ -16,7 +17,7 @@ class InventoryClient implements DatabaseQueryClient {
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
     if (sql.includes('from compute_environment_definitions') && sql.includes('order by lower')) {
-      return { rows: [{
+      const definitions = [{
         bootstrap_strategy: 'ssh',
         id: 'definition-linux',
         kind: 'native_linux',
@@ -25,7 +26,17 @@ class InventoryClient implements DatabaseQueryClient {
         ownership: 'built_in',
         slug: 'linux',
         supported_architectures: []
-      }] as Row[] };
+      }, ...(this.duplicateBuiltInDefinitions ? [{
+        bootstrap_strategy: 'ssh',
+        id: 'definition-linux-duplicate',
+        kind: 'native_linux',
+        name: 'Linux',
+        operating_system_family: 'linux',
+        ownership: 'built_in',
+        slug: 'linux',
+        supported_architectures: []
+      }] : [])];
+      return { rows: definitions as Row[] };
     }
     if (sql.includes('from compute_platforms') && sql.includes('order by lower')) {
       return { rows: [{ id: 'platform-local', kind: 'local', name: 'Local & self-hosted' }] as Row[] };
@@ -34,7 +45,7 @@ class InventoryClient implements DatabaseQueryClient {
       return { rows: [] as Row[] };
     }
     if (sql.includes('from compute_environments') && sql.includes('order by lower')) {
-      return { rows: [{
+      const environments = [{
         host_evidence: 'none',
         host_id: null,
         host_resolution: 'unresolved',
@@ -50,7 +61,24 @@ class InventoryClient implements DatabaseQueryClient {
         resource_mode: 'dedicated',
         resources: null,
         legacy_tombstoned_only: this.retiredConnector
-      }] as Row[] };
+      }, ...(this.duplicateBuiltInDefinitions ? [{
+        host_evidence: 'none',
+        host_id: null,
+        host_resolution: 'unresolved',
+        id: 'environment-two',
+        environment_definition_id: 'definition-linux-duplicate',
+        identity_key: 'account:fedcba9876543210',
+        identity_resolution: 'resolved',
+        identity_version: 1,
+        kind: 'native_linux',
+        name: 'Ubuntu 2',
+        parent_environment_id: null,
+        platform_id: 'platform-local',
+        resource_mode: 'dedicated',
+        resources: null,
+        legacy_tombstoned_only: false
+      }] : [])];
+      return { rows: environments as Row[] };
     }
     if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
       return { rows: this.retiredConnector ? [] : [{
@@ -111,6 +139,19 @@ const reported = {
 };
 
 describe('compute inventory repository', () => {
+  test('reconciles equivalent built-ins before validating the combined owner scopes', async () => {
+    const client = new InventoryClient();
+    client.duplicateBuiltInDefinitions = true;
+    const inventory = await new ProjectSpaceDatabaseRepository(client).listComputeInventory('user-one', {
+      additionalOwnerUserIds: ['project-space:tailscale-deployment']
+    });
+
+    expect(inventory.environmentDefinitions.map(({ id }) => id)).toEqual(['definition-linux']);
+    expect(inventory.environments.map(({ environmentDefinitionId }) => environmentDefinitionId))
+      .toEqual(['definition-linux', 'definition-linux']);
+    expect(inventory.violations).toEqual([]);
+  });
+
   test('maps an owner-scoped inventory with no missing connector environments', async () => {
     const client = new InventoryClient();
     const repository = new ProjectSpaceDatabaseRepository(client);
