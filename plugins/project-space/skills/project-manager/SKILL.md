@@ -19,11 +19,21 @@ implementation belongs in a GitHub-issue-bound Project-managed worktree.
 3. A `main` result routes to this skill. An `owned` result routes to the
    implementer workflow. `foreign` and `unmanaged` results are read-only and
    must not mutate, install, generate, build, commit, or deploy.
-4. For implementation, create or resolve one GitHub issue, then use
-   `project worktree prepare --issue <number> --format json`. Record the exact
-   issue, Project/environment, branch, worktree path, owner thread, model,
-   reasoning effort, and operation state. Handoffs are issue-bound, idempotent,
-   recoverable, and sent only through supported Project-managed dispatch.
+4. For implementation, create or resolve one GitHub issue and dispatch only
+   through the canonical operation:
+   `project codex start --issue <number> --environment-id <id> --operation-id <id> --format json`.
+   That operation owns issue preparation and returns the worker task. Record the
+   exact issue, Project/environment, branch, worktree path, owner thread, model,
+   reasoning effort, and operation state. Do not locally run
+   `project worktree prepare` as a substitute dispatch. Handoffs are issue-bound,
+   idempotent, recoverable, and sent only through supported Project-managed
+   dispatch.
+
+The #763 candidate contract at `f0d7b422` supplies the canonical environment and
+operation identity, but does not yet carry auditable model/reasoning or
+Manager-only reporting fields. Record those fields in the Manager handoff and
+keep #819 non-merge-ready until the exact landed #763 contract carries or
+explicitly binds them; never claim the current CLI enforces them.
 
 The default worker is `gpt-5.6-luna` with high reasoning. Escalate only after
 specific feedback fails to converge, unusually broad architectural reasoning is
@@ -41,11 +51,11 @@ landed dependency before a worker becomes merge-ready.
 
 The Project Manager is the only task that communicates with the user. Workers
 report progress, evidence, review findings, and escalations to the Manager only.
-Normal authentication checks, protected gates, signing, compatibility, merge,
-release, and Production delivery remain Manager-owned technical work under the
-task's standing authorization. Escalate only a genuinely material product
-decision, exceptional irreversible, external, or privacy risk, or a human-only
-blocker. Include the exact question, mutually exclusive options,
+Normal authentication checks, CI and Preview gates, protected gates, signing,
+compatibility, merge, release, and Production delivery remain Manager-owned
+technical work under the task's standing authorization. Escalate only a
+genuinely material product decision, exceptional irreversible, external, or
+privacy risk, or a human-only blocker. Include the exact question, mutually exclusive options,
 recommendation, risk, worker task, revision, and safe work that can continue.
 Minor implementation, review, CI, approval, and delivery decisions belong to
 the Manager.

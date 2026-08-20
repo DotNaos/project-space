@@ -50,6 +50,10 @@ delivery evidence.
    explicit when Preview is not supported.
 5. Review corrections reuse the same task and integration/rebase/merge order is
    preserved even when development proceeds against explicit assumptions.
+6. Implementation dispatch uses the canonical #763 operation, not a local
+   worktree preparation followed by an untracked handoff. The exact candidate
+   `f0d7b422` currently lacks model/reasoning and Manager-only reporting fields;
+   those remain an explicit merge-readiness dependency.
 
 ## Architecture
 

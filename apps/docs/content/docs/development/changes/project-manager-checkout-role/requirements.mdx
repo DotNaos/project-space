@@ -47,17 +47,32 @@ turns are reconciliation events, not blockers.
 
 ### PM-004 — Narrow human escalation
 
-Normal authentication checks, protected gates, signing, compatibility, merge,
-release, and Production delivery MUST remain Manager-owned technical work under
-standing authorization. The Manager MUST escalate only a material product
-decision, exceptional irreversible/external/privacy risk, or human-only
-blocker.
+Normal authentication checks, CI and Preview gates, protected gates, signing,
+compatibility, merge, release, and Production delivery MUST remain
+Manager-owned technical work under standing authorization. The Manager MUST
+escalate only a material product decision, exceptional
+irreversible/external/privacy risk, or human-only blocker.
 
 #### Scenario: A normal technical gate fails
 
 - **Given** a normal authentication, protected, signing, compatibility, merge, release, or Production gate needs repair
 - **When** the Manager reconciles the failure
 - **Then** it repairs or routes the technical work without escalating to the user
+
+### PM-005 — Canonical issue dispatch
+
+Implementation MUST dispatch through the canonical #763 operation
+`project codex start --issue <n> --environment-id <id> --operation-id <id>`,
+which owns issue-bound preparation and returns the worker task. The Manager MUST
+record model/reasoning and Manager-only reporting fields even when the exact
+landed dispatch contract does not yet carry them; #819 MUST remain non-merge-ready
+until that contract is reconciled.
+
+#### Scenario: Candidate dispatch lacks Manager handoff fields
+
+- **Given** the exact #763 candidate `f0d7b422` returns environment and operation identity but not model/reasoning or Manager-only reporting fields
+- **When** the Manager records the dispatch handoff
+- **Then** it records the missing fields explicitly and keeps #819 non-merge-ready until the landed contract is reconciled
 
 ## CHANGED Requirements
 

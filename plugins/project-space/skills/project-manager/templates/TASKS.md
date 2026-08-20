@@ -11,9 +11,9 @@ never exceed three `active` implementation rows in addition to the Manager.
 
 ## Workers
 
-| issue | worker task | worktree | model/reasoning | state | assumptions | reviewed commit | PR/checks | Preview or alternative proof | delivery |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| #000 | `<thread-id>` | `<Project-managed path>` | `gpt-5.6-luna/high` | `queued` | `<explicit contract>` | `<sha or pending>` | `<PR and CI>` | `<exact-head Preview/browser proof or recorded no Preview>` | `<pending>` |
+| issue | worker task | Project/environment | branch/worktree | operation | model/reasoning | state | assumptions | reviewed commit | PR/checks | Preview or alternative proof | delivery |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| #000 | `<thread-id>` | `<Project>/<environment-id>` | `<branch>; <Project-managed path>` | `<operation-id>` | `gpt-5.6-luna/high` | `queued` | `<explicit contract>` | `<sha or pending>` | `<PR and CI>` | `<exact-head Preview/browser proof or recorded no Preview>` | `<pending>` |
 
 ## Escalations
 

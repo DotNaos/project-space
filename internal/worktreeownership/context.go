@@ -77,9 +77,9 @@ func InspectContext(startPath, threadID string) (CheckoutContext, error) {
 		return result, ownerErr
 	}
 	result.OwnerThreadID = strings.TrimSpace(owner)
-	if !result.Managed || result.OwnerThreadID == "" || !threadIDPattern.MatchString(result.OwnerThreadID) ||
+	if !result.Managed || result.Issue <= 0 || result.OwnerThreadID == "" || !threadIDPattern.MatchString(result.OwnerThreadID) ||
 		(result.WorkspaceID != "" && !threadIDPattern.MatchString(result.WorkspaceID)) {
-		return unmanagedContext(result, "checkout does not have complete valid Project ownership metadata")
+		return unmanagedContext(result, "checkout does not have complete valid issue-bound Project ownership metadata")
 	}
 	if result.OwnerThreadID == threadID {
 		result.State = "owned"

@@ -26,10 +26,18 @@ the same worker until clean, after which the Manager readies the PR and complete
 normal delivery. If no Preview-compatible surface exists, the Manager records
 that fact and uses the strongest realistic alternative proof.
 
-Normal authentication checks, protected gates, signing, compatibility, merge,
-release, and Production delivery remain Manager-owned technical work under
-standing authorization. Only a material product decision, exceptional
-irreversible, external, or privacy risk, or a human-only blocker is escalated.
+Normal authentication checks, CI and Preview gates, protected gates, signing,
+compatibility, merge, release, and Production delivery remain Manager-owned
+technical work under standing authorization. Only a material product decision,
+exceptional irreversible, external, or privacy risk, or a human-only blocker is
+escalated.
+
+Implementation dispatch uses the canonical #763 operation
+`project codex start --issue <n> --environment-id <id> --operation-id <id> --format json`,
+which owns issue-bound preparation and returns the worker task. Candidate head
+`f0d7b422` does not yet carry model/reasoning and Manager-only reporting fields;
+those are recorded explicitly in the Manager handoff, and #819 is not
+merge-ready until that exact landed contract is reconciled.
 
 Every 30 minutes the Manager reconciles active worker state. Idle, interrupted,
 failed, timed-out, and completed turns are events to repair or advance, not

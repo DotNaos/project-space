@@ -20,7 +20,10 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
     'desktop and mobile sizes',
     'same worker task',
     'no Preview-compatible surface',
-    'Normal authentication checks, protected gates, signing, compatibility, merge',
+    'Normal authentication checks, CI and Preview gates',
+    'project codex start --issue <number> --environment-id <id> --operation-id <id>',
+    'Do not locally run',
+    'f0d7b422',
   ]) {
     expect(skill).toContain(phrase);
   }
@@ -39,9 +42,9 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
 test('TASKS template and validator preserve the three-worker and proof contract', async () => {
   const template = await readFile(`${root}plugins/project-space/skills/project-manager/templates/TASKS.md`, 'utf8');
   expect(validateTasksDocument(template)).toEqual([]);
-  const activeRow = '| #001 | `<thread-id>` | `<Project-managed path>` | `gpt-5.6-luna/high` | `active` | `<explicit contract>` | `<sha>` | `<PR and CI>` | no Preview | `<pending>` |';
+  const activeRow = '| #001 | `<thread-id>` | `<Project>/<environment-id>` | `<branch>; <Project-managed path>` | `<operation-id>` | `gpt-5.6-luna/high` | `active` | `<explicit contract>` | `<sha>` | `<PR and CI>` | no Preview | `<pending>` |';
   const tooMany = template.replace(
-    '| #000 | `<thread-id>` | `<Project-managed path>` | `gpt-5.6-luna/high` | `queued` | `<explicit contract>` | `<sha or pending>` | `<PR and CI>` | `<exact-head Preview/browser proof or recorded no Preview>` | `<pending>` |',
+    '| #000 | `<thread-id>` | `<Project>/<environment-id>` | `<branch>; <Project-managed path>` | `<operation-id>` | `gpt-5.6-luna/high` | `queued` | `<explicit contract>` | `<sha or pending>` | `<PR and CI>` | `<exact-head Preview/browser proof or recorded no Preview>` | `<pending>` |',
     activeRow,
   ) + `\n${activeRow.replace('#001', '#002')}\n${activeRow.replace('#001', '#003')}\n${activeRow.replace('#001', '#004')}`;
   expect(validateTasksDocument(tooMany).join('\n')).toContain('at most three active');
@@ -63,5 +66,7 @@ test('workflow documentation repeats the no-Preview alternative', async () => {
   const docs = await readFile(`${root}docs/project-manager.md`, 'utf8');
   expect(docs).toContain('no Preview-compatible surface exists');
   expect(docs).toContain('desktop and mobile sizes');
-  expect(docs).toContain('Normal authentication checks, protected gates, signing');
+  expect(docs).toContain('Normal authentication checks, CI and Preview gates');
+  expect(docs).toContain('project codex start --issue <n> --environment-id <id> --operation-id <id>');
+  expect(docs).toContain('f0d7b422');
 });

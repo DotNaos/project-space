@@ -19,6 +19,7 @@ func TestInspectContextClassifiesOwnedManagedWorktreeAsImplementer(t *testing.T)
 	if _, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread}); err != nil {
 		t.Fatal(err)
 	}
+	command(t, worktreePath, "git", "config", "--worktree", issueConfigKey, "819")
 
 	context, err := InspectContext(worktreePath, firstThread)
 	if err != nil {
@@ -35,6 +36,7 @@ func TestInspectContextClassifiesForeignWorktreeWithoutMutation(t *testing.T) {
 	if _, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread}); err != nil {
 		t.Fatal(err)
 	}
+	command(t, worktreePath, "git", "config", "--worktree", issueConfigKey, "819")
 
 	context, err := InspectContext(worktreePath, secondThread)
 	if err != nil {
@@ -42,6 +44,22 @@ func TestInspectContextClassifiesForeignWorktreeWithoutMutation(t *testing.T) {
 	}
 	if context.State != "foreign" || context.MutatingAllowed || context.OwnerThreadID != firstThread {
 		t.Fatalf("unexpected foreign context: %#v", context)
+	}
+}
+
+func TestInspectContextRejectsIssueLessClaimAsUnmanaged(t *testing.T) {
+	mainPath := setupRepository(t)
+	worktreePath := addStandardWorktree(t, mainPath, "issue-less-claim")
+	if _, err := Claim(ClaimOptions{StartPath: worktreePath, ThreadID: firstThread}); err != nil {
+		t.Fatal(err)
+	}
+
+	context, err := InspectContext(worktreePath, firstThread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context.State != "unmanaged" || context.Role != "observer" || context.MutatingAllowed || context.Managed != true {
+		t.Fatalf("unexpected issue-less context: %#v", context)
 	}
 }
 
