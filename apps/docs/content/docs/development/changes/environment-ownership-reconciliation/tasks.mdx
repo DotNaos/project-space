@@ -27,14 +27,21 @@ description: Implementation and verification checklist for Environment ownership
 - [x] 3.1 Run focused tests, type check, full tests, and build
   - **Evidence:** Focused tests, `bun run check`, `bun test --isolate`, and `bun run build` pass.
 - [x] 3.2 Verify the persisted configured repository/HTTP start/send flow
-  - **Evidence:** `tests/codex-machine-tasks-configured-send-ownership.test.ts` starts with
+  - **Evidence:** `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` starts with
     owner-scoped database query rows, reconciles the combined collision, lets the configured
     runtime construct its strict `ProjectSpaceDatabaseRepository` boundary over the same fixture,
-    then performs HTTP start and send. Deployment-only, ambiguous, missing, and conflicting Host
-    evidence returns `Select one exact physical machine.` without dispatch.
-- [x] 3.3 Publish the draft pull request
-  - **Evidence:** Draft PR #843 is open; the final exact-head preflight passed locally against
-    `origin/main` `027c2429abbedf8711d871f4d7421988d1027f65`.
+    then performs HTTP start and send.
+- [x] 3.3 Preserve private fail-closed Host diagnostics
+  - **Evidence:** Missing, unresolved, and conflicting user-owned Environment association evidence
+    returns a typed unavailable state and recovery message without a target or dispatch. An absent
+    or duplicate Host, including deployment-only evidence, remains the generic unauthorized result.
+- [x] 3.4 Preserve the typed result through the CLI
+  - **Evidence:** The Go client validates the exact unavailable kind/state vocabulary and the
+    `project codex start --format json` regression preserves it while returning a blocked outcome.
+- [x] 3.5 Record the merged correction and Production follow-up
+  - **Evidence:** PR #843 merged at `8f6a3e1938b1adac4e52c9dad1674cf8944c2431`.
+    Signed v0.27.3 Production verification remained safely blocked but exposed only the generic
+    selection message, which this follow-up corrects without changing inventory or association data.
 
 ## 4. Deferred follow-ups
 

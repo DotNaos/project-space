@@ -145,16 +145,32 @@ type StartPlan struct {
 	Worker WorkerSelection `json:"worker"`
 }
 
+type UnavailableResult struct {
+	Kind  UnavailableKind  `json:"kind"`
+	State UnavailableState `json:"state"`
+}
+
+type UnavailableKind string
+type UnavailableState string
+
+const (
+	UnavailableEnvironmentHostAssociation UnavailableKind  = "environment_host_association"
+	UnavailableMissing                    UnavailableState = "missing"
+	UnavailableUnresolved                 UnavailableState = "unresolved"
+	UnavailableConflicting                UnavailableState = "conflicting"
+)
+
 type StartResult struct {
-	APIVersion  int           `json:"apiVersion"`
-	Message     string        `json:"message,omitempty"`
-	OperationID string        `json:"operationId"`
-	Reason      BlockedReason `json:"reason,omitempty"`
-	Reconcile   string        `json:"reconcile,omitempty"`
-	State       ResultState   `json:"state"`
-	Plan        *StartPlan    `json:"plan,omitempty"`
-	Target      *Target       `json:"target,omitempty"`
-	Task        *TaskIdentity `json:"task,omitempty"`
+	APIVersion  int                `json:"apiVersion"`
+	Message     string             `json:"message,omitempty"`
+	OperationID string             `json:"operationId"`
+	Reason      BlockedReason      `json:"reason,omitempty"`
+	Reconcile   string             `json:"reconcile,omitempty"`
+	State       ResultState        `json:"state"`
+	Plan        *StartPlan         `json:"plan,omitempty"`
+	Target      *Target            `json:"target,omitempty"`
+	Task        *TaskIdentity      `json:"task,omitempty"`
+	Unavailable *UnavailableResult `json:"unavailable,omitempty"`
 }
 
 type ReadRequest struct {

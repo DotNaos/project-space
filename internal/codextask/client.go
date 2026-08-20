@@ -363,6 +363,12 @@ func validateStartResult(result StartResult, request StartRequest) error {
 	if validateCommonResult(result.APIVersion, result.OperationID, result.State, result.Reason, result.Reconcile) != nil || result.OperationID != request.OperationID {
 		return ErrInvalidResponse
 	}
+	if result.Unavailable != nil && (result.State != StateBlocked || result.Reason != BlockedUnauthorized ||
+		result.Unavailable.Kind != UnavailableEnvironmentHostAssociation ||
+		(result.Unavailable.State != UnavailableMissing && result.Unavailable.State != UnavailableUnresolved &&
+			result.Unavailable.State != UnavailableConflicting)) {
+		return ErrInvalidResponse
+	}
 	switch result.State {
 	case StateReady:
 		if !request.DryRun || result.Target == nil || validateTarget(*result.Target) != nil ||

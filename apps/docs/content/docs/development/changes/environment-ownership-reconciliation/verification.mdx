@@ -18,11 +18,17 @@ Verification status: **Incomplete**
 - [x] Focused tests, type check, full tests, and build pass locally.
 - [x] No migration or production data mutation is included.
 - [x] The configured start/send service path selects the exact verified Host and Environment and
-  fails closed with an actionable unavailable result for deployment-only, duplicate same-UUID,
-  missing, or conflicting Host evidence.
-- [x] `tests/codex-machine-tasks-configured-send-ownership.test.ts` begins with persisted
+  fails closed with an actionable typed unavailable result for missing, unresolved, or conflicting
+  user-owned association evidence.
+- [x] Deployment-only, absent, or duplicate same-UUID Host evidence remains generic and does not
+  reveal cross-owner inventory.
+- [x] `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` begins with persisted
   query rows and exercises repository reconciliation plus configured HTTP start and send without
   a prebuilt inventory shortcut.
-- [x] Draft pull request and exact-head local preflight evidence are recorded for PR #843.
-- [ ] Remote exact-head Preview artifact check is still pending; no merge or deployment was
-  performed.
+- [x] The configured HTTP regression covers both exact Host selection and the authenticated
+  `--here` equivalent while retaining strict authorization.
+- [x] The CLI validates and preserves the typed unavailable result in JSON output.
+- [x] PR #843 merged at `8f6a3e1938b1adac4e52c9dad1674cf8944c2431`; this follow-up changes
+  only the result boundary and regression evidence.
+- [ ] Follow-up pull-request exact-head preflight and remote checks are pending. No merge, release,
+  deployment, or Production mutation is part of this follow-up.

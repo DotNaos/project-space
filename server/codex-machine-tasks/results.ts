@@ -4,7 +4,8 @@ import type {
   CodexMachineTaskSendRequest,
   CodexMachineTaskSendResult,
   CodexMachineTaskStartResult,
-  CodexMachineTaskTarget
+  CodexMachineTaskTarget,
+  CodexMachineTaskUnavailableResult
 } from '../../src/shared/codex-machine-tasks-api';
 import { CODEX_MACHINE_TASKS_API_VERSION } from '../../src/shared/codex-machine-tasks-api';
 import type {
@@ -16,7 +17,8 @@ export function blocked(
   operationId: string,
   reason: CodexMachineTaskBlockedReason,
   message: string,
-  target?: CodexMachineTaskTarget
+  target?: CodexMachineTaskTarget,
+  unavailable?: CodexMachineTaskUnavailableResult
 ): Extract<CodexMachineTaskStartResult, { state: 'blocked' }> {
   return {
     apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
@@ -24,7 +26,8 @@ export function blocked(
     operationId,
     reason,
     state: 'blocked',
-    ...(target ? { target } : {})
+    ...(target ? { target } : {}),
+    ...(unavailable ? { unavailable } : {})
   };
 }
 
