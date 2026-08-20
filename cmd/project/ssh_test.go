@@ -107,12 +107,32 @@ func TestSSHCommandBlocksStaleAndNonTailnetRoutesBeforeLocalExecution(t *testing
 	}
 }
 
+func TestSelectClientAccessRouteIgnoresHigherPriorityProviderRoute(t *testing.T) {
+
+	instance := computeinventory.EnvironmentInstance{
+		ID: "environment-1",
+		AccessRoutes: []computeinventory.AccessRoute{
+			{ID: "provider", Priority: 200, State: "ready", Type: "provider_native"},
+			{Capabilities: []string{"interactive_shell"}, ID: "tailscale", Priority: 100,
+				ProviderKind: "tailscale", State: "ready", Type: "ssh_private_network",
+				ClientAccess: &computeinventory.ClientAccess{
+					Address: "100.64.0.10", HostKeySHA256: "SHA256:tUGJpNc2gXgnfVo/KzkCxfyqgRwITaruSw4CsbW8CXA",
+					Port: 22, TargetIdentityRevision: "1:environment-identity", User: "project-user",
+				}},
+		},
+	}
+	route, err := selectClientAccessRoute(instance)
+	if err != nil || route.ID != "tailscale" {
+		t.Fatalf("selected route = %#v, error = %v", route, err)
+	}
+}
+
 func TestSSHCommandBlocksConflictedInventoryBeforeLocalExecution(t *testing.T) {
 	opened := false
 	command := newSSHCommandWithDependencies(sshCommandDependencies{
 		Inventory: computeInventoryCommandDependencies{Load: func(context.Context) (computeinventory.API, error) {
 			return inventoryAPI{inventory: computeinventory.Inventory{
-				InventoryState: "conflict",
+				InventoryState:       "conflict",
 				EnvironmentInstances: []computeinventory.EnvironmentInstance{{ID: "environment-1"}},
 			}}, nil
 		}},

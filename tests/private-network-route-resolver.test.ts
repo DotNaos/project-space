@@ -134,6 +134,24 @@ describe('private-network access-route selection', () => {
     });
   });
 
+  test('never lets a higher-priority provider route hide the Tailscale shell route', async () => {
+    const provider = {
+      ...route,
+      id: '20000000-0000-4000-8000-000000000005',
+      priority: 200,
+      privateAddress: undefined,
+      privateNetworkId: undefined,
+      providerKind: undefined,
+      routeKind: 'provider_native' as const,
+      sshPort: undefined,
+      sshUser: undefined,
+      hostKeySha256: undefined,
+      credentialReference: undefined
+    };
+    expect(await select({ capability: 'interactive_shell', risk: 'interactive' }, [route, provider]))
+      .toMatchObject({ state: 'ready', route: { routeId: route.id, routeKind: 'ssh_private_network' } });
+  });
+
   test('never falls back from an explicit ineligible route', async () => {
     const blocked = { ...route, id: '20000000-0000-4000-8000-000000000004', enabled: false };
     const selected = await selectAuthorizedAccessRoute({

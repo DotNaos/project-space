@@ -73,6 +73,8 @@ export function routeEligibility(input: {
   if (route.ownerUserId !== authorization.ownerUserId ||
     route.target.kind !== authorization.target.kind || route.target.id !== authorization.target.id ||
     !route.capabilities.includes(authorization.capability) ||
+    authorization.capability === 'interactive_shell' &&
+      (route.routeKind !== 'ssh_private_network' || route.providerKind !== 'tailscale') ||
     !route.allowedGatewayIds.includes(authorization.gatewayId) ||
     (route.requiresInteractiveApproval ||
       capabilityRequiresInteractiveApproval(authorization.capability)) &&
