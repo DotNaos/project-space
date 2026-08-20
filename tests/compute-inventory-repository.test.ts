@@ -10,6 +10,10 @@ class InventoryClient implements DatabaseQueryClient {
   currentHostIdentityKey: string | null = null;
   currentHostResolution = 'manual';
   duplicateBuiltInDefinitions = false;
+  incompatibleBuiltInFields: Array<
+    'name' | 'operating_system_family' | 'supported_architectures' | 'bootstrap_strategy'
+  > = [];
+  existingDefinitionId = 'definition-native_linux';
   hasCurrentAssociation = false;
   rejectAssociationMove = false;
   retiredConnector = false;
@@ -97,7 +101,14 @@ class InventoryClient implements DatabaseQueryClient {
       return { rows: [{ id: 'platform-local' }] as Row[] };
     }
     if (sql.includes('insert into compute_environment_definitions')) {
-      return { rows: [{ id: `definition-${String(values[4])}` }] as Row[] };
+      const guardedFields = this.incompatibleBuiltInFields.every((field) => (
+        sql.includes(`compute_environment_definitions.${field} = excluded.${field}`)
+      ));
+      return {
+        rows: guardedFields && this.incompatibleBuiltInFields.length > 0
+          ? [] as Row[]
+          : [{ id: this.existingDefinitionId }] as Row[]
+      };
     }
     if (sql.includes('from connector_compute_environments association') && sql.includes('for update')) {
       return { rows: (this.rejectAssociationMove || this.hasCurrentAssociation ? [{
@@ -216,6 +227,38 @@ describe('compute inventory repository', () => {
     expect(environmentInsert?.values[6]).not.toContain(reported.environmentIdentity.key);
     expect(environmentInsert?.values[12]).toBeNull();
     expect(environmentInsert?.values[13]).toBe('definition-native_linux');
+  });
+
+  test('reuses the existing equivalent built-in definition ID', async () => {
+    const client = new InventoryClient();
+    client.existingDefinitionId = 'definition-existing';
+    const repository = new ProjectSpaceDatabaseRepository(client, () => 'new-id');
+
+    await repository.reconcileConnectorComputeInventory('user-one', [{
+      compute: reported,
+      id: 'connector-one',
+      name: 'connector-one'
+    }]);
+
+    const environmentInsert = client.calls.find(({ sql }) => sql.includes('insert into compute_environments'));
+    expect(environmentInsert?.values[13]).toBe('definition-existing');
+  });
+
+  test.each([
+    'name',
+    'operating_system_family',
+    'supported_architectures',
+    'bootstrap_strategy'
+  ] as const)('rejects a built-in definition with an incompatible %s', async (field) => {
+    const client = new InventoryClient();
+    client.incompatibleBuiltInFields = [field];
+    const repository = new ProjectSpaceDatabaseRepository(client, () => 'new-id');
+
+    await expect(repository.reconcileConnectorComputeInventory('user-one', [{
+      compute: reported,
+      id: 'connector-one',
+      name: 'connector-one'
+    }])).rejects.toThrow('The native_linux Environment definition could not be reconciled.');
   });
 
   test('suppresses only a tombstoned legacy projection and never reconciles it back', async () => {

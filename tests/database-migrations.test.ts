@@ -236,6 +236,12 @@ describe('database migrations', () => {
     expect(environmentDefinitionReconciliationMigrationSql).toContain(
       'update compute_environments'
     );
+    expect(environmentDefinitionReconciliationMigrationSql).toMatch(
+      /environment_definition_id in \(\s*select id[\s\S]*?and ownership = 'built_in'[\s\S]*?and id <> duplicate\.canonical_id/
+    );
+    expect(environmentDefinitionReconciliationMigrationSql).toMatch(
+      /delete from compute_environment_definitions[\s\S]*?and ownership = 'built_in'[\s\S]*?and id <> duplicate\.canonical_id/
+    );
     expect(environmentDefinitionReconciliationMigrationSql).toContain(
       'returning id into definition_id_value'
     );

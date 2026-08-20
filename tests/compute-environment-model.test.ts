@@ -120,8 +120,9 @@ describe('compute hierarchy and connector invariants', () => {
     })).toEqual([]);
   });
 
-  test('keeps user-owned and conflicting built-in definitions fail-closed', () => {
+  test('keeps user-owned definitions and references when built-in aliases collapse', () => {
     const builtIn = { ...definition('native_macos'), id: 'built-in-macos' };
+    const duplicateBuiltIn = { ...builtIn, id: 'duplicate-built-in-macos' };
     const userOwned = {
       ...builtIn,
       id: 'user-macos',
@@ -134,17 +135,25 @@ describe('compute hierarchy and connector invariants', () => {
         environmentDefinitionId: builtIn.id,
         kind: 'native_macos'
       }),
+      environment('duplicate-built-in-environment', {
+        environmentDefinitionId: duplicateBuiltIn.id,
+        kind: 'native_macos'
+      }),
       environment('user-environment', {
         environmentDefinitionId: userOwned.id,
         kind: 'native_macos'
       })
     ];
     const result = reconcileBuiltInEnvironmentDefinitions({
-      environmentDefinitions: [builtIn, userOwned, conflictingBuiltIn],
+      environmentDefinitions: [builtIn, duplicateBuiltIn, userOwned, conflictingBuiltIn],
       environments
     });
 
-    expect(result.environmentDefinitions).toHaveLength(3);
+    expect(result.environmentDefinitions.map(({ id }) => id)).toEqual([
+      builtIn.id, userOwned.id, conflictingBuiltIn.id
+    ]);
+    expect(result.environments.map(({ environmentDefinitionId }) => environmentDefinitionId))
+      .toEqual([builtIn.id, builtIn.id, userOwned.id]);
     expect(validateComputeInventory({
       ...inventory({ environments: result.environments }),
       environmentDefinitions: result.environmentDefinitions

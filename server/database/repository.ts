@@ -620,7 +620,11 @@ export class ProjectSpaceDatabaseRepository {
        ) values ($1, $2, $3, $4, $5, $6, $7::text[], $8, 'built_in')
        on conflict (owner_user_id, slug) do update set updated_at = now()
          where compute_environment_definitions.ownership = 'built_in'
+           and compute_environment_definitions.name = excluded.name
            and compute_environment_definitions.kind = excluded.kind
+           and compute_environment_definitions.operating_system_family = excluded.operating_system_family
+           and compute_environment_definitions.supported_architectures = excluded.supported_architectures
+           and compute_environment_definitions.bootstrap_strategy = excluded.bootstrap_strategy
        returning id`,
       [
         this.createId(),

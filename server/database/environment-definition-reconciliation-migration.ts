@@ -49,15 +49,17 @@ export const environmentDefinitionReconciliationMigrationSql = `
        where owner_user_id = duplicate.owner_user_id
          and environment_definition_id in (
            select id
-             from compute_environment_definitions
-            where owner_user_id = duplicate.owner_user_id
-              and slug = duplicate.slug
-              and id <> duplicate.canonical_id
+            from compute_environment_definitions
+           where owner_user_id = duplicate.owner_user_id
+             and slug = duplicate.slug
+             and ownership = 'built_in'
+             and id <> duplicate.canonical_id
          );
 
       delete from compute_environment_definitions
        where owner_user_id = duplicate.owner_user_id
          and slug = duplicate.slug
+         and ownership = 'built_in'
          and id <> duplicate.canonical_id;
     end loop;
   end
