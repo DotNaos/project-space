@@ -322,6 +322,7 @@ export function validateAdmission(
 ): { reason: RunnerHostAdmissionBlockedReason; message: string } | undefined {
   const inputFailure = validateAdmissionInput(evidence, request, policy);
   if (inputFailure) return inputFailure;
+  if (!evidence) return blocked('capacity_evidence_missing', 'Fresh VPS capacity evidence is required before admission.');
   if (evidence.cleanup.state !== 'proven') return blocked('cleanup_uncertain', 'Previous sandbox cleanup is uncertain; capacity remains fenced.');
   if (evidence.productionHealth !== 'healthy') return blocked('production_reservation_not_proven', 'Production health and reserved capacity are not proven.');
   if (!fresh(evidence, policy.evidenceMaxAgeSeconds, now)) return blocked('capacity_evidence_stale', 'VPS capacity evidence is stale or expires before admission.');
