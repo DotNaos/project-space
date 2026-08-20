@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "./database/client";
+import { lockTailscaleEnvironmentOwnershipReconciliation, reconcileTailscaleEnvironmentOwnership } from "./database/tailscale-environment-ownership-reconciler";
 import {
   assertSameMachineConnectorProfile,
   machineConnectorProfile,
@@ -417,9 +418,8 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
       );
       if (expired.rows[0]) return { status: "expired" as const };
 
-      if (!machineMatchesRequest(current, machine)) {
-        throw new Error("Locked machine request does not match the enrollment.");
-      }
+      await lockTailscaleEnvironmentOwnershipReconciliation(transaction);
+      if (!machineMatchesRequest(current, machine)) throw new Error("Locked machine request does not match the enrollment.");
 
       await transaction.query("select pg_advisory_xact_lock(hashtext($1))", [
         machine.publicKey,
@@ -532,7 +532,7 @@ export class DatabaseMachineConnectionStore implements MachineConnectionStore {
       if (!currentCredentialResult.rows[0]) {
         throw new Error("Current machine credential could not be assigned.");
       }
-      await this.consumeRequest(transaction, request);
+      await this.consumeRequest(transaction, request); await reconcileTailscaleEnvironmentOwnership(transaction);
       return {
         machine: mapIdentity(identity, machine.credentialHash),
         status: existing ? ("rotated" as const) : ("created" as const),

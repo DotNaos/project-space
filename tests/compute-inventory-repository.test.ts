@@ -492,7 +492,9 @@ describe('compute inventory repository', () => {
       sql.includes("set identity_resolution = 'conflict'")
     ));
     expect(conflict?.values).toEqual(['environment-existing', 'user-one']);
-    expect(client.calls.some(({ sql }) => sql.includes('insert into compute_environments')))
+    expect(client.calls.some(({ sql }) => (
+      sql.includes('insert into compute_environments') && !sql.includes('with candidate_rows')
+    )))
       .toBe(false);
   });
 

@@ -28,11 +28,13 @@ built-in from deployment infrastructure.
 - Carry owner scope through definition and Environment reconciliation.
 - Key built-in aliases by owner and definition ID.
 - Preserve user-defined definitions and references, including fail-closed duplicate findings.
-- Backfill a user-scoped Environment only when one fresh deployment observation maps to one
-  owned connector and one physical Host; ambiguous evidence is a no-op.
+- Keep migration `0059_tailscale_environment_ownership` as historical startup behavior, then
+  repeat the same fail-closed ownership reconciliation after fresh deployment projections and
+  relevant connector/Host membership changes. Ambiguous evidence remains a no-op.
 - Keep configured Codex start/send Host selection evidence-based: select one exact verified Host
   and retain it through send, or return the existing actionable unavailable state.
-- Keep persisted projections owner-scoped; add only the narrowly eligible ownership backfill.
+- Keep persisted projections owner-scoped; add only the narrowly eligible ownership copy and
+  serialize its evidence mutations with a transaction-scoped retry boundary.
 
 ## Out of scope
 
@@ -43,6 +45,6 @@ built-in from deployment infrastructure.
 
 ## Delivery
 
-This is an internal server and shared-model correctness fix. It includes an additive,
-fail-closed database backfill; it performs no Production data mutation from this task and
-requires no release-bearing CLI change.
+This is an internal server and shared-model correctness fix. It adds a repeatable,
+fail-closed server reconciler without changing immutable migration history; it performs no
+Production data mutation from this task and requires no release-bearing CLI change.
