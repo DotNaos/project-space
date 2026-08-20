@@ -135,13 +135,14 @@ ability to preserve sanitized evidence when a workflow itself is cancelled.
 Project Space has one Production environment and no permanent development,
 staging, or release branch.
 
-Every pull request adds one immutable `none`, `patch`, `minor`, or `major`
-intent and keeps the concrete package version unchanged. One global,
-non-cancelling queue walks first-parent `main` history from the latest
-published signed release. It always selects the oldest release-bearing merge,
-derives the next version only after merge, reserves that exact tag, and
-dispatches `release.yml` once. Concurrent pull requests therefore cannot claim
-the same version or block one another before merge.
+Every pull request adds one immutable `changelog/<PR-number>.md` file with a
+`patch`, `minor`, or `major` bump and keeps the concrete package version
+unchanged. Historical release-intent queue items remain readable only for
+compatibility. One global, non-cancelling queue walks first-parent `main`
+history from the latest published signed release. It always selects the oldest
+release-bearing merge, derives the next version only after merge, reserves that
+exact tag, and dispatches `release.yml` once. Concurrent pull requests
+therefore cannot claim the same version or block one another before merge.
 
 `release.yml` is manual tag-dispatch only, so a tag push cannot start a
 duplicate release. Publication wakes the queue again; the queue continues with

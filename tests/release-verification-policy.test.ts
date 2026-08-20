@@ -77,6 +77,10 @@ describe('release verification policy', () => {
     );
     const docs = readFileSync('docs/ci-reliability.md', 'utf8');
     const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+    const typescriptQuality = quality.slice(
+      quality.indexOf('  typescript:'),
+      quality.indexOf('  mobile:'),
+    );
     const windowsCall = workflow.slice(
       workflow.indexOf('  windows-x64:'),
       workflow.indexOf('  linux-x64:'),
@@ -100,6 +104,7 @@ describe('release verification policy', () => {
     expect(workflow).toContain(
       'uses: ./.github/workflows/release-quality.yml',
     );
+    expect(typescriptQuality).toContain('fetch-depth: 0');
     expect(ci).toContain('bun scripts/release-verification-policy.ts');
     expect(ci).toContain(
       'BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}',

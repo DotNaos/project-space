@@ -17,8 +17,6 @@ import {
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
 import { parseStableSemver } from '../apps/docs/lib/releases/semver';
-import { connectorReleaseSensitivePaths } from
-  '../packaging/release/connector-release-paths';
 import { verifyConnectorRuntimeReleaseManifest } from
   '../server/connector-runtime-release-manifest';
 import {
@@ -39,6 +37,11 @@ import {
   manifestIssuedAt,
   tagReservations,
 } from './release-queue-evidence';
+import {
+  releaseIntentEnforcementAdoptionSourceCommit,
+  validateMergedIntentQueueItem,
+  validateReleaseIntentEnforcementChange,
+} from './release-queue-validation';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEntryDirectory = 'apps/docs/content/docs/releases/entries';
@@ -205,18 +208,23 @@ async function queuedMerges(
     const changedPaths = gitOutput([
       'diff', '--no-renames', '--name-only', parent, commit,
     ]).split('\n').filter(Boolean);
-    if (changedPaths.includes(releaseIntentEnforcementPath)) {
-      const isAdoptionCommit = !alreadyEnforced &&
-        commit === commits[enforcementIndex] &&
-        addedPaths(commit, releaseIntentDirectory).includes(
-          releaseIntentEnforcementPath,
-        ) && markerMatchesAt(commit);
-      if (!isAdoptionCommit) {
-        throw new Error(
-          `Merged commit ${commit} changes the immutable release-intent enforcement marker.`,
-        );
-      }
-    }
+    const isAdoptionCommit = validateReleaseIntentEnforcementChange({
+      alreadyEnforced,
+      commit,
+      containsAdoptionSource: gitOutput([
+        'merge-base', releaseIntentEnforcementAdoptionSourceCommit, commit,
+      ]) === releaseIntentEnforcementAdoptionSourceCommit,
+      enforcementCommit: commits[enforcementIndex],
+      markerAdded: addedPaths(commit, releaseIntentDirectory).includes(
+        releaseIntentEnforcementPath,
+      ),
+      markerChanged: changedPaths.includes(releaseIntentEnforcementPath),
+      markerMatches: markerMatchesAt(commit),
+    });
+    const allIntentChanges = changedPaths.filter((path) =>
+      path.startsWith(`${releaseIntentDirectory}/`) &&
+      !(isAdoptionCommit && path === releaseIntentEnforcementPath),
+    );
     const intentPaths = addedPaths(commit, releaseIntentDirectory)
       .filter((path) => path.endsWith('.json'));
     const changelogPaths = addedPaths(commit, prChangelogDirectory)
@@ -267,21 +275,14 @@ async function queuedMerges(
           `Merged commit ${commit} changelog ${changelogPaths[0]} belongs to PR #${parsed.changelog.pullRequest}, not merged PR #${pullRequest}.`,
         );
       }
-      if (intentPaths.length > 0) {
+      if (allIntentChanges.length > 0) {
         if (
           intentPaths.length !== 1 ||
-          intentPaths[0] !== legacyReleaseIntentMigrationPath
+          intentPaths[0] !== legacyReleaseIntentMigrationPath ||
+          allIntentChanges.length !== 1
         ) {
           throw new Error(
             `Merged commit ${commit} may carry at most one legacy release intent during changelog migration.`,
-          );
-        }
-        const allIntentChanges = changedPaths.filter((path) =>
-          path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
-        );
-        if (allIntentChanges.length !== 1) {
-          throw new Error(
-            `Merged commit ${commit} modifies release-intent history instead of adding one migration compatibility item.`,
           );
         }
         const legacyIntent = readIntent(commit, intentPaths[0]);
@@ -302,9 +303,6 @@ async function queuedMerges(
       continue;
     }
 
-    const allIntentChanges = changedPaths.filter((path) =>
-      path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
-    );
     if (intentPaths.length !== 1 || allIntentChanges.length !== 1) {
       throw new Error(
         `Merged commit ${commit} modifies release-intent history instead of adding one queue item.`,
@@ -314,12 +312,14 @@ async function queuedMerges(
     const productPaths = changedPaths.filter((path) =>
       path !== intentPaths[0] && path !== releaseIntentEnforcementPath,
     );
-    const sensitive = connectorReleaseSensitivePaths(productPaths);
-    if (intent === 'none' && sensitive.length > 0) {
-      throw new Error(
-        `Merged commit ${commit} declares none but changes release-sensitive paths: ${sensitive.join(', ')}.`,
-      );
-    }
+    validateMergedIntentQueueItem({
+      allIntentChanges,
+      commit,
+      intent,
+      intentPaths,
+      isAdoptionCommit,
+      productPaths,
+    });
     queued.push({ commit, intent, pullRequest });
   }
   return queued;
