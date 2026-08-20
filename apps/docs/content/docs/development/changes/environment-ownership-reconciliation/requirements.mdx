@@ -85,6 +85,34 @@ actionable unavailable state otherwise.
 - **When** the ownership backfill evaluates the deployment Environment
 - **Then** the migration performs no backfill
 
+### ENV-OWN-003 — Ownership repair MUST be repeatable and atomic
+
+Ownership reconciliation MUST run after fresh deployment Tailscale projection updates, after a
+deployment device is classified into an Environment and its projection is persisted, and after
+connector identity or physical Host membership updates. It MUST consume those evidence
+mutations atomically or through one durable transaction-scoped retry boundary.
+
+#### Scenario: Stale startup evidence becomes fresh
+
+- **Given** migration `0059_tailscale_environment_ownership` found no candidate because the
+  deployment observation was stale at startup
+- **When** a later fresh, current, online Tailscale projection is persisted
+- **Then** exactly one eligible owner-scoped Environment copy is created without changing the
+  original deployment projection
+
+#### Scenario: Host membership is added after startup
+
+- **Given** fresh deployment evidence exists but no user connector-to-Host membership exists
+- **When** the exact user connector is added to one physical Host
+- **Then** the same ownership reconciliation repairs the user copy
+
+#### Scenario: Repeated and concurrent reconciliation is safe
+
+- **Given** a repaired copy already exists, or two evidence updates arrive concurrently
+- **When** ownership reconciliation runs repeatedly or concurrently
+- **Then** the result is one stable copy; zero, stale, wrong-owner, user-defined, or ambiguous
+  evidence never creates a copy
+
 ## CHANGED Requirements
 
 None.

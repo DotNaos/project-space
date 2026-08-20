@@ -3,20 +3,22 @@ title: Verification
 description: Requirement and delivery evidence for owner-preserving Environment reconciliation.
 ---
 
-Verification status: **Incomplete**
+Verification status: **Complete**
 
 ## Requirement evidence
 
 - [x] ENV-OWN-001 — Owner-preserving built-in aliases
 - [x] ENV-OWN-002 — Fail-closed duplicate behavior
 - [x] ENV-ROUTE-001 — Evidence-based configured Host selection
+- [x] ENV-OWN-003 — Repeatable and atomic ownership repair
 
 ## Final reconciliation
 
 - [x] Owner provenance is retained through reconciliation and stripped from the public snapshot.
 - [x] The exact cross-owner UUID collision has focused regression coverage.
 - [x] Focused tests, type check, full tests, and build pass locally.
-- [x] Migration `0059_tailscale_environment_ownership` is additive and fail-closed: it copies
+- [x] Migration `0059_tailscale_environment_ownership` remains historical and its runtime
+  successor is repeatable and fail-closed: it copies
   only one current deployment observation with one exact user-owned connector identity/Host
   match and a completely equivalent built-in definition, leaves the deployment projection
   unchanged, and no-ops on stale, duplicate, wrong-owner, incompatible, user-defined, or
@@ -25,18 +27,24 @@ Verification status: **Incomplete**
   with resolved identity, manual user Host evidence, matching copied fields, and the exact
   `project-space:tailscale-deployment` owner; unresolved, unrelated, user-defined, and
   other-owner projected rows retain their evidence.
-- [x] The configured start/send service path selects the exact verified Host and Environment and
+- [x] The configured start/read/send service path selects the exact verified Host and Environment and
   fails closed with an actionable typed unavailable result for missing, unresolved, or conflicting
   user-owned association evidence.
 - [x] Deployment-only, absent, or duplicate same-UUID Host evidence remains generic and does not
   reveal cross-owner inventory.
-- [x] `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` begins with persisted
-  query rows and exercises repository reconciliation plus configured HTTP start and send without
-  a prebuilt inventory shortcut.
+- [x] `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` begins with deployment-only
+  state in a disposable real PostgreSQL schema, runs the actual migrations, and invokes the real
+  Tailscale refresh/classification and Host-membership boundaries. PostgreSQL evaluates the full
+  owner/current/online/fresh, blueprint, connector/Host uniqueness, and user-defined eligibility
+  before materializing the manual/user copied row. The test observes that row through the real
+  repository, exercises configured HTTP start/read/send with exact Host and Environment IDs, and
+  covers stable repeated reconciliation, wrong-owner, ambiguity, and concurrent updates.
 - [x] The configured HTTP regression covers both exact Host selection and the authenticated
   `--here` equivalent while retaining strict authorization.
 - [x] The CLI validates and preserves the typed unavailable result in JSON output.
-- [x] PR #843 merged at `8f6a3e1938b1adac4e52c9dad1674cf8944c2431`; this follow-up adds the
-  owner-scoped persisted backfill and regression evidence without Production mutation.
-- [ ] Draft PR #845 carries the follow-up. Its exact-head preflight and remote checks remain pending.
-  No merge, release, deployment, or Production mutation is part of this follow-up.
+- [x] PR #845 merged at `77b7c6c52c678fd31efe11daff6f8470d7a38296`; signed v0.27.5 and
+  Production are healthy. Migration `0059` applied before the later fresh projection, leaving
+  the exact candidate unrepaired.
+- [x] Draft PR #846 carries this follow-up. Its corrected exact head, canonical preflight, and
+  remote checks are recorded in the PR body and Manager handoff. No merge, release, deployment,
+  or Production mutation is part of this follow-up.

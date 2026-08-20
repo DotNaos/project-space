@@ -30,17 +30,26 @@ description: Implementation and verification checklist for Environment ownership
     user-owned copy has the complete repaired built-in signature and the projection belongs to
     the exact deployment owner, while retaining unresolved, user-defined, unrelated, and
     other-owner projected rows.
+- [x] 2.5 Add the repeatable ownership reconciler
+  - **Evidence:** `server/database/tailscale-environment-ownership-reconciler.ts` evaluates fresh deployment evidence globally and copies only one exact connector/Host candidate without changing migration `0059`.
+- [x] 2.6 Bind reconciliation to evidence mutations
+  - **Evidence:** Tailscale projection refresh, deployment classification/projection, machine identity enrollment, connector inventory, and physical Host membership updates share a transaction-scoped advisory lock and reconcile before commit.
+- [x] 2.7 Cover lifecycle and concurrency regressions
+  - **Evidence:** `tests/tailscale-environment-ownership-reconciliation.test.ts` covers stale-to-fresh repair, fresh-observation-to-classification repair without a later refresh, post-startup Host membership, repeated no-op, ambiguity, and concurrent Host updates.
 
 ## 3. Delivery evidence
 
 - [x] 3.1 Run focused tests, migration checks, type check, full tests, and build
-  - **Evidence:** Focused HTTP/repository tests, migration assertions, `bun run check`,
-    `bun test --isolate`, and `bun run build` pass.
+  - **Evidence:** Focused lifecycle, repository, machine-connection, physical Host, and migration tests pass; `bun run check`, `bun test --isolate`, and `bun run build` pass.
 - [x] 3.2 Verify the persisted configured repository/HTTP start/send flow
   - **Evidence:** `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` starts with
-    owner-scoped database query rows, reconciles the combined collision, lets the configured
-    runtime construct its strict `ProjectSpaceDatabaseRepository` boundary over the same fixture,
-    then performs HTTP start and send.
+    deployment-only state in a disposable real PostgreSQL schema, runs the actual migrations and
+    Tailscale/repository mutation boundaries, and evaluates current/online/fresh evidence, exact
+    owner and platform, complete built-in equivalence, connector/Host uniqueness, and the
+    user-defined guard in PostgreSQL before materializing the exact manual/user copied row. The
+    test observes that row through `ProjectSpaceDatabaseRepository`, then performs HTTP start,
+    read, and send with exact Host and Environment IDs; repeated, stale, wrong-owner, ambiguous,
+    and concurrent cases remain fail-closed or idempotent.
 - [x] 3.3 Preserve private fail-closed Host diagnostics
   - **Evidence:** Missing, unresolved, and conflicting user-owned Environment association evidence
     returns a typed unavailable state and recovery message without a target or dispatch. An absent
@@ -48,10 +57,8 @@ description: Implementation and verification checklist for Environment ownership
 - [x] 3.4 Preserve the typed result through the CLI
   - **Evidence:** The Go client validates the exact unavailable kind/state vocabulary and the
     `project codex start --format json` regression preserves it while returning a blocked outcome.
-- [x] 3.5 Record the merged correction and Production follow-up
-  - **Evidence:** PR #843 merged at `8f6a3e1938b1adac4e52c9dad1674cf8944c2431`.
-    Signed v0.27.3 Production verification remained safely blocked but exposed only the generic
-    selection message, which this follow-up corrects without changing inventory or association data.
+- [x] 3.5 Record the merged baseline and Production evidence
+  - **Evidence:** PR #845 merged at `77b7c6c52c678fd31efe11daff6f8470d7a38296`; signed v0.27.5 and Production are healthy. Migration `0059` was applied after the sole eligible candidate's freshness expired, which is the repeatable-repair defect addressed here.
 
 ## 4. Deferred follow-ups
 

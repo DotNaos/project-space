@@ -1,194 +1,201 @@
-import { createServer, type Server } from 'node:http';
+import { createHash, randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 
-import { afterEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
+import pg from 'pg';
 
 import { createConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
 import { createCodexMachineTasksHttpApi } from '../server/codex-machine-tasks/http';
 import type { DatabaseQueryClient } from '../server/database/client';
+import { runDatabaseMigrations } from '../server/database/migrations';
 import { ProjectSpaceDatabaseRepository } from '../server/database/repository';
+import { PostgresTailscaleInventoryStore } from '../server/tailscale-inventory/store';
 import type { CodexSessionsRuntime } from '../server/codex-sessions/runtime';
 import type { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
 import { memoryStore } from './fixtures/codex-machine-tasks-service';
 
+const databaseUrl = process.env.PROJECT_SPACE_TEST_DATABASE_URL ?? '';
+const postgresTest = databaseUrl ? test : test.skip;
 const userId = 'user-owner';
 const deploymentOwnerId = 'project-space:tailscale-deployment';
 const environmentId = '1cbcf4d5-985d-4216-8782-6107cb36562f';
 const hostId = '24000000-0000-4000-8000-000000000002';
+const secondHostId = '24000000-0000-4000-8000-000000000003';
+const connectorId = '24000000-0000-4000-8000-000000000010';
+const secondConnectorId = '24000000-0000-4000-8000-000000000011';
+const deviceId = 'device-842';
 const workspaceId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const branch = '842-preserve-environment-ownership';
 const commit = 'a'.repeat(40);
 const taskThreadId = '019f6d33-6aad-7302-a45e-bb7a33fc399c';
 const reportingThreadId = '019f6d33-6aad-7302-a45e-bb7a33fc399d';
-const visibleOwners = [userId, deploymentOwnerId];
-const servers: Server[] = [];
 
-type AssociationState =
-  | 'verified'
-  | 'missing'
-  | 'unresolved'
-  | 'conflict'
-  | 'deployment-only'
-  | 'ambiguous';
-
-interface PersistedRow extends Record<string, unknown> {
-  owner_user_id?: string;
+interface DatabaseHarness {
+  client: DatabaseQueryClient;
+  pool: pg.Pool;
+  admin: pg.Pool;
+  repository: ProjectSpaceDatabaseRepository;
+  inventory: PostgresTailscaleInventoryStore;
+  schema: string;
 }
 
-class PersistedCollisionDatabase implements DatabaseQueryClient {
-  readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
-  readonly returnedDefinitionOwners: string[] = [];
-
-  constructor(private readonly associationState: AssociationState) {}
-
-  async query<Row>(sql: string, values: readonly unknown[] = []) {
-    this.calls.push({ sql, values });
-    if (sql.includes('from compute_environment_definitions') && sql.includes('order by lower')) {
-      const rows = this.visible([
-        definition(userId, 'a', 'built_in', 'macOS'),
-        definition(deploymentOwnerId, 'x', 'built_in', 'macOS'),
-        definition(userId, 'x', 'user_defined', 'User macOS')
-      ]);
-      this.returnedDefinitionOwners.push(...rows.map((row) => `${row.owner_user_id}:${row.id}`));
-      return { rows: rows as Row[] };
-    }
-    if (sql.includes('from compute_platforms') && sql.includes('order by lower')) {
-      return { rows: this.visible([
-        { id: 'platform-user', kind: 'local', name: 'Local & self-hosted', owner_user_id: userId },
-        { id: 'platform-deployment', kind: 'local', name: 'Deployment', owner_user_id: deploymentOwnerId }
-      ]) as Row[] };
-    }
-    if (sql.includes('from compute_hosts') && sql.includes('order by lower')) {
-      return { rows: this.visible(this.hostRows()) as Row[] };
-    }
-    if (sql.includes('from compute_environments') && sql.includes('order by lower')) {
-      return { rows: this.visible(this.environmentRows()) as Row[] };
-    }
-    if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
-      return { rows: [] as Row[] };
-    }
-    return { rows: [] as Row[] };
+function assertLoopbackDatabase(value: string) {
+  const url = new URL(value);
+  if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+    throw new Error('PROJECT_SPACE_TEST_DATABASE_URL must point to loopback PostgreSQL.');
   }
+}
 
-  async transaction<Result>(operation: (client: DatabaseQueryClient) => Promise<Result>) {
-    return operation(this);
-  }
-
-  private visible(rows: PersistedRow[]) {
-    const latest = this.calls.at(-1)?.values[0];
-    const owners = Array.isArray(latest) ? latest : [userId];
-    return rows.filter((row) => !row.owner_user_id || owners.includes(row.owner_user_id));
-  }
-
-  private hostRows(): PersistedRow[] {
-    if (this.associationState === 'deployment-only') {
-      return [host(deploymentOwnerId, hostId, 'deployment-os-macbook')];
-    }
-    if (this.associationState === 'ambiguous') {
-      return [
-        host(userId, hostId, 'os-macbook'),
-        host(userId, hostId, 'duplicate-os-macbook'),
-        host(deploymentOwnerId, hostId, 'deployment-os-macbook')
-      ];
-    }
-    return [
-      host(userId, hostId, 'os-macbook'),
-      host(deploymentOwnerId, '24000000-0000-4000-8000-000000000099', 'deployment-mac')
-    ];
-  }
-
-  private environmentRows(): PersistedRow[] {
-    const userAssociation = this.associationState === 'verified' ||
-      this.associationState === 'ambiguous' ||
-      this.associationState === 'deployment-only'
-      ? { host_evidence: 'smbios', host_id: hostId, host_resolution: 'verified' }
-      : this.associationState === 'conflict'
-        ? { host_evidence: 'host_broker', host_id: hostId, host_resolution: 'conflict' }
-        : this.associationState === 'unresolved'
-          ? { host_evidence: 'none', host_id: null, host_resolution: 'unresolved' }
-          : { host_evidence: 'none', host_id: null, host_resolution: 'not_applicable' };
-    const deploymentEnvironmentId = this.associationState === 'deployment-only'
-      ? environmentId
-      : '1cbcf4d5-985d-4216-8782-6107cb365699';
-    return [
-      environment(userId, environmentId, 'a', 'platform-user', 'User macOS', userAssociation),
-      environment(
-        deploymentOwnerId,
-        deploymentEnvironmentId,
-        'x',
-        'platform-deployment',
-        'Deployment macOS',
-        {
-          host_evidence: 'smbios',
-          host_id: this.associationState === 'deployment-only'
-            ? hostId
-            : '24000000-0000-4000-8000-000000000099',
-          host_resolution: 'verified'
+function databaseClient(pool: pg.Pool): DatabaseQueryClient {
+  return {
+    async query<Row>(sql: string, values: readonly unknown[] = []) {
+      const result = await pool.query(sql, [...values]);
+      return { rowCount: result.rowCount, rows: result.rows as Row[] };
+    },
+    async transaction<Result>(operation: (client: DatabaseQueryClient) => Promise<Result>) {
+      const connection = await pool.connect();
+      const client: DatabaseQueryClient = {
+        async query<Row>(sql: string, values: readonly unknown[] = []) {
+          const result = await connection.query(sql, [...values]);
+          return { rowCount: result.rowCount, rows: result.rows as Row[] };
         }
-      ),
-      environment(
-        userId,
-        '1cbcf4d5-985d-4216-8782-6107cb365688',
-        'x',
-        'platform-user',
-        'User-defined macOS',
-        { host_evidence: 'none', host_id: null, host_resolution: 'unresolved' }
-      )
-    ];
-  }
-}
-
-afterEach(async () => {
-  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => {
-    server.close(() => resolve());
-  })));
-});
-
-function definition(owner: string, id: string, ownership: 'built_in' | 'user_defined', name: string) {
-  return {
-    bootstrap_strategy: 'none', id, kind: 'native_macos', name,
-    operating_system_family: 'macos', owner_user_id: owner, ownership,
-    slug: 'macos', supported_architectures: ['arm64']
+      };
+      try {
+        await client.query('begin');
+        const result = await operation(client);
+        await client.query('commit');
+        return result;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
   };
 }
 
-function host(owner: string, id: string, name: string) {
+async function createDatabase(): Promise<DatabaseHarness> {
+  assertLoopbackDatabase(databaseUrl);
+  const schema = `tailscale_ownership_${randomUUID().replaceAll('-', '')}`;
+  const admin = new pg.Pool({ connectionString: databaseUrl, max: 1 });
+  await admin.query(`create schema "${schema}"`);
+  const pool = new pg.Pool({ connectionString: databaseUrl, max: 6, options: `-c search_path=${schema}` });
+  const client = databaseClient(pool);
+  await runDatabaseMigrations(client);
   return {
-    id, identity_key: `host:${owner}:${id}`, identity_version: 1,
-    legacy_tombstoned_only: false, name, owner_user_id: owner,
-    platform_id: owner === userId ? 'platform-user' : 'platform-deployment', resources: null
+    admin, client, inventory: new PostgresTailscaleInventoryStore(client),
+    pool, repository: new ProjectSpaceDatabaseRepository(client), schema
   };
 }
 
-function environment(
-  owner: string,
-  id: string,
-  definitionId: string,
-  platformId: string,
-  name: string,
-  association: { host_evidence: string; host_id: string | null; host_resolution: string }
+async function closeDatabase(database: DatabaseHarness) {
+  await database.pool.end();
+  await database.admin.query(`drop schema if exists "${database.schema}" cascade`);
+  await database.admin.end();
+}
+
+function accountScopedIdentity(owner: string, value: string) {
+  return `account:${createHash('sha256').update(owner).update('\0').update(value).digest('hex')}`;
+}
+
+function snapshot(freshUntil: string, observedAt = '2026-08-20T23:00:00.000Z') {
+  return {
+    backendState: 'running' as const,
+    deviceErrors: [],
+    devices: [{
+      addresses: ['100.64.0.10'], id: deviceId, observedName: 'os-macbook.tail1234.ts.net',
+      online: true, os: 'darwin', tags: []
+    }],
+    freshness: {
+      freshUntil, observedAt, state: 'fresh' as const
+    },
+    source: 'tailscale_status_json' as const
+  };
+}
+
+async function seedCandidate(
+  database: DatabaseHarness,
+  ownerUserId: string,
+  machineId: string,
+  physicalMachineId: string | null
 ) {
-  return {
-    ...association,
-    environment_definition_id: definitionId,
-    id,
-    identity_key: `environment:${owner}:${id}`,
-    identity_resolution: 'resolved',
-    identity_version: 1,
-    kind: 'native_macos',
-    legacy_tombstoned_only: false,
-    name,
-    owner_user_id: owner,
-    parent_environment_id: null,
-    platform_id: platformId,
-    resource_mode: 'dedicated',
-    resources: null
-  };
+  await database.client.transaction?.(async (client) => {
+    await client.query(
+      `insert into machine_identities (
+         id, owner_user_id, public_key, name, hostname, operating_system,
+         architecture, client_version, created_at
+       ) values ($1, $2, $3, 'os-macbook', 'os-macbook.example.test', 'darwin', 'arm64', '0.1.0', now())`,
+      [machineId, ownerUserId, `A${machineId.replaceAll('-', '')}AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`.slice(0, 43)]
+    );
+    await client.query(
+      `insert into machine_memberships (id, machine_id, user_id, role)
+       values ($1, $2, $3, 'owner')`,
+      [randomUUID(), machineId, ownerUserId]
+    );
+  });
+  if (physicalMachineId) {
+    await database.repository.savePhysicalMachine({
+      connectorIds: [machineId], name: `os-macbook-${physicalMachineId.slice(-1)}`,
+      physicalMachineId, userId: ownerUserId
+    });
+  }
+  const definition = await database.client.query<{ id: string }>(
+    `select id from compute_environment_definitions
+      where owner_user_id = $1 and slug = 'macos'`, [ownerUserId]
+  );
+  const platform = await database.client.query<{ id: string }>(
+    `select id from compute_platforms
+      where owner_user_id = $1 and kind = 'local' and name = 'Local & self-hosted'`, [ownerUserId]
+  );
+  if (!definition.rows[0] || !platform.rows[0]) throw new Error('Candidate bootstrap did not create local compute metadata.');
+  await database.client.query(
+    `update compute_environment_definitions
+        set name = 'macOS', kind = 'native_macos', operating_system_family = 'macos',
+            supported_architectures = '{}', bootstrap_strategy = 'ssh', ownership = 'built_in'
+      where owner_user_id = $1 and id = $2`, [ownerUserId, definition.rows[0].id]
+  );
+  return { definitionId: definition.rows[0].id, platformId: platform.rows[0].id };
+}
+
+async function seedDeployment(database: DatabaseHarness, candidateOwner = userId, withHost = true) {
+  const candidate = await seedCandidate(database, candidateOwner, connectorId, withHost ? hostId : null);
+  const deploymentPlatform = await seedCandidate(database, deploymentOwnerId, '24000000-0000-4000-8000-000000000020', false);
+  await database.client.query(
+    `insert into compute_environments (
+       id, owner_user_id, platform_id, environment_definition_id,
+       identity_version, identity_key, kind, name, host_resolution, host_evidence,
+       resource_mode, resources
+     ) values ($1, $2, $3, $4, 1, $5, 'native_macos',
+       'os-macbook.tail1234.ts.net', 'unresolved', 'none', 'dedicated', $6::jsonb)`,
+    [environmentId, deploymentOwnerId, deploymentPlatform.platformId, deploymentPlatform.definitionId,
+      accountScopedIdentity(deploymentOwnerId, `tailscale-environment:${deviceId}`), JSON.stringify({ cpu: 4, memoryMb: 8192 })]
+  );
+  await database.client.query(
+    `insert into tailscale_device_observations (
+       owner_user_id, device_id, observed_name, addresses, online, os, tags,
+       observed_at, fresh_until, inventory_state
+     ) values ($1, $2, 'os-macbook.tail1234.ts.net', ARRAY['100.64.0.10']::inet[], true,
+       'darwin', '{}', '2026-08-20T23:00:00Z', '2026-08-21T00:00:00Z', 'current')`,
+    [deploymentOwnerId, deviceId]
+  );
+  await database.client.query(
+    `insert into tailscale_device_classifications
+       (owner_user_id, device_id, classification, revision, actor_id)
+     values ($1, $2, 'environment', 1, 'seed')`, [deploymentOwnerId, deviceId]
+  );
+  await database.client.query(
+    `insert into tailscale_compute_environment_projections
+       (owner_user_id, device_id, environment_id, classification_revision)
+     values ($1, $2, $3, 1)`, [deploymentOwnerId, deviceId, environmentId]
+  );
+  return { candidate, deployment: deploymentPlatform };
 }
 
 function runtimeSessions(commands: WorkspaceRuntimeCodexCommand[]) {
   const listeners = new Set<(message: WorkspaceRuntimeCodexMessage) => Promise<void> | void>();
-  const snapshot = {
+  const session = {
     branch, capabilities: ['runtime.codex.v1'], codexAcceptedCommandSequence: 0,
     commit, connectionState: 'online', devServers: [], environmentId,
     expiresAt: '2026-08-21T00:00:00.000Z', generation: '22222222-2222-4222-8222-222222222222',
@@ -197,7 +204,7 @@ function runtimeSessions(commands: WorkspaceRuntimeCodexCommand[]) {
     runtimeVersion: '0.4.66', schemaVersion: 1, sessionId: 'persisted-session-842', workspaceId
   };
   return {
-    list: async (owner: string) => owner === userId ? [snapshot] : [],
+    list: async (owner: string) => owner === userId ? [session] : [],
     onCodexMessage(listener: (message: WorkspaceRuntimeCodexMessage) => Promise<void> | void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -206,10 +213,8 @@ function runtimeSessions(commands: WorkspaceRuntimeCodexCommand[]) {
       commands.push(command);
       const result = command.kind === 'start'
         ? { initialTurnId: 'turn-initial-842', machineId: command.request.machineId, threadId: taskThreadId }
-        : {
-            operationId: command.request.operationId, replayed: false, status: 'accepted' as const,
-            threadId: command.request.threadId, turnId: 'turn-send-842'
-          };
+        : { operationId: command.request.operationId, replayed: false, status: 'accepted' as const,
+            threadId: command.request.threadId, turnId: 'turn-send-842' };
       queueMicrotask(() => {
         const message = { ...command, result, type: 'runtime.codex.result' } as unknown as WorkspaceRuntimeCodexMessage;
         for (const listener of listeners) void listener(message);
@@ -218,22 +223,28 @@ function runtimeSessions(commands: WorkspaceRuntimeCodexCommand[]) {
   } as unknown as WorkspaceRuntimeSessionService;
 }
 
-async function configuredHttp(state: AssociationState) {
-  const database = new PersistedCollisionDatabase(state);
-  const repository = new ProjectSpaceDatabaseRepository(database);
+async function configuredHttp(database: DatabaseQueryClient) {
   const commands: WorkspaceRuntimeCodexCommand[] = [];
   const runtime = await createConfiguredCodexMachineTasksRuntime({
-    backend: configuredBackend() as never,
-    database,
-    runtimeSessions: runtimeSessions(commands),
-    sessionsRuntime: Promise.reject(new Error('Compatibility runtime is outside this path')) as Promise<CodexSessionsRuntime>,
+    backend: {
+      async createGitHubBranch() { throw new Error('The integration path must not create a branch.'); },
+      async getGitHubCatalog() {
+        return { checkedAt: '', repositories: [{ defaultBranch: 'main', fullName: 'DotNaos/project-space', id: 42,
+          isPrivate: true, name: 'project-space', owner: 'DotNaos', projectConfig: { projectYaml: true, status: 'complete' as const, templateLock: true },
+          url: 'https://github.com/DotNaos/project-space' }], status: 'connected' as const };
+      },
+      async getGitHubRepositoryDetails() {
+        return { branches: [{ commitSha: commit, isDefault: false, name: branch }], checkedAt: '',
+          issues: [{ labels: [], number: 842, state: 'open' as const, title: 'Preserve Environment ownership', url: 'https://github.com/DotNaos/project-space/issues/842' }],
+          pullRequests: [], status: 'connected' as const };
+      }
+    } as never,
+    database, runtimeSessions: runtimeSessions(commands),
+    sessionsRuntime: Promise.reject(new Error('Compatibility runtime is outside this path.')) as Promise<CodexSessionsRuntime>,
     taskStore: memoryStore(),
     workspaceBindingStore: {
       list: async () => [{ id: 'execution-842' }],
-      readWorkspace: async () => ({
-        branch, commit, id: workspaceId, state: 'ready',
-        target: { kind: 'project_worktree', reference: 'worktree-842' }
-      })
+      readWorkspace: async () => ({ branch, commit, id: workspaceId, state: 'ready', target: { kind: 'project_worktree', reference: 'worktree-842' } })
     } as never
   });
   const api = createCodexMachineTasksHttpApi(runtime.service, async () => ({
@@ -243,125 +254,181 @@ async function configuredHttp(state: AssociationState) {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     if (!await api(request, response, url)) response.writeHead(404).end();
   });
-  servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Missing integration HTTP address.');
   return {
-    commands,
-    database,
-    repository,
-    origin: `http://127.0.0.1:${address.port}`
-  };
-}
-
-function configuredBackend() {
-  return {
-    async createGitHubBranch() { throw new Error('The integration path must not create a branch.'); },
-    async getGitHubCatalog() {
-      return {
-        checkedAt: '', repositories: [{
-          defaultBranch: 'main', fullName: 'DotNaos/project-space', id: 42,
-          isPrivate: true, name: 'project-space', owner: 'DotNaos',
-          projectConfig: { projectYaml: true, status: 'complete' as const, templateLock: true },
-          url: 'https://github.com/DotNaos/project-space'
-        }], status: 'connected' as const
-      };
-    },
-    async getGitHubRepositoryDetails() {
-      return {
-        branches: [{ commitSha: commit, isDefault: false, name: branch }], checkedAt: '',
-        issues: [{ labels: [], number: 842, state: 'open' as const, title: 'Preserve Environment ownership', url: 'https://github.com/DotNaos/project-space/issues/842' }],
-        pullRequests: [], status: 'connected' as const
-      };
-    }
+    commands, origin: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve()))
   };
 }
 
 function mutation(operationId: string, body: Record<string, unknown>) {
-  return {
-    body: JSON.stringify({ ...body, operationId }),
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationId },
-    method: 'POST'
-  };
+  return { body: JSON.stringify({ ...body, operationId }), headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationId }, method: 'POST' };
 }
 
-describe('persisted configured Codex ownership integration', () => {
-  test('reconciles persisted owner collisions before HTTP start and send retain the exact Host', async () => {
-    const configured = await configuredHttp('verified');
-    const reconciledInventory = await configured.repository.listComputeInventory(userId, {
-      additionalOwnerUserIds: [deploymentOwnerId]
-    });
-    const start = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation('persisted-start-842', {
-      expectedBranch: branch, expectedCommit: commit, issue: 842,
-      physicalMachineId: hostId, repositoryId: 'DotNaos/project-space'
-    }));
-    const started = await start.json() as { state: string; task?: { threadId?: string } };
-    expect(start.status).toBe(200);
-    expect(started).toMatchObject({ state: 'confirmed', task: { physicalMachine: { id: hostId, name: 'os-macbook' } } });
+async function withDatabase<Result>(operation: (database: DatabaseHarness) => Promise<Result>) {
+  const database = await createDatabase();
+  try {
+    return await operation(database);
+  } finally {
+    await closeDatabase(database);
+  }
+}
 
-    const send = await fetch(
-      `${configured.origin}/api/codex/tasks/${started.task?.threadId}/send`,
-      mutation('persisted-send-842', {
-        delivery: 'new-turn', message: 'Continue through the persisted owner boundary.',
-        physicalMachineId: hostId
-      })
-    );
-    expect(send.status).toBe(200);
-    expect(await send.json()).toMatchObject({ state: 'accepted', target: { physicalMachine: { id: hostId } } });
-    expect(configured.database.returnedDefinitionOwners).toEqual([
-      `${userId}:a`, `${deploymentOwnerId}:x`, `${userId}:x`,
-      `${userId}:a`, `${userId}:x`,
-      `${userId}:a`, `${userId}:x`
-    ]);
-    expect(configured.database.calls
-      .filter(({ sql }) => sql.includes('from compute_environment_definitions'))
-      .map(({ values }) => values[0])).toEqual([visibleOwners, [userId], [userId]]);
-    expect(reconciledInventory.environmentDefinitions.map(({ id, ownership }) => ({ id, ownership }))).toEqual([
-      { id: 'a', ownership: 'built_in' }, { id: 'x', ownership: 'user_defined' }
-    ]);
-    expect(reconciledInventory.environments.find(({ id }) => id.endsWith('5699'))?.environmentDefinitionId).toBe('a');
-    expect(reconciledInventory.environments.find(({ id }) => id.endsWith('5688'))?.environmentDefinitionId).toBe('x');
-    expect(configured.commands.map(({ kind, environmentId: selectedEnvironment }) => ({
-      kind, selectedEnvironment
-    }))).toEqual([
-      { kind: 'start', selectedEnvironment: environmentId },
-      { kind: 'continue', selectedEnvironment: environmentId }
-    ]);
-    expect(configured.commands[0]?.request.machineId).toBe(configured.commands[1]?.request.machineId);
+describe('persisted configured Codex ownership PostgreSQL integration', () => {
+  postgresTest('repairs stale startup evidence and retains exact Host and Environment through HTTP', async () => {
+    await withDatabase(async (database) => {
+      await seedDeployment(database);
+      await database.client.query(
+        `update tailscale_device_observations set observed_at = '2020-08-20T20:00:00Z', fresh_until = '2020-08-20T20:16:00Z'
+          where owner_user_id = $1 and device_id = $2`, [deploymentOwnerId, deviceId]
+      );
+      const http = await configuredHttp(database.client);
+      try {
+        await database.inventory.reconcile(deploymentOwnerId, {
+          complete: true, kind: 'snapshot', snapshot: snapshot('2020-08-20T23:30:00Z', '2020-08-20T23:00:00Z')
+        });
+        expect((await database.repository.listComputeInventory(userId)).environments.some(({ id }) => id === environmentId)).toBe(false);
+        await database.inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z') });
+        const repaired = await database.repository.listComputeInventory(userId);
+        expect(repaired.environments.find(({ id }) => id === environmentId)).toMatchObject({
+          environmentDefinitionId: expect.any(String), hostAssociation: { evidence: 'user', hostId, resolution: 'manual' },
+          id: environmentId, identityResolution: 'resolved', kind: 'native_macos', name: 'os-macbook.tail1234.ts.net',
+          platformId: expect.any(String), resourceMode: 'dedicated', resources: { cpu: 4, memoryMb: 8192 }
+        });
+        const persistedBefore = await database.client.query(
+          `select id, owner_user_id, platform_id, host_id, environment_definition_id,
+                  identity_version, identity_key, identity_resolution, kind, name,
+                  host_resolution, host_evidence, resource_mode, resources
+             from compute_environments where id = $1 and owner_user_id = $2`, [environmentId, userId]
+        );
+        await database.inventory.reconcile(deploymentOwnerId, {
+          complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z')
+        });
+        const persistedAfter = await database.client.query(
+          `select id, owner_user_id, platform_id, host_id, environment_definition_id,
+                  identity_version, identity_key, identity_resolution, kind, name,
+                  host_resolution, host_evidence, resource_mode, resources
+             from compute_environments where id = $1 and owner_user_id = $2`, [environmentId, userId]
+        );
+        expect(persistedAfter.rows).toEqual(persistedBefore.rows);
+        const start = await fetch(`${http.origin}/api/codex/tasks/start`, mutation('postgres-start-842', {
+          expectedBranch: branch, expectedCommit: commit, issue: 842, physicalMachineId: hostId, repositoryId: 'DotNaos/project-space'
+        }));
+        const started = await start.json() as { state: string; task?: { threadId?: string } };
+        expect(start.status).toBe(200);
+        expect(started).toMatchObject({ state: 'confirmed', task: { physicalMachine: { id: hostId } } });
+        const read = await fetch(`${http.origin}/api/codex/tasks/${started.task?.threadId}?physicalMachineId=${hostId}`);
+        expect(await read.json()).toMatchObject({ state: 'confirmed', target: { physicalMachine: { id: hostId } } });
+        const send = await fetch(`${http.origin}/api/codex/tasks/${started.task?.threadId}/send`, mutation('postgres-send-842', {
+          delivery: 'new-turn', message: 'Continue through persisted ownership.', physicalMachineId: hostId
+        }));
+        expect(send.status).toBe(200);
+        expect(await send.json()).toMatchObject({ state: 'accepted', target: { physicalMachine: { id: hostId } } });
+        expect(http.commands.map(({ kind, environmentId: selected }) => ({ kind, selected }))).toEqual([
+          { kind: 'start', selected: environmentId }, { kind: 'read', selected: environmentId }, { kind: 'continue', selected: environmentId }
+        ]);
+      } finally {
+        await http.close();
+      }
+    });
   });
 
-  test.each(['deployment-only', 'ambiguous', 'missing', 'unresolved', 'conflict'] as const)(
-    'blocks %s persisted Host association evidence before dispatch',
-    async (state) => {
-      const configured = await configuredHttp(state);
-      await configured.repository.listComputeInventory(userId, {
-        additionalOwnerUserIds: [deploymentOwnerId]
+  postgresTest('repairs when Host membership is added after startup', async () => {
+    await withDatabase(async (database) => {
+      await seedDeployment(database, userId, false);
+      await database.inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z') });
+      expect((await database.repository.listComputeInventory(userId)).environments.some(({ id }) => id === environmentId)).toBe(false);
+      await database.repository.savePhysicalMachine({ connectorIds: [connectorId], name: 'os-macbook', physicalMachineId: hostId, userId });
+      expect((await database.repository.listComputeInventory(userId)).environments.find(({ id }) => id === environmentId)).toMatchObject({
+        hostAssociation: { evidence: 'user', hostId, resolution: 'manual' }
       });
-      const response = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation(`persisted-${state}-842`, {
-        expectedBranch: branch, expectedCommit: commit, issue: 842,
-        physicalMachineId: hostId, repositoryId: 'DotNaos/project-space'
-      }));
-      expect(response.status).toBe(200);
-      const result = await response.json();
-      expect(result).toMatchObject({ reason: 'unauthorized', state: 'blocked' });
-      if (state === 'deployment-only' || state === 'ambiguous') {
-        expect(result).toMatchObject({ message: 'Select one exact physical machine.' });
-        expect(result).not.toHaveProperty('unavailable');
-      } else {
-        expect(result).toMatchObject({
-          unavailable: {
-            kind: 'environment_host_association',
-            state: state === 'conflict' ? 'conflicting' : state
-          }
-        });
-        expect(result.message).toContain(state === 'conflict' ? 'Resolve' : 'Assign');
-      }
-      expect(configured.database.returnedDefinitionOwners).toEqual([
-        `${userId}:a`, `${deploymentOwnerId}:x`, `${userId}:x`,
-        `${userId}:a`, `${userId}:x`
+    });
+  });
+
+  postgresTest('keeps one stable user copy across environment to unclassified to environment', async () => {
+    await withDatabase(async (database) => {
+      await seedDeployment(database);
+      await database.inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z') });
+      await database.inventory.setClassification({ actorId: 'manager', classification: 'unclassified', deviceId, expectedRevision: 1, ownerUserId: deploymentOwnerId });
+      await database.inventory.setClassification({ actorId: 'manager', classification: 'environment', deviceId, expectedRevision: 2, ownerUserId: deploymentOwnerId });
+      const projection = await database.client.query<{ environment_id: string }>(
+        `select environment_id from tailscale_compute_environment_projections where owner_user_id = $1 and device_id = $2`, [deploymentOwnerId, deviceId]
+      );
+      const rows = await database.client.query<{ id: string; owner_user_id: string; host_resolution: string; host_evidence: string }>(
+        `select id, owner_user_id, host_resolution, host_evidence from compute_environments where id = $1 order by owner_user_id`, [environmentId]
+      );
+      expect(projection.rows[0]?.environment_id).toBe(environmentId);
+      expect(rows.rows).toEqual([
+        { id: environmentId, owner_user_id: deploymentOwnerId, host_resolution: 'unresolved', host_evidence: 'none' },
+        { id: environmentId, owner_user_id: userId, host_resolution: 'manual', host_evidence: 'user' }
       ]);
-      expect(configured.commands).toEqual([]);
-    }
-  );
+    });
+  });
+
+  postgresTest('does not overwrite a user-defined same-UUID Environment', async () => {
+    await withDatabase(async (database) => {
+      await seedDeployment(database);
+      await database.inventory.reconcile(deploymentOwnerId, {
+        complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z')
+      });
+      await database.client.query(
+        `update compute_environment_definitions definition
+            set ownership = 'user_defined', name = 'User evidence'
+          from compute_environments environment
+         where environment.owner_user_id = $1
+           and environment.id = $2
+           and definition.owner_user_id = environment.owner_user_id
+           and definition.id = environment.environment_definition_id`, [userId, environmentId]
+      );
+      await database.inventory.reconcile(deploymentOwnerId, {
+        complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z')
+      });
+      const preserved = await database.client.query<{ name: string; ownership: string; host_id: string }>(
+        `select definition.name, definition.ownership, environment.host_id
+           from compute_environments environment
+           join compute_environment_definitions definition
+             on definition.owner_user_id = environment.owner_user_id
+            and definition.id = environment.environment_definition_id
+          where environment.owner_user_id = $1 and environment.id = $2`, [userId, environmentId]
+      );
+      expect(preserved.rows).toEqual([{ name: 'User evidence', ownership: 'user_defined', host_id: hostId }]);
+    });
+  });
+
+  postgresTest('fails closed for wrong-owner and ambiguous candidates', async () => {
+    await withDatabase(async (database) => {
+      await seedDeployment(database, deploymentOwnerId);
+      await database.inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z') });
+      expect((await database.repository.listComputeInventory(userId)).environments.some(({ id }) => id === environmentId)).toBe(false);
+      await database.repository.savePhysicalMachine({ connectorIds: [connectorId], name: 'os-macbook', physicalMachineId: hostId, userId: deploymentOwnerId });
+
+      const ambiguous = await createDatabase();
+      try {
+        await seedDeployment(ambiguous);
+        await seedCandidate(ambiguous, userId, secondConnectorId, secondHostId);
+        await ambiguous.inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z') });
+        expect((await ambiguous.repository.listComputeInventory(userId)).environments.some(({ id }) => id === environmentId)).toBe(false);
+      } finally {
+        await closeDatabase(ambiguous);
+      }
+    });
+  });
+
+  postgresTest('serializes concurrent refresh and Host membership without conflicting copies', async () => {
+    await withDatabase(async (database) => {
+      await seedDeployment(database, userId, false);
+      const fresh = database.inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot: snapshot('2026-08-21T00:00:00Z') });
+      const membership = database.repository.savePhysicalMachine({ connectorIds: [connectorId], name: 'os-macbook', physicalMachineId: hostId, userId });
+      await Promise.all([fresh, membership]);
+      const rows = await database.client.query<{ owner_user_id: string; id: string }>(
+        `select owner_user_id, id from compute_environments where id = $1`, [environmentId]
+      );
+      expect(rows.rows.filter(({ owner_user_id }) => owner_user_id === userId)).toHaveLength(1);
+      expect((await database.repository.listComputeInventory(userId)).environments.find(({ id }) => id === environmentId)).toMatchObject({
+        hostAssociation: { hostId, resolution: 'manual' }
+      });
+    });
+  });
 });

@@ -92,12 +92,60 @@ export async function projectTailscaleClassification(
              where projection.owner_user_id = environment.owner_user_id
                and projection.environment_id = environment.id
           )
+          and not exists (
+            select 1
+              from compute_environments repaired
+              join compute_environment_definitions repaired_definition
+                on repaired_definition.owner_user_id = repaired.owner_user_id
+               and repaired_definition.id = repaired.environment_definition_id
+             where repaired.owner_user_id <> environment.owner_user_id
+               and repaired.id = environment.id
+               and repaired.identity_version = 1
+               and repaired.identity_key = 'account:' || md5(
+                 'environment:' || repaired.owner_user_id || ':tailscale:' || $4
+               ) || md5(
+                 'tailscale-environment:' || repaired.owner_user_id || ':' || $4
+               )
+               and repaired.host_resolution = 'manual'
+               and repaired.host_evidence = 'user'
+               and repaired.host_id is not null
+               and repaired_definition.ownership = 'built_in'
+          )
         returning environment.id`,
       [input.ownerUserId, environmentId,
-        accountScopedIdentity(input.ownerUserId, `tailscale-environment:${input.deviceId}`)]
+        accountScopedIdentity(input.ownerUserId, `tailscale-environment:${input.deviceId}`), input.deviceId]
     );
     if (!deleted.rows[0]) {
-      throw new Error('The derived Tailscale Environment could not be safely removed.');
+      const preserved = await client.query<{ preserved: boolean }>(
+        `select exists (
+           select 1
+             from compute_environments environment
+             join compute_environments repaired
+               on repaired.id = environment.id
+              and repaired.owner_user_id <> environment.owner_user_id
+             join compute_environment_definitions repaired_definition
+               on repaired_definition.owner_user_id = repaired.owner_user_id
+              and repaired_definition.id = repaired.environment_definition_id
+            where environment.owner_user_id = $1
+              and environment.id = $2
+              and environment.identity_key = $3
+              and repaired.identity_version = 1
+              and repaired.identity_key = 'account:' || md5(
+                'environment:' || repaired.owner_user_id || ':tailscale:' || $4
+              ) || md5(
+                'tailscale-environment:' || repaired.owner_user_id || ':' || $4
+              )
+              and repaired.host_resolution = 'manual'
+              and repaired.host_evidence = 'user'
+              and repaired.host_id is not null
+              and repaired_definition.ownership = 'built_in'
+         ) as preserved`,
+        [input.ownerUserId, environmentId,
+          accountScopedIdentity(input.ownerUserId, `tailscale-environment:${input.deviceId}`), input.deviceId]
+      );
+      if (!preserved.rows[0]?.preserved) {
+        throw new Error('The derived Tailscale Environment could not be safely removed.');
+      }
     }
   } catch (error) {
     if (postgresForeignKeyConflict(error)) throw new TailscaleEnvironmentInUse();

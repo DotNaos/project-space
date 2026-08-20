@@ -46,6 +46,10 @@ import {
   validateComputeInventory
 } from '../../src/shared/compute-environment-api';
 import { isRepairedTailscaleEnvironmentCopy } from './tailscale-environment-repair';
+import {
+  lockTailscaleEnvironmentOwnershipReconciliation,
+  reconcileTailscaleEnvironmentOwnership
+} from './tailscale-environment-ownership-reconciler';
 
 interface MachineMembershipRow {
   created_at: Date | string;
@@ -463,6 +467,7 @@ export class ProjectSpaceDatabaseRepository {
     if (reported.length === 0) return;
 
     const operation = async (client: DatabaseQueryClient) => {
+      await lockTailscaleEnvironmentOwnershipReconciliation(client);
       for (const machine of reported) {
         const owned = await client.query<{ machine_id: string }>(
           `select machine_id from machine_memberships
@@ -665,6 +670,7 @@ export class ProjectSpaceDatabaseRepository {
           [ownerUserId, environmentId]
         );
       }
+      await reconcileTailscaleEnvironmentOwnership(client);
     };
     return this.client.transaction ? this.client.transaction(operation) : operation(this.client);
   }
@@ -741,6 +747,7 @@ export class ProjectSpaceDatabaseRepository {
       : this.createId();
 
     const operation = async (client: DatabaseQueryClient) => {
+      await lockTailscaleEnvironmentOwnershipReconciliation(client);
       const owned = await client.query<{ machine_id: string }>(
         `select machine_id
            from machine_memberships
@@ -828,6 +835,7 @@ export class ProjectSpaceDatabaseRepository {
           [userId, physicalMachineId, connectorIds]
         );
       }
+      await reconcileTailscaleEnvironmentOwnership(client);
       await client.query(
         `delete from physical_machines machine
           where machine.owner_user_id = $1
@@ -857,6 +865,9 @@ export class ProjectSpaceDatabaseRepository {
     const physicalMachineId = requireValue(input.physicalMachineId, 'physicalMachineId');
     const userId = requireValue(input.userId, 'userId');
     const operation = async (client: DatabaseQueryClient) => {
+      if (this.client.transaction) {
+        await lockTailscaleEnvironmentOwnershipReconciliation(client);
+      }
       await client.query(
         `update compute_environments
             set host_id = null, host_resolution = 'unresolved', host_evidence = 'none',
@@ -874,6 +885,7 @@ export class ProjectSpaceDatabaseRepository {
         returning id`,
         [physicalMachineId, userId]
       );
+      if (this.client.transaction) await reconcileTailscaleEnvironmentOwnership(client);
       return result.rows.length > 0;
     };
     return this.client.transaction ? this.client.transaction(operation) : operation(this.client);
@@ -988,35 +1000,49 @@ export class ProjectSpaceDatabaseRepository {
   async claimMachineMembership(input: MachineMembershipKey) {
     const machineId = requireValue(input.machineId, 'machineId');
     const userId = requireValue(input.userId, 'userId');
-    const result = await this.client.query<MachineMembershipRow>(
-      `with existing_membership as (
-         select ${membershipColumns}
+    const operation = async (client: DatabaseQueryClient) => {
+      if (this.client.transaction) {
+        await lockTailscaleEnvironmentOwnershipReconciliation(client);
+      }
+      const result = await client.query<MachineMembershipRow>(
+        `with existing_membership as (
+           select ${membershipColumns}
+             from machine_memberships
+            where machine_id = $2 and user_id = $3
+         ), claimed_membership as (
+           insert into machine_memberships (id, machine_id, user_id, role)
+           select $1, $2, $3, 'owner'
+            where not exists (
+              select 1 from machine_memberships where machine_id = $2
+            )
+           on conflict do nothing
+           returning ${membershipColumns}
+         )
+         select * from claimed_membership
+         union all
+         select * from existing_membership
+         limit 1`,
+        [this.createId(), machineId, userId]
+      );
+
+      if (result.rows[0]) {
+        if (this.client.transaction) await reconcileTailscaleEnvironmentOwnership(client);
+        return mapMembership(result.rows[0]);
+      }
+
+      // A concurrent claim by the same user can win after this statement's
+      // snapshot was taken. Re-read the user's membership before reporting that
+      // another account owns the machine.
+      const reread = await client.query<MachineMembershipRow>(
+        `select ${membershipColumns}
            from machine_memberships
-          where machine_id = $2 and user_id = $3
-       ), claimed_membership as (
-         insert into machine_memberships (id, machine_id, user_id, role)
-         select $1, $2, $3, 'owner'
-          where not exists (
-            select 1 from machine_memberships where machine_id = $2
-          )
-         on conflict do nothing
-         returning ${membershipColumns}
-       )
-       select * from claimed_membership
-       union all
-       select * from existing_membership
-       limit 1`,
-      [this.createId(), machineId, userId]
-    );
-
-    if (result.rows[0]) {
-      return mapMembership(result.rows[0]);
-    }
-
-    // A concurrent claim by the same user can win after this statement's
-    // snapshot was taken. Re-read the user's membership before reporting that
-    // another account owns the machine.
-    return this.readMachineMembership({ machineId, userId });
+          where machine_id = $1 and user_id = $2`,
+        [machineId, userId]
+      );
+      if (this.client.transaction) await reconcileTailscaleEnvironmentOwnership(client);
+      return reread.rows[0] ? mapMembership(reread.rows[0]) : null;
+    };
+    return this.client.transaction ? this.client.transaction(operation) : operation(this.client);
   }
 
   async hasMachineMembership(input: MachineMembershipKey) {

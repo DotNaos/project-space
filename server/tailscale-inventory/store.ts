@@ -11,6 +11,11 @@ import {
   refreshTailscaleEnvironmentProjection,
   TailscaleEnvironmentInUse as ProjectionEnvironmentInUse
 } from './compute-environment-projection';
+import {
+  lockTailscaleEnvironmentOwnershipReconciliation,
+  reconcileTailscaleEnvironmentOwnership,
+  tailscaleDeploymentOwner
+} from '../database/tailscale-environment-ownership-reconciler';
 
 export type TailscaleInventoryReconciliation =
   | { complete: boolean; kind: 'snapshot'; snapshot: TailscaleStatusSnapshot }
@@ -80,6 +85,10 @@ export class PostgresTailscaleInventoryStore {
     }
     const complete = reconciliation.complete && snapshot.deviceErrors.length === 0;
     const run = async (client: DatabaseQueryClient) => {
+      const reconcileOwnership = ownerUserId === tailscaleDeploymentOwner;
+      if (reconcileOwnership) {
+        await lockTailscaleEnvironmentOwnershipReconciliation(client);
+      }
       for (const device of devices) {
         await client.query(
           `insert into tailscale_device_observations (
@@ -109,6 +118,7 @@ export class PostgresTailscaleInventoryStore {
           [ownerUserId, observedAt, devices.map(({ id }) => id)]
         );
       }
+      if (reconcileOwnership) await reconcileTailscaleEnvironmentOwnership(client);
     };
     await this.transaction(run);
     return { complete, kind: 'reconciled' as const, observedAt, observedDeviceCount: devices.length };
@@ -151,6 +161,10 @@ export class PostgresTailscaleInventoryStore {
       throw new Error('The expected Tailscale classification revision is invalid.');
     }
     const run = async (client: DatabaseQueryClient) => {
+      const reconcileOwnership = input.ownerUserId === tailscaleDeploymentOwner;
+      if (reconcileOwnership) {
+        await lockTailscaleEnvironmentOwnershipReconciliation(client);
+      }
       const observed = await client.query<{ device_id: string }>(
         `select device_id from tailscale_device_observations
           where owner_user_id = $1 and device_id = $2 for update`,
@@ -201,6 +215,7 @@ export class PostgresTailscaleInventoryStore {
          ) values ($1, $2, $3, $4, $5, $6)`,
         [input.ownerUserId, input.deviceId, input.actorId, classification, next.classification, nextRevision]
       );
+      if (reconcileOwnership) await reconcileTailscaleEnvironmentOwnership(client);
       return { classification: next.classification, id: input.deviceId, revision: nextRevision };
     };
     return this.transaction(run);

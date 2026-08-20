@@ -30,6 +30,13 @@ Database rows retain `owner_user_id` in typed intermediate records. The shared r
 builds built-in aliases from the visible catalog, keys each alias by owner and definition ID,
 then strips the temporary owner field before returning the existing public snapshot.
 
+The persisted ownership reconciler is a separate, repeatable boundary. It runs inside the same
+transaction as fresh deployment projection writes, deployment classification/projection writes,
+connector identity writes, and physical Host membership writes. A shared transaction-scoped
+advisory lock serializes those evidence changes
+with the candidate query and copy, so a concurrent update cannot leave a candidate permanently
+unseen or create conflicting copies.
+
 ## Decisions
 
 1. Keep owner scope on database-derived definitions and Environment records until reconciliation
@@ -41,7 +48,8 @@ then strips the temporary owner field before returning the existing public snaps
 4. Strip the temporary owner field before returning the existing public inventory shape.
 5. Keep the persisted migration, Tailscale projection, and downstream target projections
    owner-scoped; duplicate ambiguity remains fail-closed.
-6. Run migration `0059_tailscale_environment_ownership` only when a current, online,
+6. Keep migration `0059_tailscale_environment_ownership` as immutable historical startup
+   behavior. It only copies when a current, online,
    deployment-owned Tailscale Environment has one OS/name match to one user-owned connector
    identity grouped into one local physical Host and the account has an equivalent built-in
    definition across slug, name, kind, operating-system family, supported architectures,
@@ -52,6 +60,10 @@ then strips the temporary owner field before returning the existing public snaps
    same-UUID user record is an equivalent built-in with resolved identity, manual user evidence,
    a Host ID, and the same copied kind, name, and resource mode. Unresolved, unrelated,
    user-defined, and projected records from any other owner cannot hide evidence.
+8. Re-run the ownership copy after each fresh deployment projection or deployment classification
+   projection, and after connector identity or physical Host membership mutations. The reconciler
+   evaluates candidates globally, retains connector identity in uniqueness, and updates an existing
+   built-in copy only when its durable signature differs.
 
 ## Validation model
 
@@ -64,10 +76,12 @@ manual evidence resolving to exactly one Host. The supported start and send path
 same selected Host and Environment; unresolved, deployment-only, duplicate same-UUID, and
 missing evidence remain unavailable through the configured service.
 
-Integration coverage starts with representative owner-scoped database query rows. A real
-`ProjectSpaceDatabaseRepository` reconciles the combined collision rows, then the configured
-runtime constructs its own strict user-scoped repository over the same persisted fixture before
-the HTTP start/send boundary. No preconstructed inventory snapshot bypasses either path.
+The configured regression starts with deployment-only evidence in a disposable real PostgreSQL
+schema, runs the actual migrations and Tailscale refresh/classification projection boundaries, and
+observes the newly created user-owned row
+through `ProjectSpaceDatabaseRepository`. The configured HTTP start, read, and send requests then
+use the exact Host ID and retain the repaired Environment ID. No preconstructed inventory snapshot
+bypasses either path.
 
 ## Risks and mitigations
 
@@ -78,7 +92,7 @@ the HTTP start/send boundary. No preconstructed inventory snapshot bypasses eith
 - **Hidden ambiguity:** existing duplicate violations remain visible and fail-closed.
 - **Fabricated target:** configured runtime projection requires exact owner-valid Host evidence;
   otherwise the service returns the existing actionable unavailable result before dispatch.
-- **Unsafe backfill:** the migration inserts no row when the observation matches multiple
+- **Unsafe backfill:** the historical migration and repeatable reconciler insert no row when the observation matches multiple
   accounts, connector identities, or Hosts, including multiple connectors grouped into one Host,
   when the evidence is stale/offline, or when the account has a user-defined definition at that
   identity. A built-in with any incompatible blueprint field is also ineligible. Existing rows
@@ -89,20 +103,20 @@ the HTTP start/send boundary. No preconstructed inventory snapshot bypasses eith
 
 ## Migration and rollout
 
-The forward migration is additive and idempotent. It copies only the exact eligible
-deployment-derived Environment into the account scope; ambiguous or stale evidence is left
-untouched, and the original deployment projection remains intact. Combined presentation hides
-only the matching deployment projection after a fully repaired built-in account copy exists,
+The forward migration remains additive and historical. The runtime reconciler repeats the exact
+eligibility check after fresh projection and membership mutations; ambiguous or stale evidence is
+left untouched, and the original deployment projection remains intact. Combined presentation
+hides only the matching deployment projection after a fully repaired built-in account copy exists,
 preserving unresolved, user-defined, and unrelated evidence.
 
 ## Validation
 
 - Focused model and repository regressions cover the canonical `a`, deployment `x`, and
   user-defined `x` collision, including equal built-in UUIDs across owners.
-- The configured repository/HTTP regression captures repository reconciliation, HTTP start and
-  send, and proves deployment-only, duplicate same-UUID, missing, and conflicting Host evidence
-  fail closed before dispatch.
+- The configured repository/HTTP regressions capture classification-triggered repair plus HTTP
+  start, read, and send, and prove deployment-only, duplicate same-UUID, missing, and conflicting
+  Host evidence fail closed before dispatch.
 - Type checking, the full Bun test suite, and the project/prototype build pass locally.
 - The exact pull-request head is checked by the repository preflight before push.
-- Migration SQL and repository coverage prove the exact eligibility, idempotent owner-scoped
-  copy, unchanged deployment projection, and ambiguity no-op behavior.
+- Migration SQL and lifecycle coverage prove the exact eligibility, repeatable owner-scoped copy,
+  unchanged deployment projection, atomic evidence boundary, and ambiguity no-op behavior.
