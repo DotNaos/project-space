@@ -50,11 +50,14 @@ export function validateTasksDocument(source: string): string[] {
       }
     }
   }
-  const workerRows = source
-    .split('\n')
+  const workersHeadingIndex = sourceLines.findIndex((line) => line === '## Workers');
+  const nextWorkersHeadingIndex = sourceLines.findIndex((line, index) => index > workersHeadingIndex && line.startsWith('## '));
+  const workerSection = workersHeadingIndex >= 0
+    ? sourceLines.slice(workersHeadingIndex + 1, nextWorkersHeadingIndex >= 0 ? nextWorkersHeadingIndex : sourceLines.length)
+    : [];
+  const workerRows = workerSection
     .filter((line) => line.startsWith('| #') && !line.startsWith('| ---'));
-  const header = source
-    .split('\n')
+  const header = workerSection
     .find((line) => line.startsWith('| issue |'))
     ?.split('|').slice(1, -1).map((column) => column.trim().toLowerCase());
   const modelColumn = header?.indexOf('model/reasoning') ?? -1;

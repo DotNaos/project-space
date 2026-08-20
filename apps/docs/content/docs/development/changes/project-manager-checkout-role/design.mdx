@@ -51,11 +51,12 @@ delivery evidence.
 5. Review corrections reuse the same task and integration/rebase/merge order is
    preserved even when development proceeds against explicit assumptions.
 6. Implementation dispatch uses the canonical #763 operation, not a local
-   worktree preparation followed by an untracked handoff. Candidate
-   `cea348d649e01bc3bedbcba6b08ee7ae4001802f` carries model/reasoning and
+   worktree preparation followed by an untracked handoff. Landed reviewed head
+   `7e0e321f63e0d3bde8a862b936cda821b25951d2` (squash
+   `b92d411c995d605358dd8c05c80362e80f6bbdd0`) carries model/reasoning and
    reporting-task fields, but reporting evidence remains caller-supplied. The
-   local main/Manager/current-thread gate is the workflow proof and the exact
-   landed contract remains a merge-readiness dependency.
+   local main/Manager/current-thread gate is the workflow proof; this dependency
+   is reconciled.
 7. Production blocker intake searches open issues and equivalent incident
    records before dispatch and on each heartbeat. Existing bugs are linked and
    promoted, new reproduced blockers are filed and queued before the blocked

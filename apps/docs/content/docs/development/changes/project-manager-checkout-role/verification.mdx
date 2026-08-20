@@ -12,7 +12,7 @@ Verification status: **Incomplete**
 - [x] PM-003 — Durable coordination rules documented and tested
 - [x] PM-004 — Narrow human escalation documented and tested
 - [x] PM-006 — Production blocker intake, queue ordering, and unblock reconciliation documented and tested
-- [ ] PM-005 — Canonical #763 dispatch contract reconciled
+- [x] PM-005 — Canonical #763 dispatch contract reconciled
 
 ## Recorded checks
 
@@ -27,13 +27,12 @@ Verification status: **Incomplete**
 
 ## Reconciliation
 
-The #763 dispatch dependency is allowed to develop in parallel, but this change
-does not become merge-ready until exact landed head
-`cea348d649e01bc3bedbcba6b08ee7ae4001802f` (or its successor) is reviewed
-against the Manager handoff record. The candidate carries model/reasoning and
-reporting-task fields, but the server labels reporting evidence
-`caller-supplied`; the local main/Manager/current-thread gate remains the
-workflow proof.
+The #763 dispatch dependency was developed in parallel and is now reconciled
+against reviewed head `7e0e321f63e0d3bde8a862b936cda821b25951d2`, squash-merged
+as `b92d411c995d605358dd8c05c80362e80f6bbdd0`. The landed contract carries
+model/reasoning and reporting-task fields, while the server labels reporting
+evidence `caller-supplied`; the local main/Manager/current-thread gate remains
+the workflow proof.
 
 ## Final reconciliation
 
@@ -43,4 +42,4 @@ workflow proof.
 - [x] Production blocker intake covers existing issue promotion, new blocker filing and queue insertion, parallel nonblocking bugs, verified unblocks, and no false human stop.
 - [x] Bun policy check passes through the canonical preflight and commit hook on
   the required Bun 1.3.14 runtime.
-- [ ] Exact #763 dispatch contract is reconciled after landing.
+- [x] Exact #763 dispatch contract is reconciled after landing.

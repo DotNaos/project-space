@@ -64,15 +64,16 @@ irreversible/external/privacy risk, or human-only blocker.
 Implementation MUST dispatch through the canonical #763 operation
 `project codex start --issue <n> --environment-id <id> --operation-id <id>`,
 which owns issue-bound preparation and returns the worker task. The Manager MUST
-record model/reasoning and Manager-only reporting fields even when the exact
-landed dispatch contract does not yet carry them; #819 MUST remain non-merge-ready
-until that contract is reconciled.
+record model/reasoning and Manager-only reporting fields. The local caller gate
+MUST prove the exact main/Project-Manager/current-thread context before dispatch;
+remote `reportingTask.evidence=caller-supplied` MUST remain honest evidence and
+MUST NOT be treated as server authentication.
 
-#### Scenario: Candidate dispatch preserves honest Manager evidence
+#### Scenario: Landed dispatch preserves honest Manager evidence
 
-- **Given** the exact #763 candidate `cea348d649e01bc3bedbcba6b08ee7ae4001802f` returns environment, operation, model/reasoning, and reporting-task fields
+- **Given** the reviewed #763 head `7e0e321f63e0d3bde8a862b936cda821b25951d2` is squash-merged as `b92d411c995d605358dd8c05c80362e80f6bbdd0`
 - **When** the Manager records the dispatch handoff
-- **Then** it runs the local main/Manager/current-thread gate, records the remote reporting evidence as caller-supplied, and keeps #819 non-merge-ready until the landed contract is reconciled
+- **Then** it runs the local main/Manager/current-thread gate and records the remote reporting evidence as caller-supplied without fabricating server proof
 
 ### PM-006 — Production blocker intake
 

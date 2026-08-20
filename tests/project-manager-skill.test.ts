@@ -23,7 +23,8 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
     'Normal authentication checks, CI and Preview gates',
     'project codex start --issue <number> --environment-id <id> --operation-id <id>',
     'Do not locally run',
-    'cea348d649e01bc3bedbcba6b08ee7ae4001802f',
+    '7e0e321f63e0d3bde8a862b936cda821b25951d2',
+    'b92d411c995d605358dd8c05c80362e80f6bbdd0',
     'evidence=caller-supplied',
     'state=main',
     'mutatingAllowed=false',
@@ -70,10 +71,15 @@ test('TASKS template and validator preserve the three-worker and proof contract'
   const template = await readFile(`${root}plugins/project-space/skills/project-manager/templates/TASKS.md`, 'utf8');
   expect(validateTasksDocument(template)).toEqual([]);
   const activeRow = '| #001 | `<thread-id>` | `<Project>/<environment-id>` | `<branch>; <Project-managed path>` | `<operation-id>` | `gpt-5.6-luna/high` | `active` | `<explicit contract>` | `<sha>` | `<PR and CI>` | no Preview | `<pending>` |';
-  const tooMany = template.replace(
-    '| #000 | `<thread-id>` | `<Project>/<environment-id>` | `<branch>; <Project-managed path>` | `<operation-id>` | `gpt-5.6-luna/high` | `queued` | `<explicit contract>` | `<sha or pending>` | `<PR and CI>` | `<exact-head Preview/browser proof or recorded no Preview>` | `<pending>` |',
-    activeRow,
-  ) + `\n${activeRow.replace('#001', '#002')}\n${activeRow.replace('#001', '#003')}\n${activeRow.replace('#001', '#004')}`;
+  const tooMany = template
+    .replace(
+      '| #000 | `<thread-id>` | `<Project>/<environment-id>` | `<branch>; <Project-managed path>` | `<operation-id>` | `gpt-5.6-luna/high` | `queued` | `<explicit contract>` | `<sha or pending>` | `<PR and CI>` | `<exact-head Preview/browser proof or recorded no Preview>` | `<pending>` |',
+      activeRow,
+    )
+    .replace(
+      '\n## Escalations',
+      `\n${activeRow.replace('#001', '#002')}\n${activeRow.replace('#001', '#003')}\n${activeRow.replace('#001', '#004')}\n\n## Escalations`,
+    );
   expect(validateTasksDocument(tooMany).join('\n')).toContain('at most three active');
 
   const escalated = template.replace(
@@ -88,13 +94,19 @@ test('TASKS template and validator preserve the three-worker and proof contract'
     'each worker row must record a non-empty model/reasoning record',
   );
 
+  const concreteBlocker = template.replace(
+    '| none | searched open issues and Production records; no blocker found | none | no edge; queue unchanged | n/a | n/a |',
+    '| #901 | existing issue linked and promoted after Production reproduction | #819 verification | #901 before #819 delivery; no parallel edge | high/Manager | Production path verified after fix; resume #819 |',
+  );
+  expect(validateTasksDocument(concreteBlocker)).toEqual([]);
+
   const malformedBlocker = template.replace(
     '| none | searched open issues and Production records; no blocker found | none | no edge; queue unchanged | n/a | n/a |',
     '| #901 | issue linked | delivery | before delivery | high | <recovery> |',
   );
-  expect(validateTasksDocument(malformedBlocker)).toContain(
+  expect(validateTasksDocument(malformedBlocker)).toEqual([
     'each reproduced production blocker must record concrete evidence, issue action, affected stage, queue edge, owner, and recovery',
-  );
+  ]);
   expect(validateTasksDocument(template.replace('## Production blocker intake', '## Removed intake'))).toContain(
     'missing required heading: ## Production blocker intake',
   );
@@ -106,7 +118,8 @@ test('workflow documentation repeats the no-Preview alternative', async () => {
   expect(docs).toContain('desktop and mobile sizes');
   expect(docs).toContain('Normal authentication checks, CI and Preview gates');
   expect(docs).toContain('project codex start --issue <n> --environment-id <id> --operation-id <id>');
-  expect(docs).toContain('cea348d649e01bc3bedbcba6b08ee7ae4001802f');
+  expect(docs).toContain('7e0e321f63e0d3bde8a862b936cda821b25951d2');
+  expect(docs).toContain('b92d411c995d605358dd8c05c80362e80f6bbdd0');
   expect(docs).toContain('caller-supplied');
   expect(docs).toContain('Existing evidence is linked and');
   expect(docs).toContain('Nonblocking bugs remain parallel');

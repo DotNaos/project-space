@@ -34,14 +34,16 @@ escalated.
 
 Implementation dispatch uses the canonical #763 operation
 `project codex start --issue <n> --environment-id <id> --operation-id <id> --format json`,
-which owns issue-bound preparation and returns the worker task. Candidate head
-`cea348d649e01bc3bedbcba6b08ee7ae4001802f` carries auditable model/reasoning
-and reporting-task fields, but the server labels its reporting evidence
-`caller-supplied`; it does not authenticate a Manager. Before dispatch, the
-local caller gate proves `state=main`, `role=project-manager`,
-`mutatingAllowed=false`, and the current `CODEX_THREAD_ID` match. No caller
-supplied role or thread alternative is accepted. #819 remains non-merge-ready
-until this exact landed contract is reconciled.
+which owns issue-bound preparation and returns the worker task. The landed #763
+contract was reviewed at `7e0e321f63e0d3bde8a862b936cda821b25951d2` and
+squash-merged to main as `b92d411c995d605358dd8c05c80362e80f6bbdd0`. It
+carries auditable model/reasoning and reporting-task fields, but the server
+labels its reporting evidence `caller-supplied`; it does not authenticate a
+Manager. Before dispatch, the local caller gate proves `state=main`,
+`role=project-manager`, `mutatingAllowed=false`, and the current
+`CODEX_THREAD_ID` match. No caller supplied role or thread alternative is
+accepted. The stacked dependency is reconciled; remaining draft and delivery
+gates belong to the Manager.
 
 Every 30 minutes the Manager reconciles active worker state. Idle, interrupted,
 failed, timed-out, and completed turns are events to repair or advance, not

@@ -29,19 +29,22 @@ implementation belongs in a GitHub-issue-bound Project-managed worktree.
    idempotent, recoverable, and sent only through supported Project-managed
    dispatch.
 
-The #763 candidate contract at `cea348d649e01bc3bedbcba6b08ee7ae4001802f`
-supplies the canonical environment and operation identity plus auditable
-model/reasoning and reporting-task fields. Its server-side reporting task is
-explicitly `evidence=caller-supplied`; it is not server proof that the caller is
-the Manager and must not be fabricated as such. Before dispatch, the local
+The landed #763 contract was reviewed at
+`7e0e321f63e0d3bde8a862b936cda821b25951d2` and squash-merged to main as
+`b92d411c995d605358dd8c05c80362e80f6bbdd0`. It supplies the canonical
+environment and operation identity plus auditable model/reasoning and
+reporting-task fields. Its server-side reporting task is explicitly
+`evidence=caller-supplied`; it is not server proof that the caller is the
+Manager and must not be fabricated as such. Before dispatch, the local
 `project codex start` caller gate must prove `state=main`,
 `role=project-manager`, `mutatingAllowed=false`, and the same current
 `CODEX_THREAD_ID` as the initiating/reporting task. Owned, foreign, unmanaged,
 missing or invalid context, missing or mismatched thread identity, and any
 caller-supplied role or thread alternative fail closed before network dispatch.
-The local gate is the canonical workflow proof. Keep #819 non-merge-ready until
-the exact landed #763 contract is reconciled; never claim remote caller metadata
-alone authenticates the Manager.
+The local gate is the canonical workflow proof; remote caller metadata remains
+honest evidence and never authenticates the Manager alone. The previous #763
+stacked assumption is reconciled; remaining draft and delivery gates are owned
+by the Manager.
 
 The default worker is `gpt-5.6-luna` with high reasoning. Escalate only after
 specific feedback fails to converge, unusually broad architectural reasoning is
