@@ -15,6 +15,7 @@ import {
 } from '@/shared/tailscale-inventory-api';
 import type { GitHubCodespaceInventoryItem } from '@/shared/github-codespace-inventory-api';
 import { cn } from '@/lib/utils';
+import { isTailscaleClassificationControlDisabled } from './compute-source-row-state';
 
 const classificationLabels: Record<TailscaleDeviceClassification, string> = {
   console_endpoint: 'Console endpoint',
@@ -118,11 +119,11 @@ export function TailscaleDeviceRow({
       </div>
       <Select
         aria-label={`Classification for ${device.name?.trim() || 'Tailscale device'}`}
-        isDisabled={classificationDisabled}
-        className={pending || classificationDisabled ? 'pointer-events-none opacity-50' : undefined}
+        isDisabled={isTailscaleClassificationControlDisabled(classificationDisabled, pending)}
+        className={isTailscaleClassificationControlDisabled(classificationDisabled, pending) ? 'pointer-events-none opacity-50' : undefined}
         value={draft}
         onChange={(value) => {
-          if (classificationDisabled) return;
+          if (isTailscaleClassificationControlDisabled(classificationDisabled, pending)) return;
           if (value && tailscaleDeviceClassifications.includes(value as TailscaleDeviceClassification)) {
             setDraft(value as TailscaleDeviceClassification);
           }
