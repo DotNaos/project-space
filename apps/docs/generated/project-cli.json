@@ -651,9 +651,21 @@
                 "inherited": false
               },
               {
+                "name": "model",
+                "type": "string",
+                "description": "worker model",
+                "inherited": false
+              },
+              {
                 "name": "operation-id",
                 "type": "string",
                 "description": "stable idempotency key for safe retries",
+                "inherited": false
+              },
+              {
+                "name": "reasoning-effort",
+                "type": "string",
+                "description": "worker reasoning effort",
                 "inherited": false
               },
               {
