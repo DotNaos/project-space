@@ -61,6 +61,17 @@ describe('source-first Compute page model', () => {
     expect(sections[1]!.rows[0]!.searchTerms).toContain('Shutdown');
   });
 
+  it('deduplicates provider records by their stable source identity', () => {
+    const sections = computeSourceSections({
+      tailscaleDevices: [tailscaleDevice, { ...tailscaleDevice, name: 'duplicate' }],
+      codespaces: [codespace, { ...codespace, displayName: 'duplicate' }]
+    });
+
+    expect(sections[0]!.rows.map((row) => row.id)).toEqual(['tailscale:device-12']);
+    expect(sections[1]!.rows.map((row) => row.id)).toEqual(['github:probable-space-lamp']);
+    expect(countComputeSourceRows(sections)).toBe(2);
+  });
+
   it('searches both providers while preserving both source sections', () => {
     const sections = computeSourceSections({ codespaces: [codespace], tailscaleDevices: [tailscaleDevice] });
 

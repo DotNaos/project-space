@@ -111,10 +111,10 @@ export function createTailscaleInventoryService(options: {
           });
         }
       }
+      const canShowCachedDevices = ['configured', 'connected', 'legacy'].includes(descriptor.connectionState) ||
+        (descriptor.source === 'tailscale_oauth_api' && refreshState === 'unavailable');
       return {
-        devices: (!['configured', 'connected', 'legacy'].includes(descriptor.connectionState) ||
-          (descriptor.source === 'tailscale_oauth_api' && refreshState === 'unavailable')
-          ? [] : await options.store.list(storageScope)).map((device) =>
+        devices: (canShowCachedDevices ? await options.store.list(storageScope) : []).map((device) =>
           toPublicDevice(device, refreshState === 'unavailable' ||
             !['configured', 'connected', 'legacy'].includes(descriptor.connectionState))
         ),

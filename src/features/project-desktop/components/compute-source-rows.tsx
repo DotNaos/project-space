@@ -55,11 +55,13 @@ function StatusChip({ label, state }: { label: string; state: 'available' | 'att
 export function TailscaleDeviceRow({
   device,
   onClassify,
-  onReload
+  onReload,
+  classificationDisabled = false
 }: {
   device: TailscaleInventoryDevice;
   onClassify(device: TailscaleInventoryDevice, value: TailscaleDeviceClassification): Promise<unknown>;
   onReload(): Promise<unknown>;
+  classificationDisabled?: boolean;
 }) {
   const [draft, setDraft] = useState<TailscaleDeviceClassification>(device.classification);
   const [error, setError] = useState('');
@@ -98,11 +100,14 @@ export function TailscaleDeviceRow({
           <div className="mt-1.5 flex min-w-0 flex-wrap gap-x-2 gap-y-1 font-mono text-xs text-neutral-400">
             {device.addresses.length > 0
               ? device.addresses.map((address) => <span key={address} className="break-all">{address}</span>)
-              : <span className="font-sans text-neutral-500">No direct Tailscale IP reported</span>}
+              : <span className="font-sans text-amber-300/80">Direct Tailscale address unavailable from source</span>}
           </div>
-          <Text className="mt-1.5 block text-xs text-neutral-600">
-            {[device.os, ...device.tags].filter(Boolean).join(' · ') || 'No operating system or tags reported'}
-          </Text>
+          {[device.os, ...device.tags].filter(Boolean).length > 0 ? (
+            <Text className="mt-1.5 block text-xs text-neutral-600">
+              {[device.os, ...device.tags].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
+          {classificationDisabled ? <Text className="mt-1.5 block text-xs text-amber-300/80">Classification is unavailable while the provider is unavailable.</Text> : null}
           {error ? (
             <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-200">
               <span>{error}</span>
@@ -113,9 +118,11 @@ export function TailscaleDeviceRow({
       </div>
       <Select
         aria-label={`Classification for ${device.name?.trim() || 'Tailscale device'}`}
-        className={pending ? 'pointer-events-none opacity-50' : undefined}
+        aria-disabled={classificationDisabled}
+        className={pending || classificationDisabled ? 'pointer-events-none opacity-50' : undefined}
         value={draft}
         onChange={(value) => {
+          if (classificationDisabled) return;
           if (value && tailscaleDeviceClassifications.includes(value as TailscaleDeviceClassification)) {
             setDraft(value as TailscaleDeviceClassification);
           }
@@ -135,7 +142,7 @@ export function TailscaleDeviceRow({
           </ListBox>
         </Select.Popover>
       </Select>
-      <Button size="sm" variant="secondary" isDisabled={pending || draft === device.classification} onPress={() => void save()}>
+      <Button size="sm" variant="secondary" isDisabled={classificationDisabled || pending || draft === device.classification} onPress={() => void save()}>
         {pending ? 'Saving…' : 'Save'}
       </Button>
     </div>

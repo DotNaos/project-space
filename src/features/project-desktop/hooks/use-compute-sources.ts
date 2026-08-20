@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type { GitHubCodespaceInventoryResult } from '@/shared/github-codespace-inventory-api';
 import type {
@@ -6,14 +6,20 @@ import type {
   TailscaleInventoryDevice,
   TailscaleInventoryResult
 } from '@/shared/tailscale-inventory-api';
-
-export type ComputeSourceStatus = 'error' | 'loading' | 'ready' | 'refreshing';
-
-export interface ComputeSourceState<Result> {
-  error: string;
-  result?: Result;
-  status: ComputeSourceStatus;
-}
+export type { ComputeSourceStatus, ComputeSourceState } from './use-compute-sources-types';
+export {
+  computeSourceErrorState,
+  computeSourceLoadingState,
+  computeSourceReadyState,
+  createComputeSourceRequestGate
+} from './compute-source-state';
+import {
+  computeSourceErrorState,
+  computeSourceLoadingState,
+  computeSourceReadyState,
+  createComputeSourceRequestGate
+} from './compute-source-state';
+import type { ComputeSourceState } from './use-compute-sources-types';
 
 const refreshIntervalMs = 60_000;
 
@@ -26,43 +32,35 @@ export function useComputeSources() {
     error: '',
     status: 'loading'
   });
+  const tailscaleRequests = useRef(createComputeSourceRequestGate());
+  const githubRequests = useRef(createComputeSourceRequestGate());
 
   const refreshTailscale = useCallback(async (forceRefresh = true) => {
-    setTailscale((current) => ({
-      ...current,
-      error: '',
-      status: current.result ? 'refreshing' : 'loading'
-    }));
+    const request = tailscaleRequests.current.begin();
+    setTailscale(computeSourceLoadingState);
     try {
       const result = await projectSpaceClient.getTailscaleInventory(forceRefresh);
-      setTailscale({ error: '', result, status: 'ready' });
+      if (!tailscaleRequests.current.isLatest(request)) return result;
+      setTailscale(computeSourceReadyState(result));
       return result;
     } catch {
-      setTailscale((current) => ({
-        ...current,
-        error: 'Tailscale inventory could not be refreshed.',
-        status: 'error'
-      }));
+      if (!tailscaleRequests.current.isLatest(request)) return undefined;
+      setTailscale((current) => computeSourceErrorState(current, 'Tailscale inventory could not be refreshed.'));
       return undefined;
     }
   }, []);
 
   const refreshGitHub = useCallback(async () => {
-    setGitHub((current) => ({
-      ...current,
-      error: '',
-      status: current.result ? 'refreshing' : 'loading'
-    }));
+    const request = githubRequests.current.begin();
+    setGitHub(computeSourceLoadingState);
     try {
       const result = await projectSpaceClient.getGitHubCodespaceInventory();
-      setGitHub({ error: '', result, status: 'ready' });
+      if (!githubRequests.current.isLatest(request)) return result;
+      setGitHub(computeSourceReadyState(result));
       return result;
     } catch {
-      setGitHub((current) => ({
-        ...current,
-        error: 'GitHub Codespaces could not be refreshed.',
-        status: 'error'
-      }));
+      if (!githubRequests.current.isLatest(request)) return undefined;
+      setGitHub((current) => computeSourceErrorState(current, 'GitHub Codespaces could not be refreshed.'));
       return undefined;
     }
   }, []);

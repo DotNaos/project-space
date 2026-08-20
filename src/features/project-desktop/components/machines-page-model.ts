@@ -49,6 +49,16 @@ function tailscaleStatus(device: TailscaleInventoryDevice): ComputeSourceRow['st
   return 'unknown';
 }
 
+function uniqueById<T>(records: readonly T[], getId: (record: T) => string) {
+  const seen = new Set<string>();
+  return records.filter((record) => {
+    const id = getId(record);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
 export function computeSourceSections(input: {
   codespaces?: readonly GitHubCodespaceInventoryItem[];
   tailscaleDevices?: readonly TailscaleInventoryDevice[];
@@ -57,7 +67,7 @@ export function computeSourceSections(input: {
     {
       id: 'tailscale',
       label: 'Tailscale',
-      rows: (input.tailscaleDevices ?? []).map((record) => ({
+      rows: uniqueById(input.tailscaleDevices ?? [], (record) => record.id).map((record) => ({
         id: `tailscale:${record.id}`,
         kind: 'tailscale' as const,
         record,
@@ -75,7 +85,7 @@ export function computeSourceSections(input: {
     {
       id: 'github',
       label: 'GitHub Codespaces',
-      rows: (input.codespaces ?? []).map((record) => ({
+      rows: uniqueById(input.codespaces ?? [], (record) => record.name).map((record) => ({
         id: `github:${record.name}`,
         kind: 'github' as const,
         record,

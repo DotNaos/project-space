@@ -29,6 +29,7 @@ import {
 } from './machines-page-model';
 import { GitHubCodespaceRow, TailscaleDeviceRow } from './compute-source-rows';
 import type { SettingsMachineGroupsStatus } from './settings-machine-groups-view-model';
+import type { TailscaleInventoryResult } from '@/shared/tailscale-inventory-api';
 
 const filters: Array<{ id: MachineFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -36,7 +37,8 @@ const filters: Array<{ id: MachineFilter; label: string }> = [
   { id: 'attention', label: 'Needs attention' }
 ];
 
-function sourceRefreshLabel(status: ComputeSourceStatus) {
+function sourceRefreshLabel(status: ComputeSourceStatus, providerLabel?: string) {
+  if (providerLabel) return providerLabel;
   switch (status) {
     case 'loading': return 'Loading';
     case 'refreshing': return 'Refreshing';
@@ -54,13 +56,43 @@ function tailscaleSourceLabel(source: string | undefined) {
   }
 }
 
+function tailscaleProviderConnectionLabel(connectionState: TailscaleInventoryResult['provider']['connectionState'] | undefined) {
+  switch (connectionState) {
+    case 'not_configured': return 'Not configured';
+    case 'configuration_error': return 'Configuration error';
+    case 'authentication_error': return 'Authentication error';
+    case 'scope_insufficient': return 'Scope required';
+    case 'unavailable': return 'Unavailable';
+    default: return undefined;
+  }
+}
+
+function tailscaleProviderConnectionNotice(
+  connectionState: TailscaleInventoryResult['provider']['connectionState'] | undefined,
+  cachedCount: number
+) {
+  switch (connectionState) {
+    case 'not_configured': return 'Tailscale is not configured for this deployment.';
+    case 'configuration_error': return 'Tailscale configuration is invalid. An administrator must repair the provider configuration.';
+    case 'authentication_error': return cachedCount > 0
+      ? 'Tailscale authorization failed. Showing the last observed devices.'
+      : 'Tailscale authorization failed. Reconnect Tailscale to load devices.';
+    case 'scope_insufficient': return 'Tailscale authorization needs devices:core:read. Reconnect Tailscale once to grant device access.';
+    case 'unavailable': return cachedCount > 0
+      ? 'Tailscale is temporarily unavailable. Showing the last observed devices.'
+      : 'Tailscale is temporarily unavailable. No cached devices are available.';
+    default: return undefined;
+  }
+}
+
 function SourceHeader({
   count,
   description,
   icon: Icon,
   label,
   onRefresh,
-  status
+  status,
+  statusLabel
 }: {
   count: number;
   description: string;
@@ -68,6 +100,7 @@ function SourceHeader({
   label: string;
   onRefresh(): void;
   status: ComputeSourceStatus;
+  statusLabel?: string;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-3 border-b border-neutral-800/70 pb-4 sm:flex-row sm:items-start sm:justify-between">
@@ -82,7 +115,7 @@ function SourceHeader({
             <Chip size="sm" className={cn(
               status === 'error' && 'text-amber-300',
               status === 'ready' && 'text-emerald-300'
-            )}>{sourceRefreshLabel(status)}</Chip>
+            )}>{sourceRefreshLabel(status, statusLabel)}</Chip>
           </div>
           <Text className="mt-1 block text-xs text-neutral-500">{description}</Text>
         </div>
@@ -143,15 +176,38 @@ export function MachinesPage(_props: MachinesPageProps) {
   );
   const tailscaleSection = visibleSections[0]!;
   const githubSection = visibleSections[1]!;
-  const tailscaleProviderNotice = tailscale.result?.provider.refreshState === 'partial'
+  const tailscaleCachedCount = tailscale.result?.devices.length ?? 0;
+  const tailscaleConnectionState = tailscale.result?.provider.connectionState;
+  const tailscaleConnectionLabel = tailscaleProviderConnectionLabel(tailscaleConnectionState);
+  const tailscaleConnectionNotice = tailscaleProviderConnectionNotice(tailscaleConnectionState, tailscaleCachedCount);
+  const tailscaleProviderNotice = tailscaleConnectionNotice ?? (tailscale.result?.provider.refreshState === 'partial'
     ? 'Tailscale returned a partial inventory. The available devices remain visible.'
     : tailscale.result?.provider.refreshState === 'unavailable'
-      ? 'Tailscale is temporarily unavailable. Showing the last observed devices.'
-      : '';
-  const tailscaleDisplayStatus = tailscale.status === 'ready' &&
+      ? tailscaleCachedCount > 0
+        ? 'Tailscale is temporarily unavailable. Showing the last observed devices.'
+        : 'Tailscale is temporarily unavailable. No cached devices are available.'
+      : '');
+  const tailscaleProviderNeedsAttention = Boolean(
+    tailscaleConnectionLabel ||
+    tailscale.result?.provider.refreshState === 'partial' ||
     tailscale.result?.provider.refreshState === 'unavailable'
+  );
+  const tailscaleDisplayStatus = tailscale.status === 'ready' && tailscaleProviderNeedsAttention
     ? 'error'
     : tailscale.status;
+  const tailscaleEmptyMessage = tailscaleProviderNeedsAttention
+    ? 'No cached Tailscale devices are available.'
+    : 'No Tailscale devices were reported.';
+  const tailscaleClassificationDisabled = Boolean(
+    tailscaleConnectionLabel || tailscale.result?.provider.refreshState === 'unavailable'
+  );
+  const githubProviderNeedsAttention = github.result?.provider.connectionState !== 'connected';
+  const githubDisplayStatus = github.status === 'ready' && githubProviderNeedsAttention ? 'error' : github.status;
+  const githubStatusLabel = github.result?.provider.connectionState === 'scope_insufficient'
+    ? 'Scope required'
+    : github.result?.provider.connectionState === 'not_connected'
+      ? 'Connection required'
+      : undefined;
   const checkedAt = [
     github.result?.checkedAt,
     ...((tailscale.result?.devices ?? []).map((device) => device.network.checkedAt))
@@ -198,16 +254,17 @@ export function MachinesPage(_props: MachinesPageProps) {
             icon={Network}
             label="Tailscale"
             status={tailscaleDisplayStatus}
+            statusLabel={tailscaleConnectionLabel ?? (tailscale.result?.provider.refreshState === 'partial' ? 'Partial' : undefined)}
             onRefresh={() => void refreshTailscale(true)}
           />
-          {tailscale.error && tailscale.result ? <SourceMessage kind="error">{tailscale.error} Showing the last known devices.</SourceMessage> : null}
+          {tailscale.error && tailscale.result ? <SourceMessage kind="error">{tailscale.error} {tailscaleCachedCount > 0 ? 'Showing the last known devices.' : 'No cached devices are available.'}</SourceMessage> : null}
           {tailscaleProviderNotice ? <SourceMessage kind="error">{tailscaleProviderNotice}</SourceMessage> : null}
           {tailscale.error && !tailscale.result ? (
             <SourceMessage kind="error">{tailscale.error}</SourceMessage>
           ) : tailscale.status === 'loading' && !tailscale.result ? (
             <SourceMessage><LoaderCircle className="inline size-4 animate-spin" /> Loading Tailscale devices…</SourceMessage>
           ) : sections[0]!.rows.length === 0 ? (
-            <SourceMessage>No Tailscale devices were reported.</SourceMessage>
+            <SourceMessage>{tailscaleEmptyMessage}</SourceMessage>
           ) : tailscaleSection.rows.length === 0 ? (
             <SourceMessage>No Tailscale devices match this search or filter.</SourceMessage>
           ) : (
@@ -218,6 +275,7 @@ export function MachinesPage(_props: MachinesPageProps) {
                   device={row.record}
                   onClassify={classifyTailscaleDevice}
                   onReload={() => refreshTailscale(false)}
+                  classificationDisabled={tailscaleClassificationDisabled}
                 />
               ) : null)}
             </div>
@@ -230,7 +288,8 @@ export function MachinesPage(_props: MachinesPageProps) {
             description="Codespaces owned and managed by GitHub"
             icon={Github}
             label="GitHub Codespaces"
-            status={github.status}
+            status={githubDisplayStatus}
+            statusLabel={githubStatusLabel}
             onRefresh={() => void refreshGitHub()}
           />
           {github.error && github.result ? <SourceMessage kind="error">{github.error} Showing the last known Codespaces.</SourceMessage> : null}
@@ -255,7 +314,12 @@ export function MachinesPage(_props: MachinesPageProps) {
           )}
         </Surface>
 
-        {countComputeSourceRows(sections) === 0 && tailscale.status === 'ready' && github.status === 'ready' ? (
+        {countComputeSourceRows(sections) === 0 &&
+        tailscale.status === 'ready' &&
+        tailscale.result?.provider.connectionState === 'connected' &&
+        tailscale.result.provider.refreshState === 'available' &&
+        github.status === 'ready' &&
+        github.result?.provider.connectionState === 'connected' ? (
           <div className="flex items-center justify-center gap-2 py-2 text-xs text-neutral-600">
             <CheckCircle2 className="size-4" /> Both sources are current.
           </div>

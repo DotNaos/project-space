@@ -39,7 +39,7 @@ mock.module('@/app/dotnaos-ui', () => ({
   SearchFieldGroup: element('div'),
   SearchFieldInput: (props: { [key: string]: unknown }) => createElement('input', props),
   SearchFieldSearchIcon: () => null,
-  Select: Object.assign(element('div'), {
+  Select: Object.assign(({ isDisabled: _isDisabled, ...props }: { isDisabled?: boolean; [key: string]: unknown }) => createElement('div', props), {
     Indicator: element('span'), Popover: element('div'), Trigger: element('button')
   }),
   Surface: element('section'),
@@ -100,8 +100,10 @@ const sourceFixture = {
   }
 };
 
+let currentSourceFixture = sourceFixture;
+
 mock.module('../src/features/project-desktop/hooks/use-compute-sources', () => ({
-  useComputeSources: () => sourceFixture
+  useComputeSources: () => currentSourceFixture
 }));
 
 const { MachinesPage } = await import('../src/features/project-desktop/components/machines-page');
@@ -148,5 +150,172 @@ describe('source-first Compute page UI', () => {
     expect(html).toContain('break-all');
     expect(html).toContain('overflow-y-auto');
     expect(html).not.toContain('overflow-x-auto overscroll');
+  });
+
+  test('omits unavailable optional device metadata instead of inventing placeholders', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      tailscale: {
+        ...sourceFixture.tailscale,
+        result: {
+          ...sourceFixture.tailscale.result!,
+          devices: [{ ...sourceFixture.tailscale.result!.devices[0]!, addresses: [], os: undefined, tags: [] }]
+        }
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).not.toContain('No direct Tailscale IP reported');
+    expect(html).not.toContain('No operating system or tags reported');
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('renders independent loading states without empty-state lies', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      github: { ...sourceFixture.github, result: undefined, status: 'loading' },
+      tailscale: { ...sourceFixture.tailscale, result: undefined, status: 'loading' }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('Loading Tailscale devices');
+    expect(html).toContain('Loading GitHub Codespaces');
+    expect(html).not.toContain('No Tailscale devices were reported');
+    expect(html).not.toContain('No GitHub Codespaces were reported');
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('keeps stale devices visible after a provider refresh failure', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      tailscale: {
+        ...sourceFixture.tailscale,
+        error: 'Tailscale inventory could not be refreshed.',
+        result: {
+          ...sourceFixture.tailscale.result!,
+          devices: [{ ...sourceFixture.tailscale.result!.devices[0]!, network: {
+            ...sourceFixture.tailscale.result!.devices[0]!.network,
+            state: 'unknown' as const
+          }}],
+          provider: { ...sourceFixture.tailscale.result!.provider, refreshState: 'unavailable' as const }
+        },
+        status: 'error'
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('Showing the last observed devices');
+    expect(html).toContain('os-pc');
+    expect(html).toContain('Classification is unavailable while the provider is unavailable');
+    expect(html).not.toContain('No Tailscale devices were reported');
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('describes partial and provider-unavailable empty states precisely', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      tailscale: {
+        ...sourceFixture.tailscale,
+        result: {
+          ...sourceFixture.tailscale.result!,
+          devices: [],
+          provider: { ...sourceFixture.tailscale.result!.provider, refreshState: 'unavailable' as const }
+        }
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('No cached Tailscale devices are available');
+    expect(html).not.toContain('No Tailscale devices were reported');
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('marks partial inventories as partial rather than current', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      tailscale: {
+        ...sourceFixture.tailscale,
+        result: {
+          ...sourceFixture.tailscale.result!,
+          provider: { ...sourceFixture.tailscale.result!.provider, refreshState: 'partial' as const }
+        }
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('>Partial</span>');
+    expect(html).toContain('partial inventory');
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('keeps source health honest when either provider is disconnected', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      github: {
+        ...sourceFixture.github,
+        result: {
+          ...sourceFixture.github.result!,
+          codespaces: [],
+          provider: { connectionState: 'not_connected' as const, source: 'github_api' as const }
+        }
+      },
+      tailscale: {
+        ...sourceFixture.tailscale,
+        result: {
+          ...sourceFixture.tailscale.result!,
+          devices: [],
+          provider: { ...sourceFixture.tailscale.result!.provider, refreshState: 'partial' as const }
+        }
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('Connection required');
+    expect(html).not.toContain('Both sources are current');
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('keeps every Tailscale connection failure explicit', () => {
+    for (const [connectionState, expected] of [
+      ['not_configured', 'Tailscale is not configured'],
+      ['configuration_error', 'Tailscale configuration is invalid'],
+      ['authentication_error', 'Tailscale authorization failed'],
+      ['scope_insufficient', 'devices:core:read'],
+      ['unavailable', 'No cached Tailscale devices are available']
+    ] as const) {
+      currentSourceFixture = {
+        ...sourceFixture,
+        tailscale: {
+          ...sourceFixture.tailscale,
+          result: {
+            ...sourceFixture.tailscale.result!,
+            devices: [],
+            provider: { ...sourceFixture.tailscale.result!.provider, connectionState }
+          }
+        }
+      };
+      const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+      expect(html).toContain(expected);
+    }
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('renders provider auth and scope lifecycle states without generic inventory copy', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      github: {
+        ...sourceFixture.github,
+        result: {
+          ...sourceFixture.github.result!,
+          codespaces: [],
+          provider: { connectionState: 'scope_insufficient' as const, source: 'github_api' as const }
+        }
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('Reconnect GitHub once to grant Codespaces access');
+    expect(html).not.toContain('No GitHub Codespaces were reported');
+    currentSourceFixture = sourceFixture;
   });
 });
