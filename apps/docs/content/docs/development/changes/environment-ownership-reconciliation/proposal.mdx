@@ -28,17 +28,21 @@ built-in from deployment infrastructure.
 - Carry owner scope through definition and Environment reconciliation.
 - Key built-in aliases by owner and definition ID.
 - Preserve user-defined definitions and references, including fail-closed duplicate findings.
+- Backfill a user-scoped Environment only when one fresh deployment observation maps to one
+  owned connector and one physical Host; ambiguous evidence is a no-op.
 - Keep configured Codex start/send Host selection evidence-based: select one exact verified Host
   and retain it through send, or return the existing actionable unavailable state.
-- Leave persisted migrations and projections owner-scoped and unchanged.
+- Keep persisted projections owner-scoped; add only the narrowly eligible ownership backfill.
 
 ## Out of scope
 
-- Rewriting persisted user or deployment data.
+- Broad rewriting of persisted user or deployment data; the eligible backfill is additive and
+  leaves the deployment projection unchanged.
 - Relaxing duplicate, incompatible-definition, or Codex runtime authorization failures.
 - Changing the public inventory response shape or adding a release-bearing CLI change.
 
 ## Delivery
 
-This is an internal server and shared-model correctness fix. It requires no data migration,
-production data mutation, or release-bearing CLI change.
+This is an internal server and shared-model correctness fix. It includes an additive,
+fail-closed database backfill; it performs no Production data mutation from this task and
+requires no release-bearing CLI change.

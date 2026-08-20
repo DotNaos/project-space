@@ -20,7 +20,8 @@ Goals:
 
 Non-goals:
 
-- Repairing or deleting persisted rows as part of inventory presentation.
+- Broad repair or deletion of persisted rows; only the explicit, eligible ownership backfill
+  below is allowed.
 - Making a conflicted user catalog silently valid.
 
 ## Architecture
@@ -40,6 +41,11 @@ then strips the temporary owner field before returning the existing public snaps
 4. Strip the temporary owner field before returning the existing public inventory shape.
 5. Keep the persisted migration, Tailscale projection, and downstream target projections
    owner-scoped; duplicate ambiguity remains fail-closed.
+6. Run migration `0059_tailscale_environment_ownership` only when a current, online,
+   deployment-owned Tailscale Environment has one OS/name match to one user-owned connector
+   grouped into one local physical Host and the account has an equivalent built-in definition.
+   It copies the Environment into that account with the same UUID and manual/user evidence,
+   while leaving the deployment projection unchanged.
 
 ## Validation model
 
@@ -66,11 +72,18 @@ the HTTP start/send boundary. No preconstructed inventory snapshot bypasses eith
 - **Hidden ambiguity:** existing duplicate violations remain visible and fail-closed.
 - **Fabricated target:** configured runtime projection requires exact owner-valid Host evidence;
   otherwise the service returns the existing actionable unavailable result before dispatch.
+- **Unsafe backfill:** the migration inserts no row when the observation matches multiple
+  accounts, connectors, or Hosts, when the evidence is stale/offline, or when the account has a
+  user-defined definition at that identity. Existing rows with user-defined evidence are not
+  overwritten.
 
 ## Migration and rollout
 
-No migration or production data change is required. The fix takes effect when the server reads
-the combined inventory; existing persisted migration and projection boundaries remain unchanged.
+The forward migration is additive and idempotent. It copies only the exact eligible
+deployment-derived Environment into the account scope; ambiguous or stale evidence is left
+untouched, and the original deployment projection remains intact. Combined presentation hides
+only the matching deployment projection after a built-in account copy exists, preserving
+user-defined and unrelated deployment evidence.
 
 ## Validation
 
@@ -81,3 +94,5 @@ the combined inventory; existing persisted migration and projection boundaries r
   fail closed before dispatch.
 - Type checking, the full Bun test suite, and the project/prototype build pass locally.
 - The exact pull-request head is checked by the repository preflight before push.
+- Migration SQL and repository coverage prove the exact eligibility, idempotent owner-scoped
+  copy, unchanged deployment projection, and ambiguity no-op behavior.

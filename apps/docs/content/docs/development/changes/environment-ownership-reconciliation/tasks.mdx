@@ -20,12 +20,18 @@ description: Implementation and verification checklist for Environment ownership
 - [x] 2.2 Preserve fail-closed duplicate and runtime authorization behavior
   - **Evidence:** The regression expects the duplicate-slug violation; the full test suite passes without changes to authorization boundaries.
 - [x] 2.3 Audit persisted and projected paths
-  - **Evidence:** Migration updates/deletes, Tailscale projections, and target projections remain owner-scoped or ambiguity-failing.
+  - **Evidence:** Migration `0059_tailscale_environment_ownership` copies only one exact eligible
+    deployment projection into the user scope; stale, duplicate, wrong-owner, and user-defined
+    evidence remains untouched and fail-closed.
+- [x] 2.4 Keep combined presentation owner-safe after the backfill
+  - **Evidence:** The repository suppresses only the matching deployment projection when the
+    user-owned built-in copy exists, while retaining user-defined and unrelated deployment rows.
 
 ## 3. Delivery evidence
 
-- [x] 3.1 Run focused tests, type check, full tests, and build
-  - **Evidence:** Focused tests, `bun run check`, `bun test --isolate`, and `bun run build` pass.
+- [x] 3.1 Run focused tests, migration checks, type check, full tests, and build
+  - **Evidence:** Focused HTTP/repository tests, migration assertions, `bun run check`,
+    `bun test --isolate`, and `bun run build` pass.
 - [x] 3.2 Verify the persisted configured repository/HTTP start/send flow
   - **Evidence:** `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` starts with
     owner-scoped database query rows, reconciles the combined collision, lets the configured
