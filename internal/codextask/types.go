@@ -22,6 +22,7 @@ type BlockedReason string
 
 const (
 	BlockedApprovalRequired  BlockedReason = "approval_required"
+	BlockedCodexStartFailed  BlockedReason = "codex_start_failed"
 	BlockedConnectorRequired BlockedReason = "connector_required"
 	BlockedInputRequired     BlockedReason = "input_required"
 	BlockedMachineNotReady   BlockedReason = "machine_not_ready"
