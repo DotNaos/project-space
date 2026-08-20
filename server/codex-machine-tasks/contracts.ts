@@ -1,5 +1,6 @@
 import type {
   CodexMachineTaskSendResult,
+  CodexMachineTaskStartPlan,
   CodexMachineTaskStartResult
 } from '../../src/shared/codex-machine-tasks-api';
 import type {
@@ -16,6 +17,13 @@ export interface CodexMachineTaskStartPayload {
   commit: string;
   issue: { number: number; url: string };
   repository: { id: string; nameWithOwner: string };
+}
+
+export interface CodexMachineTaskWorkspaceBinding {
+  branch: string;
+  commit: string;
+  id: string;
+  path?: string;
 }
 
 export interface CodexMachineTaskStartOperation {
@@ -226,6 +234,28 @@ export interface CodexMachineTasksServiceOptions {
     repositoryId?: string;
     userId: string;
   }): Promise<CodexMachineTaskStartPayload>;
+  workspace?(input: {
+    branch: string;
+    commit: string;
+    connectorId: string;
+    generation: number;
+    userId: string;
+  }): Promise<CodexMachineTaskWorkspaceBinding>;
+  plan?(input: {
+    branch: string;
+    commit: string;
+    connectorId: string;
+    generation: number;
+    issue: { number: number; url: string };
+    operationId: string;
+    physicalMachineId: string;
+    repository: { id: string; nameWithOwner: string };
+    userId: string;
+  }): Promise<{
+    plan?: Pick<CodexMachineTaskStartPlan, 'workspace' | 'worktree' | 'environment'>;
+    state: 'ready' | 'uncertain' | 'unavailable';
+    message?: string;
+  }>;
   queueRetryDelay?(): Promise<void>;
   sessions: {
     read(input: {
@@ -296,7 +326,17 @@ export interface CodexMachineTasksServiceOptions {
   }): Promise<{
     generation: number;
     result:
-      | { state: 'confirmed'; threadId: string; worktreeId: string }
+      | {
+          state: 'confirmed';
+          threadId: string;
+          worktreeId?: string;
+          workspace?: {
+            branch: string;
+            commit: string;
+            id: string;
+            path?: string;
+          };
+        }
       | { message: string; state: 'codex_failure' }
       | { state: 'offline' }
       | { message: string; state: 'worktree_failure' }

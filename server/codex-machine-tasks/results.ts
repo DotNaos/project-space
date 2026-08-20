@@ -28,10 +28,14 @@ export function blocked(
   };
 }
 
-export function uncertain(operationId: string, target?: CodexMachineTaskTarget) {
+export function uncertain(
+  operationId: string,
+  target?: CodexMachineTaskTarget,
+  message = 'The target may have applied the operation; reconcile before retrying.'
+) {
   return {
     apiVersion: CODEX_MACHINE_TASKS_API_VERSION,
-    message: 'The target may have applied the operation; reconcile before retrying.',
+    message,
     operationId,
     reconcile: 'required' as const,
     state: 'uncertain' as const,

@@ -78,10 +78,11 @@ export function createCodexMachineTasksHttpApi(
         requireIdempotency(request, operationId);
         const issue = Number(body.issue);
         if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
+        const dryRun = parseDryRun(body);
+        const selector = startSelectorFromBody(body);
         writeJson(response, 200, await service.start(actor, {
-          connectorId: optionalSelector(body.connectorId),
-          environmentId: optionalSelector(body.environmentId),
-          dryRun: body.dryRun === true,
+          ...selector,
+          dryRun,
           expectedBranch: optionalSelector(body.expectedBranch),
           expectedCommit: optionalCommit(body.expectedCommit),
           expectedPullRequestNumber: optionalPositiveInteger(
@@ -90,8 +91,6 @@ export function createCodexMachineTasksHttpApi(
           ),
           issue,
           operationId,
-          physicalMachineId: optionalSelector(body.physicalMachineId),
-          physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -102,10 +101,11 @@ export function createCodexMachineTasksHttpApi(
         requireIdempotency(request, operationId);
         const issue = Number(body.issue);
         if (!Number.isSafeInteger(issue) || issue < 1) throw invalid('Issue must be positive.');
+        const dryRun = parseDryRun(body);
+        const selector = startSelectorFromBody(body);
         writeJson(response, 200, await service.recoverStart(actor, {
-          connectorId: optionalSelector(body.connectorId),
-          environmentId: optionalSelector(body.environmentId),
-          dryRun: body.dryRun === true,
+          ...selector,
+          dryRun,
           expectedBranch: optionalSelector(body.expectedBranch),
           expectedCommit: optionalCommit(body.expectedCommit),
           expectedPullRequestNumber: optionalPositiveInteger(
@@ -114,8 +114,6 @@ export function createCodexMachineTasksHttpApi(
           ),
           issue,
           operationId,
-          physicalMachineId: optionalSelector(body.physicalMachineId),
-          physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -262,7 +260,7 @@ async function stream(
 }
 
 function selectorFromUrl(url: URL, threadId: string): CodexMachineTaskReadRequest {
-  return {
+  const selector = {
     connectorId: optionalSelector(url.searchParams.get('connectorId') ?? undefined),
     environmentId: optionalSelector(url.searchParams.get('environmentId') ?? undefined),
     physicalMachineId: optionalSelector(url.searchParams.get('physicalMachineId') ?? undefined),
@@ -271,16 +269,47 @@ function selectorFromUrl(url: URL, threadId: string): CodexMachineTaskReadReques
     ),
     threadId
   };
+  validateSelectorConflict(selector);
+  return selector;
 }
 
 function selectorFromBody(body: Record<string, unknown>, threadId: string) {
-  return {
+  const selector = {
     connectorId: optionalSelector(body.connectorId),
     environmentId: optionalSelector(body.environmentId),
     physicalMachineId: optionalSelector(body.physicalMachineId),
     physicalMachineName: optionalPhysicalMachineName(body.physicalMachineName),
     threadId
   };
+  validateSelectorConflict(selector);
+  return selector;
+}
+
+function startSelectorFromBody(body: Record<string, unknown>) {
+  const selector = selectorFromBody(body, '');
+  return {
+    connectorId: selector.connectorId,
+    ...(selector.environmentId ? { environmentId: selector.environmentId } : {}),
+    physicalMachineId: selector.physicalMachineId,
+    physicalMachineName: selector.physicalMachineName
+  };
+}
+
+function validateSelectorConflict(selector: {
+  environmentId?: string;
+  physicalMachineId?: string;
+  physicalMachineName?: string;
+}) {
+  if (selector.environmentId && (selector.physicalMachineId || selector.physicalMachineName)) {
+    throw invalid('environmentId cannot be combined with a physical machine selector.');
+  }
+}
+
+function parseDryRun(body: Record<string, unknown>) {
+  if (Object.prototype.hasOwnProperty.call(body, 'dryRun') && typeof body.dryRun !== 'boolean') {
+    throw invalid('dryRun must be a boolean.');
+  }
+  return body.dryRun === true;
 }
 
 async function readBody(request: IncomingMessage) {

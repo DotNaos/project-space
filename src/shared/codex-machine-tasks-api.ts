@@ -60,10 +60,11 @@ export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
   threadId: string;
   workspace?: {
     branch: string;
+    commit?: string;
     id: string;
     path?: string;
   };
-  worktree: {
+  worktree?: {
     branch: string;
     id: string;
   };
@@ -113,6 +114,39 @@ export interface CodexMachineTaskStartRecoveryResult {
   state: 'released';
 }
 
+export interface CodexMachineTaskStartPlan {
+  base: {
+    branch: string;
+    commit: string;
+  };
+  environment: {
+    id: string;
+    name: string;
+  };
+  issue: {
+    number: number;
+    url: string;
+  };
+  operation: {
+    id: string;
+    state: 'ready';
+  };
+  repository: {
+    id: string;
+    nameWithOwner: string;
+  };
+  workspace: {
+    branch: string;
+    commit: string;
+    id: string;
+    path?: string;
+  };
+  worktree?: {
+    branch: string;
+    id: string;
+  };
+}
+
 export interface CodexMachineTaskConnectorStartRequest {
   branch: string;
   commit: string;
@@ -149,6 +183,7 @@ export type CodexMachineTaskStartResult =
       operationId: string;
       state: 'ready';
       target: CodexMachineTaskTarget;
+      plan: CodexMachineTaskStartPlan;
     }
   | {
       apiVersion: typeof CODEX_MACHINE_TASKS_API_VERSION;

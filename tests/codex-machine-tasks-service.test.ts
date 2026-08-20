@@ -15,6 +15,48 @@ import {
 } from './fixtures/codex-machine-tasks-service';
 
 describe('Codex machine-task service', () => {
+  test('resolves a complete dry-run plan without reserving or starting a task', async () => {
+    const store = memoryStore();
+    let issueDryRun = false;
+    let starts = 0;
+    const result = await service({
+      issue: async (input) => {
+        issueDryRun = input.dryRun === true;
+        return {
+          branch: 'issue-262-build-codex-machine-task-core-and-cli',
+          commit: 'a'.repeat(40),
+          issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
+          repository: { id: 'R_test', nameWithOwner: 'DotNaos/project-space' }
+        };
+      },
+      plan: async () => ({
+        environment: { id: 'environment-local', name: 'Local Environment' },
+        workspace: {
+          branch: 'issue-262-build-codex-machine-task-core-and-cli',
+          commit: 'a'.repeat(40),
+          id: 'workspace-local'
+        }
+      }),
+      start: async () => {
+        starts += 1;
+        return { state: 'confirmed', threadId, worktreeId: 'must-not-start' };
+      },
+      store
+    }).start({ userId: 'user-owner' }, { ...request, dryRun: true });
+
+    expect(result).toEqual(expect.objectContaining({ state: 'ready', target: expect.anything() }));
+    expect(result.state === 'ready' && result.plan).toEqual(expect.objectContaining({
+      base: { branch: 'issue-262-build-codex-machine-task-core-and-cli', commit: 'a'.repeat(40) },
+      environment: { id: 'environment-local', name: 'Local Environment' },
+      issue: expect.objectContaining({ number: 262 }),
+      operation: { id: request.operationId, state: 'ready' },
+      workspace: expect.objectContaining({ id: 'workspace-local' })
+    }));
+    expect(issueDryRun).toBeTrue();
+    expect(starts).toBe(0);
+    expect(store.operations.size).toBe(0);
+  });
+
   test('confirms a target-created persistent thread and replays identical starts', async () => {
     const store = memoryStore();
     let starts = 0;

@@ -30,6 +30,25 @@ export interface WorkspaceRuntimeCodexBridge {
     }>;
   }>;
   generationFor(machineId: string): number | undefined;
+  plan(input: {
+    branch: string;
+    commit: string;
+    connectorId: string;
+    generation: number;
+    issue: { number: number; url: string };
+    operationId: string;
+    physicalMachineId: string;
+    repository: { id: string; nameWithOwner: string };
+    userId: string;
+  }): Promise<{
+      plan?: {
+        environment: { id: string; name: string };
+      workspace: { branch: string; commit: string; id: string; path?: string };
+        worktree?: { branch: string; id: string };
+    };
+    state: 'ready' | 'uncertain' | 'unavailable';
+    message?: string;
+  }>;
   start(input: {
     branch: string;
     commit: string;
@@ -43,7 +62,18 @@ export interface WorkspaceRuntimeCodexBridge {
   }): Promise<{
     generation: number;
     result:
-      | { state: 'confirmed'; threadId: string; worktreeId: string }
+      | {
+          state: 'confirmed';
+          threadId: string;
+          workspace: {
+            branch: string;
+            commit: string;
+            id: string;
+            path?: string;
+            worktree?: { branch: string; id: string };
+          };
+          worktreeId: string;
+        }
       | { message: string; state: 'worktree_failure' }
       | { state: 'offline' | 'uncertain' };
   }>;
@@ -65,6 +95,19 @@ export interface WorkspaceRuntimeCodexBridge {
 export function createWorkspaceRuntimeCodexBridge(options: {
   loadInventory(userId: string): Promise<ComputeInventorySnapshot>;
   sessions: WorkspaceRuntimeSessionService;
+  resolveWorkspaceBinding?(input: {
+    branch: string;
+    commit: string;
+    environmentId: string;
+    ownerUserId: string;
+    workspaceId: string;
+  }): Promise<{
+    branch: string;
+    commit: string;
+    id: string;
+    path?: string;
+    worktree?: { branch: string; id: string };
+  } | undefined>;
 }) : WorkspaceRuntimeCodexBridge {
   const generations = new Map<string, number>();
   const sequences = new Map<string, number>();
@@ -142,6 +185,75 @@ export function createWorkspaceRuntimeCodexBridge(options: {
   }
   const snapshotOwnerByWorkspace = new Map<string, string>();
 
+  async function planBinding(input: {
+    branch: string;
+    commit: string;
+    connectorId: string;
+    generation: number;
+    issue: { number: number; url: string };
+    operationId: string;
+    physicalMachineId: string;
+    repository: { id: string; nameWithOwner: string };
+    userId: string;
+  }) {
+    try {
+      const snapshot = await runtime(input.userId, input.connectorId);
+      if (snapshot.branch !== input.branch || snapshot.commit.toLowerCase() !== input.commit.toLowerCase()) {
+        return {
+          message: 'The Workspace Runtime is attached to a different branch or commit.',
+          state: 'uncertain' as const
+        };
+      }
+      let workspace: {
+        branch: string;
+        commit: string;
+        id: string;
+        path?: string;
+        worktree?: { branch: string; id: string };
+      } = {
+        branch: snapshot.branch,
+        commit: snapshot.commit,
+        id: snapshot.workspaceId
+      };
+      if (!options.resolveWorkspaceBinding) {
+        return {
+          message: 'The Project-managed workspace/worktree binding is unavailable.',
+          state: 'unavailable' as const
+        };
+      }
+      const resolved = await options.resolveWorkspaceBinding({
+        branch: input.branch,
+        commit: input.commit,
+        environmentId: snapshot.environmentId,
+        ownerUserId: input.userId,
+        workspaceId: snapshot.workspaceId
+      });
+      if (!resolved || resolved.id !== snapshot.workspaceId || resolved.branch !== snapshot.branch ||
+          resolved.commit.toLowerCase() !== snapshot.commit.toLowerCase()) {
+        return {
+          message: 'The Project-managed workspace/worktree binding is unavailable.',
+          state: 'unavailable' as const
+        };
+      }
+      workspace = resolved;
+      return {
+        plan: {
+          environment: { id: snapshot.environmentId, name: snapshot.presentation?.repository ?? snapshot.environmentId },
+          workspace: { branch: workspace.branch, commit: workspace.commit, id: workspace.id, ...(workspace.path ? { path: workspace.path } : {}) },
+          ...(workspace.worktree ? { worktree: workspace.worktree } : {})
+        },
+        state: 'ready' as const
+      };
+    } catch (error) {
+      return {
+        message: error instanceof Error ? error.message : 'The Workspace Runtime is unavailable.',
+        state: /unavailable|offline/i.test(error instanceof Error ? error.message : '')
+          ? 'unavailable' as const
+          : 'uncertain' as const
+      };
+    }
+  }
+
   return {
     async inventory(userId) {
       const base = await options.loadInventory(userId);
@@ -188,25 +300,44 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       return { computeInventory, connectors, physicalMachines, runtimeStatuses };
     },
     generationFor(machineId) { return generations.get(machineId); },
+    plan: planBinding,
     async start(input) {
       try {
-        const snapshot = await runtime(input.userId, input.connectorId);
-        if (snapshot.branch !== input.branch || snapshot.commit.toLowerCase() !== input.commit.toLowerCase()) {
+        const planned = await planBinding(input);
+        if (planned.state === 'unavailable') {
+          if (!planned.message?.includes('workspace/worktree binding')) {
+            return { generation: input.generation, result: { state: 'offline' } };
+          }
           return {
-            generation: generationNumber(snapshot.generation),
+            generation: input.generation,
             result: {
-              message: 'The Workspace Runtime is attached to a different branch or commit.',
+              message: planned.message ?? 'The Project-managed workspace/worktree binding is unavailable.',
               state: 'worktree_failure'
             }
           };
         }
+        if (planned.state !== 'ready' || !planned.plan?.worktree) {
+          return {
+            generation: input.generation,
+            result: {
+              message: planned.message ?? 'The Project-managed workspace/worktree binding is unavailable.',
+              state: 'worktree_failure'
+            }
+          };
+        }
+        const snapshot = await runtime(input.userId, input.connectorId);
         const result = await dispatch<CodexSessionStartResult>(
           input.userId, snapshot, input.operationId, 'start',
           { cwd: '.', machineId: input.connectorId, operationId: input.operationId }
         );
         return {
           generation: generationNumber(snapshot.generation),
-          result: { state: 'confirmed', threadId: result.threadId, worktreeId: snapshot.workspaceId }
+          result: {
+            state: 'confirmed',
+            threadId: result.threadId,
+            workspace: planned.plan.workspace,
+            worktreeId: planned.plan.worktree.id
+          }
         };
       } catch (error) {
         return {

@@ -15,6 +15,7 @@ import { getCodexSessionsDatabaseClient, isDatabaseConfigured, listComputeInvent
 import { createConfiguredCodexSessionsRuntime } from '../codex-sessions/configured-runtime';
 import { createWorkspaceRuntimeCodexBridge } from './workspace-runtime';
 import type { WorkspaceRuntimeSessionService } from '../workspace-runtime-session/service';
+import { PostgresTaskExecutionStore } from '../task-execution/execution-store';
 
 export interface ConfiguredCodexMachineTasksOptions {
   attachLeases?: CodexAttachLeaseStore;
@@ -93,6 +94,8 @@ export async function createConfiguredCodexMachineTasksRuntime(
 ): Promise<ConfiguredCodexMachineTasksRuntime> {
   const sessions = await (options.sessionsRuntime ?? createConfiguredCodexSessionsRuntime());
   if (!options.runtimeSessions) throw new CodexMachineTasksRetiredError();
+  const database = await getCodexSessionsDatabaseClient();
+  const taskExecutions = new PostgresTaskExecutionStore(database);
   const bridge = createWorkspaceRuntimeCodexBridge({
     loadInventory: async (userId) => {
       if (!isDatabaseConfigured()) {
@@ -100,15 +103,38 @@ export async function createConfiguredCodexMachineTasksRuntime(
       }
       return listComputeInventory(userId);
     },
-    sessions: options.runtimeSessions
+    sessions: options.runtimeSessions,
+    resolveWorkspaceBinding: async ({ branch, commit, environmentId, ownerUserId, workspaceId }) => {
+      const candidates = await taskExecutions.list({
+        agent: 'codex',
+        environmentId,
+        includeArchived: false,
+        limit: 100,
+        ownerUserId
+      });
+      for (const execution of candidates) {
+        const workspace = await taskExecutions.readWorkspace(ownerUserId, execution.id);
+        if (workspace?.id !== workspaceId || workspace.state !== 'ready' ||
+            workspace.branch !== branch || workspace.commit?.toLowerCase() !== commit.toLowerCase() ||
+            workspace.target?.kind !== 'project_worktree' || !workspace.target.reference) continue;
+        return {
+          branch: workspace.branch,
+          commit: workspace.commit,
+          id: workspace.id,
+          worktree: { branch: workspace.branch, id: workspace.target.reference }
+        };
+      }
+      return undefined;
+    }
   });
   const service = createCodexMachineTasksService({
     generationFor: bridge.generationFor,
     inventory: bridge.inventory,
     issue: createCodexMachineTaskIssueProvider(options.backend),
     sessions: bridge.sessions,
+    plan: bridge.plan,
     start: bridge.start,
-    store: new PostgresCodexMachineTasksStore(await getCodexSessionsDatabaseClient()),
+    store: new PostgresCodexMachineTasksStore(database),
     taskUrl: (machineId, threadId) => {
       const origin = (process.env.PROJECT_SPACE_PUBLIC_URL ?? 'https://projects.os-home.net').replace(/\/$/, '');
       return `${origin}/codex/machines/${encodeURIComponent(machineId)}/threads/${encodeURIComponent(threadId)}`;

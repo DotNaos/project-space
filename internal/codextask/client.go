@@ -353,7 +353,8 @@ func validateStartResult(result StartResult, request StartRequest) error {
 	switch result.State {
 	case StateReady:
 		if !request.DryRun || result.Target == nil || validateTarget(*result.Target) != nil ||
-			!targetMatchesSelector(*result.Target, request.Selector) || result.Task != nil {
+			!targetMatchesSelector(*result.Target, request.Selector) || result.Task != nil || result.Plan == nil ||
+			validateStartPlan(*result.Plan, request, *result.Target) != nil {
 			return ErrInvalidResponse
 		}
 	case StateConfirmed:

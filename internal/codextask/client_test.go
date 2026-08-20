@@ -100,6 +100,44 @@ func TestClientStartAcceptsMachineReadinessPreflightBlock(t *testing.T) {
 	}
 }
 
+func TestClientStartAcceptsCompleteDryRunPlan(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		result := StartResult{
+			APIVersion: APIVersion, OperationID: testOperationID,
+			State: StateReady, Target: testTarget(), Plan: testStartPlan(),
+		}
+		result.Target.Environment = &struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}{ID: "environment-1", Name: "Environment 1"}
+		writeTestJSON(t, response, result)
+	}))
+	defer server.Close()
+
+	request := StartRequest{
+		Selector: Selector{PhysicalMachineID: "physical-remote"},
+		DryRun:   true, Issue: 262, OperationID: testOperationID,
+		RepositoryID: "DotNaos/project-space",
+	}
+	result, err := testClient(t, server.URL, Config{}).Start(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Plan == nil || result.Plan.Workspace.ID != "workspace-1" || result.Plan.Operation.State != StateReady {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientRejectsConflictingEnvironmentAndPhysicalSelectors(t *testing.T) {
+	_, err := testClient(t, "https://projects.example", Config{}).Start(context.Background(), StartRequest{
+		Selector: Selector{EnvironmentID: "environment-1", PhysicalMachineID: "physical-remote"},
+		DryRun:   true, Issue: 262, OperationID: testOperationID,
+	})
+	if !errors.Is(err, ErrInvalidInput) && !strings.Contains(err.Error(), "environment") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestClientReadUsesCanonicalPhysicalAndConnectorSelectors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/codex/tasks/"+testThreadID ||
@@ -298,6 +336,18 @@ func testTaskIdentity() *TaskIdentity {
 	task.Repository.ID, task.Repository.NameWithOwner = "repository-1", "DotNaos/project-space"
 	task.Worktree.ID, task.Worktree.Branch = "worktree-1", "issue-262"
 	return task
+}
+
+func testStartPlan() *StartPlan {
+	plan := &StartPlan{}
+	plan.Base.Branch, plan.Base.Commit = "issue-262", strings.Repeat("a", 40)
+	plan.Environment.ID, plan.Environment.Name = "environment-1", "Environment 1"
+	plan.Issue.Number, plan.Issue.URL = 262, "https://github.com/DotNaos/project-space/issues/262"
+	plan.Operation.ID, plan.Operation.State = testOperationID, StateReady
+	plan.Repository.ID, plan.Repository.NameWithOwner = "repository-1", "DotNaos/project-space"
+	plan.Workspace.ID, plan.Workspace.Branch = "workspace-1", "issue-262"
+	plan.Workspace.Commit = plan.Base.Commit
+	return plan
 }
 
 func testReadRequest() ReadRequest {

@@ -242,6 +242,9 @@ func (target codexTargetOptions) startSelector(localMachineName string) (codexta
 	if target.environmentID != "" && target.connectorID != "" {
 		return codextask.Selector{}, errors.New("--environment-id cannot be combined with the legacy --connector selector")
 	}
+	if target.environmentID != "" && (target.machineID != "" || target.machineName != "") {
+		return codextask.Selector{}, errors.New("--environment-id cannot be combined with --machine or --machine-id")
+	}
 	if target.here {
 		if target.environmentID != "" || target.machineID != "" || target.machineName != "" {
 			return codextask.Selector{}, errors.New("--here cannot be combined with --environment-id, --machine, or --machine-id")
@@ -261,6 +264,9 @@ func (target codexTargetOptions) existingSelector() (codextask.Selector, error) 
 func (target codexTargetOptions) selector(required bool) (codextask.Selector, error) {
 	if target.machineID != "" && target.machineName != "" {
 		return codextask.Selector{}, errors.New("select a machine with --machine or --machine-id, not both")
+	}
+	if target.environmentID != "" && (target.machineID != "" || target.machineName != "") {
+		return codextask.Selector{}, errors.New("select an environment or physical machine, not both")
 	}
 	if required && target.environmentID == "" && target.machineID == "" && target.machineName == "" {
 		return codextask.Selector{}, errors.New("--environment-id, --machine, or --machine-id is required")

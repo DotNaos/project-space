@@ -92,6 +92,39 @@ type StartRequest struct {
 	RepositoryID string `json:"repositoryId,omitempty"`
 }
 
+type StartPlan struct {
+	Base struct {
+		Branch string `json:"branch"`
+		Commit string `json:"commit"`
+	} `json:"base"`
+	Environment struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"environment"`
+	Issue struct {
+		Number int    `json:"number"`
+		URL    string `json:"url"`
+	} `json:"issue"`
+	Operation struct {
+		ID    string      `json:"id"`
+		State ResultState `json:"state"`
+	} `json:"operation"`
+	Repository struct {
+		ID            string `json:"id"`
+		NameWithOwner string `json:"nameWithOwner"`
+	} `json:"repository"`
+	Workspace struct {
+		Branch string `json:"branch"`
+		Commit string `json:"commit"`
+		ID     string `json:"id"`
+		Path   string `json:"path,omitempty"`
+	} `json:"workspace"`
+	Worktree *struct {
+		Branch string `json:"branch"`
+		ID     string `json:"id"`
+	} `json:"worktree,omitempty"`
+}
+
 type StartResult struct {
 	APIVersion  int           `json:"apiVersion"`
 	Message     string        `json:"message,omitempty"`
@@ -99,6 +132,7 @@ type StartResult struct {
 	Reason      BlockedReason `json:"reason,omitempty"`
 	Reconcile   string        `json:"reconcile,omitempty"`
 	State       ResultState   `json:"state"`
+	Plan        *StartPlan    `json:"plan,omitempty"`
 	Target      *Target       `json:"target,omitempty"`
 	Task        *TaskIdentity `json:"task,omitempty"`
 }
