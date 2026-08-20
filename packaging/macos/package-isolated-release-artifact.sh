@@ -123,6 +123,7 @@ gtar_path=$(command -v gtar)
 "$gtar_path" -xzf "$archive_path" -C "$extracted_root"
 bundle_root="$extracted_root/project-space-machine-tools-darwin-arm64-v${version}"
 assert_exact_files "$bundle_root" \
+  CODEX-LICENSE:8192 CODEX-NOTICE:8192 CODEX-VERSION:128 codex:1048576 \
   project:157286400 project-codex-host:157286400 \
   release-manifest-signing-public-key.pem:8192 \
   install.sh:1048576 VERSION:128 SHA256SUMS.txt:4096

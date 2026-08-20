@@ -22,6 +22,7 @@ done
 
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 source_directory=$(cd -- "$source_directory" && pwd -P)
+compatibility_directory="${script_directory}/legacy-codex-compatibility"
 mkdir -p -- "$output_directory"
 output_directory=$(cd -- "$output_directory" && pwd -P)
 bundle_name="project-space-machine-tools-darwin-arm64-v${version}"
@@ -48,10 +49,24 @@ for trust_root in release-manifest-signing-public-key.pem; do
   fi
   install -m 0644 -- "$source_path" "${bundle_root}/${trust_root}"
 done
+for metadata in CODEX-LICENSE CODEX-NOTICE CODEX-VERSION; do
+  source_path="${compatibility_directory}/${metadata}"
+  if [[ ! -f $source_path || -L $source_path ]]; then
+    echo "Required legacy compatibility metadata is missing or unsafe: $source_path" >&2
+    exit 66
+  fi
+  install -m 0644 -- "$source_path" "${bundle_root}/${metadata}"
+done
+if [[ ! -f ${compatibility_directory}/codex || -L ${compatibility_directory}/codex || ! -x ${compatibility_directory}/codex ]]; then
+  echo "Required legacy compatibility executable is missing or unsafe: ${compatibility_directory}/codex" >&2
+  exit 66
+fi
+install -m 0755 -- "${compatibility_directory}/codex" "${bundle_root}/codex"
 install -m 0755 -- "${script_directory}/install-machine-tools.sh" "${bundle_root}/install.sh"
 printf '%s\n' "$version" > "${bundle_root}/VERSION"
 checksum_members=(
-  project project-codex-host
+  CODEX-LICENSE CODEX-NOTICE CODEX-VERSION
+  project project-codex-host codex
   release-manifest-signing-public-key.pem
   install.sh VERSION
 )

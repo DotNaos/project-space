@@ -1,0 +1,3 @@
+#!/bin/sh
+echo 'The standalone Codex runtime is not shipped in the macOS machine-tools bundle.' >&2
+exit 69

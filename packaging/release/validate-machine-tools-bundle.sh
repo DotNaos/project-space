@@ -21,8 +21,8 @@ fi
 case $target in
   darwin-arm64)
     expected_members=(
-      SHA256SUMS.txt VERSION install.sh project project-codex-host
-      release-manifest-signing-public-key.pem
+      CODEX-LICENSE CODEX-NOTICE CODEX-VERSION SHA256SUMS.txt VERSION codex
+      install.sh project project-codex-host release-manifest-signing-public-key.pem
     )
     ;;
   linux-x64)

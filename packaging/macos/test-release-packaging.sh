@@ -60,9 +60,15 @@ bash "$script_directory/../release/validate-machine-tools-bundle.sh" \
 mkdir "$temporary_root/extracted-v1"
 gtar -xzf "$temporary_root/first/$archive" -C "$temporary_root/extracted-v1"
 bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64-v${version}"
-expected_members=$'SHA256SUMS.txt\nVERSION\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
+expected_members=$'CODEX-LICENSE\nCODEX-NOTICE\nCODEX-VERSION\nSHA256SUMS.txt\nVERSION\ncodex\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
 [[ $actual_members == "$expected_members" ]]
+
+# v0.21.23's updater used this ten-member contract for both Unix targets.
+# Keep the generated macOS archive compatible with that old validator while
+# the current updater continues to accept the modern six-member shape too.
+legacy_contract_members=$'CODEX-LICENSE\nCODEX-NOTICE\nCODEX-VERSION\nSHA256SUMS.txt\nVERSION\ncodex\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
+[[ $actual_members == "$legacy_contract_members" ]]
 
 incomplete_staging="$temporary_root/incomplete-staging"
 mkdir -p "$incomplete_staging"

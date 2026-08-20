@@ -1,0 +1,2 @@
+This compatibility marker is retained for managed updaters released before v0.27.0.
+No standalone Codex runtime is shipped in the macOS machine-tools bundle.
