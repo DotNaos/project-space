@@ -27,7 +27,9 @@ description: Implementation and verification checklist for the Project Manager r
   - **Evidence:** `go test ./...` passes.
 - [x] 3.3 Regenerate and validate CLI documentation.
   - **Evidence:** `bun run docs:cli:check` passes after regeneration.
-- [ ] 3.4 Run the canonical PR preflight after the draft PR exists.
+- [x] 3.4 Run the canonical PR preflight after the draft PR exists.
+  - **Evidence:** Corrected draft head passed every reproducible local lane;
+    protected release, signing, Preview, and Production gates remain remote-only.
 
 ## 4. Dependency reconciliation
 
