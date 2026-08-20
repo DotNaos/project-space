@@ -1,9 +1,12 @@
-import { describe, expect, test } from 'bun:test';
+import { createServer, type Server } from 'node:http';
+
+import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
   createConfiguredCodexMachineTasksRuntime,
   createConfiguredCodexMachineTasksService
 } from '../server/codex-machine-tasks/configured-runtime';
+import { createCodexMachineTasksHttpApi } from '../server/codex-machine-tasks/http';
 import type { WorkspaceRuntimeCodexBridge } from '../server/codex-machine-tasks/workspace-runtime';
 import type { ComputeEnvironmentRecord, ComputeInventorySnapshot } from '../src/shared/compute-environment-api';
 import type { CodexSessionsRuntime } from '../server/codex-sessions/runtime';
@@ -19,6 +22,13 @@ const configuredEnvironmentId = '11111111-1111-4111-8111-111111111111';
 const configuredHostId = '24000000-0000-4000-8000-000000000002';
 const configuredBranch = '262-build-codex-machine-task-core-and-cli';
 const configuredCommit = 'a'.repeat(40);
+const servers: Server[] = [];
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  })));
+});
 
 function configuredInventory(
   hostAssociation: ComputeEnvironmentRecord['hostAssociation'],
@@ -121,6 +131,41 @@ async function configuredService(inventory: ComputeInventorySnapshot) {
   return runtime.service;
 }
 
+async function configuredHttp(inventory: ComputeInventorySnapshot) {
+  const service = await configuredService(inventory);
+  const api = createCodexMachineTasksHttpApi(service, async () => ({
+    reportingTask: { role: 'project-manager', threadId },
+    userId: 'user-owner'
+  }));
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (!await api(request, response, url)) response.writeHead(404).end();
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing configured HTTP address.');
+  return `http://127.0.0.1:${address.port}`;
+}
+
+function httpMutation(operationId: string) {
+  return {
+    body: JSON.stringify({
+      dryRun: true,
+      expectedBranch: configuredBranch,
+      expectedCommit: configuredCommit,
+      issue: 262,
+      operationId,
+      physicalMachineId: configuredHostId,
+      repositoryId: 'DotNaos/project-space',
+      reasoningEffort: 'high',
+      model: 'gpt-5.6-luna'
+    }),
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationId },
+    method: 'POST'
+  };
+}
+
 describe('configured Codex machine-task runtime', () => {
   test('resolves the canonical Host through the configured service without a legacy mapping', async () => {
     const service = await configuredService(configuredInventory({
@@ -180,6 +225,39 @@ describe('configured Codex machine-task runtime', () => {
       );
       expect(result).toMatchObject({ reason: 'unauthorized', state: 'blocked' });
     }
+  });
+
+  test('selects the exact Host through the configured HTTP route and reports unavailable evidence', async () => {
+    const readyOrigin = await configuredHttp(configuredInventory({
+      evidence: 'smbios', hostId: configuredHostId, resolution: 'verified'
+    }));
+    const readyResponse = await fetch(
+      `${readyOrigin}/api/codex/tasks/start`,
+      httpMutation('configured-http-valid-host')
+    );
+    const readyBody = await readyResponse.json();
+
+    expect(readyResponse.status).toBe(200);
+    expect(readyBody).toMatchObject({
+      state: 'ready',
+      target: { physicalMachine: { id: configuredHostId, name: 'os-macbook' } }
+    });
+
+    const unavailableOrigin = await configuredHttp(configuredInventory({
+      evidence: 'none', resolution: 'unresolved'
+    }));
+    const unavailableResponse = await fetch(
+      `${unavailableOrigin}/api/codex/tasks/start`,
+      httpMutation('configured-http-missing-host')
+    );
+    const unavailableBody = await unavailableResponse.json();
+
+    expect(unavailableResponse.status).toBe(200);
+    expect(unavailableBody).toMatchObject({
+      message: 'Select one exact physical machine.',
+      reason: 'unauthorized',
+      state: 'blocked'
+    });
   });
 
   test('reconciles an uncertain initial handoff exactly once after a runtime restart', async () => {

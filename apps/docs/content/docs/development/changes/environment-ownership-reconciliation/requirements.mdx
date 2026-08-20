@@ -27,6 +27,26 @@ canonicalization.
 - **When** the reconciled inventory is validated
 - **Then** the user record remains present and the duplicate-slug violation is reported
 
+### ENV-ROUTE-001 — Configured Host selection MUST remain evidence-based
+
+The configured Codex service and HTTP route MUST select a physical Host only from valid
+persisted Environment evidence and MUST report an actionable unavailable state otherwise.
+
+#### Scenario: Verified exact Host evidence is available
+
+- **Given** a configured native macOS Environment has verified Host evidence for the exact
+  Host `24000000-0000-4000-8000-000000000002` named `os-macbook`
+- **When** the configured `/api/codex/tasks/start` route receives that exact Host selector
+- **Then** the dry-run is ready and returns that Host as the selected physical machine
+
+#### Scenario: Host evidence is unresolved or missing
+
+- **Given** the configured Environment has unresolved, conflicting, wrong-owner, or missing
+  Host evidence
+- **When** the configured start route receives the Host selector
+- **Then** the request is blocked with `Select one exact physical machine.` and no Host is
+  fabricated
+
 ## CHANGED Requirements
 
 None.

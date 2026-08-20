@@ -16,6 +16,7 @@ Goals:
 - Preserve owner provenance through the in-memory reconciliation boundary.
 - Canonicalize equivalent built-ins without touching user-defined evidence.
 - Keep public snapshots, duplicate violations, and authorization boundaries unchanged.
+- Preserve configured Codex Host selection as an evidence-based boundary.
 
 Non-goals:
 
@@ -46,6 +47,10 @@ For canonical built-in `a`, deployment built-in `x`, and user-defined `x`, recon
 returns built-in `a`, user-defined `x`, maps only the deployment reference to `a`, and retains
 the user reference to `x`. The duplicate user slug remains a reported inventory violation.
 
+The configured runtime only projects a physical Host when the Environment has verified or
+manual evidence resolving to exactly one Host. Unresolved, conflicting, wrong-owner, and
+missing evidence remain unavailable through the service and HTTP route.
+
 ## Risks and mitigations
 
 - **Alias leakage into user records:** owner-scoped keys and built-in-only filtering prevent
@@ -53,6 +58,8 @@ the user reference to `x`. The duplicate user slug remains a reported inventory 
 - **Public contract drift:** intermediate ownership fields are stripped before validation and
   return.
 - **Hidden ambiguity:** existing duplicate violations remain visible and fail-closed.
+- **Fabricated target:** configured runtime projection requires exact owner-valid Host evidence;
+  otherwise the route returns the existing actionable unavailable result.
 
 ## Migration and rollout
 

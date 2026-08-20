@@ -9,6 +9,7 @@ Verification status: **Incomplete**
 
 - [x] ENV-OWN-001 — Owner-preserving built-in aliases
 - [x] ENV-OWN-002 — Fail-closed duplicate behavior
+- [x] ENV-ROUTE-001 — Evidence-based configured Host selection
 
 ## Final reconciliation
 
@@ -16,4 +17,6 @@ Verification status: **Incomplete**
 - [x] The exact cross-owner UUID collision has focused regression coverage.
 - [x] Focused tests, type check, full tests, and build pass locally.
 - [x] No migration or production data mutation is included.
+- [x] The configured service/HTTP route selects the exact verified Host and fails closed with
+  an actionable unavailable result when Host evidence is missing.
 - [ ] Draft pull request and exact-head CI evidence remain to be recorded during delivery.

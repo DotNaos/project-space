@@ -23,7 +23,12 @@ description: Implementation and verification checklist for Environment ownership
 
 - [x] 3.1 Run focused tests, type check, full tests, and build
   - **Evidence:** Focused tests, `bun run check`, `bun test --isolate`, and `bun run build` pass.
-- [ ] 3.2 Publish the draft pull request
+- [x] 3.2 Verify the configured service and HTTP route
+  - **Evidence:** `tests/codex-machine-tasks-configured-runtime.test.ts` proves the exact
+    production-shaped Host `24000000-0000-4000-8000-000000000002` is selectable from verified
+    evidence and that unresolved evidence returns `Select one exact physical machine.` without
+    fabricating a target.
+- [ ] 3.3 Publish the draft pull request
   - **Evidence:** Pending pull-request creation and CI exact-head preflight.
 
 ## 4. Deferred follow-ups
