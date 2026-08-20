@@ -6,6 +6,8 @@ manager:
   reconciliation: required
   identity: project-manager-vps
 capacity:
+  absenceProofClockSkewSeconds: 0
+  absenceProofMaxAgeSeconds: 30
   evidenceMaxAgeSeconds: 30
   maxConcurrentSandboxes: 2
   leaseSeconds: 900

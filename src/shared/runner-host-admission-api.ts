@@ -70,6 +70,8 @@ export interface RunnerHostCapacityEvidence {
 
 export interface RunnerHostAdmissionPolicy {
   aggregateMaximum: RunnerResourceVector;
+  absenceProofClockSkewSeconds: number;
+  absenceProofMaxAgeSeconds: number;
   evidenceMaxAgeSeconds: number;
   isolation: RunnerSandboxIsolationProfile;
   leaseSeconds: number;
@@ -106,6 +108,7 @@ export type RunnerHostAdmissionBlockedReason =
   | 'concurrency_limit'
   | 'identity_conflict'
   | 'host_identity_mismatch'
+  | 'identity_invalid'
   | 'invalid_lease'
   | 'production_reservation_not_proven'
   | 'resource_limit';
@@ -118,6 +121,6 @@ export type RunnerHostAdmissionResult =
 
 export interface RunnerSandboxAbsenceProof {
   checkedAt: string;
-  generation: string;
+  identity: RunnerSandboxIdentity;
   resourcesAbsent: true;
 }

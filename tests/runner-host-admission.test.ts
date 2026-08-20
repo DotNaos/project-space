@@ -144,15 +144,103 @@ describe('VPS runner admission', () => {
     await service.markUncertain(hostId, reserved.reservation.identity.reservationId);
     expect((await service.reserve(evidence, request('second'))).kind).toBe('blocked');
     await expect(service.release(hostId, reserved.reservation.identity.reservationId, {
-      checkedAt: '2026-08-20T10:00:02.000Z', generation: reserved.reservation.hostGeneration,
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: reserved.reservation.identity,
       resourcesAbsent: false as never
-    })).rejects.toThrow('positive absence evidence');
+    })).rejects.toThrow('current exact absence evidence');
     await expect(service.release(hostId, reserved.reservation.identity.reservationId, {
-      checkedAt: '2026-08-20T10:00:02.000Z', generation: 'different', resourcesAbsent: true
-    })).rejects.toThrow('positive absence evidence');
+      checkedAt: '2026-08-20T10:00:01.000Z',
+      identity: { ...reserved.reservation.identity, reservationId: 'vps:other:reservation' },
+      resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
     await expect(service.release(hostId, reserved.reservation.identity.reservationId, {
-      checkedAt: '2026-08-20T10:00:02.000Z', generation: reserved.reservation.identity.generation, resourcesAbsent: true
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: reserved.reservation.identity, resourcesAbsent: true
     })).resolves.toMatchObject({ state: 'released' });
+  });
+
+  test('binds absence proof to every stable identity field and freshness window', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
+    const first = await service.reserve(evidence, request('proof-first'));
+    const second = await service.reserve(evidence, request('proof-second'));
+    if (first.kind !== 'reserved' || second.kind !== 'reserved') throw new Error('fixture did not reserve');
+    await service.markUncertain(hostId, first.reservation.identity.reservationId);
+    await service.markUncertain(hostId, second.reservation.identity.reservationId);
+
+    await expect(service.release(hostId, second.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T09:59:30.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:31.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z',
+      identity: { ...first.reservation.identity, taskId: 'task-other', operationId: 'operation-other' },
+      resourcesAbsent: true
+    })).rejects.toThrow('current exact absence evidence');
+    await expect(service.release(hostId, first.reservation.identity.reservationId, {
+      checkedAt: '2026-08-20T10:00:01.000Z', identity: first.reservation.identity, resourcesAbsent: true
+    })).resolves.toMatchObject({ state: 'released' });
+  });
+
+  test('rejects malformed runtime identities and malformed admission scalars', async () => {
+    const invalidIdentity = {
+      ...request().identity,
+      baseSha: '', branch: '', codexTaskId: '', ownerUserId: '', projectManagerTaskId: '',
+      repositoryId: '', taskId: '', workspaceId: '', issueNumber: -1
+    };
+    expect(validateAdmission(evidence, { ...request(), identity: invalidIdentity }, policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason)
+      .toBe('identity_invalid');
+
+    for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+      for (const field of ['sandboxCount', 'maxConcurrentSandboxes'] as const) {
+        const candidate = { ...evidence, capacity: { ...evidence.capacity, [field]: value } };
+        expect(validateAdmission(candidate, request('invalid-evidence'), policy, [], new Date('2026-08-20T10:00:01.000Z'))?.reason)
+          .toBe('capacity_evidence_invalid');
+      }
+    }
+
+    const activeService = new RunnerHostAdmissionService(
+      new MemoryRunnerHostAdmissionStore(), policy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    const active = await activeService.reserve(evidence, request('active'));
+    if (active.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const tinyRequest = request('invalid-active', vector({ cpuMillis: 1 }));
+    for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(validateAdmission(
+        { ...evidence, capacity: { ...evidence.capacity, sandboxCount: value as never } },
+        tinyRequest, policy, [active.reservation], new Date('2026-08-20T10:00:01.000Z')
+      )?.reason).toBe('capacity_evidence_invalid');
+    }
+    for (const field of ['idleTimeoutSeconds', 'maximumRuntimeSeconds'] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, { ...tinyRequest, [field]: value as never }, policy, [active.reservation],
+          new Date('2026-08-20T10:00:01.000Z')
+        )?.reason).toBe('invalid_lease');
+      }
+    }
+    for (const field of [
+      'absenceProofClockSkewSeconds', 'absenceProofMaxAgeSeconds', 'evidenceMaxAgeSeconds',
+      'maxConcurrentSandboxes'
+    ] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tinyRequest, { ...policy, [field]: value as never }, [active.reservation],
+          new Date('2026-08-20T10:00:01.000Z')
+        )?.reason).toBe('resource_limit');
+      }
+    }
+    for (const field of ['leaseSeconds', 'maximumRuntimeSeconds'] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tinyRequest, { ...policy, [field]: value as never }, [active.reservation],
+          new Date('2026-08-20T10:00:01.000Z')
+        )?.reason).toBe('invalid_lease');
+      }
+    }
   });
 
   test('fences expired idle, lease, or runtime reservations before capacity reuse', async () => {
@@ -230,9 +318,17 @@ describe('VPS runner admission', () => {
 
   test('keeps the checked-in VPS profile bounded and isolated', () => {
     const profile = parse(readFileSync('.project/runner.yaml', 'utf8')) as {
-      capacity: { aggregateMaximum: RunnerResourceVector; productionReservation: RunnerResourceVector; sandboxMaximum: RunnerResourceVector };
+      capacity: {
+        absenceProofClockSkewSeconds: number;
+        absenceProofMaxAgeSeconds: number;
+        aggregateMaximum: RunnerResourceVector;
+        productionReservation: RunnerResourceVector;
+        sandboxMaximum: RunnerResourceVector;
+      };
       isolation: Record<string, string>;
     };
+    expect(profile.capacity.absenceProofClockSkewSeconds).toBe(0);
+    expect(profile.capacity.absenceProofMaxAgeSeconds).toBe(30);
     for (const dimension of Object.keys(vector())) {
       expect(profile.capacity.sandboxMaximum[dimension as keyof RunnerResourceVector]).toBeGreaterThanOrEqual(0);
       expect(profile.capacity.aggregateMaximum[dimension as keyof RunnerResourceVector]).toBeGreaterThanOrEqual(

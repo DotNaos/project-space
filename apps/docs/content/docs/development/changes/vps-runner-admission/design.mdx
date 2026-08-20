@@ -27,7 +27,12 @@ The service receives a host capacity snapshot and a stable reservation request. 
 lock serializes replay, capacity, Production reservation, and concurrency decisions. The
 memory store supports conformance tests; the PostgreSQL store persists JSON identity,
 isolation, resource vectors, deadlines, state, fingerprints, and absence proofs while
-using a PostgreSQL advisory transaction lock for cross-process admission.
+using a PostgreSQL advisory transaction lock for cross-process admission. Release proofs
+persist the exact full sandbox identity and are accepted only when checked within the
+30-second proof freshness window with zero tolerated future skew. A real PostgreSQL
+loopback integration test exercises concurrent reservations when the test database is
+configured; the default fake client is limited to deterministic SQL/transaction-boundary
+evidence and rejects query-only clients.
 
 Observed sandbox usage is combined with active control-plane reservations by taking the
 per-dimension maximum, preventing either telemetry or state lag from undercounting. A
@@ -40,6 +45,8 @@ until same-generation absence is proven.
 - Require exact replay fingerprints and stable identity fields for idempotent lifecycle calls.
 - Treat the larger of actual Production usage and the reserved Production claim as occupied capacity.
 - Treat missing, stale, invalid, unhealthy, or uncertain evidence as blocked rather than guessed.
+- Validate every identity and count/duration scalar at the admission boundary; reject missing,
+  fractional, negative, NaN, and unsafe-integer values before arithmetic.
 - Keep the isolation profile deny-by-default for host and Production boundaries.
 - Keep the checked-in `.project/runner.yaml` declarative and bounded for later VPS integration.
 

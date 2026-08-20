@@ -33,25 +33,25 @@ describe('PostgreSQL runner admission store', () => {
 
     await expect(service.release(hostId, reserved.reservation.identity.reservationId, {
       checkedAt: '2026-08-20T10:00:02.000Z',
-      generation: evidence.generation,
+      identity: reserved.reservation.identity,
       resourcesAbsent: false as never
-    })).rejects.toThrow('positive absence evidence');
+    })).rejects.toThrow('current exact absence evidence');
 
     const uncertain = await service.markUncertain(hostId, reserved.reservation.identity.reservationId);
     expect(uncertain?.state).toBe('uncertain');
     const released = await service.release(hostId, reserved.reservation.identity.reservationId, {
-      checkedAt: '2026-08-20T10:00:02.000Z',
-      generation: evidence.generation,
+      checkedAt: '2026-08-20T10:00:01.000Z',
+      identity: reserved.reservation.identity,
       resourcesAbsent: true
     });
     expect(released).toMatchObject({
       state: 'released',
       hostGeneration: evidence.generation,
-      absenceProof: { generation: evidence.generation, resourcesAbsent: true }
+      absenceProof: { identity: reserved.reservation.identity, resourcesAbsent: true }
     });
     expect((await service.release(hostId, reserved.reservation.identity.reservationId, {
-      checkedAt: '2026-08-20T10:00:03.000Z',
-      generation: evidence.generation,
+      checkedAt: '2026-08-20T10:00:01.000Z',
+      identity: reserved.reservation.identity,
       resourcesAbsent: true
     }))?.state).toBe('released');
     expect(client.calls.some(({ sql }) => sql.includes('pg_advisory_xact_lock'))).toBe(true);
@@ -66,6 +66,10 @@ describe('PostgreSQL runner admission store', () => {
     await expect(store.save(hostId, {
       ...reservation,
       hostGeneration: 'different-generation'
+    })).rejects.toThrow('host binding');
+    await expect(store.save(hostId, {
+      ...reservation,
+      identity: { ...reservation.identity, branch: '' }
     })).rejects.toThrow('host binding');
   });
 

@@ -48,7 +48,8 @@ export class MemoryRunnerHostAdmissionStore implements RunnerHostAdmissionStore 
   }
 
   async save(hostId: string, reservation: RunnerSandboxReservation) {
-    if (reservation.identity.hostId !== hostId || reservation.hostGeneration !== reservation.identity.generation) {
+    if (!validIdentity(reservation.identity) || reservation.identity.hostId !== hostId ||
+        reservation.hostGeneration !== reservation.identity.generation) {
       throw new Error('Runner sandbox reservation host binding is inconsistent.');
     }
     this.reservations.set(reservation.identity.reservationId, structuredClone(reservation));
@@ -82,7 +83,7 @@ export class MemoryRunnerHostAdmissionStore implements RunnerHostAdmissionStore 
     if (!reservation || reservation.identity.hostId !== hostId) return undefined;
     if (reservation.state === 'released') return structuredClone(reservation);
     if (state === 'released') {
-      if (!validAbsenceProof(proof, reservation)) {
+      if (!validAbsenceProofIdentity(proof, reservation)) {
         throw new Error('Runner sandbox release requires positive absence evidence.');
       }
     }
@@ -136,7 +137,8 @@ export class PostgresRunnerHostAdmissionStore implements RunnerHostAdmissionStor
   }
 
   async save(hostId: string, reservation: RunnerSandboxReservation) {
-    if (reservation.identity.hostId !== hostId || reservation.hostGeneration !== reservation.identity.generation) {
+    if (!validIdentity(reservation.identity) || reservation.identity.hostId !== hostId ||
+        reservation.hostGeneration !== reservation.identity.generation) {
       throw new Error('Runner sandbox reservation host binding is inconsistent.');
     }
     await this.client.query(
@@ -182,7 +184,7 @@ export class PostgresRunnerHostAdmissionStore implements RunnerHostAdmissionStor
   ) {
     const current = await this.read(hostId, reservationId);
     if (!current) return undefined;
-    if (state === 'released' && !validAbsenceProof(proof, current)) {
+    if (state === 'released' && !validAbsenceProofIdentity(proof, current)) {
       throw new Error('Runner sandbox release requires positive absence evidence.');
     }
     const result = await this.client.query<RunnerSandboxReservationRow>(
@@ -209,6 +211,12 @@ export class RunnerHostAdmissionService {
     evidence: RunnerHostCapacityEvidence | undefined,
     request: RunnerSandboxAdmissionRequest
   ): Promise<RunnerHostAdmissionResult> {
+    if (!validIdentity(request.identity)) {
+      return {
+        kind: 'blocked',
+        ...blocked('identity_invalid', 'The sandbox identity is malformed or incomplete.')
+      };
+    }
     return this.store.withHostLock(request.identity.hostId, (store) => {
       const admissionAt = this.now();
       return this.reserveLocked(store, evidence, request, admissionAt);
@@ -271,9 +279,14 @@ export class RunnerHostAdmissionService {
   }
 
   async release(hostId: string, reservationId: string, proof: RunnerSandboxAbsenceProof) {
-    return this.store.withHostLock(hostId, (store) => (
-      store.updateState(hostId, reservationId, 'released', proof)
-    ));
+    return this.store.withHostLock(hostId, async (store) => {
+      const reservation = await store.read(hostId, reservationId);
+      if (!reservation) return undefined;
+      if (!validAbsenceProof(proof, reservation, this.policy, this.now())) {
+        throw new Error('Runner sandbox release requires current exact absence evidence.');
+      }
+      return store.updateState(hostId, reservationId, 'released', proof);
+    });
   }
 
   private async fenceExpiredLocked(
@@ -304,9 +317,15 @@ export function validateAdmission(
   now = new Date()
 ): { reason: RunnerHostAdmissionBlockedReason; message: string } | undefined {
   if (!evidence) return blocked('capacity_evidence_missing', 'Fresh VPS capacity evidence is required before admission.');
+  if (!validIdentity(request.identity)) return blocked('identity_invalid', 'The sandbox identity is malformed or incomplete.');
   if (evidence.apiVersion !== RUNNER_HOST_ADMISSION_API_VERSION) return blocked('capacity_evidence_invalid', 'The VPS capacity evidence API version is unsupported.');
   if (evidence.hostId !== request.identity.hostId || evidence.generation !== request.identity.generation) {
     return blocked('host_identity_mismatch', 'VPS capacity evidence is bound to a different host or generation.');
+  }
+  if (!validEvidenceScalars(evidence)) return blocked('capacity_evidence_invalid', 'The VPS capacity count is invalid.');
+  if (!validPolicyResourceScalars(policy)) return blocked('resource_limit', 'The admission resource or proof policy scalar is invalid.');
+  if (!validPolicyLeaseScalars(policy) || !validRequestDurationScalars(request)) {
+    return blocked('invalid_lease', 'Sandbox idle, runtime, and lease windows are invalid.');
   }
   if (evidence.cleanup.state !== 'proven') return blocked('cleanup_uncertain', 'Previous sandbox cleanup is uncertain; capacity remains fenced.');
   if (evidence.productionHealth !== 'healthy') return blocked('production_reservation_not_proven', 'Production health and reserved capacity are not proven.');
@@ -407,11 +426,92 @@ function validVector(vector: RunnerResourceVector) {
   );
 }
 
+function validEvidenceScalars(evidence: RunnerHostCapacityEvidence) {
+  return positiveOrZeroSafeInteger(evidence.capacity.maxConcurrentSandboxes) &&
+    positiveOrZeroSafeInteger(evidence.capacity.sandboxCount);
+}
+
+function validPolicyResourceScalars(policy: RunnerHostAdmissionPolicy) {
+  return positiveOrZeroSafeInteger(policy.absenceProofClockSkewSeconds) &&
+    positiveSafeInteger(policy.absenceProofMaxAgeSeconds) &&
+    positiveSafeInteger(policy.evidenceMaxAgeSeconds) &&
+    positiveSafeInteger(policy.maxConcurrentSandboxes);
+}
+
+function validPolicyLeaseScalars(policy: RunnerHostAdmissionPolicy) {
+  return positiveSafeInteger(policy.leaseSeconds) &&
+    positiveSafeInteger(policy.maximumRuntimeSeconds);
+}
+
+function validRequestDurationScalars(request: RunnerSandboxAdmissionRequest) {
+  return positiveSafeInteger(request.idleTimeoutSeconds) &&
+    positiveSafeInteger(request.maximumRuntimeSeconds);
+}
+
+function positiveOrZeroSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function positiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
 function validAbsenceProof(
+  proof: RunnerSandboxAbsenceProof | undefined,
+  reservation: RunnerSandboxReservation,
+  policy: RunnerHostAdmissionPolicy,
+  now: Date
+) {
+  if (!proof || !validAbsenceProofIdentity(proof, reservation)) return false;
+  const checkedAt = Date.parse(proof.checkedAt);
+  const current = now.getTime();
+  return Number.isFinite(checkedAt) &&
+    checkedAt <= current + policy.absenceProofClockSkewSeconds * 1_000 &&
+    current - checkedAt <= policy.absenceProofMaxAgeSeconds * 1_000;
+}
+
+function validAbsenceProofIdentity(
   proof: RunnerSandboxAbsenceProof | undefined,
   reservation: RunnerSandboxReservation
 ) {
-  return proof?.resourcesAbsent === true && proof.generation === reservation.hostGeneration;
+  return proof?.resourcesAbsent === true &&
+    validIdentity(proof.identity) &&
+    sameIdentity(proof.identity, reservation.identity) &&
+    reservation.hostGeneration === reservation.identity.generation;
+}
+
+function validIdentity(identity: unknown): identity is RunnerSandboxIdentity {
+  if (!identity || typeof identity !== 'object') return false;
+  const candidate = identity as Record<string, unknown>;
+  const expectedKeys = [
+    'baseSha', 'branch', 'codexTaskId', 'generation', 'hostId', 'issueNumber',
+    'operationId', 'ownerUserId', 'projectManagerTaskId', 'repositoryId',
+    'reservationId', 'taskId', 'workspaceId'
+  ].sort();
+  const actualKeys = Object.keys(candidate).sort();
+  return JSON.stringify(actualKeys) === JSON.stringify(expectedKeys) &&
+    typeof candidate.baseSha === 'string' && /^[0-9a-f]{40}$/.test(candidate.baseSha) &&
+    positiveSafeInteger(candidate.issueNumber) &&
+    [
+      candidate.branch, candidate.codexTaskId, candidate.generation, candidate.hostId,
+      candidate.operationId, candidate.ownerUserId, candidate.projectManagerTaskId,
+      candidate.repositoryId, candidate.reservationId, candidate.taskId, candidate.workspaceId
+    ].every(validIdentityText);
+}
+
+function validIdentityText(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 256 &&
+    value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function sameIdentity(left: RunnerSandboxIdentity, right: RunnerSandboxIdentity) {
+  return left.baseSha === right.baseSha && left.branch === right.branch &&
+    left.codexTaskId === right.codexTaskId && left.generation === right.generation &&
+    left.hostId === right.hostId && left.issueNumber === right.issueNumber &&
+    left.operationId === right.operationId && left.ownerUserId === right.ownerUserId &&
+    left.projectManagerTaskId === right.projectManagerTaskId && left.repositoryId === right.repositoryId &&
+    left.reservationId === right.reservationId && left.taskId === right.taskId &&
+    left.workspaceId === right.workspaceId;
 }
 
 function canonicalize(value: unknown): unknown {

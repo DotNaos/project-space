@@ -1,0 +1,94 @@
+import { randomUUID } from 'node:crypto';
+
+import { describe, expect, test } from 'bun:test';
+import pg from 'pg';
+
+import type { DatabaseQueryClient } from '../server/database/client';
+import { runDatabaseMigrations } from '../server/database/migrations';
+import {
+  PostgresRunnerHostAdmissionStore,
+  RunnerHostAdmissionService
+} from '../server/runner-host/admission';
+import { evidence, policy, request } from './runner-host-admission-fixtures';
+
+const databaseUrl = process.env.PROJECT_SPACE_TEST_DATABASE_URL ?? '';
+const postgresTest = databaseUrl ? test : test.skip;
+
+function assertSafeTestDatabase(value: string) {
+  const url = new URL(value);
+  const databaseName = url.pathname.slice(1).toLowerCase();
+  if (
+    !['127.0.0.1', 'localhost', '::1'].includes(url.hostname) ||
+    (!databaseName.includes('test') && !databaseName.includes('runner'))
+  ) {
+    throw new Error(
+      'PROJECT_SPACE_TEST_DATABASE_URL must point to a loopback runner test database.'
+    );
+  }
+}
+
+function queryClient(queryable: pg.Pool | pg.PoolClient): DatabaseQueryClient {
+  return {
+    async query<Row>(sql: string, values?: readonly unknown[]) {
+      const result = await queryable.query(sql, values ? [...values] : undefined);
+      return { rowCount: result.rowCount, rows: result.rows as Row[] };
+    }
+  };
+}
+
+function transactionalClient(pool: pg.Pool): DatabaseQueryClient {
+  return {
+    ...queryClient(pool),
+    async transaction<Result>(operation: (client: DatabaseQueryClient) => Promise<Result>) {
+      const connection = await pool.connect();
+      const client = queryClient(connection);
+      try {
+        await client.query('begin');
+        const result = await operation(client);
+        await client.query('commit');
+        return result;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+  };
+}
+
+describe('PostgreSQL runner admission concurrency integration', () => {
+  postgresTest('serializes concurrent reservations through a real advisory transaction lock', async () => {
+    assertSafeTestDatabase(databaseUrl);
+    const schema = `runner_admission_${randomUUID().replaceAll('-', '')}`;
+    const admin = new pg.Pool({ connectionString: databaseUrl, max: 1 });
+    await admin.query(`create schema "${schema}"`);
+    const pool = new pg.Pool({
+      connectionString: databaseUrl,
+      max: 3,
+      options: `-c search_path=${schema}`
+    });
+    try {
+      const client = transactionalClient(pool);
+      await runDatabaseMigrations(client);
+      const services = [1, 2, 3].map(() => new RunnerHostAdmissionService(
+        new PostgresRunnerHostAdmissionStore(client),
+        policy,
+        () => new Date('2026-08-20T10:00:01.000Z')
+      ));
+      const results = await Promise.all(
+        services.map((service, index) => service.reserve(evidence, request(`real-${index}`)))
+      );
+
+      expect(results.filter(({ kind }) => kind === 'reserved')).toHaveLength(2);
+      expect(results.filter(({ kind }) => kind === 'blocked')).toHaveLength(1);
+      expect((await pool.query(
+        `select count(*)::int as count from runner_sandbox_reservations where state = 'active'`
+      )).rows[0]?.count).toBe(2);
+    } finally {
+      await pool.end();
+      await admin.query(`drop schema if exists "${schema}" cascade`);
+      await admin.end();
+    }
+  });
+});

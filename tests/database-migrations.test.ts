@@ -575,6 +575,8 @@ describe('database migrations', () => {
     expect(runnerHostAdmissionMigrationId).toBe('0058_runner_host_admission');
     expect(runnerHostAdmissionMigrationSql).toContain('runner_sandbox_reservations');
     expect(runnerHostAdmissionMigrationSql).toContain('absence_proof jsonb');
+    expect(runnerHostAdmissionMigrationSql).toContain("absence_proof->'identity' = identity");
+    expect(runnerHostAdmissionMigrationSql).toContain('jsonb_object_length(identity) = 13');
     expect(connectorCompatibilityUsageMigrationSql).toContain(
       "recorder_state text not null check (recorder_state in ('active', 'clean'))"
     );

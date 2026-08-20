@@ -6,6 +6,14 @@ export const runnerHostAdmissionMigrationSql = `
     host_id text not null check (btrim(host_id) <> '' and char_length(host_id) <= 256),
     host_generation text not null check (btrim(host_generation) <> '' and char_length(host_generation) <= 256),
     identity jsonb not null check (jsonb_typeof(identity) = 'object'),
+    check (jsonb_object_length(identity) = 13),
+    check (identity ?& array[
+      'baseSha', 'branch', 'codexTaskId', 'generation', 'hostId', 'issueNumber',
+      'operationId', 'ownerUserId', 'projectManagerTaskId', 'repositoryId',
+      'reservationId', 'taskId', 'workspaceId'
+    ]),
+    check (identity->>'baseSha' ~ '^[0-9a-f]{40}$'),
+    check (jsonb_typeof(identity->'issueNumber') = 'number'),
     isolation jsonb not null check (jsonb_typeof(isolation) = 'object'),
     resources jsonb not null check (jsonb_typeof(resources) = 'object'),
     state text not null check (state in ('active', 'uncertain', 'released')),
@@ -24,7 +32,10 @@ export const runnerHostAdmissionMigrationSql = `
     check ((state = 'released') = (absence_proof is not null)),
     check (absence_proof is null or (
       jsonb_typeof(absence_proof) = 'object' and
-      absence_proof->>'generation' = host_generation and
+      jsonb_typeof(absence_proof->'identity') = 'object' and
+      absence_proof->'identity' = identity and
+      absence_proof->'identity'->>'generation' = host_generation and
+      jsonb_typeof(absence_proof->'checkedAt') = 'string' and
       absence_proof->>'resourcesAbsent' = 'true'
     ))
   );

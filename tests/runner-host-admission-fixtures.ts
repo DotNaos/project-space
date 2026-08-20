@@ -18,6 +18,8 @@ export const isolation = {
 };
 export const policy: RunnerHostAdmissionPolicy = {
   aggregateMaximum: vector({ cpuMillis: 2_000, memoryBytes: 4_000, pids: 256 }),
+  absenceProofClockSkewSeconds: 0,
+  absenceProofMaxAgeSeconds: 30,
   evidenceMaxAgeSeconds: 30,
   isolation,
   leaseSeconds: 900,

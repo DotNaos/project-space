@@ -22,12 +22,17 @@ evidence for previously owned resources.
 - concurrency is below both the configured and observed host limit;
 - no active sandbox has uncertain cleanup;
 - idle, maximum-runtime, and lease windows are bounded;
-- the reservation identity and request fingerprint are new or an exact replay.
+- the reservation identity and request fingerprint are new or an exact replay;
+- any release proof names the exact full reservation identity, has `resourcesAbsent: true`,
+  and has a checked-at timestamp no older than 30 seconds and never future-dated (zero
+  tolerated clock skew).
 
 Missing, stale, unhealthy, or uncertain evidence returns `blocked(...)`; it
 never falls back to an optimistic reservation. An uncertain stop remains an
-owner of capacity until a same-generation absence proof confirms that its
-processes, ports, storage, and mounts are gone.
+owner of capacity until a same-generation absence proof for the exact reservation,
+workspace, task, Project Manager task, Codex task, and operation confirms that its
+processes, ports, storage, and mounts are gone. A proof from another reservation or
+an old, future-dated, or replayed proof is rejected.
 
 ## Resource and isolation policy
 
@@ -52,5 +57,7 @@ service before creating a Runner Workspace, persist the reservation and
 capacity evidence in the control plane, and expose the exact blocked reason and
 evidence timestamp to operators. This PR proves admission and persistence only;
 it does not prove end-to-end sandbox isolation or enforce these limits on a live
-VPS. VPS deployment, network changes, secrets, and Production state remain
+VPS. PostgreSQL cross-process locking is covered by an opt-in loopback integration
+test using real transactions; the default unit test client covers query shape and
+fails closed when transaction support is absent. VPS deployment, network changes, secrets, and Production state remain
 untouched.

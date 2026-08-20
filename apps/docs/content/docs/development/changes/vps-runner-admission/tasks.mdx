@@ -8,23 +8,23 @@ description: Implementation and verification checklist for bounded VPS runner ad
 - [x] 1.1 Define stable runner identity, resource, isolation, capacity, and reservation types
   - **Evidence:** `src/shared/runner-host-admission-api.ts` defines all identity fields, resource dimensions, isolation boundaries, evidence state, deadlines, and blocked reasons.
 - [x] 1.2 Implement fail-closed admission and idempotent lifecycle state
-  - **Evidence:** `server/runner-host/admission.ts` validates API/host/generation evidence, effective Production claims, vectors, concurrency, canonical identity fingerprints, leases, cleanup timestamps, uncertain cleanup, and release state under a per-host lock.
+  - **Evidence:** `server/runner-host/admission.ts` validates every runtime identity and scalar, API/host/generation evidence, effective Production claims, vectors, concurrency, canonical identity fingerprints, leases, cleanup timestamps, uncertain cleanup, and exact fresh release proofs under a per-host lock.
 - [x] 1.3 Persist reservations with cross-process host serialization
-  - **Evidence:** `server/database/runner-host-admission-migration.ts` creates the host-generation and absence-proof constraints, and the PostgreSQL store uses an advisory transaction lock plus durable state and absence proofs.
+  - **Evidence:** `server/database/runner-host-admission-migration.ts` creates the host-generation, exact-identity, and absence-proof constraints, and the PostgreSQL store requires an advisory transaction lock plus durable state and absence proofs.
 
 ## 2. VPS policy and conformance
 
 - [x] 2.1 Add the bounded and isolated runner host profile
   - **Evidence:** `.project/runner.yaml` reserves Production capacity, caps every required dimension, limits concurrency and lifetime, and denies host and Production boundaries.
 - [x] 2.2 Prove caps, isolation, cleanup, and Production reservation behavior
-  - **Evidence:** `tests/runner-host-admission.test.ts` and `tests/runner-host-admission-postgres-store.test.ts` cover effective Production claims, host binding, all resource dimensions, concurrent admission, canonical replay, isolation, deadline fencing, uncertain cleanup, persistence, and YAML policy conformance.
+  - **Evidence:** `tests/runner-host-admission.test.ts` and `tests/runner-host-admission-postgres-store.test.ts` cover effective Production claims, host binding, all resource dimensions, concurrent admission, canonical replay, isolation, deadline fencing, exact fresh proof identity, malformed identities/scalars, persistence, and YAML policy conformance. `tests/runner-host-admission-postgres.integration.test.ts` covers concurrent reservations through real PostgreSQL transactions when configured.
 - [x] 2.3 Record the integration boundary and operational safety posture
   - **Evidence:** `docs/issue-826-vps-runner-admission.md` states the admission contract, fail-closed rules, non-production scope, remaining provider integration boundary, and that live VPS enforcement/isolation is not yet proven.
 
 ## 3. Delivery evidence
 
 - [x] 3.1 Run focused and broad repository checks
-  - **Evidence:** Focused tests pass; TypeScript, web build, exact Bun 1.3.14 full tests, repository checks, staged docs validation, and diff hygiene pass for the committed revision.
+  - **Evidence:** Focused tests pass; TypeScript, web build, exact Bun 1.3.14 full tests, repository checks, staged docs validation, diff hygiene, and the opt-in real PostgreSQL concurrency test pass when its loopback test database is configured.
 - [x] 3.2 Reconcile issue and review boundaries
   - **Evidence:** Issue #826 and parent #446 were read; related #763/#819/#822/#752 remain parallel workflows; no VPS, Production, merge, or deploy action is included.
 

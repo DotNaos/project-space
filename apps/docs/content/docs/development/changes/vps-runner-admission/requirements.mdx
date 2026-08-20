@@ -60,11 +60,19 @@ databases, deployment credentials, and cross-sandbox writable volumes.
 - **When** the same request is replayed or the identity is reused with changed inputs
 - **Then** an exact replay returns the existing reservation and changed inputs are rejected as an identity conflict
 
+#### Scenario: Runtime identity or scalar is malformed
+
+- **Given** a request or capacity snapshot contains a missing, blank, fractional, negative, NaN, or unsafe-integer identity/count/duration field
+- **When** the manager evaluates the request
+- **Then** admission fails closed before arithmetic or persistence
+
 ### RUNNER-004 — Uncertain cleanup is fenced
 
 An uncertain or expired reservation MUST NOT be reused until a positive absence proof from
-the same host generation is recorded, and release MUST be idempotent for an already released
-reservation.
+the same host generation and exact full sandbox identity is recorded. The proof MUST be
+fresh within 30 seconds, MUST NOT be future-dated under the configured zero-skew policy,
+and release MUST be idempotent for an already released reservation only with another exact
+current proof.
 
 #### Scenario: Cleanup is uncertain
 
@@ -77,3 +85,9 @@ reservation.
 - **Given** the exact reservation is absent on the same host generation and the proof is recorded
 - **When** the manager releases the reservation and retries a bounded request
 - **Then** release is safe to repeat and the capacity can be admitted again if all other limits pass
+
+#### Scenario: Cleanup proof is for another reservation or is not fresh
+
+- **Given** a proof names another reservation, task, or operation, or its checked-at timestamp is stale or future-dated
+- **When** the manager receives the proof
+- **Then** release is rejected and the reservation continues to own capacity
