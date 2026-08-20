@@ -77,8 +77,9 @@ describe('configured Codex machine-task runtime', () => {
       taskUrl: (machineId, id) => `https://projects.example/codex/machines/${machineId}/threads/${id}`
     });
 
-    const first = await tasks.start({ userId: 'user-owner' }, request);
-    const second = await tasks.start({ userId: 'user-owner' }, request);
+    const actor = { userId: 'user-owner', reportingTask: { role: 'project-manager' as const, threadId } };
+    const first = await tasks.start(actor, request);
+    const second = await tasks.start(actor, request);
 
     expect(first.state).toBe('uncertain');
     expect(second).toMatchObject({

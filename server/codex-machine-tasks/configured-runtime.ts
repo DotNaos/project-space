@@ -61,7 +61,8 @@ export function createConfiguredCodexMachineTasksService(input: {
     sessions: input.bridge.sessions,
     start: input.bridge.start,
     store: input.store,
-    taskUrl: input.taskUrl
+    taskUrl: input.taskUrl,
+    requireReportingTaskBinding: true
   });
 }
 

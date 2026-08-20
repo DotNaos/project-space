@@ -10,6 +10,19 @@ export const CODEX_AUTHORIZATION_REQUIRED_CONNECTOR_CAPABILITY =
 export const CODEX_RUNTIME_CONNECTOR_CAPABILITY = 'codex.runtime.v1';
 export const CODEX_MACHINE_TASKS_DURABLE_OPERATIONS_CAPABILITY =
   'codex.machine-tasks.durable-operations.v1';
+export const CODEX_MACHINE_TASK_DEFAULT_MODEL = 'gpt-5.6-luna';
+export const CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT = 'high';
+
+export interface CodexMachineTaskWorkerSelection {
+  model: string;
+  reasoningEffort: string;
+}
+
+/** Authenticated Manager task that owns worker progress and escalations. */
+export interface CodexMachineTaskReportingTask {
+  role: 'project-manager';
+  threadId: string;
+}
 
 export type CodexMachineTaskBlockedReason =
   | 'approval_required'
@@ -61,7 +74,9 @@ export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
     id: string;
     nameWithOwner: string;
   };
+  reportingTask?: CodexMachineTaskReportingTask;
   threadId: string;
+  worker: CodexMachineTaskWorkerSelection;
   workspace?: {
     branch: string;
     commit?: string;
@@ -82,10 +97,12 @@ export interface CodexMachineTaskStartRequest {
   expectedCommit?: string;
   expectedPullRequestNumber?: number;
   issue: number;
+  model?: string;
   operationId: string;
   physicalMachineId?: string;
   physicalMachineName?: string;
   repositoryId?: string;
+  reasoningEffort?: string;
 }
 
 export interface CodexMachineTaskExistingRequest {
@@ -139,6 +156,7 @@ export interface CodexMachineTaskStartPlan {
     id: string;
     nameWithOwner: string;
   };
+  reportingTask?: CodexMachineTaskReportingTask;
   workspace: {
     branch: string;
     commit: string;
@@ -149,6 +167,7 @@ export interface CodexMachineTaskStartPlan {
     branch: string;
     id: string;
   };
+  worker: CodexMachineTaskWorkerSelection;
 }
 
 export interface CodexMachineTaskConnectorStartRequest {

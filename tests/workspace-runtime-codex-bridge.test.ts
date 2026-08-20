@@ -81,6 +81,8 @@ const input = {
   physicalMachineId: environmentId,
   reconcile: false,
   repository: { id: 'DotNaos/project-space', nameWithOwner: 'DotNaos/project-space' },
+  reportingTask: { role: 'project-manager' as const, threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+  worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' },
   userId: 'user-owner'
 };
 

@@ -21,6 +21,9 @@ func validateStartRequest(request StartRequest) error {
 	if request.Issue <= 0 || !operationIDPattern.MatchString(request.OperationID) {
 		return ErrInvalidInput
 	}
+	if !identifierPattern.MatchString(request.Model) || !identifierPattern.MatchString(request.ReasoningEffort) {
+		return ErrInvalidInput
+	}
 	if request.RepositoryID != "" && !identifierPattern.MatchString(request.RepositoryID) && !repositoryPattern.MatchString(request.RepositoryID) {
 		return ErrInvalidInput
 	}
@@ -123,7 +126,10 @@ func validateTask(task TaskIdentity) error {
 	if validateTarget(task.Target) != nil || !threadIDPattern.MatchString(task.ThreadID) ||
 		task.Issue.Number <= 0 || !identifierPattern.MatchString(task.Worktree.ID) ||
 		!validText(task.Worktree.Branch, 512) || !identifierPattern.MatchString(task.Repository.ID) ||
-		!validText(task.Repository.NameWithOwner, 512) {
+		!validText(task.Repository.NameWithOwner, 512) ||
+		!identifierPattern.MatchString(task.Worker.Model) ||
+		!identifierPattern.MatchString(task.Worker.ReasoningEffort) ||
+		!validReportingTask(task.ReportingTask) {
 		return ErrInvalidResponse
 	}
 	if task.Base != nil && (!validText(task.Base.Branch, 512) || !validText(task.Base.Commit, 128)) {
@@ -170,7 +176,11 @@ func validateStartPlan(plan StartPlan, request StartRequest, target Target) erro
 		!validText(plan.Workspace.Branch, 512) || !commitPattern.MatchString(plan.Workspace.Commit) ||
 		plan.Workspace.Branch != plan.Base.Branch || !strings.EqualFold(plan.Workspace.Commit, plan.Base.Commit) ||
 		!validText(plan.Issue.URL, 2048) || target.Environment == nil ||
-		target.Environment.ID != plan.Environment.ID {
+		target.Environment.ID != plan.Environment.ID ||
+		!identifierPattern.MatchString(plan.Worker.Model) ||
+		!identifierPattern.MatchString(plan.Worker.ReasoningEffort) ||
+		plan.Worker.Model != request.Model || plan.Worker.ReasoningEffort != request.ReasoningEffort ||
+		!validReportingTaskValue(plan.ReportingTask) {
 		return ErrInvalidResponse
 	}
 	if plan.Workspace.Path != "" && !validText(plan.Workspace.Path, 2048) {
@@ -185,6 +195,14 @@ func validateStartPlan(plan StartPlan, request StartRequest, target Target) erro
 		return ErrInvalidResponse
 	}
 	return nil
+}
+
+func validReportingTask(task *ReportingTask) bool {
+	return task != nil && task.Role == "project-manager" && threadIDPattern.MatchString(task.ThreadID)
+}
+
+func validReportingTaskValue(task ReportingTask) bool {
+	return task.Role == "project-manager" && threadIDPattern.MatchString(task.ThreadID)
 }
 
 func validateCommonResult(apiVersion int, operationID string, state ResultState, reason BlockedReason, reconcile string) error {

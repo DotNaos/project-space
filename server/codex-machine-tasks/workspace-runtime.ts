@@ -8,6 +8,10 @@ import type {
   CodexSessionStartResult,
   CodexSessionStreamEvent
 } from '../../src/shared/codex-sessions-api';
+import type {
+  CodexMachineTaskReportingTask,
+  CodexMachineTaskWorkerSelection
+} from '../../src/shared/codex-machine-tasks-api';
 import type { ComputeInventorySnapshot } from '../../src/shared/compute-environment-api';
 import { builtInEnvironmentDefinition } from '../../src/shared/compute-environment-api';
 import type { MachineRecord, PhysicalMachineRecord } from '../../src/shared/project-space-api';
@@ -41,8 +45,10 @@ export interface WorkspaceRuntimeCodexBridge {
     issue: { number: number; url: string };
     operationId: string;
     physicalMachineId: string;
+    reportingTask: CodexMachineTaskReportingTask;
     repository: { id: string; nameWithOwner: string };
     userId: string;
+    worker: CodexMachineTaskWorkerSelection;
   }): Promise<{
       plan?: {
         environment: { id: string; name: string };
@@ -61,9 +67,11 @@ export interface WorkspaceRuntimeCodexBridge {
     issue: { number: number; url: string };
     operationId: string;
     physicalMachineId: string;
+    reportingTask: CodexMachineTaskReportingTask;
     reconcile: boolean;
     repository: { id: string; nameWithOwner: string };
     userId: string;
+    worker: CodexMachineTaskWorkerSelection;
   }): Promise<{
     generation: number;
     result:
@@ -386,6 +394,9 @@ export function createWorkspaceRuntimeCodexBridge(options: {
               commit: input.commit,
               environmentId: snapshot.environmentId,
               issue: input.issue,
+              model: input.worker.model,
+              reasoningEffort: input.worker.reasoningEffort,
+              reportingTask: input.reportingTask,
               repository: input.repository,
               workspaceId: planned.plan.workspace.id,
               worktreeId: planned.plan.worktree.id

@@ -6,6 +6,8 @@ import (
 )
 
 const APIVersion = 1
+const DefaultModel = "gpt-5.6-luna"
+const DefaultReasoningEffort = "high"
 
 type ResultState string
 
@@ -57,6 +59,16 @@ type Target struct {
 	} `json:"physicalMachine"`
 }
 
+type WorkerSelection struct {
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoningEffort"`
+}
+
+type ReportingTask struct {
+	Role     string `json:"role"`
+	ThreadID string `json:"threadId"`
+}
+
 type TaskIdentity struct {
 	Target
 	Base *struct {
@@ -72,8 +84,10 @@ type TaskIdentity struct {
 		ID            string `json:"id"`
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
-	ThreadID  string `json:"threadId"`
-	Workspace *struct {
+	ReportingTask *ReportingTask  `json:"reportingTask,omitempty"`
+	ThreadID      string          `json:"threadId"`
+	Worker        WorkerSelection `json:"worker"`
+	Workspace     *struct {
 		Branch string `json:"branch"`
 		ID     string `json:"id"`
 		Path   string `json:"path,omitempty"`
@@ -86,10 +100,12 @@ type TaskIdentity struct {
 
 type StartRequest struct {
 	Selector
-	DryRun       bool   `json:"dryRun,omitempty"`
-	Issue        int    `json:"issue"`
-	OperationID  string `json:"operationId"`
-	RepositoryID string `json:"repositoryId,omitempty"`
+	DryRun          bool   `json:"dryRun,omitempty"`
+	Issue           int    `json:"issue"`
+	Model           string `json:"model,omitempty"`
+	OperationID     string `json:"operationId"`
+	RepositoryID    string `json:"repositoryId,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
 type StartPlan struct {
@@ -113,7 +129,8 @@ type StartPlan struct {
 		ID            string `json:"id"`
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
-	Workspace struct {
+	ReportingTask ReportingTask `json:"reportingTask"`
+	Workspace     struct {
 		Branch string `json:"branch"`
 		Commit string `json:"commit"`
 		ID     string `json:"id"`
@@ -123,6 +140,7 @@ type StartPlan struct {
 		Branch string `json:"branch"`
 		ID     string `json:"id"`
 	} `json:"worktree,omitempty"`
+	Worker WorkerSelection `json:"worker"`
 }
 
 type StartResult struct {

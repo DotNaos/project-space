@@ -6,6 +6,7 @@ import type {
   CodexMachineTaskSendRequest,
   CodexMachineTaskStartRequest
 } from '../../src/shared/codex-machine-tasks-api';
+import type { CodexMachineTaskReportingTask } from '../../src/shared/codex-machine-tasks-api';
 import { CODEX_MACHINE_TASKS_API_VERSION } from '../../src/shared/codex-machine-tasks-api';
 import {
   CODEX_OPERATION_ID_PATTERN,
@@ -19,7 +20,7 @@ const maximumBodyBytes = 32 * 1024;
 const safeSelector = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 
 export interface CodexMachineTasksHttpService {
-  attach(actor: { callerMachineId?: string; userId: string }, request: {
+  attach(actor: { callerMachineId?: string; reportingTask?: CodexMachineTaskReportingTask; userId: string }, request: {
     connectorId?: string;
     environmentId?: string;
     operationId: string;
@@ -31,10 +32,10 @@ export interface CodexMachineTasksHttpService {
   read(actor: { userId: string }, request: CodexMachineTaskReadRequest): Promise<unknown>;
   send(actor: { userId: string }, request: CodexMachineTaskSendRequest): Promise<unknown>;
   recoverStart(
-    actor: { callerMachineId?: string; userId: string },
+    actor: { callerMachineId?: string; reportingTask?: CodexMachineTaskReportingTask; userId: string },
     request: CodexMachineTaskStartRequest
   ): Promise<unknown>;
-  start(actor: { callerMachineId?: string; userId: string }, request: CodexMachineTaskStartRequest): Promise<unknown>;
+  start(actor: { callerMachineId?: string; reportingTask?: CodexMachineTaskReportingTask; userId: string }, request: CodexMachineTaskStartRequest): Promise<unknown>;
   stream(
     actor: { userId: string },
     request: CodexMachineTaskReadRequest & { afterSequence?: number },
@@ -90,7 +91,9 @@ export function createCodexMachineTasksHttpApi(
             'Pull request must be positive.'
           ),
           issue,
+          model: optionalSelector(body.model),
           operationId,
+          reasoningEffort: optionalSelector(body.reasoningEffort),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;
@@ -113,7 +116,9 @@ export function createCodexMachineTasksHttpApi(
             'Pull request must be positive.'
           ),
           issue,
+          model: optionalSelector(body.model),
           operationId,
+          reasoningEffort: optionalSelector(body.reasoningEffort),
           repositoryId: optionalSelector(body.repositoryId)
         }));
         return true;

@@ -387,6 +387,7 @@ export function createLocalSimulationRequestHandler(options: {
           issue: { number: payload.issue, url: '' },
           repository: { id: repository.fullName, nameWithOwner: repository.fullName },
           threadId: '61600000-0000-4000-8000-000000000001',
+          worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' },
           worktree: { branch: localSimulationIdentity.branchName, id: current.worktrees[0]!.id }
         };
         current.codexMessages = [{

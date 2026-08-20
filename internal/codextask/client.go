@@ -104,6 +104,7 @@ func NewClient(config Config) (*Client, error) {
 }
 
 func (client *Client) Start(ctx context.Context, request StartRequest) (StartResult, error) {
+	request = normalizeStartRequest(request)
 	if err := validateStartRequest(request); err != nil {
 		return StartResult{}, err
 	}
@@ -115,6 +116,16 @@ func (client *Client) Start(ctx context.Context, request StartRequest) (StartRes
 		return StartResult{}, err
 	}
 	return result, nil
+}
+
+func normalizeStartRequest(request StartRequest) StartRequest {
+	if request.Model == "" {
+		request.Model = DefaultModel
+	}
+	if request.ReasoningEffort == "" {
+		request.ReasoningEffort = DefaultReasoningEffort
+	}
+	return request
 }
 
 func (client *Client) Read(ctx context.Context, request ReadRequest) (ReadResult, error) {
@@ -360,6 +371,7 @@ func validateStartResult(result StartResult, request StartRequest) error {
 	case StateConfirmed:
 		if request.DryRun || result.Task == nil || validateTask(*result.Task) != nil ||
 			!targetMatchesSelector(result.Task.Target, request.Selector) ||
+			result.Task.Worker.Model != request.Model || result.Task.Worker.ReasoningEffort != request.ReasoningEffort ||
 			result.Task.Issue.Number != request.Issue ||
 			(request.RepositoryID != "" && result.Task.Repository.ID != request.RepositoryID && result.Task.Repository.NameWithOwner != request.RepositoryID) {
 			return ErrInvalidResponse

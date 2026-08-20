@@ -15,6 +15,32 @@ import {
 } from './fixtures/codex-machine-tasks-service';
 
 describe('Codex machine-task service', () => {
+  test('persists the selected worker and Manager reporting binding across start and retry fingerprints', async () => {
+    const store = memoryStore();
+    const reportingTask = { role: 'project-manager' as const, threadId };
+    let starts = 0;
+    const tasks = service({
+      start: async (input) => {
+        starts += 1;
+        expect(input.worker).toEqual({ model: 'gpt-5.6-luna', reasoningEffort: 'high' });
+        expect(input.reportingTask).toEqual(reportingTask);
+        return { state: 'confirmed' as const, threadId, worktreeId: 'wt-worker' };
+      },
+      store
+    });
+    const first = await tasks.start({ userId: 'user-owner', reportingTask }, {
+      ...request, model: 'gpt-5.6-luna', reasoningEffort: 'high'
+    });
+    expect(first).toMatchObject({
+      state: 'confirmed',
+      task: { reportingTask, worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' } }
+    });
+    await expect(tasks.start({ userId: 'user-owner', reportingTask }, {
+      ...request, model: 'gpt-5.6-sol', reasoningEffort: 'high'
+    })).rejects.toBeInstanceOf(CodexMachineTasksConflictError);
+    expect(starts).toBe(1);
+  });
+
   test('resolves a complete dry-run plan without reserving or starting a task', async () => {
     const store = memoryStore();
     let issueDryRun = false;
@@ -42,7 +68,10 @@ describe('Codex machine-task service', () => {
         return { state: 'confirmed', threadId, worktreeId: 'must-not-start' };
       },
       store
-    }).start({ userId: 'user-owner' }, { ...request, dryRun: true });
+    }).start({
+      userId: 'user-owner',
+      reportingTask: { role: 'project-manager', threadId }
+    }, { ...request, dryRun: true, model: 'gpt-5.6-luna', reasoningEffort: 'high' });
 
     expect(result).toEqual(expect.objectContaining({ state: 'ready', target: expect.anything() }));
     expect(result.state === 'ready' && result.plan).toEqual(expect.objectContaining({
@@ -50,7 +79,9 @@ describe('Codex machine-task service', () => {
       environment: { id: 'environment-local', name: 'Local Environment' },
       issue: expect.objectContaining({ number: 262 }),
       operation: { id: request.operationId, state: 'ready' },
-      workspace: expect.objectContaining({ id: 'workspace-local' })
+      reportingTask: { role: 'project-manager', threadId },
+      workspace: expect.objectContaining({ id: 'workspace-local' }),
+      worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' }
     }));
     expect(issueDryRun).toBeTrue();
     expect(starts).toBe(0);

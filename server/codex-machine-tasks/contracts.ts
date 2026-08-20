@@ -1,7 +1,9 @@
 import type {
+  CodexMachineTaskReportingTask,
   CodexMachineTaskSendResult,
   CodexMachineTaskStartPlan,
-  CodexMachineTaskStartResult
+  CodexMachineTaskStartResult,
+  CodexMachineTaskWorkerSelection
 } from '../../src/shared/codex-machine-tasks-api';
 import type {
   CodexSessionOperationResult,
@@ -16,7 +18,9 @@ export interface CodexMachineTaskStartPayload {
   branch: string;
   commit: string;
   issue: { number: number; url: string };
+  reportingTask?: CodexMachineTaskReportingTask;
   repository: { id: string; nameWithOwner: string };
+  worker?: CodexMachineTaskWorkerSelection;
 }
 
 export interface CodexMachineTaskWorkspaceBinding {
@@ -34,10 +38,12 @@ export interface CodexMachineTaskStartOperation {
   generation: number;
   operationId: string;
   physicalMachineId: string;
+  reportingTask?: CodexMachineTaskReportingTask;
   result?: CodexMachineTaskStartResult;
   startPayload: CodexMachineTaskStartPayload;
   state: 'completed' | 'pending' | 'uncertain';
   userId: string;
+  worker: CodexMachineTaskWorkerSelection;
 }
 
 export type CodexMachineTaskStartReservation =
@@ -250,7 +256,9 @@ export interface CodexMachineTasksServiceOptions {
     operationId: string;
     physicalMachineId: string;
     repository: { id: string; nameWithOwner: string };
+    reportingTask?: CodexMachineTaskReportingTask;
     userId: string;
+    worker: CodexMachineTaskWorkerSelection;
   }): Promise<{
     plan?: Pick<CodexMachineTaskStartPlan, 'workspace' | 'worktree' | 'environment'>;
     state: 'ready' | 'uncertain' | 'unavailable';
@@ -320,9 +328,11 @@ export interface CodexMachineTasksServiceOptions {
     issue: { number: number; url: string };
     operationId: string;
     physicalMachineId: string;
+    reportingTask?: CodexMachineTaskReportingTask;
     reconcile: boolean;
     repository: { id: string; nameWithOwner: string };
     userId: string;
+    worker: CodexMachineTaskWorkerSelection;
   }): Promise<{
     generation: number;
     result:
@@ -345,5 +355,6 @@ export interface CodexMachineTasksServiceOptions {
   }>;
   store: CodexMachineTasksStore;
   taskUrl(connectorId: string, threadId: string): string;
+  requireReportingTaskBinding?: boolean;
   userCanUseConnector?(userId: string, connectorId: string): boolean;
 }

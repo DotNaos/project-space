@@ -165,6 +165,9 @@ describe('canonical Codex session executor', () => {
         commit: 'a'.repeat(40),
         environmentId: '11111111-1111-4111-8111-111111111111',
         issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
+        model: 'gpt-5.6-luna',
+        reasoningEffort: 'high',
+        reportingTask: { role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
         repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
         workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         worktreeId: 'worktree-763'
@@ -189,7 +192,10 @@ describe('canonical Codex session executor', () => {
       'Repository: DotNaos/project-space (R_project-space)',
       'Branch: issue-763-dispatch',
       `Commit: ${'a'.repeat(40)}`,
-      'Managed workspace: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa; worktree: worktree-763'
+      'Managed workspace: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa; worktree: worktree-763',
+      'Worker model: gpt-5.6-luna',
+      'Reasoning effort: high',
+      'Report progress, review evidence, blockers, and genuine escalations only to Manager task 019f6d33-6aad-7302-a45e-bb7a33fc399c; do not ask the end user directly.'
     ].join('\n');
     const calls: string[] = [];
     const manager = {
@@ -235,6 +241,8 @@ describe('canonical Codex session executor', () => {
         branch: 'issue-763-dispatch', commit: 'a'.repeat(40),
         environmentId: '11111111-1111-4111-8111-111111111111',
         issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
+        model: 'gpt-5.6-luna', reasoningEffort: 'high',
+        reportingTask: { role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
         repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
         workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', worktreeId: 'worktree-763'
       },

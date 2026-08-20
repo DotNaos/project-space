@@ -312,8 +312,13 @@ export class CodexSessionsExecutor {
           `Repository: ${handoff.repository.nameWithOwner} (${handoff.repository.id})`,
           `Branch: ${handoff.branch}`,
           `Commit: ${handoff.commit}`,
-          `Managed workspace: ${handoff.workspaceId}; worktree: ${handoff.worktreeId}`
+          `Managed workspace: ${handoff.workspaceId}; worktree: ${handoff.worktreeId}`,
+          `Worker model: ${handoff.model}`,
+          `Reasoning effort: ${handoff.reasoningEffort}`,
+          `Report progress, review evidence, blockers, and genuine escalations only to Manager task ${handoff.reportingTask.threadId}; do not ask the end user directly.`
         ].join('\n'),
+        model: handoff.model,
+        effort: handoff.reasoningEffort,
         threadId: result.thread.id
       };
       const turn = await startTurnWithReadReconciliation(this.options.manager, turnInput);

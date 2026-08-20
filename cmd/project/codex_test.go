@@ -59,7 +59,8 @@ func TestCodexStartHereUsesAuthenticatedCallerWithoutPhysicalSelector(t *testing
 			if request.PhysicalMachineID != "" || request.PhysicalMachineName != "" || request.ConnectorID != "" {
 				t.Fatalf("--here selector = %#v", request.Selector)
 			}
-			if request.OperationID != "test-start-operation" || request.Issue != 262 || !request.DryRun || request.RepositoryID != "DotNaos/project-space" {
+			if request.OperationID != "test-start-operation" || request.Issue != 262 || !request.DryRun || request.RepositoryID != "DotNaos/project-space" ||
+				request.Model != codextask.DefaultModel || request.ReasoningEffort != codextask.DefaultReasoningEffort {
 				t.Fatalf("request = %#v", request)
 			}
 			return codextask.StartResult{
@@ -87,6 +88,8 @@ func codexTestStartPlan(operationID string) *codextask.StartPlan {
 	plan.Issue.Number, plan.Issue.URL = 262, "https://github.com/DotNaos/project-space/issues/262"
 	plan.Operation.ID, plan.Operation.State = operationID, codextask.StateReady
 	plan.Repository.ID, plan.Repository.NameWithOwner = "DotNaos/project-space", "DotNaos/project-space"
+	plan.ReportingTask = codextask.ReportingTask{Role: "project-manager", ThreadID: codexTestThreadID}
+	plan.Worker = codextask.WorkerSelection{Model: codextask.DefaultModel, ReasoningEffort: codextask.DefaultReasoningEffort}
 	plan.Workspace.ID, plan.Workspace.Branch = "workspace-1", "issue-262"
 	return plan
 }

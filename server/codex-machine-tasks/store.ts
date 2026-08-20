@@ -582,10 +582,19 @@ function isStartPayload(value: unknown): value is CodexMachineTaskStartPayload {
   }
   const issue = payload.issue as Record<string, unknown>;
   const repository = payload.repository as Record<string, unknown>;
+  const worker = payload.worker as Record<string, unknown> | undefined;
+  const reportingTask = payload.reportingTask as Record<string, unknown> | undefined;
   return Number.isSafeInteger(issue.number) && Number(issue.number) > 0 &&
     typeof issue.url === 'string' && /^https:\/\//.test(issue.url) &&
     typeof repository.id === 'string' && /\S/.test(repository.id) &&
-    typeof repository.nameWithOwner === 'string' && /\S+\/\S+/.test(repository.nameWithOwner);
+    typeof repository.nameWithOwner === 'string' && /\S+\/\S+/.test(repository.nameWithOwner) &&
+    !!worker && typeof worker.model === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(worker.model) &&
+    typeof worker.reasoningEffort === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(worker.reasoningEffort) &&
+    (reportingTask === undefined || (
+      reportingTask.role === 'project-manager' &&
+      typeof reportingTask.threadId === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportingTask.threadId)
+    ));
 }
 
 function isSendResult(value: unknown): value is CodexMachineTaskSendResult {

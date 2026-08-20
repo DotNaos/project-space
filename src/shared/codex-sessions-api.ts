@@ -145,6 +145,12 @@ export interface CodexSessionStartRequest {
     environmentId: string;
     issue: { number: number; url: string };
     repository: { id: string; nameWithOwner: string };
+    reportingTask: {
+      role: 'project-manager';
+      threadId: string;
+    };
+    reasoningEffort: string;
+    model: string;
     workspaceId: string;
     worktreeId: string;
   };

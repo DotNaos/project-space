@@ -334,6 +334,8 @@ func testTaskIdentity() *TaskIdentity {
 	task := &TaskIdentity{Target: *testTarget(), CanonicalTaskURL: "https://projects.example/codex/task-one", ThreadID: testThreadID}
 	task.Issue.Number, task.Issue.URL = 262, "https://github.com/DotNaos/project-space/issues/262"
 	task.Repository.ID, task.Repository.NameWithOwner = "repository-1", "DotNaos/project-space"
+	task.ReportingTask = &ReportingTask{Role: "project-manager", ThreadID: testThreadID}
+	task.Worker = WorkerSelection{Model: DefaultModel, ReasoningEffort: DefaultReasoningEffort}
 	task.Worktree.ID, task.Worktree.Branch = "worktree-1", "issue-262"
 	return task
 }
@@ -345,6 +347,8 @@ func testStartPlan() *StartPlan {
 	plan.Issue.Number, plan.Issue.URL = 262, "https://github.com/DotNaos/project-space/issues/262"
 	plan.Operation.ID, plan.Operation.State = testOperationID, StateReady
 	plan.Repository.ID, plan.Repository.NameWithOwner = "repository-1", "DotNaos/project-space"
+	plan.ReportingTask = ReportingTask{Role: "project-manager", ThreadID: testThreadID}
+	plan.Worker = WorkerSelection{Model: DefaultModel, ReasoningEffort: DefaultReasoningEffort}
 	plan.Workspace.ID, plan.Workspace.Branch = "workspace-1", "issue-262"
 	plan.Workspace.Commit = plan.Base.Commit
 	return plan

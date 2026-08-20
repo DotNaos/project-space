@@ -1,6 +1,8 @@
 import type { IncomingMessage } from 'node:http';
+import { CODEX_THREAD_ID_PATTERN } from '../../src/shared/codex-sessions-api';
 
 const machineHeader = 'x-project-machine-id';
+const callerThreadHeader = 'x-codex-thread-id';
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 const bearer = /^[A-Za-z0-9._~+/-]{1,4096}=*$/;
 
@@ -35,13 +37,20 @@ export function createCodexMachineTasksAuthResolver(options: {
       }
       if (!authenticated) throw new CodexMachineTasksAuthError(401);
       if (authenticated.machineId !== machineId) throw new CodexMachineTasksAuthError(403);
-      return { callerMachineId: machineId, userId: authenticated.userId };
+      return { callerMachineId: machineId, ...reportingTask(request), userId: authenticated.userId };
     }
     if (!options.authRequired()) return { userId: 'local-development-user' };
     const human = await options.readHuman(request).catch(() => null);
     if (!human) throw new CodexMachineTasksAuthError(401);
-    return human;
+    return { ...human, ...reportingTask(request) };
   };
+}
+
+function reportingTask(request: IncomingMessage) {
+  const threadId = singleHeader(request, callerThreadHeader);
+  if (threadId === undefined) return {};
+  if (!CODEX_THREAD_ID_PATTERN.test(threadId)) throw new CodexMachineTasksAuthError(403);
+  return { reportingTask: { role: 'project-manager' as const, threadId } };
 }
 
 function singleHeader(request: IncomingMessage, name: string) {

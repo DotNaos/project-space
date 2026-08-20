@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import {
+  CODEX_MACHINE_TASK_DEFAULT_MODEL,
+  CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT
+} from '../../src/shared/codex-machine-tasks-api';
 import type {
   CodexMachineTaskAttachRequest,
   CodexMachineTaskAttachResult,
@@ -12,7 +16,9 @@ import type {
   CodexMachineTaskStartRecoveryResult,
   CodexMachineTaskStartRequest,
   CodexMachineTaskStartResult,
-  CodexMachineTaskTarget
+  CodexMachineTaskTarget,
+  CodexMachineTaskReportingTask,
+  CodexMachineTaskWorkerSelection
 } from '../../src/shared/codex-machine-tasks-api';
 import { CODEX_MACHINE_TASKS_API_VERSION } from '../../src/shared/codex-machine-tasks-api';
 import type { CodexSessionOperationResult, CodexSessionStreamEvent } from '../../src/shared/codex-sessions-api';
@@ -62,6 +68,12 @@ export class CodexMachineTasksConflictError extends Error {
   }
 }
 export const codexAttachToken = Symbol('codexAttachToken');
+type CodexMachineTaskActor = {
+  callerMachineId?: string;
+  reportingTask?: CodexMachineTaskReportingTask;
+  userId: string;
+};
+
 export function createCodexMachineTasksService(options: CodexMachineTasksServiceOptions) {
   const queueDispatcher = createCodexMachineTaskQueueDispatcher(options);
   void queueDispatcher.start().catch(() => undefined);
@@ -130,11 +142,15 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
     },
 
     async recoverStart(
-      actor: { callerMachineId?: string; userId: string },
+      actor: CodexMachineTaskActor,
       request: CodexMachineTaskStartRequest
     ): Promise<CodexMachineTaskStartRecoveryResult> {
       const released = await options.store.releaseUncertainStart({
-        fingerprint: fingerprint({ request, userId: actor.userId }),
+        fingerprint: fingerprint({
+          request: normalizedStartRequest(request),
+          reportingTask: actor.reportingTask,
+          userId: actor.userId
+        }),
         operationId: request.operationId,
         userId: actor.userId
       });
@@ -149,10 +165,21 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
     },
 
     async start(
-      actor: { callerMachineId?: string; userId: string },
+      actor: CodexMachineTaskActor,
       request: CodexMachineTaskStartRequest
     ): Promise<CodexMachineTaskStartResult> {
-      const requestFingerprint = fingerprint({ request, userId: actor.userId });
+      const worker = workerSelection(request);
+      const reportingTask = actor.reportingTask;
+      const requestFingerprint = fingerprint({
+        request: normalizedStartRequest(request), reportingTask, userId: actor.userId
+      });
+      if (options.requireReportingTaskBinding && !reportingTask) {
+        return blocked(
+          request.operationId,
+          'unauthorized',
+          'A Project Manager reporting task is required for Codex worker dispatch.'
+        );
+      }
       const lookup = request.dryRun
         ? { kind: 'missing' as const }
         : await options.store.lookupStart({
@@ -206,6 +233,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           return blocked(request.operationId, error.reason, error.message, selected);
         }
       }
+      issue = {
+        ...issue,
+        ...(reportingTask ? { reportingTask } : {}),
+        worker
+      };
       if (request.dryRun) {
         const planned = await options.plan?.({
           branch: issue.branch,
@@ -216,7 +248,9 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           operationId: request.operationId,
           physicalMachineId: selected.physicalMachine.id,
           repository: issue.repository,
-          userId: actor.userId
+          ...(reportingTask ? { reportingTask } : {}),
+          userId: actor.userId,
+          worker
         });
         if (planned?.state === 'uncertain') {
           return uncertain(request.operationId, selected, planned.message);
@@ -251,6 +285,8 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
             operation: { id: request.operationId, state: 'ready' as const },
             repository: issue.repository,
             workspace,
+            ...(reportingTask ? { reportingTask } : {}),
+            worker,
             ...(planned.plan.worktree ? { worktree: planned.plan.worktree } : {})
           },
           state: 'ready' as const,
@@ -274,7 +310,9 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           operationId: request.operationId,
           physicalMachineId: selected.physicalMachine.id,
           repository: issue.repository,
-          userId: actor.userId
+          ...(reportingTask ? { reportingTask } : {}),
+          userId: actor.userId,
+          worker
         });
         if (planned.state === 'uncertain') {
           return uncertain(request.operationId, selected, planned.message);
@@ -317,9 +355,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         generation: selected.connector.generation,
         operationId: request.operationId,
         physicalMachineId: selected.physicalMachine.id,
+        ...(reportingTask ? { reportingTask } : {}),
         startPayload: issue,
         state: 'pending',
-        userId: actor.userId
+        userId: actor.userId,
+        worker
       };
       const reservation = await options.store.reserveStart(operation);
       if (reservation.kind === 'conflict') throw new CodexMachineTasksConflictError();
@@ -362,9 +402,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         issue: issue.issue,
         operationId: operation.operationId,
         physicalMachineId: selected.physicalMachine.id,
+        reportingTask: reportingTask!,
         reconcile: reservation.kind !== 'new',
         repository: issue.repository,
-        userId: actor.userId
+        userId: actor.userId,
+        worker
       });
       const started = start.result;
       const executionTarget = targetAtGeneration(selected, start.generation);
@@ -426,9 +468,11 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         canonicalTaskUrl: options.taskUrl(executionTarget.connector.id, started.threadId),
         issue: issue.issue,
         repository: issue.repository,
+        ...(reportingTask ? { reportingTask } : {}),
         threadId: started.threadId,
         ...(started.handoff ? { handoff: started.handoff } : {}),
         worktree,
+        worker,
         workspace: {
           branch: workspace.branch,
           ...(workspace.commit ? { commit: workspace.commit } : {}),
@@ -807,4 +851,20 @@ function sameStartPayload(
   right: CodexMachineTaskStartPayload
 ) {
   return canonicalJson(left) === canonicalJson(right);
+}
+
+function workerSelection(request: CodexMachineTaskStartRequest): CodexMachineTaskWorkerSelection {
+  return {
+    model: request.model?.trim() || CODEX_MACHINE_TASK_DEFAULT_MODEL,
+    reasoningEffort: request.reasoningEffort?.trim() || CODEX_MACHINE_TASK_DEFAULT_REASONING_EFFORT
+  };
+}
+
+function normalizedStartRequest(request: CodexMachineTaskStartRequest) {
+  const worker = workerSelection(request);
+  return {
+    ...request,
+    model: worker.model,
+    reasoningEffort: worker.reasoningEffort
+  };
 }

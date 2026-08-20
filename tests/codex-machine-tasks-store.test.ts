@@ -47,7 +47,9 @@ const operation: CodexMachineTaskStartOperation = {
     branch: 'issue-262-work',
     commit: 'c'.repeat(40),
     issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
-    repository: { id: 'R_one', nameWithOwner: 'DotNaos/project-space' }
+    reportingTask: { role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+    repository: { id: 'R_one', nameWithOwner: 'DotNaos/project-space' },
+    worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' }
   },
   state: 'pending',
   userId: 'user-owner'
@@ -63,7 +65,9 @@ const completed = {
     issue: { number: 262, url: 'https://github.com/DotNaos/project-space/issues/262' },
     physicalMachine: { id: 'physical-one', name: 'Machine' },
     repository: { id: 'R_one', nameWithOwner: 'DotNaos/project-space' },
+    reportingTask: { role: 'project-manager', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
     threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c',
+    worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' },
     worktree: { branch: 'issue-262-work', id: 'worktree-one' }
   }
 };

@@ -56,6 +56,7 @@ func newCodexCommandWithDependencies(dependencies codexCommandDependencies) *cob
 func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command {
 	target := codexTargetOptions{}
 	issue, operationID, repositoryID, format := 0, "", "", "text"
+	model, reasoningEffort := codextask.DefaultModel, codextask.DefaultReasoningEffort
 	dryRun := false
 	command := &cobra.Command{
 		Use:   "start",
@@ -88,8 +89,9 @@ func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command 
 				return err
 			}
 			result, err := runtime.client.Start(command.Context(), codextask.StartRequest{
-				Selector: selector, DryRun: dryRun, Issue: issue,
-				OperationID: operationID, RepositoryID: repositoryID,
+				Selector: selector, DryRun: dryRun, Issue: issue, Model: model,
+				ReasoningEffort: reasoningEffort,
+				OperationID:     operationID, RepositoryID: repositoryID,
 			})
 			if err != nil {
 				if codexMutationMayBeUncertain(err) {
@@ -114,6 +116,8 @@ func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command 
 	command.Flags().IntVar(&issue, "issue", 0, "GitHub issue number")
 	command.Flags().StringVar(&repositoryID, "repository", "", "exact GitHub owner/name or repository ID")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "resolve the exact target without starting a task")
+	command.Flags().StringVar(&model, "model", codextask.DefaultModel, "worker model")
+	command.Flags().StringVar(&reasoningEffort, "reasoning-effort", codextask.DefaultReasoningEffort, "worker reasoning effort")
 	command.Flags().StringVar(&operationID, "operation-id", "", "stable idempotency key for safe retries")
 	command.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	addCodexTargetFlags(command, &target, true)
