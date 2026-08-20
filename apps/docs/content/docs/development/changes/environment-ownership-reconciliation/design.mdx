@@ -76,8 +76,9 @@ manual evidence resolving to exactly one Host. The supported start and send path
 same selected Host and Environment; unresolved, deployment-only, duplicate same-UUID, and
 missing evidence remain unavailable through the configured service.
 
-The stateful configured regression starts with deployment-only evidence, runs the real Tailscale
-refresh and classification projection boundary, and observes the newly created user-owned row
+The configured regression starts with deployment-only evidence in a disposable real PostgreSQL
+schema, runs the actual migrations and Tailscale refresh/classification projection boundaries, and
+observes the newly created user-owned row
 through `ProjectSpaceDatabaseRepository`. The configured HTTP start, read, and send requests then
 use the exact Host ID and retain the repaired Environment ID. No preconstructed inventory snapshot
 bypasses either path.

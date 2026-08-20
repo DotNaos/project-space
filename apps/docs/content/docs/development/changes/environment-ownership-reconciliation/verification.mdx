@@ -33,11 +33,12 @@ Verification status: **Complete**
 - [x] Deployment-only, absent, or duplicate same-UUID Host evidence remains generic and does not
   reveal cross-owner inventory.
 - [x] `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` begins with deployment-only
-  state, invokes the real Tailscale refresh/classification boundary, and uses a stateful database
-  proof that evaluates every ownership candidate condition before materializing the manual/user
-  copied-blueprint row. It observes that row through the repository and exercises configured HTTP
-  start, read, and send without a prebuilt inventory shortcut; stale ineligible evidence remains
-  deployment-only and a deliberately incomplete query contract fails the proof.
+  state in a disposable real PostgreSQL schema, runs the actual migrations, and invokes the real
+  Tailscale refresh/classification and Host-membership boundaries. PostgreSQL evaluates the full
+  owner/current/online/fresh, blueprint, connector/Host uniqueness, and user-defined eligibility
+  before materializing the manual/user copied row. The test observes that row through the real
+  repository, exercises configured HTTP start/read/send with exact Host and Environment IDs, and
+  covers stable repeated reconciliation, wrong-owner, ambiguity, and concurrent updates.
 - [x] The configured HTTP regression covers both exact Host selection and the authenticated
   `--here` equivalent while retaining strict authorization.
 - [x] The CLI validates and preserves the typed unavailable result in JSON output.

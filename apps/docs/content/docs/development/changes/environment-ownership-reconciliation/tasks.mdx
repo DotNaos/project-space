@@ -43,13 +43,13 @@ description: Implementation and verification checklist for Environment ownership
   - **Evidence:** Focused lifecycle, repository, machine-connection, physical Host, and migration tests pass; `bun run check`, `bun test --isolate`, and `bun run build` pass.
 - [x] 3.2 Verify the persisted configured repository/HTTP start/send flow
   - **Evidence:** `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` starts with
-    deployment-only state, runs real Tailscale refresh/classification through the configured
-    database boundary, and uses a stateful database double that evaluates current/online/fresh
-    evidence, exact owner and platform, complete built-in equivalence, connector/Host uniqueness,
-    and the user-defined guard before materializing the exact manual/user copied row. The test
-    observes that row through `ProjectSpaceDatabaseRepository`, then performs HTTP start, read,
-    and send with exact Host and Environment IDs; an ineligible stale candidate remains
-    deployment-only and an incomplete eligibility query is rejected.
+    deployment-only state in a disposable real PostgreSQL schema, runs the actual migrations and
+    Tailscale/repository mutation boundaries, and evaluates current/online/fresh evidence, exact
+    owner and platform, complete built-in equivalence, connector/Host uniqueness, and the
+    user-defined guard in PostgreSQL before materializing the exact manual/user copied row. The
+    test observes that row through `ProjectSpaceDatabaseRepository`, then performs HTTP start,
+    read, and send with exact Host and Environment IDs; repeated, stale, wrong-owner, ambiguous,
+    and concurrent cases remain fail-closed or idempotent.
 - [x] 3.3 Preserve private fail-closed Host diagnostics
   - **Evidence:** Missing, unresolved, and conflicting user-owned Environment association evidence
     returns a typed unavailable state and recovery message without a target or dispatch. An absent
