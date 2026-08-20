@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -31,7 +32,8 @@ type AssociationState =
   | 'conflict'
   | 'deployment-only'
   | 'ambiguous'
-  | 'fresh-classification';
+  | 'fresh-classification'
+  | 'fresh-classification-ineligible';
 
 interface PersistedRow extends Record<string, unknown> {
   owner_user_id?: string;
@@ -42,21 +44,35 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
   readonly returnedDefinitionOwners: string[] = [];
   private observedDevice = false;
   private classification: 'unclassified' | 'environment' = 'unclassified';
-  private repairTriggered = false;
+  private projectedEnvironmentId: string | null = null;
+  private observed = { inventoryState: 'current', online: false, observedAt: '', freshUntil: '', os: '', name: '' };
+  private userRepair: PersistedRow | null = null;
 
-  constructor(private readonly associationState: AssociationState) {}
+  constructor(private readonly associationState: AssociationState) {
+    if (this.isLifecycleProof()) {
+      this.observed = {
+        inventoryState: 'current', name: 'os-macbook.tail1234.ts.net', online: true, os: 'darwin',
+        observedAt: '2026-08-20T23:00:00.000Z', freshUntil: associationState === 'fresh-classification'
+          ? '2026-08-21T00:00:00.000Z' : '2026-08-20T20:00:00.000Z'
+      };
+    }
+  }
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
     if (sql.includes('pg_advisory_xact_lock')) return { rows: [] as Row[] };
-    if (sql.includes('with candidate_rows')) {
-      if (this.associationState === 'fresh-classification' && this.classification === 'environment') {
-        this.repairTriggered = true;
-      }
+    if (sql.includes('with candidate_rows') && sql.includes('insert into compute_environments')) {
+      this.reconcileLifecycle(sql);
       return { rows: [] as Row[] };
     }
     if (sql.includes('insert into tailscale_device_observations')) {
       this.observedDevice = true;
+      if (this.isLifecycleProof()) {
+        this.observed = {
+          inventoryState: 'current', name: String(values[2]), online: Boolean(values[4]), os: String(values[5]),
+          observedAt: String(values[7]), freshUntil: String(values[8])
+        };
+      }
       return { rows: [] as Row[] };
     }
     if (sql.includes('select device_id from tailscale_device_observations')) {
@@ -83,16 +99,20 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
       return { rows: [{ id: 'same-definition-id' }] as Row[] };
     }
     if (sql.includes('insert into compute_environments')) {
+      if (this.isLifecycleProof()) {
+        this.projectedEnvironmentId = environmentId;
+      }
       return { rows: [{ id: environmentId }] as Row[] };
     }
     if (sql.includes('insert into tailscale_compute_environment_projections')) {
+      if (this.isLifecycleProof()) this.projectedEnvironmentId = String(values[2]);
       return { rows: [] as Row[] };
     }
     if (sql.includes('insert into tailscale_device_classification_audits')) {
       return { rows: [] as Row[] };
     }
     if (sql.includes('from compute_environment_definitions') && sql.includes('order by lower')) {
-      const rows = this.visible([
+      const rows = this.visible(this.isLifecycleProof() ? this.lifecycleDefinitions() : [
         definition(userId, 'a', 'built_in', 'macOS'),
         definition(deploymentOwnerId, 'x', 'built_in', 'macOS'),
         definition(userId, 'x', 'user_defined', 'User macOS')
@@ -129,6 +149,12 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
   }
 
   private hostRows(): PersistedRow[] {
+    if (this.isLifecycleProof()) {
+      return [
+        host(userId, hostId, 'os-macbook'),
+        host(deploymentOwnerId, '24000000-0000-4000-8000-000000000099', 'deployment-mac')
+      ];
+    }
     if (this.associationState === 'deployment-only') {
       return [host(deploymentOwnerId, hostId, 'deployment-os-macbook')];
     }
@@ -146,11 +172,11 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
   }
 
   private environmentRows(): PersistedRow[] {
-    const freshClassificationUserEnvironment = this.associationState !== 'fresh-classification' || this.repairTriggered;
+    if (this.isLifecycleProof()) return this.lifecycleEnvironments();
     const userAssociation = this.associationState === 'verified' ||
       this.associationState === 'ambiguous' ||
       this.associationState === 'deployment-only' ||
-      (this.associationState === 'fresh-classification' && this.repairTriggered)
+      this.associationState === 'fresh-classification-ineligible'
       ? { host_evidence: 'smbios', host_id: hostId, host_resolution: 'verified' }
       : this.associationState === 'conflict'
         ? { host_evidence: 'host_broker', host_id: hostId, host_resolution: 'conflict' }
@@ -161,9 +187,8 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
       ? environmentId
       : '1cbcf4d5-985d-4216-8782-6107cb365699';
     return [
-      ...(freshClassificationUserEnvironment
-        ? [environment(userId, environmentId, 'a', 'platform-user', 'User macOS', userAssociation)]
-        : []),
+      ...(this.associationState === 'fresh-classification' ? [] :
+        [environment(userId, environmentId, 'a', 'platform-user', 'User macOS', userAssociation)]),
       environment(
         deploymentOwnerId,
         this.associationState === 'fresh-classification' ? environmentId : deploymentEnvironmentId,
@@ -188,6 +213,87 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
       )
     ];
   }
+
+  private isLifecycleProof() {
+    return this.associationState === 'fresh-classification' ||
+      this.associationState === 'fresh-classification-ineligible';
+  }
+
+  private lifecycleDefinitions(): PersistedRow[] {
+    return [
+      faithfulDefinition(deploymentOwnerId, 'same-definition-id', 'built_in'),
+      faithfulDefinition(userId, 'same-definition-id', 'built_in'),
+      definition(userId, 'x', 'user_defined', 'User macOS')
+    ];
+  }
+
+  private lifecycleEnvironments(): PersistedRow[] {
+    const deployment = environment(
+      deploymentOwnerId, environmentId, 'same-definition-id', 'platform-deployment',
+      'os-macbook.tail1234.ts.net', { host_evidence: 'none', host_id: null, host_resolution: 'unresolved' }
+    );
+    deployment.resources = { cpu: 4, memoryMb: 8192 };
+    deployment.tailscale_projected = this.projectedEnvironmentId === environmentId;
+    return [
+      ...(this.userRepair ? [this.userRepair] : []),
+      deployment,
+      environment(
+        userId, '1cbcf4d5-985d-4216-8782-6107cb365688', 'x', 'platform-user',
+        'User-defined macOS', { host_evidence: 'none', host_id: null, host_resolution: 'unresolved' }
+      )
+    ];
+  }
+
+  private reconcileLifecycle(sql: string) {
+    assertReconcilerQueryContract(sql);
+    if (!this.isLifecycleProof() || this.classification !== 'environment' || !this.projectedEnvironmentId) return;
+    const observedName = this.observed.name.replace(/\.tail[a-z0-9]+\.ts\.net$/i, '');
+    const identity = {
+      connectorId: 'connector-842', hostname: 'os-macbook.example.test', name: 'os-macbook',
+      operatingSystem: 'darwin', ownerUserId: userId, revokedAt: null
+    };
+    const memberships = [{ connectorId: identity.connectorId, hostId }];
+    const candidateHost = {
+      id: hostId, identityResolution: 'resolved', ownerUserId: userId,
+      platformId: 'platform-user'
+    };
+    const candidatePlatform = { id: 'platform-user', kind: 'local', name: 'Local & self-hosted' };
+    const deploymentDefinition = this.lifecycleDefinitions().find((row) => (
+      row.owner_user_id === deploymentOwnerId && row.ownership === 'built_in'
+    ));
+    const userDefinition = this.lifecycleDefinitions().find((row) => (
+      row.owner_user_id === userId && row.ownership === 'built_in'
+    ));
+    const equivalentDefinition = !!deploymentDefinition && !!userDefinition && [
+      'slug', 'name', 'kind', 'operating_system_family', 'bootstrap_strategy', 'ownership',
+      'supported_architectures'
+    ].every((key) => JSON.stringify(userDefinition[key]) === JSON.stringify(deploymentDefinition[key]));
+    const existingUserDefinedSameUuid = this.lifecycleEnvironments().some((row) => row.owner_user_id === userId && row.id === environmentId && this.lifecycleDefinitions().some((candidate) => candidate.owner_user_id === userId && candidate.id === row.environment_definition_id && candidate.ownership === 'user_defined'));
+    const exactIdentity = identity.ownerUserId !== deploymentOwnerId && identity.revokedAt === null &&
+      observedName === identity.name &&
+      [identity.name, identity.hostname.split('.')[0]].includes(observedName) &&
+      identity.operatingSystem === 'darwin';
+    const eligible = this.associationState === 'fresh-classification' &&
+      this.observed.inventoryState === 'current' && this.observed.online &&
+      new Date(this.observed.freshUntil) > new Date('2026-08-20T23:30:00.000Z') &&
+      exactIdentity && candidatePlatform.kind === 'local' && candidatePlatform.name === 'Local & self-hosted' &&
+      candidateHost.ownerUserId === userId && candidateHost.identityResolution === 'resolved' &&
+      candidateHost.platformId === candidatePlatform.id && memberships.length === 1 &&
+      new Set(memberships.map(({ connectorId }) => connectorId)).size === 1 &&
+      new Set(memberships.map(({ hostId: memberHostId }) => memberHostId)).size === 1 &&
+      equivalentDefinition && !existingUserDefinedSameUuid;
+    if (!eligible) return;
+    const deployment = this.lifecycleEnvironments().find((row) => row.owner_user_id === deploymentOwnerId);
+    if (!deployment || deployment.host_resolution !== 'unresolved') return;
+    this.userRepair = {
+      ...deployment,
+      environment_definition_id: 'same-definition-id',
+      host_evidence: 'user', host_id: hostId, host_resolution: 'manual',
+      identity_key: repairedIdentity(userId, 'device-842'),
+      identity_resolution: 'resolved', owner_user_id: userId,
+      platform_id: 'platform-user'
+    };
+  }
 }
 
 afterEach(async () => {
@@ -202,6 +308,57 @@ function definition(owner: string, id: string, ownership: 'built_in' | 'user_def
     operating_system_family: 'macos', owner_user_id: owner, ownership,
     slug: 'macos', supported_architectures: ['arm64']
   };
+}
+
+function faithfulDefinition(owner: string, id: string, ownership: 'built_in' | 'user_defined') {
+  return {
+    bootstrap_strategy: 'ssh', id, kind: 'native_macos', name: 'macOS',
+    operating_system_family: 'macos', owner_user_id: owner, ownership,
+    slug: 'macos', supported_architectures: ['arm64']
+  };
+}
+
+const reconcilerEligibilityFragments = [
+  'projection.owner_user_id = $1',
+  "environment.host_resolution = 'unresolved'",
+  "observation.inventory_state = 'current'",
+  'observation.online',
+  'observation.fresh_until > now()',
+  'identity.owner_user_id <> $1',
+  'identity.revoked_at is null',
+  'identity.operating_system = case environment.kind',
+  'machine_connector.owner_user_id = identity.owner_user_id',
+  'physical_machine.id = machine_connector.physical_machine_id',
+  'host.id = machine_connector.physical_machine_id',
+  'host.identity_resolution = \'resolved\'',
+  "platform.kind = 'local'",
+  "platform.name = 'Local & self-hosted'",
+  "deployment_definition.ownership = 'built_in'",
+  "definition.ownership = 'built_in'",
+  'definition.slug = case environment.kind',
+  'deployment_definition.slug, deployment_definition.name',
+  'supported_architectures',
+  "existing_definition.ownership = 'user_defined'",
+  'having count(*) = 1',
+  'count(distinct connector_id) = 1',
+  'count(distinct host_id) = 1',
+  "'manual', 'user'",
+  'resource_mode, resources',
+  'on conflict (id, owner_user_id) do update'
+] as const;
+
+function assertReconcilerQueryContract(sql: string) {
+  for (const fragment of reconcilerEligibilityFragments) {
+    if (!sql.includes(fragment)) {
+      throw new Error(`The reconciliation proof rejected an incomplete SQL contract: ${fragment}`);
+    }
+  }
+}
+
+function repairedIdentity(owner: string, deviceId: string) {
+  const first = createHash('md5').update(`environment:${owner}:tailscale:${deviceId}`).digest('hex');
+  const second = createHash('md5').update(`tailscale-environment:${owner}:${deviceId}`).digest('hex');
+  return `account:${first}${second}`;
 }
 
 function host(owner: string, id: string, name: string) {
@@ -365,8 +522,14 @@ describe('persisted configured Codex ownership integration', () => {
 
     const repaired = await configured.repository.listComputeInventory(userId);
     expect(repaired.environments.find(({ id }) => id === environmentId)).toMatchObject({
-      id: environmentId, hostAssociation: { hostId }
+      environmentDefinitionId: 'same-definition-id',
+      hostAssociation: { evidence: 'user', hostId, resolution: 'manual' },
+      id: environmentId, identityResolution: 'resolved', kind: 'native_macos',
+      name: 'os-macbook.tail1234.ts.net', platformId: 'platform-user',
+      resourceMode: 'dedicated', resources: { cpu: 4, memoryMb: 8192 },
     });
+    expect(repaired.environments.find(({ id }) => id === environmentId)?.identity.key)
+      .toBe(repairedIdentity(userId, 'device-842'));
 
     const start = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation('classification-start-842', {
       expectedBranch: branch, expectedCommit: commit, issue: 842,
@@ -395,6 +558,65 @@ describe('persisted configured Codex ownership integration', () => {
       { kind: 'read', selectedEnvironment: environmentId },
       { kind: 'continue', selectedEnvironment: environmentId }
     ]);
+  });
+
+  test('keeps an ineligible deployment Environment deployment-only', async () => {
+    const configured = await configuredHttp('fresh-classification-ineligible');
+    const inventory = new PostgresTailscaleInventoryStore(configured.database);
+    const snapshot = {
+      backendState: 'running' as const,
+      deviceErrors: [],
+      devices: [{
+        addresses: ['100.64.0.10'], id: 'device-842', observedName: 'os-macbook.tail1234.ts.net',
+        online: true, os: 'darwin', tags: []
+      }],
+      freshness: {
+        freshUntil: '2026-08-20T23:15:00.000Z', observedAt: '2026-08-20T23:00:00.000Z', state: 'fresh' as const
+      },
+      source: 'tailscale_status_json' as const
+    };
+
+    await inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot });
+    await inventory.setClassification({
+      actorId: 'project-manager', classification: 'environment', deviceId: 'device-842',
+      expectedRevision: 0, ownerUserId: deploymentOwnerId
+    });
+
+    const inventoryAfter = await configured.repository.listComputeInventory(userId, {
+      additionalOwnerUserIds: [deploymentOwnerId]
+    });
+    expect(inventoryAfter.environments.find(({ id }) => id === environmentId)).toMatchObject({
+      id: environmentId,
+      hostAssociation: { evidence: 'none', resolution: 'unresolved' }
+    });
+    expect(inventoryAfter.environments.filter(({ id }) => id === environmentId)).toHaveLength(1);
+    expect(configured.database.calls.some(({ sql }) => sql.includes('with candidate_rows'))).toBe(true);
+  });
+
+  test('rejects a deliberately incomplete eligibility query contract', async () => {
+    const configured = await configuredHttp('fresh-classification');
+    const inventory = new PostgresTailscaleInventoryStore(configured.database);
+    const snapshot = {
+      backendState: 'running' as const, deviceErrors: [],
+      devices: [{
+        addresses: ['100.64.0.10'], id: 'device-842', observedName: 'os-macbook.tail1234.ts.net',
+        online: true, os: 'darwin', tags: []
+      }],
+      freshness: {
+        freshUntil: '2026-08-21T00:00:00.000Z', observedAt: '2026-08-20T23:00:00.000Z', state: 'fresh' as const
+      },
+      source: 'tailscale_status_json' as const
+    };
+    await inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot });
+    await inventory.setClassification({
+      actorId: 'project-manager', classification: 'environment', deviceId: 'device-842',
+      expectedRevision: 0, ownerUserId: deploymentOwnerId
+    });
+    const candidateQuery = configured.database.calls.find(({ sql }) => sql.includes('with candidate_rows'))?.sql;
+    expect(candidateQuery).toBeString();
+    expect(() => assertReconcilerQueryContract(candidateQuery!.replace('observation.online', 'true'))).toThrow(
+      'observation.online'
+    );
   });
 
   test('reconciles persisted owner collisions before HTTP start and send retain the exact Host', async () => {
