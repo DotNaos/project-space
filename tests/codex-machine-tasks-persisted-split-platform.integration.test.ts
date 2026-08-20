@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createConfiguredCodexMachineTasksRuntime } from '../server/codex-machine-tasks/configured-runtime';
 import { createCodexMachineTasksHttpApi } from '../server/codex-machine-tasks/http';
 import type { DatabaseQueryClient } from '../server/database/client';
+import { ProjectSpaceDatabaseRepository } from '../server/database/repository';
 import type { CodexSessionsRuntime } from '../server/codex-sessions/runtime';
 import type {
   WorkspaceRuntimeCodexCommand,
@@ -31,6 +32,8 @@ interface Row extends Record<string, unknown> {
 class SplitPlatformDatabase implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
 
+  constructor(private readonly mode: 'valid' | 'ambiguous' = 'valid') {}
+
   async query<Result>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
     const requestedOwners = Array.isArray(values[0]) ? values[0] as string[] : [userId];
@@ -50,23 +53,34 @@ class SplitPlatformDatabase implements DatabaseQueryClient {
       ], combined) as Result[] };
     }
     if (sql.includes('from compute_hosts') && sql.includes('order by lower')) {
-      return { rows: this.visible([
-        host(userId, hostId, 'os-macbook', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31'),
-        host(deploymentOwnerId, '24000000-0000-4000-8000-000000000099', 'deployment-mac', 'a4731568-0d82-460a-b048-1db063b4b470')
-      ], combined) as Result[] };
+      const hosts = this.mode === 'ambiguous'
+        ? [
+            host(userId, hostId, 'os-macbook', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31'),
+            host(userId, hostId, 'os-macbook-copy', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31')
+          ]
+        : [
+            host(userId, hostId, 'os-macbook', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31'),
+            host(deploymentOwnerId, '24000000-0000-4000-8000-000000000099', 'deployment-mac', 'a4731568-0d82-460a-b048-1db063b4b470')
+          ];
+      return { rows: this.visible(hosts, combined) as Result[] };
     }
     if (sql.includes('from compute_environments') && sql.includes('order by lower')) {
-      return { rows: this.visible([
-        environment(userId, environmentId, 'a', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
-          host_evidence: 'user', host_id: hostId, host_resolution: 'manual'
-        }),
-        environment(deploymentOwnerId, environmentId, 'x', 'a4731568-0d82-460a-b048-1db063b4b470', {
-          host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
-        }),
-        environment(userId, '1cbcf4d5-985d-4216-8782-6107cb365688', 'x', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
-          host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
-        })
-      ], combined) as Result[] };
+      const environments = this.mode === 'ambiguous'
+        ? [environment(userId, environmentId, 'a', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
+            host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
+          })]
+        : [
+            environment(userId, environmentId, 'a', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
+              host_evidence: 'user', host_id: hostId, host_resolution: 'manual'
+            }),
+            environment(deploymentOwnerId, environmentId, 'x', 'a4731568-0d82-460a-b048-1db063b4b470', {
+              host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
+            }),
+            environment(userId, '1cbcf4d5-985d-4216-8782-6107cb365688', 'x', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
+              host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
+            })
+          ];
+      return { rows: this.visible(environments, combined) as Result[] };
     }
     if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
       return { rows: [] as Result[] };
@@ -110,7 +124,8 @@ function environment(
     ...association, environment_definition_id: definitionId, id,
     identity_key: `environment:${owner}:${id}`, identity_resolution: 'resolved', identity_version: 1,
     kind: 'native_macos', legacy_tombstoned_only: false, name: 'os-macbook', owner_user_id: owner,
-    parent_environment_id: null, platform_id: platformId, resource_mode: 'dedicated', resources: null
+    parent_environment_id: null, platform_id: platformId, resource_mode: 'dedicated', resources: null,
+    tailscale_projected: owner === deploymentOwnerId
   };
 }
 
@@ -169,8 +184,8 @@ function backend() {
   };
 }
 
-async function configuredHttp() {
-  const database = new SplitPlatformDatabase();
+async function configuredHttp(mode: 'valid' | 'ambiguous' = 'valid') {
+  const database = new SplitPlatformDatabase(mode);
   const commands: WorkspaceRuntimeCodexCommand[] = [];
   const runtime = await createConfiguredCodexMachineTasksRuntime({
     backend: backend() as never,
@@ -197,7 +212,10 @@ async function configuredHttp() {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Missing integration HTTP address.');
-  return { commands, database, origin: `http://127.0.0.1:${address.port}` };
+  return {
+    commands, database, origin: `http://127.0.0.1:${address.port}`,
+    repository: new ProjectSpaceDatabaseRepository(database)
+  };
 }
 
 function mutation(operationId: string, body: Record<string, unknown>) {
@@ -216,6 +234,16 @@ afterEach(async () => {
 describe('persisted split-platform Codex ownership integration', () => {
   test('starts and sends through the exact user-owned Host after the scoped backfill', async () => {
     const configured = await configuredHttp();
+    const userInventory = await configured.repository.listComputeInventory(userId);
+    expect(userInventory.environmentDefinitions).toContainEqual(expect.objectContaining({
+      id: 'x', ownership: 'user_defined'
+    }));
+    const combinedInventory = await configured.repository.listComputeInventory(userId, {
+      additionalOwnerUserIds: [deploymentOwnerId]
+    });
+    expect(combinedInventory.violations).toEqual([]);
+    expect(combinedInventory.environments.some(({ id }) => id === environmentId)).toBe(true);
+    const configuredCallStart = configured.database.calls.length;
     const start = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation('split-start-842', {
       expectedBranch: branch, expectedCommit: commit, issue: 842,
       physicalMachineId: hostId, repositoryId: 'DotNaos/project-space'
@@ -247,7 +275,8 @@ describe('persisted split-platform Codex ownership integration', () => {
       { kind: 'continue', selectedEnvironment: environmentId, machineId: expect.any(String) }
     ]);
     expect(configured.commands[0]?.request.machineId).toBe(configured.commands[1]?.request.machineId);
-    expect(configured.database.calls.filter(({ sql }) => sql.includes('where owner_user_id = any($1::text[])'))
+    expect(configured.database.calls.slice(configuredCallStart)
+      .filter(({ sql }) => sql.includes('where owner_user_id = any($1::text[])'))
       .every(({ values }) => values[0] === userId || (Array.isArray(values[0]) && values[0].length === 1 && values[0][0] === userId)))
       .toBe(true);
   });
@@ -257,6 +286,17 @@ describe('persisted split-platform Codex ownership integration', () => {
     const response = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation('split-wrong-owner-842', {
       expectedBranch: branch, expectedCommit: commit, issue: 842,
       physicalMachineId: '24000000-0000-4000-8000-000000000099', repositoryId: 'DotNaos/project-space'
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ state: 'blocked', reason: 'unauthorized' });
+    expect(configured.commands).toEqual([]);
+  });
+
+  test('does not authorize ambiguous user-owned Host evidence', async () => {
+    const configured = await configuredHttp('ambiguous');
+    const response = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation('split-ambiguous-842', {
+      expectedBranch: branch, expectedCommit: commit, issue: 842,
+      physicalMachineId: hostId, repositoryId: 'DotNaos/project-space'
     }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ state: 'blocked', reason: 'unauthorized' });
