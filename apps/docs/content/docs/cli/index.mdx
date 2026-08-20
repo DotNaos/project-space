@@ -223,6 +223,7 @@ project codex attach
 | --- | --- | --- | --- |
 | `--codex-binary` | `string` | local | explicit Codex CLI binary path |
 | `--connector` | `string` | local | exact connector installation ID |
+| `--environment-id` | `string` | local | exact canonical Environment ID |
 | `-h`, `--help` | `bool` | local | help for attach |
 | `--machine` | `string` | local | exact physical machine name |
 | `--machine-id` | `string` | local | exact physical machine ID |
@@ -241,6 +242,7 @@ project codex login
 | --- | --- | --- | --- |
 | `--cancel` | `bool` | local | cancel the selected authorization attempt |
 | `--connector` | `string` | local | exact connector installation ID |
+| `--environment-id` | `string` | local | exact canonical Environment ID |
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for login |
 | `--machine` | `string` | local | exact physical machine name |
@@ -260,6 +262,7 @@ project codex read
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `--connector` | `string` | local | exact connector installation ID |
+| `--environment-id` | `string` | local | exact canonical Environment ID |
 | `--format` | `string` | local | output format: json |
 | `-h`, `--help` | `bool` | local | help for read |
 | `--last` | `int` | local | return only the last N turns |
@@ -278,6 +281,7 @@ project codex send
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `--connector` | `string` | local | exact connector installation ID |
+| `--environment-id` | `string` | local | exact canonical Environment ID |
 | `--format` | `string` | local | output format: json or ndjson |
 | `-h`, `--help` | `bool` | local | help for send |
 | `--machine` | `string` | local | exact physical machine name |
@@ -301,6 +305,7 @@ project codex start
 | --- | --- | --- | --- |
 | `--connector` | `string` | local | exact connector installation ID |
 | `--dry-run` | `bool` | local | resolve the exact target without starting a task |
+| `--environment-id` | `string` | local | exact canonical Environment ID |
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for start |
 | `--here` | `bool` | local | use the physical machine connected by this CLI |

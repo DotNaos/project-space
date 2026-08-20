@@ -107,6 +107,25 @@ describe('Codex machine-task issue provider', () => {
     }
   });
 
+  test('does not create an issue branch during dry-run', async () => {
+    let writes = 0;
+    const provider = createCodexMachineTaskIssueProvider({
+      async createGitHubBranch() { writes += 1; throw new Error('dry-run must not write'); },
+      async getGitHubCatalog() {
+        return { checkedAt: '', repositories: [repository], status: 'connected' as const };
+      },
+      async getGitHubRepositoryDetails() {
+        return {
+          branches: [{ commitSha: commit, isDefault: true, name: 'main' }],
+          checkedAt: '', issues: [issue], pullRequests: [], status: 'connected' as const
+        };
+      }
+    });
+    await expect(provider({ dryRun: true, issue: issue.number, repositoryId: repository.fullName, userId: 'user-owner' }))
+      .rejects.toMatchObject({ reason: 'worktree_failure' });
+    expect(writes).toBe(0);
+  });
+
   test('fails closed when the requested pull request head moved', async () => {
     const provider = createCodexMachineTaskIssueProvider({
       async createGitHubBranch() {

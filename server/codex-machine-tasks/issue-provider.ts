@@ -20,6 +20,7 @@ export function createCodexMachineTaskIssueProvider(
   >
 ) {
   return async function prepare(input: {
+    dryRun?: boolean;
     expectedBranch?: string;
     expectedCommit?: string;
     expectedPullRequestNumber?: number;
@@ -78,6 +79,12 @@ export function createCodexMachineTaskIssueProvider(
           throw new CodexMachineTaskIssueError(
             'worktree_failure',
             'The requested pull request branch is unavailable.'
+          );
+        }
+        if (input.dryRun) {
+          throw new CodexMachineTaskIssueError(
+            'worktree_failure',
+            'The issue branch is not available yet; dry-run did not create or mutate it.'
           );
         }
         const created = await backend.createGitHubBranch({

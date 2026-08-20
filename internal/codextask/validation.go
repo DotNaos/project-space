@@ -54,6 +54,9 @@ func validateAttachRequest(request AttachRequest) error {
 }
 
 func validateSelector(selector Selector, allowCurrent bool) error {
+	if selector.EnvironmentID != "" && !identifierPattern.MatchString(selector.EnvironmentID) {
+		return ErrInvalidInput
+	}
 	if selector.PhysicalMachineID != "" && !identifierPattern.MatchString(selector.PhysicalMachineID) {
 		return ErrInvalidInput
 	}
@@ -63,8 +66,8 @@ func validateSelector(selector Selector, allowCurrent bool) error {
 	if selector.PhysicalMachineID != "" && selector.PhysicalMachineName != "" {
 		return errors.New("select a physical machine by ID or name, not both")
 	}
-	if !allowCurrent && selector.PhysicalMachineID == "" && selector.PhysicalMachineName == "" {
-		return errors.New("a physical machine ID or name is required")
+	if !allowCurrent && selector.EnvironmentID == "" && selector.PhysicalMachineID == "" && selector.PhysicalMachineName == "" {
+		return errors.New("an environment ID or physical machine ID or name is required")
 	}
 	if selector.ConnectorID != "" && !identifierPattern.MatchString(selector.ConnectorID) {
 		return ErrInvalidInput
@@ -98,11 +101,16 @@ func validateTarget(target Target) error {
 	if target.Connector.Environment != "" && !validText(target.Connector.Environment, 128) {
 		return ErrInvalidResponse
 	}
+	if target.Environment != nil && (!identifierPattern.MatchString(target.Environment.ID) ||
+		!validText(target.Environment.Name, 256)) {
+		return ErrInvalidResponse
+	}
 	return nil
 }
 
 func targetMatchesSelector(target Target, selector Selector) bool {
 	return (selector.ConnectorID == "" || selector.ConnectorID == target.Connector.ID) &&
+		(selector.EnvironmentID == "" || (target.Environment != nil && selector.EnvironmentID == target.Environment.ID)) &&
 		(selector.PhysicalMachineID == "" || selector.PhysicalMachineID == target.PhysicalMachine.ID) &&
 		(selector.PhysicalMachineName == "" || selector.PhysicalMachineName == target.PhysicalMachine.Name)
 }
@@ -112,6 +120,14 @@ func validateTask(task TaskIdentity) error {
 		task.Issue.Number <= 0 || !identifierPattern.MatchString(task.Worktree.ID) ||
 		!validText(task.Worktree.Branch, 512) || !identifierPattern.MatchString(task.Repository.ID) ||
 		!validText(task.Repository.NameWithOwner, 512) {
+		return ErrInvalidResponse
+	}
+	if task.Base != nil && (!validText(task.Base.Branch, 512) || !validText(task.Base.Commit, 128)) {
+		return ErrInvalidResponse
+	}
+	if task.Workspace != nil && (!identifierPattern.MatchString(task.Workspace.ID) ||
+		!validText(task.Workspace.Branch, 512) ||
+		(task.Workspace.Path != "" && !validText(task.Workspace.Path, 2048))) {
 		return ErrInvalidResponse
 	}
 	parsed, err := url.Parse(task.CanonicalTaskURL)

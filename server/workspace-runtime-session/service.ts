@@ -38,6 +38,9 @@ interface ActiveConnection {
 
 export class WorkspaceRuntimeSessionService {
   private readonly connections = new Map<string, ActiveConnection>();
+  private readonly codexListeners = new Set<(
+    message: WorkspaceRuntimeCodexMessage
+  ) => Promise<void> | void>();
   private readonly controlListeners = new Set<(
     message: WorkspaceRuntimeControlMessage
   ) => Promise<void> | void>();
@@ -177,14 +180,20 @@ export class WorkspaceRuntimeSessionService {
     return { response, stopped: result.snapshot.lifecycleState === 'stopped' };
   }
 
-  acceptCodex(
+  async acceptCodex(
     active: { scope: RuntimeCredentialScope; sessionId: string },
     message: WorkspaceRuntimeCodexMessage
   ) {
     if (!active.scope.capabilities.includes('runtime.codex.v1')) {
       throw new RuntimeSessionError('invalid_message', 'Workspace Runtime Codex authority is unavailable.');
     }
+    for (const listener of this.codexListeners) await listener(message);
     return message;
+  }
+
+  onCodexMessage(listener: (message: WorkspaceRuntimeCodexMessage) => Promise<void> | void) {
+    this.codexListeners.add(listener);
+    return () => this.codexListeners.delete(listener);
   }
 
   async acceptControl(
@@ -276,6 +285,7 @@ export class WorkspaceRuntimeSessionService {
       active.connection.close(1001, 'Project Space is shutting down.');
     }
     this.connections.clear();
+    this.codexListeners.clear();
     this.controlListeners.clear();
     this.controlRegistrationListeners.clear();
   }

@@ -48,7 +48,7 @@ export function createWorkspaceRuntimeSessionUpgradeHandler(
             ? (parsed as { type?: unknown }).type
             : undefined;
           if (typeof type === 'string' && type.startsWith('runtime.codex.')) {
-            service.acceptCodex(active, parseRuntimeCodexMessage(parsed, active.scope, active.sessionId));
+            await service.acceptCodex(active, parseRuntimeCodexMessage(parsed, active.scope, active.sessionId));
           } else if (typeof type === 'string' && type.startsWith('runtime.control.')) {
             await service.acceptControl(
               active,

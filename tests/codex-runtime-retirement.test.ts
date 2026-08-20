@@ -42,14 +42,21 @@ describe('Codex runtime retirement boundary', () => {
     for (const [handler, path] of handlers) {
       const capture = responseCapture();
       await handler(request, capture.response, new URL(path, 'https://projects.example.test'));
-      expect(capture.result().statusCode).toBe(410);
-      expect(JSON.parse(capture.result().body)).toMatchObject({
-        code: 'canonical_runtime_required'
-      });
+      if (path === '/api/codex/tasks/existing') {
+        expect(capture.result().statusCode).toBe(503);
+        expect(JSON.parse(capture.result().body)).toMatchObject({
+          error: { code: 'codex_machine_tasks_unavailable' }
+        });
+      } else {
+        expect(capture.result().statusCode).toBe(410);
+        expect(JSON.parse(capture.result().body)).toMatchObject({
+          code: 'canonical_runtime_required'
+        });
+      }
     }
   });
 
-  test('keeps canonical runtime.codex.v1 messages accepted by the Workspace Runtime session', () => {
+  test('keeps canonical runtime.codex.v1 messages accepted by the Workspace Runtime session', async () => {
     const service = new WorkspaceRuntimeSessionService({} as never);
     const message: WorkspaceRuntimeCodexMessage = {
       acceptedCommandSequence: 1,
@@ -68,12 +75,12 @@ describe('Codex runtime retirement boundary', () => {
       workspaceId: 'workspace-1'
     };
 
-    expect(service.acceptCodex({
+    await expect(service.acceptCodex({
       scope: {
         capabilities: [workspaceRuntimeCodexCapability]
       } as never,
       sessionId: 'session-1'
-    }, message)).toBe(message);
+    }, message)).resolves.toBe(message);
   });
 
 });

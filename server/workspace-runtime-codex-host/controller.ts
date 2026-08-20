@@ -202,9 +202,12 @@ export class WorkspaceRuntimeCodexHostController {
       return { state: 'stopped' };
     }
     const operation = command.kind as CodexSessionsBoundOperation;
+    const request = command.kind === 'start' && command.request.cwd === '.'
+      ? { ...command.request, cwd: process.cwd() }
+      : command.request;
     const wireResult = await this.executor.executeBound(
       operation,
-      command.request,
+      request,
       generationNumber(this.options.generation)
     );
     return wireResult.result as WorkspaceRuntimeCodexResult;

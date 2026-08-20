@@ -22,10 +22,11 @@ type codexTaskAPI interface {
 }
 
 type codexTargetOptions struct {
-	connectorID string
-	here        bool
-	machineID   string
-	machineName string
+	connectorID   string
+	environmentID string
+	here          bool
+	machineID     string
+	machineName   string
 }
 
 type codexOutcomeError struct{ message string }
@@ -228,6 +229,7 @@ func newCodexSendCommand(dependencies codexCommandDependencies) *cobra.Command {
 }
 
 func addCodexTargetFlags(command *cobra.Command, target *codexTargetOptions, allowHere bool) {
+	command.Flags().StringVar(&target.environmentID, "environment-id", "", "exact canonical Environment ID")
 	command.Flags().StringVar(&target.machineName, "machine", "", "exact physical machine name")
 	command.Flags().StringVar(&target.machineID, "machine-id", "", "exact physical machine ID")
 	command.Flags().StringVar(&target.connectorID, "connector", "", "exact connector installation ID")
@@ -237,9 +239,12 @@ func addCodexTargetFlags(command *cobra.Command, target *codexTargetOptions, all
 }
 
 func (target codexTargetOptions) startSelector(localMachineName string) (codextask.Selector, error) {
+	if target.environmentID != "" && target.connectorID != "" {
+		return codextask.Selector{}, errors.New("--environment-id cannot be combined with the legacy --connector selector")
+	}
 	if target.here {
-		if target.machineID != "" || target.machineName != "" {
-			return codextask.Selector{}, errors.New("--here cannot be combined with --machine or --machine-id")
+		if target.environmentID != "" || target.machineID != "" || target.machineName != "" {
+			return codextask.Selector{}, errors.New("--here cannot be combined with --environment-id, --machine, or --machine-id")
 		}
 		if strings.TrimSpace(localMachineName) == "" {
 			return codextask.Selector{}, errors.New("the connected machine has no local identity")
@@ -257,11 +262,11 @@ func (target codexTargetOptions) selector(required bool) (codextask.Selector, er
 	if target.machineID != "" && target.machineName != "" {
 		return codextask.Selector{}, errors.New("select a machine with --machine or --machine-id, not both")
 	}
-	if required && target.machineID == "" && target.machineName == "" {
-		return codextask.Selector{}, errors.New("--machine or --machine-id is required")
+	if required && target.environmentID == "" && target.machineID == "" && target.machineName == "" {
+		return codextask.Selector{}, errors.New("--environment-id, --machine, or --machine-id is required")
 	}
 	return codextask.Selector{
-		ConnectorID: target.connectorID, PhysicalMachineID: target.machineID,
+		ConnectorID: target.connectorID, EnvironmentID: target.environmentID, PhysicalMachineID: target.machineID,
 		PhysicalMachineName: target.machineName,
 	}, nil
 }

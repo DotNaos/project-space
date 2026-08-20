@@ -201,6 +201,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       } else {
         try {
           issue = await options.issue({
+            dryRun: request.dryRun,
             expectedBranch: request.expectedBranch,
             expectedCommit: request.expectedCommit,
             expectedPullRequestNumber: request.expectedPullRequestNumber,
@@ -320,11 +321,13 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       }
       const task: CodexMachineTaskIdentity = {
         ...executionTarget,
+        base: { branch: issue.branch, commit: issue.commit },
         canonicalTaskUrl: options.taskUrl(executionTarget.connector.id, started.threadId),
         issue: issue.issue,
         repository: issue.repository,
         threadId: started.threadId,
-        worktree: { branch: issue.branch, id: started.worktreeId }
+        worktree: { branch: issue.branch, id: started.worktreeId },
+        workspace: { branch: issue.branch, id: started.worktreeId }
       };
       const storedResult: CodexMachineTaskStartResult = {
         apiVersion: CODEX_MACHINE_TASKS_API_VERSION,

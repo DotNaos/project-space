@@ -44,6 +44,10 @@ export interface CodexMachineTaskTarget {
 }
 
 export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
+  base?: {
+    branch: string;
+    commit: string;
+  };
   canonicalTaskUrl: string;
   issue: {
     number: number;
@@ -54,6 +58,11 @@ export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
     nameWithOwner: string;
   };
   threadId: string;
+  workspace?: {
+    branch: string;
+    id: string;
+    path?: string;
+  };
   worktree: {
     branch: string;
     id: string;

@@ -332,6 +332,12 @@
                 "inherited": false
               },
               {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
+                "inherited": false
+              },
+              {
                 "name": "help",
                 "shorthand": "h",
                 "type": "bool",
@@ -383,6 +389,12 @@
                 "name": "connector",
                 "type": "string",
                 "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
                 "inherited": false
               },
               {
@@ -446,6 +458,12 @@
                 "inherited": false
               },
               {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
+                "inherited": false
+              },
+              {
                 "name": "format",
                 "type": "string",
                 "description": "output format: json",
@@ -497,6 +515,12 @@
                 "name": "connector",
                 "type": "string",
                 "description": "exact connector installation ID",
+                "inherited": false
+              },
+              {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
                 "inherited": false
               },
               {
@@ -581,6 +605,12 @@
                 "name": "dry-run",
                 "type": "bool",
                 "description": "resolve the exact target without starting a task",
+                "inherited": false
+              },
+              {
+                "name": "environment-id",
+                "type": "string",
+                "description": "exact canonical Environment ID",
                 "inherited": false
               },
               {

@@ -160,14 +160,16 @@ export function createProjectSpaceRequestHandler(options: ProjectSpaceHttpOption
   const codexMachineTasks = createConfiguredCodexMachineTasksHandler({
     attachLeases: codexAttachLeases,
     backend: rawBackend,
-    machineConnection: options.machineConnectionRuntime
+    machineConnection: options.machineConnectionRuntime,
+    runtimeSessions: options.workspaceRuntimeSessions
   });
   let mcpCodexRuntime: ReturnType<typeof createConfiguredCodexMachineTasksRuntime> | undefined;
   const getMcpCodexRuntime = () => (
     mcpCodexRuntime ??= createConfiguredCodexMachineTasksRuntime({
       attachLeases: codexAttachLeases,
       backend: rawBackend,
-      machineConnection: options.machineConnectionRuntime
+      machineConnection: options.machineConnectionRuntime,
+      runtimeSessions: options.workspaceRuntimeSessions
     }).catch((error) => {
       mcpCodexRuntime = undefined;
       throw error;

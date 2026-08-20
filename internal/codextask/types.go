@@ -34,6 +34,7 @@ const (
 
 type Selector struct {
 	ConnectorID         string `json:"connectorId,omitempty"`
+	EnvironmentID       string `json:"environmentId,omitempty"`
 	PhysicalMachineID   string `json:"physicalMachineId,omitempty"`
 	PhysicalMachineName string `json:"physicalMachineName,omitempty"`
 }
@@ -45,6 +46,10 @@ type Target struct {
 		ID          string `json:"id"`
 		Name        string `json:"name"`
 	} `json:"connector"`
+	Environment *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"environment,omitempty"`
 	PhysicalMachine struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
@@ -53,6 +58,10 @@ type Target struct {
 
 type TaskIdentity struct {
 	Target
+	Base *struct {
+		Branch string `json:"branch"`
+		Commit string `json:"commit"`
+	} `json:"base,omitempty"`
 	CanonicalTaskURL string `json:"canonicalTaskUrl"`
 	Issue            struct {
 		Number int    `json:"number"`
@@ -62,7 +71,12 @@ type TaskIdentity struct {
 		ID            string `json:"id"`
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
-	ThreadID string `json:"threadId"`
+	ThreadID  string `json:"threadId"`
+	Workspace *struct {
+		Branch string `json:"branch"`
+		ID     string `json:"id"`
+		Path   string `json:"path,omitempty"`
+	} `json:"workspace,omitempty"`
 	Worktree struct {
 		Branch string `json:"branch"`
 		ID     string `json:"id"`

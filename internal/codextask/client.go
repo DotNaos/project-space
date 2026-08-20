@@ -274,6 +274,9 @@ func selectorQuery(selector Selector) url.Values {
 	if selector.ConnectorID != "" {
 		query.Set("connectorId", selector.ConnectorID)
 	}
+	if selector.EnvironmentID != "" {
+		query.Set("environmentId", selector.EnvironmentID)
+	}
 	if selector.PhysicalMachineID != "" {
 		query.Set("physicalMachineId", selector.PhysicalMachineID)
 	}

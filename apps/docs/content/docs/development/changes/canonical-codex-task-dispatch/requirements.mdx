@@ -1,0 +1,36 @@
+---
+title: Requirement delta
+description: Requirements for canonical Environment-backed Codex task dispatch.
+---
+
+Requirements: **Changed**
+
+## CHANGED Requirements
+
+### CODEX-DISPATCH — Codex task start MUST target the canonical Environment and Workspace Runtime
+
+#### Scenario: Resolve a dry-run without mutation
+
+- **Given** a signed-in user selects an eligible Environment and issue
+- **When** the client requests a dry-run
+- **Then** the response MUST identify the Environment, base, branch, workspace, and operation state without creating a branch, worktree, or task
+
+#### Scenario: Start through the assigned runtime
+
+- **Given** the Environment has an online Workspace Runtime with the Codex capability
+- **When** the user starts the issue with a stable operation ID
+- **Then** Codex MUST start in that assigned workspace and the response MUST include the issue, Environment, branch, workspace, thread, and confirmed operation identity
+
+### CODEX-RECONCILIATION — Repeated starts MUST be idempotent and fail closed
+
+#### Scenario: Retry an identical start
+
+- **Given** a prior start has a durable reservation or confirmed result
+- **When** the client retries the same operation ID and immutable input
+- **Then** Project Space MUST replay or reconcile that operation without creating a second worktree or task
+
+#### Scenario: Runtime becomes unavailable
+
+- **Given** the selected runtime disconnects or changes generation
+- **When** a start or retry is attempted
+- **Then** the result MUST be blocked or uncertain with a sanitized message and MUST NOT dispatch to a different Environment
