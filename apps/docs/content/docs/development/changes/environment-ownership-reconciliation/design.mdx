@@ -52,6 +52,11 @@ manual evidence resolving to exactly one Host. The supported start and send path
 same selected Host and Environment; unresolved, deployment-only, duplicate same-UUID, and
 missing evidence remain unavailable through the configured service.
 
+Integration coverage starts with representative owner-scoped database query rows. A real
+`ProjectSpaceDatabaseRepository` reconciles the combined collision rows, then the configured
+runtime constructs its own strict user-scoped repository over the same persisted fixture before
+the HTTP start/send boundary. No preconstructed inventory snapshot bypasses either path.
+
 ## Risks and mitigations
 
 - **Alias leakage into user records:** owner-scoped keys and built-in-only filtering prevent
@@ -70,8 +75,9 @@ the combined inventory; existing persisted migration and projection boundaries r
 ## Validation
 
 - Focused model and repository regressions cover the canonical `a`, deployment `x`, and
-  user-defined `x` collision.
-- The configured start/send regression captures the exact Host and Environment command boundary
-  and proves deployment-only and duplicate same-UUID evidence fail closed.
+  user-defined `x` collision, including equal built-in UUIDs across owners.
+- The configured repository/HTTP regression captures repository reconciliation, HTTP start and
+  send, and proves deployment-only, duplicate same-UUID, missing, and conflicting Host evidence
+  fail closed before dispatch.
 - Type checking, the full Bun test suite, and the project/prototype build pass locally.
 - The exact pull-request head is checked by the repository preflight before push.

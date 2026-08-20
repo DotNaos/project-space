@@ -124,7 +124,8 @@ export function reconcileBuiltInEnvironmentDefinitions(input: {
   const aliases = new Map<string, string>();
 
   for (const definition of [...input.environmentDefinitions].sort((left, right) => (
-    left.id.localeCompare(right.id)
+    left.id.localeCompare(right.id) ||
+    scopedDefinitionKey(left, left.id).localeCompare(scopedDefinitionKey(right, right.id))
   ))) {
     if (definition.ownership !== 'built_in') continue;
     const blueprint = JSON.stringify({
@@ -137,7 +138,8 @@ export function reconcileBuiltInEnvironmentDefinitions(input: {
       supportedArchitectures: [...definition.supportedArchitectures].sort()
     });
     const canonical = canonicalByBlueprint.get(blueprint);
-    if (canonical && canonical.id !== definition.id) {
+    if (canonical && scopedDefinitionKey(canonical, canonical.id) !==
+        scopedDefinitionKey(definition, definition.id)) {
       aliases.set(scopedDefinitionKey(definition, definition.id), canonical.id);
     } else if (!canonical) {
       canonicalByBlueprint.set(blueprint, definition);

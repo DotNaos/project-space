@@ -9,6 +9,9 @@ description: Implementation and verification checklist for Environment ownership
   - **Evidence:** `server/database/repository.ts` selects and carries `owner_user_id` through the shared reconciliation pass, then removes only the temporary projection field.
 - [x] 1.2 Scope aliases and references by owner
   - **Evidence:** `src/shared/compute-environment-api.ts` keys aliases by owner and definition ID and limits them to built-in records.
+- [x] 1.3 Reconcile equivalent built-ins that share both UUID and blueprint across owners
+  - **Evidence:** Scoped identity, rather than the bare UUID, determines whether a visible built-in
+    is the canonical record or an owner-scoped alias.
 
 ## 2. Regression and compatibility
 
@@ -23,11 +26,12 @@ description: Implementation and verification checklist for Environment ownership
 
 - [x] 3.1 Run focused tests, type check, full tests, and build
   - **Evidence:** Focused tests, `bun run check`, `bun test --isolate`, and `bun run build` pass.
-- [x] 3.2 Verify the configured start/send service flow
-  - **Evidence:** `tests/codex-machine-tasks-configured-send-ownership.test.ts` performs the
-    supported start and send flow, captures the exact Host and Environment command boundary, and
-    proves deployment-only and duplicate same-UUID Host evidence returns `Select one exact
-    physical machine.` without dispatch.
+- [x] 3.2 Verify the persisted configured repository/HTTP start/send flow
+  - **Evidence:** `tests/codex-machine-tasks-configured-send-ownership.test.ts` starts with
+    owner-scoped database query rows, reconciles the combined collision, lets the configured
+    runtime construct its strict `ProjectSpaceDatabaseRepository` boundary over the same fixture,
+    then performs HTTP start and send. Deployment-only, ambiguous, missing, and conflicting Host
+    evidence returns `Select one exact physical machine.` without dispatch.
 - [x] 3.3 Publish the draft pull request
   - **Evidence:** Draft PR #843 is open; the final exact-head preflight passed locally against
     `origin/main` `027c2429abbedf8711d871f4d7421988d1027f65`.

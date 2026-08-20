@@ -16,6 +16,13 @@ and reference remapping are complete.
 - **When** the user and deployment scopes are reconciled
 - **Then** the deployment built-in reference maps to `a`, the user-defined definition and reference remain `x`, and the user evidence is not deleted
 
+#### Scenario: Equivalent built-ins share the same UUID across owners
+
+- **Given** equivalent built-in definitions use the same UUID in the user and deployment scopes
+- **When** the combined owner scopes are reconciled
+- **Then** exactly one built-in definition remains, both Environment references remain valid,
+  and no duplicate-definition violation is introduced
+
 ### ENV-OWN-002 — Fail-closed duplicate behavior
 
 Reconciliation MUST preserve existing duplicate and incompatibility violations after owner-safe
@@ -29,24 +36,24 @@ canonicalization.
 
 ### ENV-ROUTE-001 — Configured Host selection MUST remain evidence-based
 
-The configured Codex service MUST select and retain a physical Host only from valid persisted
-Environment evidence for both task start and subsequent message send, and MUST report an
+The configured Codex service and HTTP boundary MUST select and retain a physical Host only after
+owner-scoped persisted rows have passed through repository reconciliation, and MUST report an
 actionable unavailable state otherwise.
 
 #### Scenario: Verified exact Host evidence is available
 
 - **Given** a configured native macOS Environment has verified Host evidence for the exact
   Host `24000000-0000-4000-8000-000000000002` named `os-macbook`
-- **When** a supported task start receives that exact Host selector and the resulting task sends
-  a message through the configured service
+- **When** the configured HTTP boundary starts the task with that exact Host and then sends a
+  message to the resulting task
 - **Then** both operations use the same owner-bound Environment, the send is accepted, and the
   selected physical machine remains that exact Host
 
 #### Scenario: Host evidence is unresolved or missing
 
-- **Given** the configured Environment has deployment-only evidence or duplicate same-UUID Host
-  evidence across owner scopes
-- **When** the configured start service receives the user-owned Host selector
+- **Given** persisted rows contain deployment-only, duplicate same-UUID, missing, or conflicting
+  Host association evidence
+- **When** the configured HTTP start boundary receives the user-owned Host selector
 - **Then** the request is blocked with `Select one exact physical machine.` and no start or send
   dispatch is attempted
 

@@ -193,6 +193,55 @@ describe('compute hierarchy and connector invariants', () => {
     ]);
   });
 
+  test('removes an exact-equivalent built-in duplicate when owners share its UUID', () => {
+    const canonical: OwnedEnvironmentDefinitionRecord = {
+      ...definition('native_linux'), id: 'same-definition-id', ownerUserId: 'owner-a'
+    };
+    const duplicate: OwnedEnvironmentDefinitionRecord = {
+      ...canonical, ownerUserId: 'owner-b'
+    };
+    const userDefined: OwnedEnvironmentDefinitionRecord = {
+      ...canonical,
+      id: 'user-defined-linux',
+      name: 'User Linux',
+      ownerUserId: 'user-one',
+      ownership: 'user_defined',
+      slug: 'user-linux'
+    };
+    const result = reconcileBuiltInEnvironmentDefinitions({
+      environmentDefinitions: [duplicate, canonical, userDefined],
+      environments: [
+        {
+          ...environment('canonical', { environmentDefinitionId: canonical.id, kind: 'native_linux' }),
+          ownerUserId: canonical.ownerUserId
+        },
+        {
+          ...environment('duplicate', { environmentDefinitionId: duplicate.id, kind: 'native_linux' }),
+          ownerUserId: duplicate.ownerUserId
+        },
+        {
+          ...environment('user', { environmentDefinitionId: userDefined.id, kind: 'native_linux' }),
+          ownerUserId: userDefined.ownerUserId
+        }
+      ]
+    });
+
+    expect(result.environmentDefinitions).toEqual([canonical, userDefined]);
+    expect(result.environments.map(({ environmentDefinitionId, ownerUserId }) => ({
+      environmentDefinitionId, ownerUserId
+    }))).toEqual([
+      { environmentDefinitionId: canonical.id, ownerUserId: canonical.ownerUserId },
+      { environmentDefinitionId: canonical.id, ownerUserId: duplicate.ownerUserId },
+      { environmentDefinitionId: userDefined.id, ownerUserId: userDefined.ownerUserId }
+    ]);
+    const violations = validateComputeInventory({
+      ...inventory({ environments: result.environments }),
+      environmentDefinitions: result.environmentDefinitions
+    }).map(({ code }) => code);
+    expect(violations).not.toContain('duplicate_environment_definition');
+    expect(violations).not.toContain('duplicate_environment_definition_slug');
+  });
+
   test('separates reusable definitions from concrete execution targets', () => {
     const first = environment('windows-01', { kind: 'native_windows' });
     const second = environment('windows-02', {

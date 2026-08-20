@@ -18,8 +18,11 @@ Verification status: **Incomplete**
 - [x] Focused tests, type check, full tests, and build pass locally.
 - [x] No migration or production data mutation is included.
 - [x] The configured start/send service path selects the exact verified Host and Environment and
-  fails closed with an actionable unavailable result for deployment-only or duplicate same-UUID
-  Host evidence.
+  fails closed with an actionable unavailable result for deployment-only, duplicate same-UUID,
+  missing, or conflicting Host evidence.
+- [x] `tests/codex-machine-tasks-configured-send-ownership.test.ts` begins with persisted
+  query rows and exercises repository reconciliation plus configured HTTP start and send without
+  a prebuilt inventory shortcut.
 - [x] Draft pull request and exact-head local preflight evidence are recorded for PR #843.
 - [ ] Remote exact-head Preview artifact check is still pending; no merge or deployment was
   performed.
