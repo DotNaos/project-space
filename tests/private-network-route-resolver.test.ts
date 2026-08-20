@@ -152,6 +152,21 @@ describe('private-network access-route selection', () => {
       .toMatchObject({ state: 'ready', route: { routeId: route.id, routeKind: 'ssh_private_network' } });
   });
 
+  test('prefers the lower-priority canonical IPv4 route over noncanonical Tailscale addresses', async () => {
+    for (const privateAddress of ['fd7a:115c:a1e0::10', 'node.tailnet.ts.net']) {
+      const noncanonical = {
+        ...route,
+        id: privateAddress.includes(':')
+          ? '20000000-0000-4000-8000-000000000006'
+          : '20000000-0000-4000-8000-000000000007',
+        priority: 200,
+        privateAddress
+      };
+      expect(await select({ capability: 'interactive_shell', risk: 'interactive' }, [route, noncanonical]))
+        .toMatchObject({ state: 'ready', route: { routeId: route.id, privateAddress: route.privateAddress } });
+    }
+  });
+
   test('never falls back from an explicit ineligible route', async () => {
     const blocked = { ...route, id: '20000000-0000-4000-8000-000000000004', enabled: false };
     const selected = await selectAuthorizedAccessRoute({
