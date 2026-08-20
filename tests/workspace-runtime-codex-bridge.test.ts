@@ -1,17 +1,28 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, test } from 'bun:test';
 
 import { createWorkspaceRuntimeCodexBridge } from '../server/codex-machine-tasks/workspace-runtime';
+import { resolveCodexMachineTaskServiceTarget } from '../server/codex-machine-tasks/target-resolver';
 import { generationNumber } from '../server/workspace-runtime-codex-host/validation';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
+import type { PhysicalMachineRecord } from '../src/shared/project-space-api';
 
 const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const environmentId = '11111111-1111-4111-8111-111111111111';
 const generation = '22222222-2222-4222-8222-222222222222';
 const branch = 'issue-763-dispatch';
 const commit = 'a'.repeat(40);
+const physicalHostId = '24000000-0000-4000-8000-000000000002';
+
+function runtimeConnectorId() {
+  const digest = createHash('sha256').update([workspaceId, environmentId].join('\0')).digest('hex').slice(0, 32);
+  return `workspace-runtime:${digest}`;
+}
 
 function createBridgeFixture(options: {
   connectionState?: 'online' | 'disconnected';
+  physicalMachines?: PhysicalMachineRecord[];
   resolveWorkspaceBinding?: Parameters<typeof createWorkspaceRuntimeCodexBridge>[0]['resolveWorkspaceBinding'];
 } = {}) {
   const listeners = new Set<(message: WorkspaceRuntimeCodexMessage) => Promise<void> | void>();
@@ -58,6 +69,7 @@ function createBridgeFixture(options: {
     loadInventory: async () => ({
       connectors: [], environmentDefinitions: [], environments: [], hosts: [], platforms: [], violations: []
     } as never),
+    loadPhysicalMachines: async () => options.physicalMachines ?? [],
     resolveWorkspaceBinding: options.resolveWorkspaceBinding,
     sessions
   });
@@ -87,6 +99,44 @@ const input = {
 };
 
 describe('Workspace Runtime Codex bridge', () => {
+  test('resolves the catalog physical Host through the configured runtime inventory path', async () => {
+    const fixture = createBridgeFixture({
+      physicalMachines: [{ connectorIds: [runtimeConnectorId()], id: physicalHostId, name: 'os-macbook' }]
+    });
+
+    const target = await resolveCodexMachineTaskServiceTarget(
+      { generationFor: fixture.bridge.generationFor, inventory: fixture.bridge.inventory },
+      'user-owner',
+      { physicalMachineId: physicalHostId }
+    );
+
+    expect(target).toMatchObject({
+      connector: { id: runtimeConnectorId(), generation: generationNumber(generation) },
+      physicalMachine: { id: physicalHostId, name: 'os-macbook' }
+    });
+  });
+
+  test('fails closed when the configured runtime Host binding is missing or ambiguous', async () => {
+    const missing = createBridgeFixture();
+    await expect(resolveCodexMachineTaskServiceTarget(
+      { generationFor: missing.bridge.generationFor, inventory: missing.bridge.inventory },
+      'user-owner',
+      { physicalMachineId: physicalHostId }
+    )).rejects.toThrow('Select one exact physical machine.');
+
+    const ambiguous = createBridgeFixture({
+      physicalMachines: [
+        { connectorIds: [runtimeConnectorId()], id: physicalHostId, name: 'os-macbook' },
+        { connectorIds: [runtimeConnectorId()], id: '24000000-0000-4000-8000-000000000003', name: 'os-macbook-copy' }
+      ]
+    });
+    await expect(resolveCodexMachineTaskServiceTarget(
+      { generationFor: ambiguous.bridge.generationFor, inventory: ambiguous.bridge.inventory },
+      'user-owner',
+      { physicalMachineId: physicalHostId }
+    )).rejects.toThrow('Select one exact physical machine.');
+  });
+
   test('returns a read-only workspace plan and preserves exact revision fencing', async () => {
     const { bridge } = createBridgeFixture({
       resolveWorkspaceBinding: async () => ({ branch, commit, id: workspaceId })

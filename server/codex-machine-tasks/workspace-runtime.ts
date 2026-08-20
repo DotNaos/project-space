@@ -108,6 +108,7 @@ export interface WorkspaceRuntimeCodexBridge {
  */
 export function createWorkspaceRuntimeCodexBridge(options: {
   loadInventory(userId: string): Promise<ComputeInventorySnapshot>;
+  loadPhysicalMachines?(userId: string): Promise<PhysicalMachineRecord[]>;
   sessions: WorkspaceRuntimeSessionService;
   resolveWorkspaceBinding?(input: {
     branch: string;
@@ -294,6 +295,9 @@ export function createWorkspaceRuntimeCodexBridge(options: {
   return {
     async inventory(userId) {
       const base = await options.loadInventory(userId);
+      const catalogPhysicalMachines = options.loadPhysicalMachines
+        ? await options.loadPhysicalMachines(userId)
+        : [];
       const computeInventory: ComputeInventorySnapshot = {
         ...base,
         connectors: [...base.connectors],
@@ -306,6 +310,14 @@ export function createWorkspaceRuntimeCodexBridge(options: {
       const snapshots = await options.sessions.list(userId);
       const connectors: MachineRecord[] = [];
       const physicalMachines: PhysicalMachineRecord[] = [];
+      const physicalMachinesByConnector = new Map<string, PhysicalMachineRecord[]>();
+      for (const physicalMachine of catalogPhysicalMachines) {
+        for (const connectorId of physicalMachine.connectorIds) {
+          const matches = physicalMachinesByConnector.get(connectorId) ?? [];
+          matches.push(physicalMachine);
+          physicalMachinesByConnector.set(connectorId, matches);
+        }
+      }
       const runtimeStatuses = new Map<string, {
         capabilities: string[]; machineId: string; online: boolean; update: { state: 'up-to-date' }
       }>();
@@ -323,7 +335,15 @@ export function createWorkspaceRuntimeCodexBridge(options: {
           durableGenerations.delete(machineId);
         }
         connectors.push(syntheticConnector(machineId, snapshot, online));
-        physicalMachines.push({ connectorIds: [machineId], id: snapshot.environmentId, name: snapshot.environmentId });
+        // A Workspace Environment is not a physical host. Only project the
+        // catalog host when this runtime connector has exactly one persisted
+        // physical-machine binding; ambiguity and missing evidence stay
+        // fail-closed instead of manufacturing a selectable identity.
+        const boundPhysicalMachines = physicalMachinesByConnector.get(machineId) ?? [];
+        if (boundPhysicalMachines.length === 1 &&
+            !physicalMachines.some(({ id }) => id === boundPhysicalMachines[0]!.id)) {
+          physicalMachines.push(boundPhysicalMachines[0]!);
+        }
         runtimeStatuses.set(machineId, {
           capabilities: ['codex.machine-tasks.v1'], machineId, online, update: { state: 'up-to-date' }
         });

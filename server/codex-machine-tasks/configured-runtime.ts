@@ -11,7 +11,12 @@ import { createCodexMachineTasksService } from './service';
 import { PostgresCodexMachineTasksStore } from './store';
 import { createCodexMachineTasksAuthResolver } from './auth-context';
 import { isProjectSpaceAuthRequired, readAuthSessionFromRequest } from '../local-auth-store';
-import { getCodexSessionsDatabaseClient, isDatabaseConfigured, listComputeInventory } from '../local-database-store';
+import {
+  getCodexSessionsDatabaseClient,
+  isDatabaseConfigured,
+  listComputeInventory,
+  listPhysicalMachines
+} from '../local-database-store';
 import { createConfiguredCodexSessionsRuntime } from '../codex-sessions/configured-runtime';
 import { createWorkspaceRuntimeCodexBridge } from './workspace-runtime';
 import type { WorkspaceRuntimeSessionService } from '../workspace-runtime-session/service';
@@ -134,6 +139,9 @@ export async function createConfiguredCodexMachineTasksRuntime(
       }
       return listComputeInventory(userId);
     },
+    loadPhysicalMachines: async (userId) => (
+      isDatabaseConfigured() ? listPhysicalMachines(userId) : []
+    ),
     sessions: options.runtimeSessions,
     resolveWorkspaceBinding: async ({ branch, commit, environmentId, ownerUserId, workspaceId }) => {
       const candidates = await taskExecutions.list({
