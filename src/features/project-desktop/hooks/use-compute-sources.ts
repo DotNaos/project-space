@@ -11,13 +11,17 @@ export {
   computeSourceErrorState,
   computeSourceLoadingState,
   computeSourceReadyState,
-  createComputeSourceRequestGate
+  computeTailscaleSourceErrorState,
+  createComputeSourceRequestGate,
+  mergeTailscaleRefreshResult
 } from './compute-source-state';
 import {
   computeSourceErrorState,
   computeSourceLoadingState,
   computeSourceReadyState,
-  createComputeSourceRequestGate
+  computeTailscaleSourceErrorState,
+  createComputeSourceRequestGate,
+  mergeTailscaleRefreshResult
 } from './compute-source-state';
 import type { ComputeSourceState } from './use-compute-sources-types';
 
@@ -41,11 +45,11 @@ export function useComputeSources() {
     try {
       const result = await projectSpaceClient.getTailscaleInventory(forceRefresh);
       if (!tailscaleRequests.current.isLatest(request)) return result;
-      setTailscale(computeSourceReadyState(result));
+      setTailscale((current) => computeSourceReadyState(mergeTailscaleRefreshResult(current.result, result)));
       return result;
     } catch {
       if (!tailscaleRequests.current.isLatest(request)) return undefined;
-      setTailscale((current) => computeSourceErrorState(current, 'Tailscale inventory could not be refreshed.'));
+      setTailscale((current) => computeTailscaleSourceErrorState(current, 'Tailscale inventory could not be refreshed.'));
       return undefined;
     }
   }, []);

@@ -118,7 +118,7 @@ export function TailscaleDeviceRow({
       </div>
       <Select
         aria-label={`Classification for ${device.name?.trim() || 'Tailscale device'}`}
-        aria-disabled={classificationDisabled}
+        isDisabled={classificationDisabled}
         className={pending || classificationDisabled ? 'pointer-events-none opacity-50' : undefined}
         value={draft}
         onChange={(value) => {
@@ -135,7 +135,7 @@ export function TailscaleDeviceRow({
         <Select.Popover className="w-60 rounded-lg border border-neutral-800 bg-neutral-950 p-1 shadow-2xl shadow-black/60">
           <ListBox selectedKeys={new Set([draft])} className="max-h-64 overflow-auto">
             {tailscaleDeviceClassifications.map((value) => (
-              <ListBoxItem key={value} id={value} textValue={classificationLabels[value]} className="rounded-md px-2.5 py-2 text-xs text-neutral-200 hover:bg-neutral-900">
+              <ListBoxItem key={value} id={value} isDisabled={classificationDisabled} textValue={classificationLabels[value]} className="rounded-md px-2.5 py-2 text-xs text-neutral-200 hover:bg-neutral-900">
                 {classificationLabels[value]}
               </ListBoxItem>
             ))}

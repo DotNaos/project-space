@@ -29,8 +29,9 @@ mock.module('@/app/dotnaos-ui', () => ({
     selectedKeys?: unknown;
     [key: string]: unknown;
   }) => createElement('div', props, children),
-  ListBoxItem: ({ children, textValue: _textValue, ...props }: {
+  ListBoxItem: ({ children, isDisabled: _isDisabled, textValue: _textValue, ...props }: {
     children?: ReactNode;
+    isDisabled?: boolean;
     textValue?: string;
     [key: string]: unknown;
   }) => createElement('div', props, children),
@@ -211,6 +212,30 @@ describe('source-first Compute page UI', () => {
     currentSourceFixture = sourceFixture;
   });
 
+  test('projects rejected refreshes as unknown cached evidence and disables classification', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      tailscale: {
+        ...sourceFixture.tailscale,
+        error: 'Tailscale inventory could not be refreshed.',
+        result: {
+          ...sourceFixture.tailscale.result!,
+          devices: [{ ...sourceFixture.tailscale.result!.devices[0]!, network: {
+            ...sourceFixture.tailscale.result!.devices[0]!.network,
+            state: 'unknown' as const
+          }}]
+        },
+        status: 'error'
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('Unknown');
+    expect(html).toContain('Classification is unavailable while the provider is unavailable');
+    expect(html).not.toContain('>Online</span>');
+    currentSourceFixture = sourceFixture;
+  });
+
   test('describes partial and provider-unavailable empty states precisely', () => {
     currentSourceFixture = {
       ...sourceFixture,
@@ -245,6 +270,25 @@ describe('source-first Compute page UI', () => {
 
     expect(html).toContain('>Partial</span>');
     expect(html).toContain('partial inventory');
+    currentSourceFixture = sourceFixture;
+  });
+
+  test('marks cache-only reloads as cached rather than current', () => {
+    currentSourceFixture = {
+      ...sourceFixture,
+      tailscale: {
+        ...sourceFixture.tailscale,
+        result: {
+          ...sourceFixture.tailscale.result!,
+          provider: { ...sourceFixture.tailscale.result!.provider, refreshState: 'not_checked' as const }
+        }
+      }
+    };
+    const html = renderToStaticMarkup(createElement(MachinesPage, baseProps));
+
+    expect(html).toContain('>Cached</span>');
+    expect(html).toContain('Provider freshness has not been checked');
+    expect(html).not.toContain('Both sources are current');
     currentSourceFixture = sourceFixture;
   });
 

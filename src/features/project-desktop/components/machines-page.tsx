@@ -186,11 +186,14 @@ export function MachinesPage(_props: MachinesPageProps) {
       ? tailscaleCachedCount > 0
         ? 'Tailscale is temporarily unavailable. Showing the last observed devices.'
         : 'Tailscale is temporarily unavailable. No cached devices are available.'
+      : tailscale.result?.provider.refreshState === 'not_checked'
+        ? 'Tailscale inventory is cached. Provider freshness has not been checked.'
       : '');
   const tailscaleProviderNeedsAttention = Boolean(
     tailscaleConnectionLabel ||
     tailscale.result?.provider.refreshState === 'partial' ||
-    tailscale.result?.provider.refreshState === 'unavailable'
+    tailscale.result?.provider.refreshState === 'unavailable' ||
+    tailscale.result?.provider.refreshState === 'not_checked'
   );
   const tailscaleDisplayStatus = tailscale.status === 'ready' && tailscaleProviderNeedsAttention
     ? 'error'
@@ -199,7 +202,10 @@ export function MachinesPage(_props: MachinesPageProps) {
     ? 'No cached Tailscale devices are available.'
     : 'No Tailscale devices were reported.';
   const tailscaleClassificationDisabled = Boolean(
-    tailscaleConnectionLabel || tailscale.result?.provider.refreshState === 'unavailable'
+    tailscale.status === 'error' ||
+    tailscaleConnectionLabel ||
+    tailscale.result?.provider.refreshState === 'unavailable' ||
+    tailscale.result?.provider.refreshState === 'not_checked'
   );
   const githubProviderNeedsAttention = github.result?.provider.connectionState !== 'connected';
   const githubDisplayStatus = github.status === 'ready' && githubProviderNeedsAttention ? 'error' : github.status;
@@ -254,7 +260,11 @@ export function MachinesPage(_props: MachinesPageProps) {
             icon={Network}
             label="Tailscale"
             status={tailscaleDisplayStatus}
-            statusLabel={tailscaleConnectionLabel ?? (tailscale.result?.provider.refreshState === 'partial' ? 'Partial' : undefined)}
+            statusLabel={tailscaleConnectionLabel ?? (
+              tailscale.result?.provider.refreshState === 'partial'
+                ? 'Partial'
+                : tailscale.result?.provider.refreshState === 'not_checked' ? 'Cached' : undefined
+            )}
             onRefresh={() => void refreshTailscale(true)}
           />
           {tailscale.error && tailscale.result ? <SourceMessage kind="error">{tailscale.error} {tailscaleCachedCount > 0 ? 'Showing the last known devices.' : 'No cached devices are available.'}</SourceMessage> : null}
