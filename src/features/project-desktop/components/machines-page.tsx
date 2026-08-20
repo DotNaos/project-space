@@ -12,7 +12,10 @@ import {
   Plus,
   RefreshCw
 } from 'lucide-react';
-import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
+import type {
+  ProjectCliComputeInventory,
+  ProjectCliControlledAccessRoute
+} from '@/shared/compute-inventory-cli-api';
 import {
   Button,
   Chip,
@@ -246,7 +249,9 @@ function EnvironmentDetails({
       readiness: 'unknown' as const
     }
   };
-  const command = `project ssh ${instance.alias}`;
+  const clientRoute = instance.accessRoutes.find((route): route is ProjectCliControlledAccessRoute =>
+    route.type !== 'connector' && Boolean(route.clientAccess));
+  const command = `project ssh --environment-id ${instance.id}`;
 
   async function copyCommand() {
     if (!navigator.clipboard) return;
@@ -286,6 +291,7 @@ function EnvironmentDetails({
         <DetailValue label="SSH readiness" value={evidenceLabel(access.ssh.readiness)} />
         <DetailValue label="SSH host key" value={evidenceLabel(access.ssh.hostKey)} />
         <DetailValue label="Project CLI" value={evidenceLabel(access.ssh.projectCli)} />
+        <DetailValue label="Client-owned SSH" value={clientRoute ? `Ready · ${clientRoute.clientAccess!.address}` : 'Unavailable until fresh local Tailnet evidence'} />
         <DetailSectionLabel label="Resources" />
         <DetailValue label="Capacity" value={resources} />
         <DetailValue label="Resource source" value={resourceSourceLabel(instance.resources, instance.hostd.state)} />
@@ -326,7 +332,7 @@ function EnvironmentDetails({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800/70 bg-neutral-900/40 px-3 py-2">
         <code className="min-w-0 flex-1 truncate text-xs text-neutral-300">{command}</code>
-        <Button size="sm" variant="secondary" onPress={() => void copyCommand()}>
+        <Button size="sm" variant="secondary" isDisabled={!clientRoute} onPress={() => void copyCommand()}>
           <Copy className="size-3.5" />
           {copied ? 'Copied' : 'Copy command'}
         </Button>

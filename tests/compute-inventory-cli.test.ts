@@ -223,12 +223,16 @@ describe('agent-safe compute inventory', () => {
     expect(inventory.environmentInstances.find(({ id }) => id === environment.id)?.accessRoutes)
       .toContainEqual({
         capabilities: ['project_cli'], id: expect.stringMatching(/^route-[a-f0-9]{32}$/),
+        clientAccess: {
+          address: '100.64.0.10', hostKeySha256: `SHA256:${'A'.repeat(43)}`,
+          port: 22, targetIdentityRevision: 'identity-1574b5d9fe2e71fbe5a09e1e2e29f149', user: 'private-user'
+        },
         lastVerifiedAt: '2026-08-11T10:00:30.000Z', priority: 100,
         providerKind: 'tailscale', state: 'ready', type: 'ssh_private_network'
       });
     const serialized = JSON.stringify(inventory);
     for (const forbidden of [
-      '100.64.0.10', 'private-user', 'SHA256:', 'op://', 'private-gateway-id',
+      'env://PROJECT_SPACE_SSH_PRIVATE_KEY', 'env://PROJECT_SPACE_TAILSCALE_TOKEN', 'op://', 'private-gateway-id',
       'raw-provider-node-id', networkId, '20000000-0000-4000-8000-000000000001', environment.identity.key
     ]) expect(serialized).not.toContain(forbidden);
   });

@@ -1,0 +1,49 @@
+---
+title: Tasks
+description: Implementation and reconciliation checklist for client-owned SSH access.
+---
+
+## 1. Typed access boundary
+
+- [x] 1.1 Add safe client access metadata to Compute inventory
+  - **Evidence:** Ready Tailscale routes project exact IP, port, user, verified host fingerprint,
+    and an opaque target identity revision without credentials or raw provider identity.
+- [x] 1.2 Add the local `project ssh` bridge
+  - **Evidence:** The command selects one verified route and runs local interactive SSH directly
+    against the exact target IP.
+- [x] 1.3 Add typed readiness and failure phases
+  - **Evidence:** Client-owned access defines local-client, tailnet, target, SSH, host-key, and
+    Codex contract states, with authentication distinguished from target reachability.
+
+## 2. Safety and presentation
+
+- [x] 2.1 Fail closed for stale, unverified, unavailable, non-tailnet, and spoofed routes
+  - **Evidence:** Route validation and CLI tests block before key scanning or SSH execution.
+- [x] 2.2 Pin the live host key locally before starting SSH
+  - **Evidence:** Key-scan fingerprint mismatch returns a typed failure and strict temporary
+    known-hosts verification is used for the local process.
+- [x] 2.3 Expose the exact UI command and honest unavailable state
+  - **Evidence:** Environment details copy `project ssh --environment-id ...` only when metadata
+    exists and otherwise show unavailable until fresh local Tailnet evidence.
+
+## 3. Verification
+
+- [x] 3.1 Run focused client, inventory, UI, TypeScript, and Go checks
+  - **Evidence:** Focused Bun tests, TypeScript build, all Go packages, CLI docs, and specs pass.
+- [x] 3.2 Record full-suite environment failures separately
+  - **Evidence:** The full Bun run passes 2,801 tests; unrelated failures include the host Bun
+    version policy and existing React-renderer/environment failures.
+
+## 4. Deferred reconciliation
+
+- [ ] 4.1 Reconcile the exact #763 dispatch/runtime contract
+  - **Status:** Blocked pending dependency landing, not pending human input.
+  - **Reason:** This implementation was developed against candidate
+    `9b952664fc6c4d519b15cea168157f513469d8a9` while #763 remains under review.
+  - **Blocked by:** #763
+  - **Unblocked when:** The exact #763 implementation lands and its dispatch identity,
+    unavailable-state, and runtime handoff contracts are available for comparison.
+
+## 5. Deferred follow-ups
+
+None.

@@ -314,20 +314,45 @@ function projectControlledRoutes(
   identityRevision: string,
   now: Date
 ): ProjectCliAccessRoute[] {
-  return routes.map((route) => ({
-    capabilities: [...new Set(route.capabilities)].sort(),
-    id: safeProjectionId('route', route.id),
-    ...(route.lastVerifiedAt ? { lastVerifiedAt: route.lastVerifiedAt } : {}),
-    priority: route.priority,
-    ...(route.providerKind ? { providerKind: route.providerKind } : {}),
-    state: routeEvidenceState({
+  return routes.map((route) => {
+    const state = routeEvidenceState({
       network: route.privateNetworkId ? networksById.get(route.privateNetworkId) : undefined,
       now,
       route,
       targetIdentityRevision: identityRevision
-    }),
-    type: route.routeKind
-  })).sort(routeOrder);
+    });
+    return {
+      capabilities: [...new Set(route.capabilities)].sort(),
+      ...(clientAccessMetadata(route, state, identityRevision)),
+      id: safeProjectionId('route', route.id),
+      ...(route.lastVerifiedAt ? { lastVerifiedAt: route.lastVerifiedAt } : {}),
+      priority: route.priority,
+      ...(route.providerKind ? { providerKind: route.providerKind } : {}),
+      state,
+      type: route.routeKind
+    };
+  }).sort(routeOrder);
+}
+
+function clientAccessMetadata(
+  route: AccessRouteRecord,
+  state: ReturnType<typeof routeEvidenceState>,
+  targetIdentityRevision: string
+) {
+  if (state !== 'ready' || route.routeKind !== 'ssh_private_network' ||
+    route.providerKind !== 'tailscale' || !route.privateAddress || !route.sshPort ||
+    !route.sshUser || !route.hostKeySha256) {
+    return {};
+  }
+  return {
+    clientAccess: {
+      address: route.privateAddress,
+      hostKeySha256: route.hostKeySha256,
+      port: route.sshPort,
+      targetIdentityRevision: safeProjectionId('identity', targetIdentityRevision),
+      user: route.sshUser
+    }
+  };
 }
 
 function hostCapabilities(routes: readonly ProjectCliAccessRoute[]) {

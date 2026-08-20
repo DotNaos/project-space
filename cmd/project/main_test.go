@@ -64,6 +64,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"run",
 		"self-update",
 		"serve",
+		"ssh",
 		"status",
 		"storage",
 		"template",

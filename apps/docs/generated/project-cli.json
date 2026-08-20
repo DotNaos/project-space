@@ -3235,6 +3235,30 @@
         ]
       },
       {
+        "path": "project ssh",
+        "name": "ssh",
+        "usage": "ssh [environment-instance]",
+        "short": "Open a client-owned SSH session to a Tailscale Environment",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "environment-id",
+            "type": "string",
+            "description": "exact Environment Instance ID",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for ssh",
+            "inherited": false
+          }
+        ],
+        "commands": []
+      },
+      {
         "path": "project status",
         "name": "status",
         "usage": "status",

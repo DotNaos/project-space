@@ -91,16 +91,28 @@ type Host struct {
 }
 
 type AccessRoute struct {
-	Available       *bool    `json:"available,omitempty"`
-	Capabilities    []string `json:"capabilities"`
-	ConnectorStatus string   `json:"connectorStatus"`
-	ID              string   `json:"id,omitempty"`
-	LastSeen        string   `json:"lastSeen,omitempty"`
-	LastVerifiedAt  string   `json:"lastVerifiedAt,omitempty"`
-	Priority        int      `json:"priority,omitempty"`
-	ProviderKind    string   `json:"providerKind,omitempty"`
-	State           string   `json:"state,omitempty"`
-	Type            string   `json:"type"`
+	Available       *bool         `json:"available,omitempty"`
+	Capabilities    []string      `json:"capabilities"`
+	ClientAccess    *ClientAccess `json:"clientAccess,omitempty"`
+	ConnectorStatus string        `json:"connectorStatus"`
+	ID              string        `json:"id,omitempty"`
+	LastSeen        string        `json:"lastSeen,omitempty"`
+	LastVerifiedAt  string        `json:"lastVerifiedAt,omitempty"`
+	Priority        int           `json:"priority,omitempty"`
+	ProviderKind    string        `json:"providerKind,omitempty"`
+	State           string        `json:"state,omitempty"`
+	Type            string        `json:"type"`
+}
+
+// ClientAccess contains only the target metadata a local client needs to
+// launch its own verified SSH process. It deliberately excludes credentials,
+// agent sockets, commands, and terminal data.
+type ClientAccess struct {
+	Address                string `json:"address"`
+	HostKeySHA256          string `json:"hostKeySha256"`
+	Port                   int    `json:"port"`
+	TargetIdentityRevision string `json:"targetIdentityRevision"`
+	User                   string `json:"user"`
 }
 
 func (route AccessRoute) MarshalJSON() ([]byte, error) {
@@ -121,14 +133,15 @@ func (route AccessRoute) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("cannot encode unknown access route type %q", route.Type)
 	}
 	return json.Marshal(struct {
-		Capabilities   []string `json:"capabilities"`
-		ID             string   `json:"id"`
-		LastVerifiedAt string   `json:"lastVerifiedAt,omitempty"`
-		Priority       int      `json:"priority"`
-		ProviderKind   string   `json:"providerKind,omitempty"`
-		State          string   `json:"state"`
-		Type           string   `json:"type"`
-	}{route.Capabilities, route.ID, route.LastVerifiedAt, route.Priority,
+		Capabilities   []string      `json:"capabilities"`
+		ClientAccess   *ClientAccess `json:"clientAccess,omitempty"`
+		ID             string        `json:"id"`
+		LastVerifiedAt string        `json:"lastVerifiedAt,omitempty"`
+		Priority       int           `json:"priority"`
+		ProviderKind   string        `json:"providerKind,omitempty"`
+		State          string        `json:"state"`
+		Type           string        `json:"type"`
+	}{route.Capabilities, route.ClientAccess, route.ID, route.LastVerifiedAt, route.Priority,
 		route.ProviderKind, route.State, route.Type})
 }
 

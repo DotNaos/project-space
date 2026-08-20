@@ -64,6 +64,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newRoadmapCommand())
 	root.AddCommand(newSelfUpdateCommand())
 	root.AddCommand(newServeCommand())
+	root.AddCommand(newSSHCommand())
 	root.AddCommand(newStorageCommand())
 	root.AddCommand(newMachineStatusCommand())
 	root.AddCommand(newTemplateCommand())

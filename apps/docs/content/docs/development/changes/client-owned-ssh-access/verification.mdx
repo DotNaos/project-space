@@ -1,0 +1,28 @@
+---
+title: Verification
+description: Requirement evidence and dependency reconciliation for client-owned SSH access.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+- [x] CLIENT-SSH-001 — Client-owned data plane
+- [x] CLIENT-SSH-002 — Exact target and host identity
+- [x] CLIENT-SSH-003 — Fresh local and remote readiness
+- [x] CLIENT-SSH-004 — Typed failure boundary
+- [ ] CLIENT-SSH-005 — Dispatch/runtime reconciliation with exact landed #763
+
+## Final reconciliation
+
+- [x] Current documentation describes the implemented client-owned boundary
+- [x] The server path contains no SSH relay, credentials, sockets, commands, or terminal traffic
+- [x] Focused tests, TypeScript build, all Go tests, CLI docs, and specification checks pass
+- [x] Allowed direct and blocked non-tailnet/stale/host-key paths are covered by deterministic tests
+- [ ] Exact #763 dispatch and runtime contracts are reconciled after the dependency lands
+- [ ] Visual browser dogfood is still pending because no browser connector is available in this task
+
+The incomplete status is deliberate: the implementation is suitable for review, but the pull
+request is not merge-ready until #763's exact landed contract is reconciled. Full Bun validation
+also has unrelated host-environment failures: this machine runs Bun 1.3.9 while the repository
+requires 1.3.14, and several existing React-renderer tests fail under this runtime.
