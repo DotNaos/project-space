@@ -1,4 +1,4 @@
 {
   "schema": "project-space.release-intent/v1",
-  "intent": "minor"
+  "intent": "patch"
 }
