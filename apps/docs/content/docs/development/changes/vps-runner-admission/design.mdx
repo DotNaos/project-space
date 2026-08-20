@@ -37,7 +37,9 @@ evidence and rejects query-only clients.
 Observed sandbox usage is combined with active control-plane reservations by taking the
 per-dimension maximum, preventing either telemetry or state lag from undercounting. A
 released reservation cannot be resurrected; uncertain and expired reservations are fenced
-until same-generation absence is proven.
+until same-generation absence is proven. Before that aggregation, every active durable row
+is revalidated for exact host/generation identity, allowed state, bounded resource/scalar
+values, coherent deadlines, and a canonical fingerprint; malformed rows block admission.
 
 ## Decisions
 

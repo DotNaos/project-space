@@ -21,6 +21,8 @@ evidence for previously owned resources.
 - the requested profile fits the remaining total after the effective Production claim;
 - concurrency is below both the configured and observed host limit;
 - no active sandbox has uncertain cleanup;
+- every active durable reservation has a valid exact host/generation identity, bounded
+  resource/scalar values, coherent deadlines, and a canonical fingerprint;
 - idle, maximum-runtime, and lease windows are bounded;
 - the reservation identity and request fingerprint are new or an exact replay;
 - any release proof names the exact full reservation identity, has `resourcesAbsent: true`,

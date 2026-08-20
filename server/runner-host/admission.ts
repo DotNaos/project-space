@@ -336,6 +336,10 @@ export function validateAdmission(
       !validVector(evidence.capacity.sandboxUsage)) {
     return blocked('resource_limit', 'The VPS resource evidence or policy contains an invalid value.');
   }
+  const existingFailure = validateExistingReservations(
+    existing, request.identity.hostId, request.identity.generation, now
+  );
+  if (existingFailure) return existingFailure;
   if (evidence.capacity.maxConcurrentSandboxes < policy.maxConcurrentSandboxes) {
     return blocked('production_reservation_not_proven', 'The host evidence does not prove the configured sandbox pool.');
   }
@@ -420,10 +424,65 @@ function exceeds(actual: RunnerResourceVector, maximum: RunnerResourceVector) {
   return runnerResourceDimensions.some((dimension) => actual[dimension] > maximum[dimension]);
 }
 
-function validVector(vector: RunnerResourceVector) {
+function validVector(vector: unknown): vector is RunnerResourceVector {
+  if (!vector || typeof vector !== 'object') return false;
   return runnerResourceDimensions.every((dimension) =>
-    Number.isSafeInteger(vector[dimension]) && vector[dimension] >= 0
+    Number.isSafeInteger((vector as Record<string, unknown>)[dimension]) &&
+    ((vector as Record<string, unknown>)[dimension] as number) >= 0
   );
+}
+
+function validateExistingReservations(
+  existing: readonly RunnerSandboxReservation[],
+  hostId: string,
+  generation: string,
+  now: Date
+) {
+  if (!Array.isArray(existing)) {
+    return blocked('capacity_evidence_invalid', 'Durable sandbox reservations are not a valid collection.');
+  }
+  for (const reservation of existing) {
+    if (!reservation || typeof reservation !== 'object') {
+      return blocked('capacity_evidence_invalid', 'A durable sandbox reservation is malformed.');
+    }
+    if (reservation.state === 'released') continue;
+    if (reservation.state !== 'active' && reservation.state !== 'uncertain') {
+      return blocked('capacity_evidence_invalid', 'A durable sandbox reservation has an invalid state.');
+    }
+    if (!validIdentity(reservation.identity) || reservation.identity.hostId !== hostId ||
+        reservation.identity.generation !== generation || reservation.hostGeneration !== generation ||
+        reservation.hostGeneration !== reservation.identity.generation) {
+      return blocked('identity_invalid', 'A durable sandbox reservation is bound to a different identity, host, or generation.');
+    }
+    if (!validVector(reservation.resources) ||
+        !positiveSafeInteger(reservation.idleTimeoutSeconds) ||
+        !positiveSafeInteger(reservation.maximumRuntimeSeconds) ||
+        typeof reservation.fingerprint !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(reservation.fingerprint)) {
+      return blocked('capacity_evidence_invalid', 'A durable sandbox reservation contains an invalid resource or scalar.');
+    }
+    const createdAt = parseStoredTimestamp(reservation.createdAt);
+    const idleExpiresAt = parseStoredTimestamp(reservation.idleExpiresAt);
+    const leaseExpiresAt = parseStoredTimestamp(reservation.leaseExpiresAt);
+    const runtimeExpiresAt = parseStoredTimestamp(reservation.runtimeExpiresAt);
+    if (createdAt === undefined || idleExpiresAt === undefined || leaseExpiresAt === undefined ||
+        runtimeExpiresAt === undefined || createdAt > now.getTime() ||
+        idleExpiresAt <= createdAt || leaseExpiresAt <= createdAt || runtimeExpiresAt <= createdAt ||
+        idleExpiresAt !== createdAt + reservation.idleTimeoutSeconds * 1_000 ||
+        runtimeExpiresAt !== createdAt + reservation.maximumRuntimeSeconds * 1_000) {
+      return blocked('capacity_evidence_invalid', 'A durable sandbox reservation contains incoherent timestamps.');
+    }
+    if (reservation.state === 'uncertain') {
+      return blocked('cleanup_uncertain', 'An uncertain sandbox operation still owns capacity.');
+    }
+  }
+  return undefined;
+}
+
+function parseStoredTimestamp(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function validEvidenceScalars(evidence: RunnerHostCapacityEvidence) {

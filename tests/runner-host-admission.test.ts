@@ -243,6 +243,58 @@ describe('VPS runner admission', () => {
     }
   });
 
+  test('fails closed on malformed durable reservations before capacity arithmetic', async () => {
+    const now = new Date('2026-08-20T10:00:01.000Z');
+    const service = new RunnerHostAdmissionService(new MemoryRunnerHostAdmissionStore(), policy, () => new Date(now));
+    const active = await service.reserve(evidence, request('durable-active'));
+    if (active.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const tiny = request('durable-tiny', vector({ cpuMillis: 1 }));
+    expect(validateAdmission(evidence, tiny, policy, [active.reservation], now)).toBeUndefined();
+
+    for (const dimension of Object.keys(vector()) as Array<keyof RunnerResourceVector>) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tiny, policy,
+          [{ ...active.reservation, resources: { ...active.reservation.resources, [dimension]: value } }], now
+        )?.reason).toBe('capacity_evidence_invalid');
+      }
+    }
+    for (const field of ['idleTimeoutSeconds', 'maximumRuntimeSeconds'] as const) {
+      for (const value of [undefined, Number.NaN, 1.5, -1, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(validateAdmission(
+          evidence, tiny, policy, [{ ...active.reservation, [field]: value }], now
+        )?.reason).toBe('capacity_evidence_invalid');
+      }
+    }
+    for (const identity of [
+      { ...active.reservation.identity, branch: '' },
+      { ...active.reservation.identity, branch: undefined as never },
+      { ...active.reservation.identity, hostId: 'vps:other' },
+      { ...active.reservation.identity, generation: 'other-generation' }
+    ]) {
+      expect(validateAdmission(
+        evidence, tiny, policy, [{ ...active.reservation, identity }], now
+      )?.reason).toBe('identity_invalid');
+    }
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, hostGeneration: 'other-generation' }], now
+    )?.reason).toBe('identity_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, state: 'corrupt' as never }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    for (const field of ['createdAt', 'idleExpiresAt', 'leaseExpiresAt', 'runtimeExpiresAt'] as const) {
+      expect(validateAdmission(
+        evidence, tiny, policy, [{ ...active.reservation, [field]: 'not-a-timestamp' }], now
+      )?.reason).toBe('capacity_evidence_invalid');
+    }
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, idleExpiresAt: active.reservation.createdAt }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, fingerprint: 'not-a-fingerprint' }], now
+    )?.reason).toBe('capacity_evidence_invalid');
+  });
+
   test('fences expired idle, lease, or runtime reservations before capacity reuse', async () => {
     const store = new MemoryRunnerHostAdmissionStore();
     const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
@@ -250,7 +302,10 @@ describe('VPS runner admission', () => {
     if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
     const expired = {
       ...reserved.reservation,
-      idleExpiresAt: '2026-08-20T09:59:59.000Z'
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
     };
     await store.save(hostId, expired);
     expect((await service.fenceExpired(hostId))).toHaveLength(1);
@@ -264,7 +319,13 @@ describe('VPS runner admission', () => {
     const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
     const reserved = await service.reserve(evidence, request());
     if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
-    await store.save(hostId, { ...reserved.reservation, idleExpiresAt: '2026-08-20T09:59:59.000Z' });
+    await store.save(hostId, {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    });
     const replay = await service.reserve(evidence, request());
     expect(replay).toMatchObject({ kind: 'replayed', reservation: { state: 'uncertain' } });
   });
@@ -274,7 +335,13 @@ describe('VPS runner admission', () => {
     const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
     const reserved = await service.reserve(evidence, request());
     if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
-    await store.save(hostId, { ...reserved.reservation, idleExpiresAt: '2026-08-20T09:59:59.000Z' });
+    await store.save(hostId, {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    });
     const [, admission] = await Promise.all([
       service.fenceExpired(hostId),
       service.reserve(evidence, request('racing-expiry'))

@@ -577,6 +577,10 @@ describe('database migrations', () => {
     expect(runnerHostAdmissionMigrationSql).toContain('absence_proof jsonb');
     expect(runnerHostAdmissionMigrationSql).toContain("absence_proof->'identity' = identity");
     expect(runnerHostAdmissionMigrationSql).toContain('jsonb_object_length(identity) = 13');
+    expect(runnerHostAdmissionMigrationSql).toContain("identity->>'hostId' = host_id");
+    expect(runnerHostAdmissionMigrationSql).toContain("identity->>'reservationId' = reservation_id");
+    expect(runnerHostAdmissionMigrationSql).toContain('9007199254740991');
+    expect(runnerHostAdmissionMigrationSql).toContain("!~ '[[:cntrl:]]'");
     expect(connectorCompatibilityUsageMigrationSql).toContain(
       "recorder_state text not null check (recorder_state in ('active', 'clean'))"
     );

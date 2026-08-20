@@ -9,6 +9,7 @@ import {
   PostgresRunnerHostAdmissionStore,
   RunnerHostAdmissionService
 } from '../server/runner-host/admission';
+import type { RunnerSandboxIdentity } from '../src/shared/runner-host-admission-api';
 import { evidence, policy, request } from './runner-host-admission-fixtures';
 
 const databaseUrl = process.env.PROJECT_SPACE_TEST_DATABASE_URL ?? '';
@@ -71,6 +72,30 @@ describe('PostgreSQL runner admission concurrency integration', () => {
     try {
       const client = transactionalClient(pool);
       await runDatabaseMigrations(client);
+      const insertReservation = async (
+        reservationId: string,
+        host: string,
+        identity: RunnerSandboxIdentity
+      ) => pool.query(
+        `insert into runner_sandbox_reservations (
+           reservation_id, host_id, host_generation, identity, isolation, resources, state, fingerprint,
+           created_at, idle_timeout_seconds, maximum_runtime_seconds,
+           idle_expires_at, lease_expires_at, runtime_expires_at
+         ) values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, 'active', $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          reservationId, host, evidence.generation, JSON.stringify(identity),
+          JSON.stringify(request('db-contract').isolation), JSON.stringify(request('db-contract').resources),
+          'a'.repeat(64), '2026-08-20T10:00:01.000Z', 1_800, 43_200,
+          '2026-08-20T10:30:01.000Z', '2026-08-20T10:15:01.000Z', '2026-08-20T22:00:01.000Z'
+        ]
+      );
+      await expect(insertReservation(
+        'db-contract-host-mismatch', 'vps:wrong-host', request('db-contract-host').identity
+      )).rejects.toThrow();
+      await expect(insertReservation(
+        'db-contract-negative-issue', evidence.hostId,
+        { ...request('db-contract-issue').identity, issueNumber: -1 }
+      )).rejects.toThrow();
       const services = [1, 2, 3].map(() => new RunnerHostAdmissionService(
         new PostgresRunnerHostAdmissionStore(client),
         policy,
