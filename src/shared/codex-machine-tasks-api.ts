@@ -49,6 +49,10 @@ export interface CodexMachineTaskIdentity extends CodexMachineTaskTarget {
     commit: string;
   };
   canonicalTaskUrl: string;
+  handoff?: {
+    state: 'accepted';
+    turnId: string;
+  };
   issue: {
     number: number;
     url: string;

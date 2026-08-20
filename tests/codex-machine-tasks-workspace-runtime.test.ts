@@ -12,13 +12,14 @@ const branch = 'issue-763-dispatch';
 const commit = 'a'.repeat(40);
 const generationId = '22222222-2222-4222-8222-222222222222';
 const connectorId = `workspace-runtime:${createHash('sha256').update([
-  workspaceId, environmentId, generationId
+  workspaceId, environmentId
 ].join('\0')).digest('hex').slice(0, 32)}`;
 
 function snapshot(overrides: Record<string, unknown> = {}) {
   return {
     branch,
     capabilities: ['runtime.codex.v1'],
+    codexAcceptedCommandSequence: 0,
     commit,
     connectionState: 'online',
     devServers: [],
@@ -55,7 +56,7 @@ function bridgeFixture(options: { binding?: boolean; online?: boolean } = {}) {
       dispatched = command;
       queueMicrotask(() => listener?.({
         ...command,
-        result: { threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+        result: { initialTurnId: 'turn-763', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
         type: 'runtime.codex.result'
       } as WorkspaceRuntimeCodexMessage));
     }
@@ -106,12 +107,20 @@ describe('Workspace Runtime Codex bridge', () => {
       generation: fixture.bridge.generationFor(connectorId),
       result: {
         state: 'confirmed',
+        handoff: { state: 'accepted', turnId: 'turn-763' },
         threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c',
         workspace: { branch, commit, id: workspaceId },
         worktreeId: 'worktree-1'
       }
     });
-    expect(fixture.command?.request).toEqual({ cwd: '.', machineId: connectorId, operationId: input.operationId });
+    expect(fixture.command?.request).toMatchObject({
+      cwd: '.', machineId: connectorId, operationId: input.operationId,
+      handoff: {
+        branch, commit, environmentId,
+        issue: input.issue, repository: input.repository,
+        workspaceId, worktreeId: 'worktree-1'
+      }
+    });
   });
 
   test('returns an honest unavailable plan when no Project binding is proven', async () => {

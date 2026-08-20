@@ -427,6 +427,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
         issue: issue.issue,
         repository: issue.repository,
         threadId: started.threadId,
+        ...(started.handoff ? { handoff: started.handoff } : {}),
         worktree,
         workspace: {
           branch: workspace.branch,

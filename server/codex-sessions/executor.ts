@@ -302,6 +302,26 @@ export class CodexSessionsExecutor {
       cwd: request.cwd,
       operationId: request.operationId
     });
+    if (request.handoff) {
+      const handoff = request.handoff;
+      const turn = await this.options.manager.startTurn({
+        operationId: `${request.operationId}:initial-turn`,
+        prompt: [
+          `Work on GitHub issue #${handoff.issue.number} in ${handoff.repository.nameWithOwner}.`,
+          `Issue: ${handoff.issue.url}`,
+          `Repository: ${handoff.repository.nameWithOwner} (${handoff.repository.id})`,
+          `Branch: ${handoff.branch}`,
+          `Commit: ${handoff.commit}`,
+          `Managed workspace: ${handoff.workspaceId}; worktree: ${handoff.worktreeId}`
+        ].join('\n'),
+        threadId: result.thread.id
+      });
+      return {
+        initialTurnId: turn.turn.id,
+        machineId: this.options.expectedMachineId,
+        threadId: result.thread.id
+      };
+    }
     return {
       machineId: this.options.expectedMachineId,
       threadId: result.thread.id

@@ -328,6 +328,7 @@ export interface CodexMachineTasksServiceOptions {
     result:
       | {
           state: 'confirmed';
+          handoff: { state: 'accepted'; turnId: string };
           threadId: string;
           worktreeId?: string;
           workspace?: {

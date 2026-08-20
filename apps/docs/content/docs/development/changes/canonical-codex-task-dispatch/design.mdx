@@ -17,6 +17,12 @@ The goal is a reliable, observable, and retry-safe start through the canonical
 Environment and its assigned runtime. The change does not add a second runtime protocol,
 restore Connector targeting, or change provider authentication.
 
+The start path is intentionally self-contained: it sends the issue handoff and initial
+turn through the typed Workspace Runtime Codex command. It does not claim to replace the
+general Chat transport (read/send, approvals, user input, interrupts, or stream/wait
+terminal-event forwarding). Those capabilities remain a downstream boundary for #724 and
+#726; this change must not rely on the retired sessions runtime or general stream wait.
+
 ## Architecture
 
 The configured HTTP handler lazily creates the existing machine-task service only when a

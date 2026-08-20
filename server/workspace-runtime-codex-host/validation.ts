@@ -51,6 +51,20 @@ export function parseCodexHostCommand(
   if (!machineKinds.has(kind) && !['runtime-start', 'runtime-stop'].includes(kind)) invalid();
   if (['approval', 'continue', 'input', 'interrupt', 'settings', 'start'].includes(kind) &&
       request.operationId !== input.operationId) invalid();
+  if (kind === 'start' && request.handoff !== undefined) {
+    const handoff = object(request.handoff);
+    if (handoff.environmentId !== input.environmentId ||
+        handoff.workspaceId !== input.workspaceId ||
+        typeof handoff.worktreeId !== 'string' || !handoff.worktreeId ||
+        typeof handoff.branch !== 'string' || !handoff.branch ||
+        typeof handoff.commit !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(handoff.commit)) invalid();
+    const issue = object(handoff.issue);
+    if (!Number.isSafeInteger(issue.number) || Number(issue.number) < 1 ||
+        typeof issue.url !== 'string' || !issue.url) invalid();
+    const repository = object(handoff.repository);
+    if (typeof repository.id !== 'string' || !repository.id ||
+        typeof repository.nameWithOwner !== 'string' || !repository.nameWithOwner) invalid();
+  }
   if (kind === 'runtime-start' || kind === 'runtime-stop') {
     if (request.operationId !== input.operationId) invalid();
     if (kind === 'runtime-stop' && request.reason !== undefined) safeText(request.reason, 256);

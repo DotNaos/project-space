@@ -9,15 +9,16 @@ const generation = '22222222-2222-4222-8222-222222222222';
 const branch = 'issue-763-dispatch';
 const commit = 'a'.repeat(40);
 
-function fixture(options: {
+function createBridgeFixture(options: {
   connectionState?: 'online' | 'disconnected';
   resolveWorkspaceBinding?: Parameters<typeof createWorkspaceRuntimeCodexBridge>[0]['resolveWorkspaceBinding'];
 } = {}) {
   const listeners = new Set<(message: WorkspaceRuntimeCodexMessage) => Promise<void> | void>();
   const commands: WorkspaceRuntimeCodexCommand[] = [];
-  const snapshot = {
+  let currentSnapshot = {
     branch,
     capabilities: ['runtime.codex.v1'],
+    codexAcceptedCommandSequence: 0,
     commit,
     connectionState: options.connectionState ?? 'online',
     devServers: [],
@@ -35,7 +36,7 @@ function fixture(options: {
     workspaceId
   } as const;
   const sessions = {
-    list: async () => [snapshot],
+    list: async () => [currentSnapshot],
     onCodexMessage(listener: (message: WorkspaceRuntimeCodexMessage) => Promise<void> | void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -45,7 +46,7 @@ function fixture(options: {
       queueMicrotask(() => {
         const message = {
           ...command,
-          result: { machineId: command.request.machineId, threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+          result: { initialTurnId: 'turn-763', machineId: command.request.machineId, threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
           type: 'runtime.codex.result'
         } as unknown as WorkspaceRuntimeCodexMessage;
         for (const listener of listeners) void listener(message);
@@ -59,7 +60,13 @@ function fixture(options: {
     resolveWorkspaceBinding: options.resolveWorkspaceBinding,
     sessions
   });
-  return { bridge, commands };
+  return {
+    bridge,
+    commands,
+    replaceSnapshot(overrides: Record<string, unknown>) {
+      currentSnapshot = { ...currentSnapshot, ...overrides } as typeof currentSnapshot;
+    }
+  };
 }
 
 const input = {
@@ -76,7 +83,7 @@ const input = {
 
 describe('Workspace Runtime Codex bridge', () => {
   test('returns a read-only workspace plan and preserves exact revision fencing', async () => {
-    const { bridge } = fixture({
+    const { bridge } = createBridgeFixture({
       resolveWorkspaceBinding: async () => ({ branch, commit, id: workspaceId })
     });
     const inventory = await bridge.inventory('user-owner');
@@ -94,7 +101,7 @@ describe('Workspace Runtime Codex bridge', () => {
   });
 
   test('correlates the start response and returns only an authoritative worktree binding', async () => {
-    const { bridge, commands } = fixture({
+    const { bridge, commands } = createBridgeFixture({
       resolveWorkspaceBinding: async () => ({
         branch,
         commit,
@@ -107,6 +114,7 @@ describe('Workspace Runtime Codex bridge', () => {
     expect(started).toMatchObject({
       result: {
         state: 'confirmed',
+        handoff: { state: 'accepted', turnId: 'turn-763' },
         threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c',
         workspace: { id: workspaceId },
         worktreeId: 'worktree-763'
@@ -117,7 +125,7 @@ describe('Workspace Runtime Codex bridge', () => {
   });
 
   test('fails closed before dispatch when the managed worktree binding is unavailable', async () => {
-    const { bridge, commands } = fixture();
+    const { bridge, commands } = createBridgeFixture();
     const connectorId = (await bridge.inventory('user-owner')).connectors[0]!.id;
     const started = await bridge.start({ ...input, connectorId });
     expect(started).toMatchObject({ result: { state: 'worktree_failure' } });
@@ -125,12 +133,32 @@ describe('Workspace Runtime Codex bridge', () => {
   });
 
   test('reports an unavailable runtime without inventing a workspace identity', async () => {
-    const { bridge } = fixture({
+    const { bridge } = createBridgeFixture({
       connectionState: 'disconnected',
       resolveWorkspaceBinding: async () => ({ branch, commit, id: workspaceId })
     });
     const connectorId = (await bridge.inventory('user-owner')).connectors[0]!.id;
     const started = await bridge.start({ ...input, connectorId });
     expect(started.result.state).toBe('offline');
+  });
+
+  test('restarts from the authoritative host watermark with a stable runtime identity', async () => {
+    const fixture = createBridgeFixture({
+      resolveWorkspaceBinding: async () => ({
+        branch, commit, id: workspaceId,
+        worktree: { branch, id: 'worktree-763' }
+      })
+    });
+    const connectorId = (await fixture.bridge.inventory('user-owner')).connectors[0]!.id;
+    await fixture.bridge.start({ ...input, connectorId });
+    fixture.replaceSnapshot({
+      codexAcceptedCommandSequence: 0,
+      generation: '33333333-3333-4333-8333-333333333333',
+      sessionId: 'session-reconnected'
+    });
+    const replacement = (await fixture.bridge.inventory('user-owner')).connectors[0]!.id;
+    expect(replacement).toBe(connectorId);
+    await fixture.bridge.start({ ...input, connectorId: replacement, operationId: 'start-763-reconnect' });
+    expect(fixture.commands.map((command) => command.commandSequence)).toEqual([1, 1]);
   });
 });

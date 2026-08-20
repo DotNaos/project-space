@@ -185,6 +185,35 @@ describe('Workspace Runtime outbound sessions', () => {
     });
   });
 
+  test('publishes and advances the authoritative Codex command watermark', async () => {
+    const runtime = fixture();
+    const issued = await runtime.issue();
+    const scope = await runtime.store.authenticate(issued.credential.token);
+    const active = await runtime.service.register(connection(), scope!, runtime.registration());
+    expect((await runtime.service.list('owner'))[0]).toMatchObject({
+      codexAcceptedCommandSequence: 0,
+      generation,
+      workspaceId
+    });
+    await runtime.service.acceptCodex(active, {
+      actorId: workspaceId,
+      actorKind: 'human',
+      actorUserId: 'owner',
+      commandId: 'command-start',
+      commandSequence: 1,
+      environmentId,
+      generation,
+      operationId: 'operation.start',
+      acceptedCommandSequence: 1,
+      replayed: false,
+      schemaVersion: 1,
+      sessionId: active.sessionId,
+      type: 'runtime.codex.command-accepted',
+      workspaceId
+    });
+    expect((await runtime.service.list('owner'))[0]?.codexAcceptedCommandSequence).toBe(1);
+  });
+
   test('supersedes the same Workspace across environment and generation bindings', async () => {
     const runtime = fixture();
     const oldIssued = await runtime.issue();

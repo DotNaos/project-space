@@ -268,7 +268,7 @@ async function settleWithin(operation: Promise<unknown>, timeoutMs: number) {
 
 function runtimeMachineId(options: WorkspaceRuntimeCodexHostOptions) {
   const digest = createHash('sha256').update([
-    options.workspaceId, options.environmentId, options.generation
+    options.workspaceId, options.environmentId
   ].join('\0')).digest('hex').slice(0, 32);
   return `workspace-runtime:${digest}`;
 }

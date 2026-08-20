@@ -64,6 +64,7 @@ export interface WorkspaceRuntimeCodexBridge {
     result:
       | {
           state: 'confirmed';
+          handoff: { state: 'accepted'; turnId: string };
           threadId: string;
           workspace: {
             branch: string;
@@ -110,7 +111,7 @@ export function createWorkspaceRuntimeCodexBridge(options: {
   } | undefined>;
 }) : WorkspaceRuntimeCodexBridge {
   const generations = new Map<string, number>();
-  const sequences = new Map<string, number>();
+  const sequences = new Map<string, { generation: string; sequence: number }>();
 
   async function runtime(userId: string, machineId: string) {
     const snapshots = await options.sessions.list(userId);
@@ -149,9 +150,18 @@ export function createWorkspaceRuntimeCodexBridge(options: {
     request: WorkspaceRuntimeCodexCommand['request'],
     threadId?: string
   ): Promise<Result> {
-    const key = `${userId}\0${snapshot.workspaceId}\0${snapshot.generation}`;
-    const sequence = (sequences.get(key) ?? 0) + 1;
-    sequences.set(key, sequence);
+    const key = `${userId}\0${snapshot.workspaceId}`;
+    const authoritative = snapshot.codexAcceptedCommandSequence;
+    if (authoritative === undefined) {
+      throw new Error('The Workspace Runtime Codex command sequence is unavailable.');
+    }
+    const prior = sequences.get(key);
+    const state = !prior || prior.generation !== snapshot.generation
+      ? { generation: snapshot.generation, sequence: authoritative }
+      : { generation: prior.generation, sequence: Math.max(prior.sequence, authoritative) };
+    const sequence = state.sequence + 1;
+    state.sequence = sequence;
+    sequences.set(key, state);
     const command = {
       ...commandBase(snapshot, operationId, sequence, threadId), kind, request,
       type: 'runtime.codex.command' as const
@@ -328,12 +338,32 @@ export function createWorkspaceRuntimeCodexBridge(options: {
         const snapshot = await runtime(input.userId, input.connectorId);
         const result = await dispatch<CodexSessionStartResult>(
           input.userId, snapshot, input.operationId, 'start',
-          { cwd: '.', machineId: input.connectorId, operationId: input.operationId }
+          {
+            cwd: '.',
+            handoff: {
+              branch: input.branch,
+              commit: input.commit,
+              environmentId: snapshot.environmentId,
+              issue: input.issue,
+              repository: input.repository,
+              workspaceId: planned.plan.workspace.id,
+              worktreeId: planned.plan.worktree.id
+            },
+            machineId: input.connectorId,
+            operationId: input.operationId
+          }
         );
+        if (!result.initialTurnId) {
+          return {
+            generation: generationNumber(snapshot.generation),
+            result: { state: 'uncertain' }
+          };
+        }
         return {
           generation: generationNumber(snapshot.generation),
           result: {
             state: 'confirmed',
+            handoff: { state: 'accepted', turnId: result.initialTurnId },
             threadId: result.threadId,
             workspace: planned.plan.workspace,
             worktreeId: planned.plan.worktree.id
@@ -380,7 +410,7 @@ export function createWorkspaceRuntimeCodexBridge(options: {
 
 function runtimeMachineId(snapshot: Pick<RuntimeSnapshot, 'workspaceId' | 'environmentId' | 'generation'>) {
   const digest = createHash('sha256').update([
-    snapshot.workspaceId, snapshot.environmentId, snapshot.generation
+    snapshot.workspaceId, snapshot.environmentId
   ].join('\0')).digest('hex').slice(0, 32);
   return `workspace-runtime:${digest}`;
 }

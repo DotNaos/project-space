@@ -133,6 +133,8 @@ export type WorkspaceRuntimeEvent =
 export interface WorkspaceRuntimeSessionSnapshot {
   branch: string;
   capabilities: WorkspaceRuntimeCapability[];
+  /** Authoritative Codex host command watermark supplied during registration. */
+  codexAcceptedCommandSequence?: number;
   commit: string;
   connectionState: WorkspaceRuntimeConnectionState;
   devServers: WorkspaceRuntimeDevServer[];

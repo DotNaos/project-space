@@ -94,7 +94,7 @@ describe('Workspace Runtime Codex host controller', () => {
     await first.start();
     first.bind('socket-one', 0);
     const machineId = `workspace-runtime:${createHash('sha256').update([
-      workspaceId, environmentId, generation
+      workspaceId, environmentId
     ].join('\0')).digest('hex').slice(0, 32)}`;
     await first.command({
       ...runtimeStartCommand('socket-one'),

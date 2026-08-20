@@ -75,6 +75,11 @@ class FakeSessionManager {
     this.calls.push(`start:${input.cwd}:${input.operationId}`);
     return { thread: { ephemeral: false, id: threadId, status: { type: 'idle' as const } } };
   }
+
+  async startTurn(input: { operationId: string; prompt: string; threadId: string }) {
+    this.calls.push(`turn:${input.threadId}:${input.operationId}:${input.prompt}`);
+    return { turn: { id: 'turn-initial', status: 'inProgress' } };
+  }
 }
 
 function fixture() {
@@ -144,6 +149,33 @@ describe('canonical Codex session executor', () => {
     expect(manager.calls).toEqual([
       'start:/managed/worktrees/issue-479:codex-ui:start:test-0001'
     ]);
+    executor.close();
+  });
+
+  test('accepts the complete issue handoff only after the initial turn is accepted', async () => {
+    const { executor, manager } = fixture();
+    const result = await executor.executeBound('start', {
+      cwd: '/managed/worktrees/issue-763',
+      handoff: {
+        branch: 'issue-763-dispatch',
+        commit: 'a'.repeat(40),
+        environmentId: '11111111-1111-4111-8111-111111111111',
+        issue: { number: 763, url: 'https://github.com/DotNaos/project-space/issues/763' },
+        repository: { id: 'R_project-space', nameWithOwner: 'DotNaos/project-space' },
+        workspaceId: 'ws_0123456789abcdef01234567',
+        worktreeId: 'worktree-763'
+      },
+      machineId,
+      operationId: 'codex-ui:start:handoff-0001'
+    }, 4);
+
+    expect(result).toEqual({
+      operation: 'start',
+      result: { initialTurnId: 'turn-initial', machineId, threadId }
+    });
+    expect(manager.calls).toHaveLength(2);
+    expect(manager.calls[1]).toContain('Work on GitHub issue #763');
+    expect(manager.calls[1]).toContain('Branch: issue-763-dispatch');
     executor.close();
   });
 });
