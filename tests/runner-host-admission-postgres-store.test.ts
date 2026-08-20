@@ -68,6 +68,23 @@ describe('PostgreSQL runner admission store', () => {
       hostGeneration: 'different-generation'
     })).rejects.toThrow('host binding');
   });
+
+  test('rejects admission when the PostgreSQL client cannot provide a transaction', async () => {
+    const client = new RunnerAdmissionPostgresClient();
+    const queryOnlyClient: DatabaseQueryClient = {
+      query: (sql, values) => client.query(sql, values)
+    };
+    const service = new RunnerHostAdmissionService(
+      new PostgresRunnerHostAdmissionStore(queryOnlyClient),
+      policy,
+      () => new Date('2026-08-20T10:00:01.000Z')
+    );
+
+    await expect(service.reserve(evidence, request('query-only'))).rejects.toThrow(
+      'requires transaction support'
+    );
+    expect(client.calls).toHaveLength(0);
+  });
 });
 
 function reservationFixture(): RunnerSandboxReservation {

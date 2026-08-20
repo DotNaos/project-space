@@ -160,13 +160,18 @@ export class PostgresRunnerHostAdmissionStore implements RunnerHostAdmissionStor
     hostId: string,
     operation: (store: RunnerHostAdmissionStore) => Promise<T>
   ): Promise<T> {
+    if (!this.client.transaction) {
+      throw new Error(
+        'PostgreSQL runner admission store requires transaction support for host locking.'
+      );
+    }
     const run = async (client: DatabaseQueryClient): Promise<T> => {
       await client.query('select pg_advisory_xact_lock(hashtext($1))', [
         `runner-host-admission:${hostId}`
       ]);
       return operation(new PostgresRunnerHostAdmissionStore(client));
     };
-    return this.client.transaction ? this.client.transaction(run) : run(this.client);
+    return this.client.transaction(run);
   }
 
   async updateState(
