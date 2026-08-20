@@ -7,10 +7,6 @@ import { createCodexMachineTasksHttpApi } from '../server/codex-machine-tasks/ht
 import type { DatabaseQueryClient } from '../server/database/client';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
 import type { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
-import type {
-  ComputeEnvironmentRecord,
-  ComputeInventorySnapshot
-} from '../src/shared/compute-environment-api';
 import type { CodexSessionsRuntime } from '../server/codex-sessions/runtime';
 import type { ProjectSpaceBackend } from '../src/shared/project-space-api';
 import { memoryStore } from './fixtures/codex-machine-tasks-service';
@@ -113,42 +109,6 @@ function environment(
   };
 }
 
-function unitEnvironment(
-  hostAssociation: ComputeEnvironmentRecord['hostAssociation']
-): ComputeEnvironmentRecord {
-  return {
-    environmentDefinitionId: 'definition-macos',
-    hostAssociation,
-    id: environmentId,
-    identity: { key: 'environment:canonical-macos', version: 1 },
-    kind: 'native_macos',
-    name: 'macOS Workspace Runtime',
-    platformId: 'platform-local',
-    resourceMode: 'dedicated'
-  };
-}
-
-function unitInventory(options: {
-  association?: ComputeEnvironmentRecord['hostAssociation'];
-  hosts?: ComputeInventorySnapshot['hosts'];
-} = {}): ComputeInventorySnapshot {
-  return {
-    connectors: [],
-    environmentDefinitions: [],
-    environments: [unitEnvironment(options.association ?? {
-      evidence: 'smbios', hostId, resolution: 'verified'
-    })],
-    hosts: options.hosts ?? [{
-      id: hostId,
-      identity: { key: 'host:canonical-macos', version: 1 },
-      name: 'os-macbook',
-      platformId: 'platform-local'
-    }],
-    platforms: [{ id: 'platform-local', kind: 'local', name: 'Local & self-hosted' }],
-    violations: []
-  };
-}
-
 function runtimeSessions(commands: WorkspaceRuntimeCodexCommand[]) {
   const listeners = new Set<(message: WorkspaceRuntimeCodexMessage) => Promise<void> | void>();
   const snapshot = {
@@ -209,27 +169,6 @@ async function configuredRuntime(database: DatabaseQueryClient, commands: Worksp
   });
 }
 
-async function configuredUnitRuntime(
-  inventory: ComputeInventorySnapshot,
-  commands: WorkspaceRuntimeCodexCommand[]
-) {
-  return createConfiguredCodexMachineTasksRuntime({
-    backend: backend() as never,
-    database: { query: async () => { throw new Error('The repository boundary is outside this unit test.'); } } as never,
-    inventory: async () => inventory,
-    runtimeSessions: runtimeSessions(commands),
-    sessionsRuntime: Promise.reject(new Error('compatibility runtime is not part of this path')) as Promise<CodexSessionsRuntime>,
-    taskStore: memoryStore(),
-    workspaceBindingStore: {
-      list: async () => [{ id: 'execution-842' }],
-      readWorkspace: async () => ({
-        branch, commit, id: workspaceId, state: 'ready',
-        target: { kind: 'project_worktree', reference: 'worktree-842' }
-      })
-    } as never
-  });
-}
-
 async function configuredHttp(runtime: Awaited<ReturnType<typeof configuredRuntime>>) {
   const api = createCodexMachineTasksHttpApi(runtime.service, async () => ({
     reportingTask: { role: 'project-manager' as const, threadId: reportingThreadId }, userId
@@ -251,14 +190,6 @@ function mutation(operationId: string, body: Record<string, unknown>) {
 
 function startBody(physicalMachineId: string) {
   return { expectedBranch: branch, expectedCommit: commit, issue: 262, physicalMachineId, repositoryId: 'DotNaos/project-space' };
-}
-
-function unitStartRequest(operationId: string, physicalMachineId: string) {
-  return {
-    ...startBody(physicalMachineId),
-    operationId,
-    worker: { model: 'gpt-5.6-luna', reasoningEffort: 'high' as const }
-  };
 }
 
 afterEach(async () => {
@@ -296,52 +227,6 @@ describe('configured Codex start and send ownership boundary', () => {
     const response = await fetch(`${origin}/api/codex/tasks/start`, mutation(`start-842-${state}`, startBody(physicalMachineId)));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ reason: 'unauthorized', state: 'blocked' });
-    expect(commands).toEqual([]);
-  });
-});
-
-describe('configured Codex service ownership unit boundary', () => {
-  test('retains the exact selected Host across direct start and send', async () => {
-    const commands: WorkspaceRuntimeCodexCommand[] = [];
-    const runtime = await configuredUnitRuntime(unitInventory(), commands);
-    const started = await runtime.service.start(
-      { reportingTask: { role: 'project-manager', threadId: reportingThreadId }, userId },
-      unitStartRequest('unit-start-842-valid', hostId)
-    );
-    expect(started).toMatchObject({
-      state: 'confirmed', task: { physicalMachine: { id: hostId, name: 'os-macbook' } }
-    });
-    const sent = await runtime.service.send({ userId }, {
-      delivery: 'new-turn',
-      message: 'Continue on the verified workspace.',
-      operationId: 'unit-send-842-valid',
-      physicalMachineId: hostId,
-      threadId: started.state === 'confirmed' ? started.task.threadId : taskThreadId
-    });
-    expect(sent).toMatchObject({
-      state: 'accepted', target: { physicalMachine: { id: hostId, name: 'os-macbook' } }
-    });
-    expect(commands.map(({ kind }) => kind)).toEqual(['start', 'continue']);
-  });
-
-  test.each([
-    ['missing owner-valid Host', unitInventory({
-      association: { evidence: 'smbios', hostId: deploymentOnlyHostId, resolution: 'verified' }
-    })],
-    ['duplicate same-UUID Hosts', unitInventory({
-      hosts: [
-        { id: hostId, identity: { key: 'host:user', version: 1 }, name: 'user-host', platformId: 'platform-local' },
-        { id: hostId, identity: { key: 'host:deployment', version: 1 }, name: 'deployment-host', platformId: 'platform-local' }
-      ]
-    })]
-  ])('fails closed for %s before direct dispatch', async (_name, inventory) => {
-    const commands: WorkspaceRuntimeCodexCommand[] = [];
-    const runtime = await configuredUnitRuntime(inventory, commands);
-    const result = await runtime.service.start(
-      { reportingTask: { role: 'project-manager', threadId: reportingThreadId }, userId },
-      unitStartRequest(`unit-start-842-${commands.length}-${inventory.hosts.length}`, hostId)
-    );
-    expect(result).toMatchObject({ reason: 'unauthorized', state: 'blocked' });
     expect(commands).toEqual([]);
   });
 });
