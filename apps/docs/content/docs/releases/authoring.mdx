@@ -3,11 +3,7 @@ title: Changelog authoring
 description: Add the required raw changelog for every pull request.
 ---
 
-Every pull request that changes the product must add exactly one immutable
-Markdown file at `changelog/<PR-number>.md`. The filename is the pull request
-number, not the issue number and not a generated UUID.
-
-It must also add exactly one immutable JSON file directly under
+Every pull request must add exactly one immutable JSON file directly under
 `.github/release-intents/`, named with a new lowercase UUID:
 
 ```json
@@ -16,6 +12,10 @@ It must also add exactly one immutable JSON file directly under
   "intent": "patch"
 }
 ```
+
+Release-bearing pull requests must also add exactly one immutable Markdown file
+at `changelog/<PR-number>.md`. The filename is the pull request number, not the
+issue number and not a generated UUID.
 
 ```md
 ---
@@ -27,10 +27,12 @@ bump: patch
 Explain what changed and why it matters.
 ```
 
-`bump` is required and must be `patch`, `minor`, or `major`. There is no
-`none`: every merged pull request receives a concrete version. The pull
-request keeps `package.json` unchanged; after merge, the serial release queue
-assigns the next version in main-branch order.
+`bump` is required and must be `patch`, `minor`, or `major`. A genuinely
+no-release pull request instead declares intent `none`, adds no changelog, and
+changes no release-sensitive path. Release-sensitive paths include connector,
+CLI, packaging, server, shared-contract, dependency, and release-workflow
+paths. The pull request keeps `package.json` unchanged; after merge, the
+serial release queue assigns the next version in main-branch order.
 
 The raw file is the source record. It is shown in the Docs **Unreleased**
 Inbox until the release queue can associate it with a published version. This
@@ -39,7 +41,8 @@ means a release-documentation problem cannot make a changelog disappear.
 Do not edit another pull request's changelog file or historical files under
 `apps/docs/content/docs/releases/entries/`.
 
-Do not edit historical release-intent files. A new release-intent file must be
-added, use the exact schema above, and declare the same non-`none` bump as the
-pull request changelog. The one-time migration compatibility file remains
-accepted only when a historical migration needs it.
+Do not edit historical release-intent files or the enforcement marker. A new
+release-intent file must be added directly under the intent directory and use
+the exact schema above. Release-bearing intents must match the changelog; the
+one-time migration compatibility file remains accepted only when a historical
+migration needs it.

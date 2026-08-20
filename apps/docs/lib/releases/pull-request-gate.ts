@@ -9,6 +9,8 @@ import {
   parseReleaseIntent,
   releaseIntentDirectory,
 } from './release-intent';
+import { connectorReleaseSensitivePaths } from
+  '../../../../packaging/release/connector-release-paths';
 import type { ReleaseBump } from './types';
 
 export interface ChangedReleaseFile {
@@ -26,6 +28,7 @@ export interface ReleasePullRequestGateInput {
 
 export type ReleasePullRequestGateResult =
   | { bump: ReleaseBump; changelog: PrChangelog; ok: true }
+  | { intent: 'none'; ok: true }
   | { errors: string[]; ok: false };
 
 const releaseEntryDirectory =
@@ -50,18 +53,57 @@ export function validateReleasePullRequest(
     );
   }
 
-  const changedReleaseIntents = input.changedFiles.filter((file) =>
-    file.path.startsWith(`${releaseIntentDirectory}/`) &&
-    file.path.endsWith('.json'),
+  const changedReleaseIntentPaths = input.changedFiles.filter((file) =>
+    file.path.startsWith(`${releaseIntentDirectory}/`),
   );
   const changelogPaths = input.changedFiles.filter((file) =>
     file.path.startsWith(`${prChangelogDirectory}/`),
   );
-  if (changedReleaseIntents.length > 0 && changelogPaths.length === 0) {
+
+  if (changedReleaseIntentPaths.length !== 1) {
     errors.push(
-      `Pull request #${input.pullRequestNumber} must use changelog/<PR>.md with one matching release intent.`,
+      `Pull request #${input.pullRequestNumber} must add exactly one immutable release intent file; found ${changedReleaseIntentPaths.length}.`,
     );
   }
+
+  const intentFile = changedReleaseIntentPaths[0];
+  const intentName = intentFile?.path.slice(`${releaseIntentDirectory}/`.length);
+  const intentValid = intentFile !== undefined &&
+    intentFile.status === 'added' &&
+    intentName !== undefined &&
+    isReleaseIntentFileName(intentName) &&
+    Boolean(intentFile.source?.trim());
+  let parsedIntent: ReturnType<typeof parseReleaseIntent> | undefined;
+  if (intentFile && !intentValid) {
+    errors.push(
+      `${intentFile.path} must be one newly added immutable lowercase-UUID release intent JSON file.`,
+    );
+  } else if (intentFile && intentValid) {
+    parsedIntent = parseReleaseIntent(intentFile.source!, intentFile.path);
+    if (!parsedIntent.ok) errors.push(...parsedIntent.errors);
+  }
+
+  if (changelogPaths.length === 0) {
+    if (parsedIntent?.ok && parsedIntent.intent.intent !== 'none') {
+      errors.push(
+        `Pull request #${input.pullRequestNumber} without a changelog must declare intent none.`,
+      );
+    }
+    const sensitive = connectorReleaseSensitivePaths(
+      input.changedFiles
+        .filter((file) => !file.path.startsWith(`${releaseIntentDirectory}/`))
+        .map((file) => file.path),
+    );
+    if (sensitive.length > 0) {
+      errors.push(
+        `Pull request #${input.pullRequestNumber} intent none cannot change release-sensitive paths: ${sensitive.join(', ')}.`,
+      );
+    }
+    return errors.length > 0
+      ? { errors: unique(errors), ok: false }
+      : { intent: 'none', ok: true };
+  }
+
   if (changelogPaths.length !== 1) {
     errors.push(
       `Pull request #${input.pullRequestNumber} must add exactly one changelog/<PR>.md file; found ${changelogPaths.length}.`,
@@ -97,34 +139,13 @@ export function validateReleasePullRequest(
     return { errors: unique(errors), ok: false };
   }
 
-  if (changedReleaseIntents.length !== 1) {
+  if (parsedIntent?.ok && (
+    parsedIntent.intent.intent === 'none' ||
+    parsedIntent.intent.intent !== parsed.changelog.bump
+  )) {
     errors.push(
-      `Pull request #${input.pullRequestNumber} must add exactly one immutable release intent JSON file; found ${changedReleaseIntents.length}.`,
+      `${intentFile?.path ?? releaseIntentDirectory} must use the same non-none bump as ${prChangelogDirectory}/${input.pullRequestNumber}.md.`,
     );
-  } else {
-    const intentFile = changedReleaseIntents[0];
-    const intentName = intentFile.path.slice(`${releaseIntentDirectory}/`.length);
-    if (
-      intentFile.status !== 'added' ||
-      !isReleaseIntentFileName(intentName) ||
-      !intentFile.source?.trim()
-    ) {
-      errors.push(
-        `${intentFile.path} must be one newly added immutable lowercase-UUID release intent JSON file.`,
-      );
-    } else {
-      const parsedIntent = parseReleaseIntent(intentFile.source, intentFile.path);
-      if (!parsedIntent.ok) {
-        errors.push(...parsedIntent.errors);
-      } else if (
-        parsedIntent.intent.intent === 'none' ||
-        parsedIntent.intent.intent !== parsed.changelog.bump
-      ) {
-        errors.push(
-          `${intentFile.path} must use the same non-none bump as ${prChangelogDirectory}/${input.pullRequestNumber}.md.`,
-        );
-      }
-    }
   }
 
   return errors.length > 0

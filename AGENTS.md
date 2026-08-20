@@ -43,7 +43,11 @@ fail-closed: stop mutation and obtain a proven Project-managed context.
 - Use `bun run ci:preflight:full --base origin/main --head HEAD --pull-request <number> --format json` when comprehensive local proof is useful. It runs all locally reproducible Fast CI lanes, the release-quality TypeScript check, and macOS packaging when available; protected and foreign-platform gates remain remote-only.
 - Both preflight reports record the requested local profile, exact base and head commits, changed paths, GitHub release-policy selection, every local result, and every protected remote-only gate. A green local report is not signing, release, Preview, deployment, rollback, or health proof.
 - Every pull request adds exactly one immutable JSON file directly under `.github/release-intents/`, named with a new lowercase UUID. Use schema `project-space.release-intent/v1` and choose exactly one intent: `none`, `patch`, `minor`, or `major`.
-- Use `none` only when the merged change needs no new CLI, connector, installer, or machine-tool release. Release-sensitive paths require `patch`, `minor`, or `major`.
+- Every pull request must add exactly one new lowercase-UUID intent. Use
+  `none` only for a genuinely no-release change: omit the changelog, keep the
+  intent `none`, and change no release-sensitive paths. For `patch`, `minor`,
+  or `major`, add exactly one matching changelog and intent; release-sensitive
+  paths cannot use `none`.
 - Pull requests never assign a concrete version, change `package.json` version, or edit historical versioned release entries. The serial queue derives the next version from the latest published signed release only after merge, reserves that exact tag, and processes release-bearing merges oldest first.
 - GitHub-generated release notes summarize the merged changes included in each published release. Files under `apps/docs/content/docs/releases/entries/` are immutable history from the former authoring flow.
 - If CI fails, inspect all failures, reproduce the shared cause locally where possible, repair the complete revision, rerun the canonical preflight, and push once. Do not blind-retry deterministic failures.

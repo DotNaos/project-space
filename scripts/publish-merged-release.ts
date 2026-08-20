@@ -16,8 +16,6 @@ import {
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
 import { parseStableSemver } from '../apps/docs/lib/releases/semver';
-import { connectorReleaseSensitivePaths } from
-  '../packaging/release/connector-release-paths';
 import { verifyConnectorRuntimeReleaseManifest } from
   '../server/connector-runtime-release-manifest';
 import {
@@ -38,7 +36,10 @@ import {
   manifestIssuedAt,
   tagReservations,
 } from './release-queue-evidence';
-import { validateMergedChangelogQueueItem } from './release-queue-validation';
+import {
+  validateMergedChangelogQueueItem,
+  validateMergedIntentOnlyQueueItem,
+} from './release-queue-validation';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEntryDirectory = 'apps/docs/content/docs/releases/entries';
@@ -292,21 +293,18 @@ async function queuedMerges(
     const allIntentChanges = changedPaths.filter((path) =>
       path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
     );
-    if (intentPaths.length !== 1 || allIntentChanges.length !== 1) {
-      throw new Error(
-        `Merged commit ${commit} modifies release-intent history instead of adding one queue item.`,
-      );
-    }
-    const intent = readIntent(commit, intentPaths[0]);
     const productPaths = changedPaths.filter((path) =>
       path !== intentPaths[0] && path !== releaseIntentEnforcementPath,
     );
-    const sensitive = connectorReleaseSensitivePaths(productPaths);
-    if (intent === 'none' && sensitive.length > 0) {
-      throw new Error(
-        `Merged commit ${commit} declares none but changes release-sensitive paths: ${sensitive.join(', ')}.`,
-      );
-    }
+    const intent = intentPaths.length === 1
+      ? readIntent(commit, intentPaths[0])
+      : 'none';
+    validateMergedIntentOnlyQueueItem({
+      allIntentChanges,
+      intent,
+      intentPaths,
+      productPaths,
+    });
     queued.push({ commit, intent, pullRequest });
   }
   return queued;
