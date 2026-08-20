@@ -41,7 +41,9 @@ until same-generation absence is proven. Before that aggregation, every active d
 is revalidated for exact host/generation identity, allowed state, bounded resource/scalar
 values, coherent deadlines, and a recomputed canonical fingerprint that matches the stored
 value; malformed rows block admission. PostgreSQL also requires absence proofs to have the
-exact typed three-field shape, including Boolean `true` and a bounded checkedAt string.
+exact typed three-field shape, including Boolean `true` and a bounded checkedAt string. Before
+expiry fencing, rows must also match the current isolation policy and its bounded idle, runtime,
+and lease deadline rules.
 
 ## Decisions
 

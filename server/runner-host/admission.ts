@@ -211,11 +211,17 @@ export class RunnerHostAdmissionService {
     evidence: RunnerHostCapacityEvidence | undefined,
     request: RunnerSandboxAdmissionRequest
   ): Promise<RunnerHostAdmissionResult> {
-    if (!validIdentity(request.identity)) {
+    if (!isRecord(request) || !validIdentity(request.identity)) {
       return {
         kind: 'blocked',
         ...blocked('identity_invalid', 'The sandbox identity is malformed or incomplete.')
       };
+    }
+    if (!validPolicyResourceScalars(this.policy)) {
+      return { kind: 'blocked', ...blocked('resource_limit', 'The admission resource or proof policy scalar is invalid.') };
+    }
+    if (!validPolicyLeaseScalars(this.policy)) {
+      return { kind: 'blocked', ...blocked('invalid_lease', 'The admission lease policy is invalid.') };
     }
     return this.store.withHostLock(request.identity.hostId, (store) => {
       const admissionAt = this.now();
@@ -229,6 +235,11 @@ export class RunnerHostAdmissionService {
     request: RunnerSandboxAdmissionRequest,
     admissionAt: Date
   ): Promise<RunnerHostAdmissionResult> {
+    const preFenceFailure = validateExistingReservations(
+      await store.list(request.identity.hostId), request.identity.hostId, request.identity.generation,
+      admissionAt, this.policy, false
+    );
+    if (preFenceFailure) return { kind: 'blocked', ...preFenceFailure };
     await this.fenceExpiredLocked(store, request.identity.hostId, admissionAt);
     const existing = await store.read(request.identity.hostId, request.identity.reservationId);
     const fingerprint = requestFingerprint(request);
@@ -296,6 +307,9 @@ export class RunnerHostAdmissionService {
   ) {
     const fenced: RunnerSandboxReservation[] = [];
     for (const reservation of await store.list(hostId)) {
+      if (validateExistingReservations(
+        [reservation], hostId, reservation.hostGeneration, now, this.policy, false
+      )) continue;
       if (reservation.state === 'active' && [
         reservation.idleExpiresAt,
         reservation.leaseExpiresAt,
@@ -317,7 +331,15 @@ export function validateAdmission(
   now = new Date()
 ): { reason: RunnerHostAdmissionBlockedReason; message: string } | undefined {
   if (!evidence) return blocked('capacity_evidence_missing', 'Fresh VPS capacity evidence is required before admission.');
+  if (!isRecord(request)) return blocked('identity_invalid', 'The sandbox request is malformed.');
+  if (!isRecord(policy)) return blocked('resource_limit', 'The admission policy is malformed.');
+  if (!isRecord(evidence) || !isRecord(evidence.capacity) || !isRecord(evidence.cleanup)) {
+    return blocked('capacity_evidence_invalid', 'The VPS capacity evidence is malformed.');
+  }
   if (!validIdentity(request.identity)) return blocked('identity_invalid', 'The sandbox identity is malformed or incomplete.');
+  if (!validIsolationProfile(request.isolation) || !validIsolationProfile(policy.isolation)) {
+    return blocked('resource_limit', 'The sandbox isolation profile is malformed.');
+  }
   if (evidence.apiVersion !== RUNNER_HOST_ADMISSION_API_VERSION) return blocked('capacity_evidence_invalid', 'The VPS capacity evidence API version is unsupported.');
   if (evidence.hostId !== request.identity.hostId || evidence.generation !== request.identity.generation) {
     return blocked('host_identity_mismatch', 'VPS capacity evidence is bound to a different host or generation.');
@@ -337,7 +359,7 @@ export function validateAdmission(
     return blocked('resource_limit', 'The VPS resource evidence or policy contains an invalid value.');
   }
   const existingFailure = validateExistingReservations(
-    existing, request.identity.hostId, request.identity.generation, now
+    existing, request.identity.hostId, request.identity.generation, now, policy
   );
   if (existingFailure) return existingFailure;
   if (evidence.capacity.maxConcurrentSandboxes < policy.maxConcurrentSandboxes) {
@@ -436,10 +458,15 @@ function validateExistingReservations(
   existing: readonly RunnerSandboxReservation[],
   hostId: string,
   generation: string,
-  now: Date
+  now: Date,
+  policy: RunnerHostAdmissionPolicy,
+  rejectUncertain = true
 ) {
   if (!Array.isArray(existing)) {
     return blocked('capacity_evidence_invalid', 'Durable sandbox reservations are not a valid collection.');
+  }
+  if (!validPolicyLeaseScalars(policy) || !validIsolationProfile(policy.isolation)) {
+    return blocked('resource_limit', 'The admission lease or isolation policy is invalid.');
   }
   for (const reservation of existing) {
     if (!reservation || typeof reservation !== 'object') {
@@ -453,6 +480,9 @@ function validateExistingReservations(
         reservation.identity.generation !== generation || reservation.hostGeneration !== generation ||
         reservation.hostGeneration !== reservation.identity.generation) {
       return blocked('identity_invalid', 'A durable sandbox reservation is bound to a different identity, host, or generation.');
+    }
+    if (!validIsolationProfile(reservation.isolation) || !sameIsolation(reservation.isolation, policy.isolation)) {
+      return blocked('resource_limit', 'A durable sandbox reservation uses an unapproved isolation profile.');
     }
     if (!validVector(reservation.resources) ||
         !positiveSafeInteger(reservation.idleTimeoutSeconds) ||
@@ -475,11 +505,14 @@ function validateExistingReservations(
     if (createdAt === undefined || idleExpiresAt === undefined || leaseExpiresAt === undefined ||
         runtimeExpiresAt === undefined || createdAt > now.getTime() ||
         idleExpiresAt <= createdAt || leaseExpiresAt <= createdAt || runtimeExpiresAt <= createdAt ||
+        reservation.idleTimeoutSeconds > reservation.maximumRuntimeSeconds ||
+        reservation.maximumRuntimeSeconds > policy.maximumRuntimeSeconds ||
         idleExpiresAt !== createdAt + reservation.idleTimeoutSeconds * 1_000 ||
+        leaseExpiresAt !== createdAt + policy.leaseSeconds * 1_000 ||
         runtimeExpiresAt !== createdAt + reservation.maximumRuntimeSeconds * 1_000) {
       return blocked('capacity_evidence_invalid', 'A durable sandbox reservation contains incoherent timestamps.');
     }
-    if (reservation.state === 'uncertain') {
+    if (rejectUncertain && reservation.state === 'uncertain') {
       return blocked('cleanup_uncertain', 'An uncertain sandbox operation still owns capacity.');
     }
   }
@@ -492,25 +525,29 @@ function parseStoredTimestamp(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function validEvidenceScalars(evidence: RunnerHostCapacityEvidence) {
-  return positiveOrZeroSafeInteger(evidence.capacity.maxConcurrentSandboxes) &&
+function validEvidenceScalars(evidence: unknown) {
+  return isRecord(evidence) && isRecord(evidence.capacity) &&
+    positiveOrZeroSafeInteger(evidence.capacity.maxConcurrentSandboxes) &&
     positiveOrZeroSafeInteger(evidence.capacity.sandboxCount);
 }
 
-function validPolicyResourceScalars(policy: RunnerHostAdmissionPolicy) {
-  return positiveOrZeroSafeInteger(policy.absenceProofClockSkewSeconds) &&
+function validPolicyResourceScalars(policy: unknown) {
+  return isRecord(policy) &&
+    positiveOrZeroSafeInteger(policy.absenceProofClockSkewSeconds) &&
     positiveSafeInteger(policy.absenceProofMaxAgeSeconds) &&
     positiveSafeInteger(policy.evidenceMaxAgeSeconds) &&
     positiveSafeInteger(policy.maxConcurrentSandboxes);
 }
 
-function validPolicyLeaseScalars(policy: RunnerHostAdmissionPolicy) {
-  return positiveSafeInteger(policy.leaseSeconds) &&
+function validPolicyLeaseScalars(policy: unknown) {
+  return isRecord(policy) &&
+    positiveSafeInteger(policy.leaseSeconds) &&
     positiveSafeInteger(policy.maximumRuntimeSeconds);
 }
 
-function validRequestDurationScalars(request: RunnerSandboxAdmissionRequest) {
-  return positiveSafeInteger(request.idleTimeoutSeconds) &&
+function validRequestDurationScalars(request: unknown) {
+  return isRecord(request) &&
+    positiveSafeInteger(request.idleTimeoutSeconds) &&
     positiveSafeInteger(request.maximumRuntimeSeconds);
 }
 
@@ -544,6 +581,10 @@ function validAbsenceProofIdentity(
     validIdentity(proof.identity) &&
     sameIdentity(proof.identity, reservation.identity) &&
     reservation.hostGeneration === reservation.identity.generation;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function validIdentity(identity: unknown): identity is RunnerSandboxIdentity {
@@ -602,6 +643,23 @@ function sameIsolation(
     actual.crossSandboxWritableVolumes === expected.crossSandboxWritableVolumes &&
     actual.egress === expected.egress &&
     actual.sharedCaches === expected.sharedCaches;
+}
+
+function validIsolationProfile(value: unknown): value is RunnerSandboxIsolationProfile {
+  if (!isRecord(value)) return false;
+  const expectedKeys = [
+    'crossSandboxWritableVolumes', 'deploymentCredentials', 'dockerSocket', 'egress',
+    'hostNetwork', 'productionDatabase', 'productionFilesystem', 'sharedCaches'
+  ].sort();
+  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(expectedKeys)) return false;
+  return value.crossSandboxWritableVolumes === 'denied' &&
+    value.deploymentCredentials === 'denied' &&
+    value.dockerSocket === 'denied' &&
+    value.egress === 'development' &&
+    value.hostNetwork === 'denied' &&
+    value.productionDatabase === 'denied' &&
+    value.productionFilesystem === 'denied' &&
+    value.sharedCaches === 'immutable-only';
 }
 
 function mapReservation(row: RunnerSandboxReservationRow): RunnerSandboxReservation {
