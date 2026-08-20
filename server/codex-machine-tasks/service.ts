@@ -227,7 +227,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       } catch (error) {
         if (!(error instanceof CodexMachineTaskTargetError)) throw error;
         if (lookup.kind === 'reserved') return uncertain(request.operationId);
-        return blocked(request.operationId, error.reason, error.message);
+        return blocked(request.operationId, error.reason, error.message, undefined, error.unavailable);
       }
       let issue: CodexMachineTaskStartPayload;
       if (lookup.kind === 'reserved') {

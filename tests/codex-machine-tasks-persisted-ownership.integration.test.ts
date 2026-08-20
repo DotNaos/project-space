@@ -23,7 +23,13 @@ const reportingThreadId = '019f6d33-6aad-7302-a45e-bb7a33fc399d';
 const visibleOwners = [userId, deploymentOwnerId];
 const servers: Server[] = [];
 
-type AssociationState = 'verified' | 'missing' | 'conflict' | 'deployment-only' | 'ambiguous';
+type AssociationState =
+  | 'verified'
+  | 'missing'
+  | 'unresolved'
+  | 'conflict'
+  | 'deployment-only'
+  | 'ambiguous';
 
 interface PersistedRow extends Record<string, unknown> {
   owner_user_id?: string;
@@ -98,7 +104,9 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
       ? { host_evidence: 'smbios', host_id: hostId, host_resolution: 'verified' }
       : this.associationState === 'conflict'
         ? { host_evidence: 'host_broker', host_id: hostId, host_resolution: 'conflict' }
-        : { host_evidence: 'none', host_id: null, host_resolution: 'unresolved' };
+        : this.associationState === 'unresolved'
+          ? { host_evidence: 'none', host_id: null, host_resolution: 'unresolved' }
+          : { host_evidence: 'none', host_id: null, host_resolution: 'not_applicable' };
     const deploymentEnvironmentId = this.associationState === 'deployment-only'
       ? environmentId
       : '1cbcf4d5-985d-4216-8782-6107cb365699';
@@ -323,7 +331,7 @@ describe('persisted configured Codex ownership integration', () => {
     expect(configured.commands[0]?.request.machineId).toBe(configured.commands[1]?.request.machineId);
   });
 
-  test.each(['deployment-only', 'ambiguous', 'missing', 'conflict'] as const)(
+  test.each(['deployment-only', 'ambiguous', 'missing', 'unresolved', 'conflict'] as const)(
     'blocks %s persisted Host association evidence before dispatch',
     async (state) => {
       const configured = await configuredHttp(state);
@@ -335,9 +343,20 @@ describe('persisted configured Codex ownership integration', () => {
         physicalMachineId: hostId, repositoryId: 'DotNaos/project-space'
       }));
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({
-        message: 'Select one exact physical machine.', reason: 'unauthorized', state: 'blocked'
-      });
+      const result = await response.json();
+      expect(result).toMatchObject({ reason: 'unauthorized', state: 'blocked' });
+      if (state === 'deployment-only' || state === 'ambiguous') {
+        expect(result).toMatchObject({ message: 'Select one exact physical machine.' });
+        expect(result).not.toHaveProperty('unavailable');
+      } else {
+        expect(result).toMatchObject({
+          unavailable: {
+            kind: 'environment_host_association',
+            state: state === 'conflict' ? 'conflicting' : state
+          }
+        });
+        expect(result.message).toContain(state === 'conflict' ? 'Resolve' : 'Assign');
+      }
       expect(configured.database.returnedDefinitionOwners).toEqual([
         `${userId}:a`, `${deploymentOwnerId}:x`, `${userId}:x`,
         `${userId}:a`, `${userId}:x`

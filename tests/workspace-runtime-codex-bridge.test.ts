@@ -137,7 +137,7 @@ describe('Workspace Runtime Codex bridge', () => {
     });
   });
 
-  test('fails closed when the canonical Environment Host evidence is missing or ambiguous', async () => {
+  test('fails closed generically for a missing Host and types owner-scoped conflicting evidence', async () => {
     const missing = createBridgeFixture({ inventory: canonicalInventory({ hosts: [] }) });
     await expect(resolveCodexMachineTaskServiceTarget(
       { generationFor: missing.bridge.generationFor, inventory: missing.bridge.inventory },
@@ -155,7 +155,10 @@ describe('Workspace Runtime Codex bridge', () => {
       { generationFor: ambiguous.bridge.generationFor, inventory: ambiguous.bridge.inventory },
       'user-owner',
       { physicalMachineId: physicalHostId }
-    )).rejects.toThrow('Select one exact physical machine.');
+    )).rejects.toMatchObject({
+      reason: 'unauthorized',
+      unavailable: { kind: 'environment_host_association', state: 'conflicting' }
+    });
   });
 
   test('returns a read-only workspace plan and preserves exact revision fencing', async () => {

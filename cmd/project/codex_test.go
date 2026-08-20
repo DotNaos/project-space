@@ -119,6 +119,40 @@ func TestCodexStartRequiresExactCurrentMainProjectManagerContext(t *testing.T) {
 	}
 }
 
+func TestCodexStartWritesTypedActionableUnavailableResult(t *testing.T) {
+	client := fakeCodexTaskAPI{
+		start: func(_ context.Context, request codextask.StartRequest) (codextask.StartResult, error) {
+			return codextask.StartResult{
+				APIVersion:  codextask.APIVersion,
+				Message:     "Host selection is unavailable because a user-owned Workspace Environment has unresolved Host association evidence. Assign the selected Host to the intended Environment, then retry.",
+				OperationID: request.OperationID,
+				Reason:      codextask.BlockedUnauthorized,
+				State:       codextask.StateBlocked,
+				Unavailable: &codextask.UnavailableResult{
+					Kind:  codextask.UnavailableEnvironmentHostAssociation,
+					State: codextask.UnavailableUnresolved,
+				},
+			}, nil
+		},
+	}
+	command := newCodexCommandWithDependencies(codexTestDependencies(client))
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs([]string{
+		"start", "--issue", "842", "--machine-id", "physical-1", "--dry-run", "--format", "json",
+	})
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "Assign the selected Host") {
+		t.Fatalf("error = %v output = %s", err, output)
+	}
+	result := codextask.StartResult{}
+	if json.NewDecoder(bytes.NewReader(output.Bytes())).Decode(&result) != nil || result.Unavailable == nil ||
+		result.Unavailable.Kind != codextask.UnavailableEnvironmentHostAssociation ||
+		result.Unavailable.State != codextask.UnavailableUnresolved {
+		t.Fatalf("output = %s", output)
+	}
+}
+
 func TestCodexStartRejectsUnprovenContextsBeforeHTTPDispatch(t *testing.T) {
 	validMain := worktreeownership.CheckoutContext{
 		State: "main", Role: "project-manager", CurrentThreadID: codexTestThreadID,

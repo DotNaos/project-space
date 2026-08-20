@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -22,6 +23,9 @@ const configuredEnvironmentId = '11111111-1111-4111-8111-111111111111';
 const configuredHostId = '24000000-0000-4000-8000-000000000002';
 const configuredBranch = '262-build-codex-machine-task-core-and-cli';
 const configuredCommit = 'a'.repeat(40);
+const configuredRuntimeMachineId = `workspace-runtime:${createHash('sha256').update([
+  configuredWorkspaceId, configuredEnvironmentId
+].join('\0')).digest('hex').slice(0, 32)}`;
 const servers: Server[] = [];
 
 afterEach(async () => {
@@ -131,9 +135,10 @@ async function configuredService(inventory: ComputeInventorySnapshot) {
   return runtime.service;
 }
 
-async function configuredHttp(inventory: ComputeInventorySnapshot) {
+async function configuredHttp(inventory: ComputeInventorySnapshot, callerMachineId?: string) {
   const service = await configuredService(inventory);
   const api = createCodexMachineTasksHttpApi(service, async () => ({
+    ...(callerMachineId ? { callerMachineId } : {}),
     reportingTask: { role: 'project-manager', threadId },
     userId: 'user-owner'
   }));
@@ -148,7 +153,7 @@ async function configuredHttp(inventory: ComputeInventorySnapshot) {
   return `http://127.0.0.1:${address.port}`;
 }
 
-function httpMutation(operationId: string) {
+function httpMutation(operationId: string, physicalMachineId: string | undefined = configuredHostId) {
   return {
     body: JSON.stringify({
       dryRun: true,
@@ -156,7 +161,7 @@ function httpMutation(operationId: string) {
       expectedCommit: configuredCommit,
       issue: 262,
       operationId,
-      physicalMachineId: configuredHostId,
+      ...(physicalMachineId ? { physicalMachineId } : {}),
       repositoryId: 'DotNaos/project-space',
       reasoningEffort: 'high',
       model: 'gpt-5.6-luna'
@@ -254,9 +259,23 @@ describe('configured Codex machine-task runtime', () => {
 
     expect(unavailableResponse.status).toBe(200);
     expect(unavailableBody).toMatchObject({
-      message: 'Select one exact physical machine.',
+      message: 'Host selection is unavailable because a user-owned Workspace Environment has unresolved Host association evidence. Assign the selected Host to the intended Environment, then retry.',
       reason: 'unauthorized',
-      state: 'blocked'
+      state: 'blocked',
+      unavailable: { kind: 'environment_host_association', state: 'unresolved' }
+    });
+
+    const hereOrigin = await configuredHttp(configuredInventory({
+      evidence: 'none', resolution: 'unresolved'
+    }), configuredRuntimeMachineId);
+    const hereResponse = await fetch(
+      `${hereOrigin}/api/codex/tasks/start`,
+      httpMutation('configured-http-here-unresolved-host', undefined)
+    );
+    expect(await hereResponse.json()).toMatchObject({
+      reason: 'unauthorized',
+      state: 'blocked',
+      unavailable: { kind: 'environment_host_association', state: 'unresolved' }
     });
   });
 

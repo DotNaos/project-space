@@ -100,6 +100,36 @@ func TestClientStartAcceptsMachineReadinessPreflightBlock(t *testing.T) {
 	}
 }
 
+func TestClientStartPreservesTypedHostAssociationUnavailableResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(t, response, StartResult{
+			APIVersion:  APIVersion,
+			Message:     "Host selection is unavailable because a user-owned Workspace Environment has unresolved Host association evidence. Assign the selected Host to the intended Environment, then retry.",
+			OperationID: testOperationID,
+			Reason:      BlockedUnauthorized,
+			State:       StateBlocked,
+			Unavailable: &UnavailableResult{
+				Kind:  UnavailableEnvironmentHostAssociation,
+				State: UnavailableUnresolved,
+			},
+		})
+	}))
+	defer server.Close()
+
+	result, err := testClient(t, server.URL, Config{}).Start(context.Background(), StartRequest{
+		Selector: Selector{PhysicalMachineID: "physical-remote"},
+		DryRun:   true, Issue: 842, OperationID: testOperationID,
+		RepositoryID: "DotNaos/project-space",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != StateBlocked || result.Reason != BlockedUnauthorized ||
+		result.Unavailable == nil || result.Unavailable.State != UnavailableUnresolved {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientStartAcceptsCompleteDryRunPlan(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		result := StartResult{

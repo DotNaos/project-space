@@ -45,6 +45,7 @@ import {
   reconcileBuiltInEnvironmentDefinitions,
   validateComputeInventory
 } from '../../src/shared/compute-environment-api';
+import { isRepairedTailscaleEnvironmentCopy } from './tailscale-environment-repair';
 
 interface MachineMembershipRow {
   created_at: Date | string;
@@ -149,6 +150,7 @@ interface ComputeEnvironmentRow {
   platform_id: string;
   resource_mode: ComputeEnvironmentRecord['resourceMode'];
   resources: ResourceProfile | null;
+  tailscale_projected?: boolean;
 }
 
 interface ConnectorEnvironmentRow {
@@ -325,6 +327,11 @@ export class ProjectSpaceDatabaseRepository {
                 parent_environment_id, identity_version,
                 identity_key, identity_resolution, kind, name, host_resolution, host_evidence,
                 resource_mode, resources,
+                exists (
+                  select 1 from tailscale_compute_environment_projections projection
+                   where projection.owner_user_id = compute_environments.owner_user_id
+                     and projection.environment_id = compute_environments.id
+                ) as tailscale_projected,
                 (
                   exists (
                     select 1 from connector_compute_environments legacy
@@ -357,7 +364,33 @@ export class ProjectSpaceDatabaseRepository {
         [ownerUserId]
       )
     ]);
-    const visibleEnvironmentRows = environmentResult.rows.filter((row) => !row.legacy_tombstoned_only);
+    const environmentDefinitionsByKey = new Map(
+      definitionResult.rows.map((row) => [`${row.owner_user_id}\u0000${row.id}`, row])
+    );
+    const userEnvironmentsById = new Map<string, ComputeEnvironmentRow[]>();
+    for (const row of environmentResult.rows) {
+      if (row.owner_user_id !== ownerUserId) continue;
+      const matching = userEnvironmentsById.get(row.id) ?? [];
+      matching.push(row);
+      userEnvironmentsById.set(row.id, matching);
+    }
+    // A migrated account-scoped copy is authoritative for the account's
+    // configured runtime. Hide only the matching canonical Tailscale deployment
+    // projection from combined presentation inventory; preserve every
+    // user-defined Environment and every projection from another owner.
+    const visibleEnvironmentRows = environmentResult.rows.filter((row) => (
+      !row.legacy_tombstoned_only && !(
+        row.owner_user_id === 'project-space:tailscale-deployment' &&
+        row.tailscale_projected === true &&
+        (userEnvironmentsById.get(row.id) ?? []).some((userEnvironment) => (
+          isRepairedTailscaleEnvironmentCopy(
+            userEnvironment,
+            row,
+            environmentDefinitionsByKey
+          )
+        ))
+      )
+    ));
     const hosts: ComputeHostRecord[] = hostResult.rows.filter((row) => !row.legacy_tombstoned_only).map((row) => ({
       id: row.id,
       identity: { key: row.identity_key, version: row.identity_version },

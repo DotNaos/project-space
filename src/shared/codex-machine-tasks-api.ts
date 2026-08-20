@@ -68,6 +68,11 @@ export type CodexMachineTaskBlockedReason =
 
 export type CodexMachineTaskMessageDelivery = 'auto' | 'new-turn' | 'queue' | 'steer';
 
+export interface CodexMachineTaskUnavailableResult {
+  kind: 'environment_host_association';
+  state: 'missing' | 'unresolved' | 'conflicting';
+}
+
 export interface CodexMachineTaskTarget {
   connector: {
     environment?: string;
@@ -254,6 +259,7 @@ export interface CodexMachineTaskBlockedResult {
   reason: CodexMachineTaskBlockedReason;
   state: 'blocked';
   target?: Partial<CodexMachineTaskTarget>;
+  unavailable?: CodexMachineTaskUnavailableResult;
 }
 
 export interface CodexMachineTaskUncertainResult {

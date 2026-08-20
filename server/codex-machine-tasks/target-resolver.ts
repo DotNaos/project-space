@@ -1,7 +1,8 @@
 import type {
   CodexMachineTaskBlockedReason,
   CodexMachineTaskReadRequest,
-  CodexMachineTaskTarget
+  CodexMachineTaskTarget,
+  CodexMachineTaskUnavailableResult
 } from '../../src/shared/codex-machine-tasks-api';
 import type {
   MachineRecord,
@@ -23,7 +24,8 @@ export class CodexMachineTaskTargetError extends Error {
       CodexMachineTaskBlockedReason,
       'connector_required' | 'machine_not_ready' | 'offline' | 'stale_connector' | 'unauthorized'
     >,
-    message: string
+    message: string,
+    readonly unavailable?: CodexMachineTaskUnavailableResult
   ) {
     super(message);
     this.name = 'CodexMachineTaskTargetError';
@@ -174,6 +176,8 @@ function doctorCommand(machine: PhysicalMachineRecord) {
 }
 
 function selectPhysicalMachine(input: {
+  computeInventory?: ComputeInventorySnapshot;
+  connectors: readonly MachineRecord[];
   physicalMachineId?: string;
   physicalMachineName?: string;
   physicalMachines: readonly PhysicalMachineRecord[];
@@ -186,10 +190,75 @@ function selectPhysicalMachine(input: {
         : false
   ));
   if (matches.length !== 1) {
+    const unavailable = unavailableHostAssociation(input, matches.length);
+    if (unavailable) {
+      throw new CodexMachineTaskTargetError(
+        'unauthorized',
+        unavailableMessage(unavailable.state),
+        unavailable
+      );
+    }
     throw new CodexMachineTaskTargetError(
       'unauthorized',
       'Select one exact physical machine.'
     );
   }
   return matches[0]!;
+}
+
+function unavailableHostAssociation(
+  input: {
+    computeInventory?: ComputeInventorySnapshot;
+    connectorId?: string;
+    connectors: readonly MachineRecord[];
+    physicalMachineId?: string;
+    physicalMachineName?: string;
+  },
+  selectableMatches: number
+): CodexMachineTaskUnavailableResult | undefined {
+  if (selectableMatches !== 0 || !input.computeInventory) {
+    return undefined;
+  }
+  // Diagnostic metadata is derived only from the already owner-scoped
+  // inventory. An absent or duplicate Host stays indistinguishable from an
+  // unauthorized cross-owner selector.
+  const activeConnectorIds = new Set(input.connectors.map(({ id }) => id));
+  const activeAssociations = input.computeInventory.connectors
+    .filter(({ connectorId }) => activeConnectorIds.has(connectorId))
+  const selectedHosts = input.physicalMachineId
+    ? input.computeInventory.hosts.filter(({ id }) => id === input.physicalMachineId)
+    : input.physicalMachineName
+      ? input.computeInventory.hosts.filter(({ name }) => name === input.physicalMachineName)
+      : [];
+  const activeEnvironmentIds = selectedHosts.length === 1
+    ? new Set(activeAssociations.map(({ environmentId }) => environmentId))
+    : !input.physicalMachineId && !input.physicalMachineName && input.connectorId &&
+        input.connectors.filter(({ id }) => id === input.connectorId).length === 1
+      ? new Set(activeAssociations
+          .filter(({ connectorId }) => connectorId === input.connectorId)
+          .map(({ environmentId }) => environmentId))
+      : undefined;
+  if (!activeEnvironmentIds) return undefined;
+  const environments = input.computeInventory.environments.filter((environment) =>
+    activeEnvironmentIds.has(environment.id) &&
+    (selectedHosts.length === 0 || environment.platformId === selectedHosts[0]!.platformId)
+  );
+  const precise = environments.length === 1 ? environments[0] : undefined;
+  const state = precise?.hostAssociation.resolution === 'conflict'
+    ? 'conflicting'
+    : precise?.hostAssociation.resolution === 'unresolved'
+      ? 'unresolved'
+      : 'missing';
+  return { kind: 'environment_host_association', state };
+}
+
+function unavailableMessage(state: CodexMachineTaskUnavailableResult['state']) {
+  switch (state) {
+    case 'missing':
+      return 'No user-owned Environment has verified association evidence for the selected Host. Assign this Host to the intended Environment, then retry.';
+    case 'unresolved':
+      return 'Host selection is unavailable because a user-owned Workspace Environment has unresolved Host association evidence. Assign the selected Host to the intended Environment, then retry.';
+    case 'conflicting':
+      return 'Host selection is unavailable because a user-owned Workspace Environment has conflicting Host association evidence. Resolve the Host association in Compute, then retry.';
+  }
 }
