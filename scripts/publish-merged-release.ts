@@ -13,9 +13,12 @@ import {
   releaseIntentDirectory,
   releaseIntentEnforcementPath,
   releaseIntentEnforcementSource,
+  legacyReleaseIntentMigrationPath,
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
 import { parseStableSemver } from '../apps/docs/lib/releases/semver';
+import { connectorReleaseSensitivePaths } from
+  '../packaging/release/connector-release-paths';
 import { verifyConnectorRuntimeReleaseManifest } from
   '../server/connector-runtime-release-manifest';
 import {
@@ -36,10 +39,6 @@ import {
   manifestIssuedAt,
   tagReservations,
 } from './release-queue-evidence';
-import {
-  validateMergedChangelogQueueItem,
-  validateMergedIntentOnlyQueueItem,
-} from './release-queue-validation';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEntryDirectory = 'apps/docs/content/docs/releases/entries';
@@ -268,20 +267,33 @@ async function queuedMerges(
           `Merged commit ${commit} changelog ${changelogPaths[0]} belongs to PR #${parsed.changelog.pullRequest}, not merged PR #${pullRequest}.`,
         );
       }
-      const allIntentChanges = changedPaths.filter((path) =>
-        path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
-      );
-      const intent = intentPaths.length === 1
-        ? readIntent(commit, intentPaths[0])
-        : 'none';
-      validateMergedChangelogQueueItem({
-        allChangelogChanges,
-        allIntentChanges,
-        changelogBump: parsed.changelog.bump,
-        changelogPaths,
-        intent,
-        intentPaths,
-      });
+      if (intentPaths.length > 0) {
+        if (
+          intentPaths.length !== 1 ||
+          intentPaths[0] !== legacyReleaseIntentMigrationPath
+        ) {
+          throw new Error(
+            `Merged commit ${commit} may carry at most one legacy release intent during changelog migration.`,
+          );
+        }
+        const allIntentChanges = changedPaths.filter((path) =>
+          path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
+        );
+        if (allIntentChanges.length !== 1) {
+          throw new Error(
+            `Merged commit ${commit} modifies release-intent history instead of adding one migration compatibility item.`,
+          );
+        }
+        const legacyIntent = readIntent(commit, intentPaths[0]);
+        if (
+          legacyIntent === 'none' ||
+          legacyIntent !== parsed.changelog.bump
+        ) {
+          throw new Error(
+            `Merged commit ${commit} legacy release intent must match changelog bump ${parsed.changelog.bump}.`,
+          );
+        }
+      }
       queued.push({
         bump: parsed.changelog.bump,
         commit,
@@ -293,18 +305,21 @@ async function queuedMerges(
     const allIntentChanges = changedPaths.filter((path) =>
       path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
     );
+    if (intentPaths.length !== 1 || allIntentChanges.length !== 1) {
+      throw new Error(
+        `Merged commit ${commit} modifies release-intent history instead of adding one queue item.`,
+      );
+    }
+    const intent = readIntent(commit, intentPaths[0]);
     const productPaths = changedPaths.filter((path) =>
       path !== intentPaths[0] && path !== releaseIntentEnforcementPath,
     );
-    const intent = intentPaths.length === 1
-      ? readIntent(commit, intentPaths[0])
-      : 'none';
-    validateMergedIntentOnlyQueueItem({
-      allIntentChanges,
-      intent,
-      intentPaths,
-      productPaths,
-    });
+    const sensitive = connectorReleaseSensitivePaths(productPaths);
+    if (intent === 'none' && sensitive.length > 0) {
+      throw new Error(
+        `Merged commit ${commit} declares none but changes release-sensitive paths: ${sensitive.join(', ')}.`,
+      );
+    }
     queued.push({ commit, intent, pullRequest });
   }
   return queued;

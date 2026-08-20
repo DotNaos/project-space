@@ -37,6 +37,8 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
     'nonblocking bug remains parallel',
     'verified fix unblocks',
     'missing human decision does not falsely',
+    '#834',
+    'trusted current changelog and release-gate',
   ]) {
     expect(skill).toContain(phrase);
   }
@@ -123,4 +125,6 @@ test('workflow documentation repeats the no-Preview alternative', async () => {
   expect(docs).toContain('caller-supplied');
   expect(docs).toContain('Existing evidence is linked and');
   expect(docs).toContain('Nonblocking bugs remain parallel');
+  expect(docs).toContain('#834');
+  expect(docs).toContain('trusted current changelog and release gate contract');
 });

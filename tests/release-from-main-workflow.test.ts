@@ -1,82 +1,5 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import {
-  validateMergedChangelogQueueItem,
-  validateMergedIntentOnlyQueueItem,
-} from '../scripts/release-queue-validation';
-
-const validMergedChangelog = {
-  allChangelogChanges: ['changelog/829.md'],
-  allIntentChanges: [
-    '.github/release-intents/4a35123b-2783-4f15-a29b-05da1aa6630a.json',
-  ],
-  changelogBump: 'minor' as const,
-  changelogPaths: ['changelog/829.md'],
-  intent: 'minor' as const,
-  intentPaths: [
-    '.github/release-intents/4a35123b-2783-4f15-a29b-05da1aa6630a.json',
-  ],
-};
-
-test('merged changelogs require one matching new release intent', () => {
-  expect(() => validateMergedChangelogQueueItem({
-    ...validMergedChangelog,
-    allIntentChanges: [],
-    intent: 'none',
-    intentPaths: [],
-  })).toThrow('exactly one lowercase-UUID release intent');
-  expect(() => validateMergedChangelogQueueItem({
-    ...validMergedChangelog,
-    intent: 'patch',
-  })).toThrow('must match changelog bump minor');
-  expect(() => validateMergedChangelogQueueItem({
-    ...validMergedChangelog,
-    allIntentChanges: [
-      ...validMergedChangelog.allIntentChanges,
-      '.github/release-intents/00000000-0000-4000-8000-000000000524.json',
-    ],
-  })).toThrow('exactly one lowercase-UUID release intent');
-  expect(() => validateMergedChangelogQueueItem({
-    ...validMergedChangelog,
-    allChangelogChanges: [
-      ...validMergedChangelog.allChangelogChanges,
-      'changelog/828.md',
-    ],
-  })).toThrow('modifies changelog history');
-});
-
-test('merged no-release items accept only safe none intents', () => {
-  const valid = {
-    allIntentChanges: [
-      '.github/release-intents/4a35123b-2783-4f15-a29b-05da1aa6630a.json',
-    ],
-    intent: 'none' as const,
-    intentPaths: [
-      '.github/release-intents/4a35123b-2783-4f15-a29b-05da1aa6630a.json',
-    ],
-    productPaths: ['src/features/project-desktop/example.tsx'],
-  };
-  expect(() => validateMergedIntentOnlyQueueItem(valid)).not.toThrow();
-  expect(() => validateMergedIntentOnlyQueueItem({
-    ...valid,
-    intent: 'patch',
-  })).toThrow('must declare intent none');
-  expect(() => validateMergedIntentOnlyQueueItem({
-    ...valid,
-    productPaths: ['cmd/project/main.go'],
-  })).toThrow('release-sensitive paths');
-  expect(() => validateMergedIntentOnlyQueueItem({
-    ...valid,
-    allIntentChanges: [
-      ...valid.allIntentChanges,
-      '.github/release-intents/.enforced',
-    ],
-  })).toThrow('exactly one lowercase-UUID release intent');
-  expect(() => validateMergedIntentOnlyQueueItem({
-    ...valid,
-    intentPaths: ['.github/release-intents/.enforced'],
-  })).toThrow('exactly one lowercase-UUID release intent');
-});
 
 test('processes merged intents through one exact-tag release queue', () => {
   const workflow = readFileSync(
@@ -85,10 +8,6 @@ test('processes merged intents through one exact-tag release queue', () => {
   );
   const publisher = readFileSync(
     'scripts/publish-merged-release.ts',
-    'utf8',
-  );
-  const queueValidation = readFileSync(
-    'scripts/release-queue-validation.ts',
     'utf8',
   );
   const releaseWorkflow = readFileSync(
@@ -167,7 +86,7 @@ test('processes merged intents through one exact-tag release queue', () => {
   expect(publisher).toContain('isFirstParentAncestor');
   expect(publisher).toContain("'rev-list', '--first-parent', '--reverse'");
   expect(publisher).toContain('releaseIntentEnforcementPath');
-  expect(queueValidation).toContain('connectorReleaseSensitivePaths');
+  expect(publisher).toContain('connectorReleaseSensitivePaths');
   expect(publisher).toContain('changes package version before queue assignment');
   expect(publisher).toContain('tagReservations');
   expect(publisher).toContain('activeReleaseTombstones');

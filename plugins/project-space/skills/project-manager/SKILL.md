@@ -144,3 +144,8 @@ worktree, model, reasoning, state, assumed dependencies, reviewed commit, PR,
 checks, Preview or no-Preview proof, review result, and delivery state. Validate
 the file before a handoff or status update. The template is a contract, not a
 second task queue: the Manager remains the owner of reconciliation and delivery.
+
+Keep release evidence within the trusted current changelog and release-gate
+contract. The separate every-PR release-intent migration is owned by
+[#834](https://github.com/DotNaos/project-space/issues/834); this workflow and
+#724 must not claim a dependency on that unlanded redesign.

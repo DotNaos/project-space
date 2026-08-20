@@ -6,11 +6,10 @@ import {
 } from '../changelog/pr-file';
 import {
   isReleaseIntentFileName,
+  legacyReleaseIntentMigrationPath,
   parseReleaseIntent,
   releaseIntentDirectory,
 } from './release-intent';
-import { connectorReleaseSensitivePaths } from
-  '../../../../packaging/release/connector-release-paths';
 import type { ReleaseBump } from './types';
 
 export interface ChangedReleaseFile {
@@ -28,7 +27,6 @@ export interface ReleasePullRequestGateInput {
 
 export type ReleasePullRequestGateResult =
   | { bump: ReleaseBump; changelog: PrChangelog; ok: true }
-  | { intent: 'none'; ok: true }
   | { errors: string[]; ok: false };
 
 const releaseEntryDirectory =
@@ -53,57 +51,17 @@ export function validateReleasePullRequest(
     );
   }
 
-  const changedReleaseIntentPaths = input.changedFiles.filter((file) =>
+  const changedLegacyIntents = input.changedFiles.filter((file) =>
     file.path.startsWith(`${releaseIntentDirectory}/`),
   );
   const changelogPaths = input.changedFiles.filter((file) =>
     file.path.startsWith(`${prChangelogDirectory}/`),
   );
-
-  if (changedReleaseIntentPaths.length !== 1) {
+  if (changedLegacyIntents.length > 0 && changelogPaths.length === 0) {
     errors.push(
-      `Pull request #${input.pullRequestNumber} must add exactly one immutable release intent file; found ${changedReleaseIntentPaths.length}.`,
+      `Pull request #${input.pullRequestNumber} must use changelog/<PR>.md; legacy release-intents are historical compatibility data and may not be added or changed.`,
     );
   }
-
-  const intentFile = changedReleaseIntentPaths[0];
-  const intentName = intentFile?.path.slice(`${releaseIntentDirectory}/`.length);
-  const intentValid = intentFile !== undefined &&
-    intentFile.status === 'added' &&
-    intentName !== undefined &&
-    isReleaseIntentFileName(intentName) &&
-    Boolean(intentFile.source?.trim());
-  let parsedIntent: ReturnType<typeof parseReleaseIntent> | undefined;
-  if (intentFile && !intentValid) {
-    errors.push(
-      `${intentFile.path} must be one newly added immutable lowercase-UUID release intent JSON file.`,
-    );
-  } else if (intentFile && intentValid) {
-    parsedIntent = parseReleaseIntent(intentFile.source!, intentFile.path);
-    if (!parsedIntent.ok) errors.push(...parsedIntent.errors);
-  }
-
-  if (changelogPaths.length === 0) {
-    if (parsedIntent?.ok && parsedIntent.intent.intent !== 'none') {
-      errors.push(
-        `Pull request #${input.pullRequestNumber} without a changelog must declare intent none.`,
-      );
-    }
-    const sensitive = connectorReleaseSensitivePaths(
-      input.changedFiles
-        .filter((file) => !file.path.startsWith(`${releaseIntentDirectory}/`))
-        .map((file) => file.path),
-    );
-    if (sensitive.length > 0) {
-      errors.push(
-        `Pull request #${input.pullRequestNumber} intent none cannot change release-sensitive paths: ${sensitive.join(', ')}.`,
-      );
-    }
-    return errors.length > 0
-      ? { errors: unique(errors), ok: false }
-      : { intent: 'none', ok: true };
-  }
-
   if (changelogPaths.length !== 1) {
     errors.push(
       `Pull request #${input.pullRequestNumber} must add exactly one changelog/<PR>.md file; found ${changelogPaths.length}.`,
@@ -139,13 +97,39 @@ export function validateReleasePullRequest(
     return { errors: unique(errors), ok: false };
   }
 
-  if (parsedIntent?.ok && (
-    parsedIntent.intent.intent === 'none' ||
-    parsedIntent.intent.intent !== parsed.changelog.bump
-  )) {
-    errors.push(
-      `${intentFile?.path ?? releaseIntentDirectory} must use the same non-none bump as ${prChangelogDirectory}/${input.pullRequestNumber}.md.`,
-    );
+  if (changedLegacyIntents.length > 0) {
+    if (
+      changedLegacyIntents.length !== 1 ||
+      changedLegacyIntents[0].path !== legacyReleaseIntentMigrationPath
+    ) {
+      errors.push(
+        'Only the one-time migration compatibility intent may accompany this changelog.',
+      );
+    } else {
+      const legacy = changedLegacyIntents[0];
+      const legacyName = legacy.path.slice(`${releaseIntentDirectory}/`.length);
+      if (
+        legacy.status !== 'added' ||
+        !isReleaseIntentFileName(legacyName) ||
+        !legacy.source?.trim()
+      ) {
+        errors.push(
+          `${legacy.path} is only allowed as one newly added canonical legacy compatibility intent during changelog migration.`,
+        );
+      } else {
+        const parsedLegacy = parseReleaseIntent(legacy.source, legacy.path);
+        if (!parsedLegacy.ok) {
+          errors.push(...parsedLegacy.errors);
+        } else if (
+          parsedLegacy.intent.intent === 'none' ||
+          parsedLegacy.intent.intent !== parsed.changelog.bump
+        ) {
+          errors.push(
+            `${legacy.path} must use the same non-none bump as ${prChangelogDirectory}/${input.pullRequestNumber}.md.`,
+          );
+        }
+      }
+    }
   }
 
   return errors.length > 0

@@ -38,10 +38,6 @@ function gateInput(
         source: changelogSource('patch'),
         status: 'added',
       }),
-      changed(`${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`, {
-        source: legacyIntentSource('patch'),
-        status: 'added',
-      }),
     ],
     headPackageVersion: '0.8.2',
     pullRequestNumber: 473,
@@ -94,102 +90,12 @@ describe('raw PR changelog parser', () => {
 });
 
 describe('pull request changelog gate', () => {
-  test('accepts a safe no-release pull request with one none intent', () => {
-    const result = validateReleasePullRequest({
-      basePackageVersion: '0.8.2',
-      changedFiles: [
-        changed('src/features/project-desktop/example.tsx'),
-        changed(`${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`, {
-          source: legacyIntentSource('none'),
-          status: 'added',
-        }),
-      ],
-      headPackageVersion: '0.8.2',
-      pullRequestNumber: 473,
-    });
-    expect(result).toEqual({ intent: 'none', ok: true });
-  });
-
-  test('rejects none intent for release-sensitive paths', () => {
-    const result = validateReleasePullRequest({
-      basePackageVersion: '0.8.2',
-      changedFiles: [
-        changed('cmd/project/main.go'),
-        changed(`${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`, {
-          source: legacyIntentSource('none'),
-          status: 'added',
-        }),
-      ],
-      headPackageVersion: '0.8.2',
-      pullRequestNumber: 473,
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors.join('\n')).toContain('release-sensitive paths');
-  });
-
-  test.each([
-    ['marker mutation', `${releaseIntentDirectory}/.enforced`, 'modified'],
-    ['historical intent mutation', `${releaseIntentDirectory}/00000000-0000-4000-8000-000000000524.json`, 'modified'],
-    ['deleted marker', `${releaseIntentDirectory}/.enforced`, 'deleted'],
-  ] as const)('rejects %s alongside a valid release intent', (_label, path, status) => {
-    const result = validateReleasePullRequest(gateInput({
-      changedFiles: [
-        changed('src/main.ts'),
-        changed(`${prChangelogDirectory}/473.md`, {
-          source: changelogSource('patch'),
-          status: 'added',
-        }),
-        changed(`${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`, {
-          source: legacyIntentSource('patch'),
-          status: 'added',
-        }),
-        changed(path, { status }),
-      ],
-    }));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors.join('\n')).toContain('exactly one immutable release intent file');
-  });
-
   test('accepts exactly one newly added changelog matching the PR', () => {
     expect(validateReleasePullRequest(gateInput())).toMatchObject({
       bump: 'patch',
       changelog: { pullRequest: 473 },
       ok: true,
     });
-  });
-
-  test('requires one newly added matching PR-owned release intent', () => {
-    const result = validateReleasePullRequest(gateInput({
-      changedFiles: [
-        changed('src/main.ts'),
-        changed(`${prChangelogDirectory}/473.md`, {
-          source: changelogSource('patch'),
-          status: 'added',
-        }),
-      ],
-    }));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors.join('\n')).toContain('exactly one immutable release intent file');
-  });
-
-  test('accepts a new lowercase UUID intent when it matches the changelog', () => {
-    const result = validateReleasePullRequest(gateInput({
-      changedFiles: [
-        changed('src/main.ts'),
-        changed(`${prChangelogDirectory}/473.md`, {
-          source: changelogSource('minor'),
-          status: 'added',
-        }),
-        changed(`${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`, {
-          source: legacyIntentSource('minor'),
-          status: 'added',
-        }),
-      ],
-    }));
-    expect(result).toMatchObject({ bump: 'minor', ok: true });
   });
 
   test.each([

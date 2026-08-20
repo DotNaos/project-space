@@ -64,15 +64,9 @@ async function main() {
   });
   if (!result.ok) fail(result.errors);
 
-  if (result.intent === 'none') {
-    console.log(
-      `Changelog gate passed: PR #${pullRequest} declares no release and keeps concrete version ${basePackageVersion} unassigned.`,
-    );
-  } else {
-    console.log(
-      `Changelog gate passed: PR #${pullRequest} declares a ${result.bump} release and keeps concrete version ${basePackageVersion} unassigned.`,
-    );
-  }
+  console.log(
+    `Changelog gate passed: PR #${pullRequest} declares a ${result.bump} release and keeps concrete version ${basePackageVersion} unassigned.`,
+  );
 }
 
 function validateHeadCatalog() {

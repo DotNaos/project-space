@@ -32,6 +32,11 @@ technical work under standing authorization. Only a material product decision,
 exceptional irreversible, external, or privacy risk, or a human-only blocker is
 escalated.
 
+This issue keeps the trusted current changelog and release gate contract. The
+separate every-PR release-intent migration, including its queue and authoring
+redesign, is deferred to [#834](https://github.com/DotNaos/project-space/issues/834);
+#819 and #724 must not depend on that unlanded migration.
+
 Implementation dispatch uses the canonical #763 operation
 `project codex start --issue <n> --environment-id <id> --operation-id <id> --format json`,
 which owns issue-bound preparation and returns the worker task. The landed #763
