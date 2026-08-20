@@ -211,20 +211,10 @@ export class RunnerHostAdmissionService {
     evidence: RunnerHostCapacityEvidence | undefined,
     request: RunnerSandboxAdmissionRequest
   ): Promise<RunnerHostAdmissionResult> {
-    if (!isRecord(request) || !validIdentity(request.identity)) {
-      return {
-        kind: 'blocked',
-        ...blocked('identity_invalid', 'The sandbox identity is malformed or incomplete.')
-      };
-    }
-    if (!validPolicyResourceScalars(this.policy)) {
-      return { kind: 'blocked', ...blocked('resource_limit', 'The admission resource or proof policy scalar is invalid.') };
-    }
-    if (!validPolicyLeaseScalars(this.policy)) {
-      return { kind: 'blocked', ...blocked('invalid_lease', 'The admission lease policy is invalid.') };
-    }
+    const admissionAt = this.now();
+    const inputFailure = validateAdmissionInput(evidence, request, this.policy);
+    if (inputFailure) return { kind: 'blocked', ...inputFailure };
     return this.store.withHostLock(request.identity.hostId, (store) => {
-      const admissionAt = this.now();
       return this.reserveLocked(store, evidence, request, admissionAt);
     });
   }
@@ -330,34 +320,11 @@ export function validateAdmission(
   existing: readonly RunnerSandboxReservation[],
   now = new Date()
 ): { reason: RunnerHostAdmissionBlockedReason; message: string } | undefined {
-  if (!evidence) return blocked('capacity_evidence_missing', 'Fresh VPS capacity evidence is required before admission.');
-  if (!isRecord(request)) return blocked('identity_invalid', 'The sandbox request is malformed.');
-  if (!isRecord(policy)) return blocked('resource_limit', 'The admission policy is malformed.');
-  if (!isRecord(evidence) || !isRecord(evidence.capacity) || !isRecord(evidence.cleanup)) {
-    return blocked('capacity_evidence_invalid', 'The VPS capacity evidence is malformed.');
-  }
-  if (!validIdentity(request.identity)) return blocked('identity_invalid', 'The sandbox identity is malformed or incomplete.');
-  if (!validIsolationProfile(request.isolation) || !validIsolationProfile(policy.isolation)) {
-    return blocked('resource_limit', 'The sandbox isolation profile is malformed.');
-  }
-  if (evidence.apiVersion !== RUNNER_HOST_ADMISSION_API_VERSION) return blocked('capacity_evidence_invalid', 'The VPS capacity evidence API version is unsupported.');
-  if (evidence.hostId !== request.identity.hostId || evidence.generation !== request.identity.generation) {
-    return blocked('host_identity_mismatch', 'VPS capacity evidence is bound to a different host or generation.');
-  }
-  if (!validEvidenceScalars(evidence)) return blocked('capacity_evidence_invalid', 'The VPS capacity count is invalid.');
-  if (!validPolicyResourceScalars(policy)) return blocked('resource_limit', 'The admission resource or proof policy scalar is invalid.');
-  if (!validPolicyLeaseScalars(policy) || !validRequestDurationScalars(request)) {
-    return blocked('invalid_lease', 'Sandbox idle, runtime, and lease windows are invalid.');
-  }
+  const inputFailure = validateAdmissionInput(evidence, request, policy);
+  if (inputFailure) return inputFailure;
   if (evidence.cleanup.state !== 'proven') return blocked('cleanup_uncertain', 'Previous sandbox cleanup is uncertain; capacity remains fenced.');
   if (evidence.productionHealth !== 'healthy') return blocked('production_reservation_not_proven', 'Production health and reserved capacity are not proven.');
   if (!fresh(evidence, policy.evidenceMaxAgeSeconds, now)) return blocked('capacity_evidence_stale', 'VPS capacity evidence is stale or expires before admission.');
-  if (!validVector(request.resources) || !validVector(policy.sandboxMaximum) ||
-      !validVector(policy.aggregateMaximum) || !validVector(policy.productionReservation) ||
-      !validVector(evidence.capacity.total) || !validVector(evidence.capacity.productionUsage) ||
-      !validVector(evidence.capacity.sandboxUsage)) {
-    return blocked('resource_limit', 'The VPS resource evidence or policy contains an invalid value.');
-  }
   const existingFailure = validateExistingReservations(
     existing, request.identity.hostId, request.identity.generation, now, policy
   );
@@ -390,6 +357,53 @@ export function validateAdmission(
   }
   if (exceeds(request.resources, available) || exceeds(add(observedUsage, request.resources), policy.aggregateMaximum)) {
     return blocked('resource_limit', 'The sandbox would consume reserved Production or aggregate development capacity.');
+  }
+  return undefined;
+}
+
+function validateAdmissionInput(
+  evidence: unknown,
+  request: unknown,
+  policy: unknown
+): { reason: RunnerHostAdmissionBlockedReason; message: string } | undefined {
+  if (!evidence) return blocked('capacity_evidence_missing', 'Fresh VPS capacity evidence is required before admission.');
+  if (!isRecord(request)) return blocked('identity_invalid', 'The sandbox request is malformed.');
+  if (!isRecord(policy)) return blocked('resource_limit', 'The admission policy is malformed.');
+  if (!isRecord(evidence) || !isRecord(evidence.capacity) || !isRecord(evidence.cleanup)) {
+    return blocked('capacity_evidence_invalid', 'The VPS capacity evidence is malformed.');
+  }
+  if (!validIdentity(request.identity)) return blocked('identity_invalid', 'The sandbox identity is malformed or incomplete.');
+  if (!validIsolationProfile(request.isolation) || !validIsolationProfile(policy.isolation)) {
+    return blocked('resource_limit', 'The sandbox isolation profile is malformed.');
+  }
+  if (evidence.apiVersion !== RUNNER_HOST_ADMISSION_API_VERSION) return blocked('capacity_evidence_invalid', 'The VPS capacity evidence API version is unsupported.');
+  if (typeof evidence.hostId !== 'string' || typeof evidence.generation !== 'string') {
+    return blocked('capacity_evidence_invalid', 'The VPS capacity evidence host binding is malformed.');
+  }
+  if (evidence.hostId !== request.identity.hostId || evidence.generation !== request.identity.generation) {
+    return blocked('host_identity_mismatch', 'VPS capacity evidence is bound to a different host or generation.');
+  }
+  if (!validEvidenceScalars(evidence)) return blocked('capacity_evidence_invalid', 'The VPS capacity count is invalid.');
+  if (!validPolicyResourceScalars(policy)) return blocked('resource_limit', 'The admission resource or proof policy scalar is invalid.');
+  if (!validPolicyLeaseScalars(policy) || !validRequestDurationScalars(request)) {
+    return blocked('invalid_lease', 'Sandbox idle, runtime, and lease windows are invalid.');
+  }
+  if (evidence.cleanup.state !== 'proven' && evidence.cleanup.state !== 'uncertain') {
+    return blocked('capacity_evidence_invalid', 'The VPS cleanup evidence state is malformed.');
+  }
+  if (evidence.productionHealth !== 'healthy' && evidence.productionHealth !== 'unknown') {
+    return blocked('capacity_evidence_invalid', 'The VPS Production health evidence is malformed.');
+  }
+  if (typeof evidence.observedAt !== 'string' || !Number.isFinite(Date.parse(evidence.observedAt)) ||
+      typeof evidence.expiresAt !== 'string' || !Number.isFinite(Date.parse(evidence.expiresAt)) ||
+      typeof evidence.cleanup.checkedAt !== 'string' || !Number.isFinite(Date.parse(evidence.cleanup.checkedAt))) {
+    return blocked('capacity_evidence_invalid', 'The VPS capacity timestamps are malformed.');
+  }
+  if (!validVector(request.resources) || !validVector(policy.sandboxMaximum) ||
+      !validVector(policy.aggregateMaximum) || !validVector(policy.productionReservation) ||
+      !validVector(evidence.capacity.total) || !validVector(evidence.capacity.productionUsage) ||
+      !validVector(evidence.capacity.sandboxUsage)) {
+    return blocked('resource_limit', 'The VPS resource evidence or policy contains an invalid value.');
   }
   return undefined;
 }

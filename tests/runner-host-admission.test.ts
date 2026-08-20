@@ -387,6 +387,32 @@ describe('VPS runner admission', () => {
     expect((await store.read(hostId, expired.identity.reservationId))?.state).toBe('active');
   });
 
+  test('does not fence expired durable rows before rejecting malformed policy input', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const seedService = new RunnerHostAdmissionService(
+      store, policy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    const reserved = await seedService.reserve(evidence, request('malformed-policy-seed'));
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const expired = {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    };
+    await store.save(hostId, expired);
+
+    const malformedPolicy = { ...policy, aggregateMaximum: undefined as never };
+    const service = new RunnerHostAdmissionService(
+      store, malformedPolicy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    expect(await service.reserve(evidence, request('malformed-policy-next'))).toMatchObject({
+      kind: 'blocked', reason: 'resource_limit'
+    });
+    expect((await store.read(hostId, expired.identity.reservationId))?.state).toBe('active');
+  });
+
   test('fences expired idle, lease, or runtime reservations before capacity reuse', async () => {
     const store = new MemoryRunnerHostAdmissionStore();
     const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));
