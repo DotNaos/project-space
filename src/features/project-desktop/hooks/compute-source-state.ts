@@ -1,5 +1,9 @@
 import type { ComputeSourceStatus, ComputeSourceState } from './use-compute-sources-types';
-import type { TailscaleInventoryResult } from '@/shared/tailscale-inventory-api';
+import type {
+  TailscaleDeviceClassification,
+  TailscaleInventoryDevice,
+  TailscaleInventoryResult
+} from '@/shared/tailscale-inventory-api';
 
 export function createComputeSourceRequestGate() {
   let latestRequest = 0;
@@ -59,5 +63,22 @@ export function mergeTailscaleRefreshResult(
         ? { ...device, classification: local.classification, revision: local.revision }
         : device;
     })
+  };
+}
+
+export function applyTailscaleClassificationResult(
+  current: TailscaleInventoryResult | undefined,
+  saved: Pick<TailscaleInventoryDevice, 'id' | 'classification' | 'revision'>
+): TailscaleInventoryResult | undefined {
+  if (!current) return current;
+  return {
+    ...current,
+    devices: current.devices.map((device) => device.id !== saved.id || device.revision > saved.revision
+      ? device
+      : {
+          ...device,
+          classification: saved.classification as TailscaleDeviceClassification,
+          revision: saved.revision
+        })
   };
 }

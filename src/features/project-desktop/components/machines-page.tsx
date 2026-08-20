@@ -164,7 +164,8 @@ export function MachinesPage(_props: MachinesPageProps) {
     github,
     refreshGitHub,
     refreshTailscale,
-    tailscale
+    tailscale,
+    tailscaleRefreshGeneration
   } = useComputeSources();
   const sections = useMemo(() => computeSourceSections({
     codespaces: github.result?.codespaces,
@@ -284,8 +285,13 @@ export function MachinesPage(_props: MachinesPageProps) {
                   key={row.id}
                   device={row.record}
                   onClassify={classifyTailscaleDevice}
-                  onReload={() => refreshTailscale(false)}
+                  onReload={() => refreshTailscale(true)}
                   classificationDisabled={tailscaleClassificationDisabled}
+                  providerRefreshIsProven={tailscale.status === 'ready' && (
+                    tailscale.result?.provider.refreshState === 'available' ||
+                    tailscale.result?.provider.refreshState === 'partial'
+                  )}
+                  providerRefreshGeneration={tailscaleRefreshGeneration}
                 />
               ) : null)}
             </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, GitBranch, Monitor, Network } from 'lucide-react';
 import {
   Button,
@@ -15,7 +15,11 @@ import {
 } from '@/shared/tailscale-inventory-api';
 import type { GitHubCodespaceInventoryItem } from '@/shared/github-codespace-inventory-api';
 import { cn } from '@/lib/utils';
-import { isTailscaleClassificationControlDisabled } from './compute-source-row-state';
+import {
+  canClearTailscaleRowError,
+  createTailscaleRowErrorRefreshState,
+  isTailscaleClassificationControlDisabled
+} from './compute-source-row-state';
 
 const classificationLabels: Record<TailscaleDeviceClassification, string> = {
   console_endpoint: 'Console endpoint',
@@ -57,18 +61,45 @@ export function TailscaleDeviceRow({
   device,
   onClassify,
   onReload,
-  classificationDisabled = false
+  classificationDisabled = false,
+  providerRefreshIsProven = false,
+  providerRefreshGeneration = 0
 }: {
   device: TailscaleInventoryDevice;
   onClassify(device: TailscaleInventoryDevice, value: TailscaleDeviceClassification): Promise<unknown>;
-  onReload(): Promise<unknown>;
+  onReload(): Promise<import('@/shared/tailscale-inventory-api').TailscaleInventoryResult | undefined>;
   classificationDisabled?: boolean;
+  providerRefreshIsProven?: boolean;
+  providerRefreshGeneration?: number;
 }) {
   const [draft, setDraft] = useState<TailscaleDeviceClassification>(device.classification);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
+  const previousRevision = useRef(device.revision);
+  const rowErrorRefreshState = useRef(createTailscaleRowErrorRefreshState()).current;
+  rowErrorRefreshState.observeRefreshGeneration(providerRefreshGeneration);
 
-  useEffect(() => setDraft(device.classification), [device.classification]);
+  useEffect(() => {
+    setDraft(device.classification);
+    if (rowErrorRefreshState.shouldClear(
+      previousRevision.current,
+      device.revision,
+      providerRefreshIsProven
+    )) {
+      setError('');
+    }
+    if (providerRefreshIsProven && device.revision >= previousRevision.current) {
+      previousRevision.current = device.revision;
+    }
+  }, [device.classification, device.revision, providerRefreshGeneration, providerRefreshIsProven, rowErrorRefreshState]);
+
+  async function reload() {
+    const result = await onReload();
+    if (canClearTailscaleRowError(result, device.id, device.revision)) {
+      rowErrorRefreshState.clearAfterReload();
+      setError('');
+    }
+  }
 
   async function save() {
     if (draft === device.classification) return;
@@ -77,6 +108,7 @@ export function TailscaleDeviceRow({
     try {
       await onClassify(device, draft);
     } catch {
+      rowErrorRefreshState.recordFailedSave();
       setError('This classification was not saved. Reload the device before trying again.');
     } finally {
       setPending(false);
@@ -112,7 +144,7 @@ export function TailscaleDeviceRow({
           {error ? (
             <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-200">
               <span>{error}</span>
-              <Button size="sm" variant="ghost" onPress={() => void onReload()}>Reload</Button>
+              <Button size="sm" variant="ghost" onPress={() => void reload()}>Reload</Button>
             </div>
           ) : null}
         </div>
@@ -136,7 +168,7 @@ export function TailscaleDeviceRow({
         <Select.Popover className="w-60 rounded-lg border border-neutral-800 bg-neutral-950 p-1 shadow-2xl shadow-black/60">
           <ListBox selectedKeys={new Set([draft])} className="max-h-64 overflow-auto">
             {tailscaleDeviceClassifications.map((value) => (
-              <ListBoxItem key={value} id={value} isDisabled={classificationDisabled} textValue={classificationLabels[value]} className="rounded-md px-2.5 py-2 text-xs text-neutral-200 hover:bg-neutral-900">
+              <ListBoxItem key={value} id={value} isDisabled={isTailscaleClassificationControlDisabled(classificationDisabled, pending)} textValue={classificationLabels[value]} className="rounded-md px-2.5 py-2 text-xs text-neutral-200 hover:bg-neutral-900">
                 {classificationLabels[value]}
               </ListBoxItem>
             ))}

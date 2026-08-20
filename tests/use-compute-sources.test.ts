@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   createComputeSourceRequestGate,
+  applyTailscaleClassificationResult,
   computeSourceErrorState,
   computeSourceLoadingState,
   computeSourceReadyState,
@@ -72,6 +73,26 @@ describe('useComputeSources state transitions', () => {
     );
 
     expect(refreshed.devices[0]).toMatchObject({ classification: 'environment', revision: 4 });
+  });
+
+  test('ignores a delayed classification response older than a newer local revision', () => {
+    const current = {
+      devices: [{
+        addresses: ['100.64.0.1'],
+        classification: 'console_endpoint' as const,
+        id: 'device-a',
+        network: { checkedAt: '2026-08-20T00:00:00.000Z', freshUntil: '2026-08-20T00:01:00.000Z', state: 'online' as const },
+        revision: 5,
+        tags: []
+      }],
+      provider: { connectionState: 'connected' as const, refreshState: 'available' as const, source: 'tailscale_oauth_api' as const },
+      schemaVersion: 1 as const
+    };
+    const applied = applyTailscaleClassificationResult(current, {
+      id: 'device-a', classification: 'environment', revision: 4
+    });
+
+    expect(applied?.devices[0]).toMatchObject({ classification: 'console_endpoint', revision: 5 });
   });
 
   test('ignores an older completion after a newer request begins', () => {

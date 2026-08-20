@@ -12,6 +12,7 @@ export {
   computeSourceLoadingState,
   computeSourceReadyState,
   computeTailscaleSourceErrorState,
+  applyTailscaleClassificationResult,
   createComputeSourceRequestGate,
   mergeTailscaleRefreshResult
 } from './compute-source-state';
@@ -20,6 +21,7 @@ import {
   computeSourceLoadingState,
   computeSourceReadyState,
   computeTailscaleSourceErrorState,
+  applyTailscaleClassificationResult,
   createComputeSourceRequestGate,
   mergeTailscaleRefreshResult
 } from './compute-source-state';
@@ -36,15 +38,17 @@ export function useComputeSources() {
     error: '',
     status: 'loading'
   });
+  const [tailscaleRefreshGeneration, setTailscaleRefreshGeneration] = useState(0);
   const tailscaleRequests = useRef(createComputeSourceRequestGate());
   const githubRequests = useRef(createComputeSourceRequestGate());
 
   const refreshTailscale = useCallback(async (forceRefresh = true) => {
     const request = tailscaleRequests.current.begin();
+    setTailscaleRefreshGeneration(request);
     setTailscale(computeSourceLoadingState);
     try {
       const result = await projectSpaceClient.getTailscaleInventory(forceRefresh);
-      if (!tailscaleRequests.current.isLatest(request)) return result;
+      if (!tailscaleRequests.current.isLatest(request)) return undefined;
       setTailscale((current) => computeSourceReadyState(mergeTailscaleRefreshResult(current.result, result)));
       return result;
     } catch {
@@ -59,7 +63,7 @@ export function useComputeSources() {
     setGitHub(computeSourceLoadingState);
     try {
       const result = await projectSpaceClient.getGitHubCodespaceInventory();
-      if (!githubRequests.current.isLatest(request)) return result;
+      if (!githubRequests.current.isLatest(request)) return undefined;
       setGitHub(computeSourceReadyState(result));
       return result;
     } catch {
@@ -91,15 +95,10 @@ export function useComputeSources() {
       classification,
       expectedRevision: device.revision
     });
-    setTailscale((current) => current.result ? {
-      ...current,
-      result: {
-        ...current.result,
-        devices: current.result.devices.map((entry) => entry.id === device.id
-          ? { ...entry, classification: saved.classification, revision: saved.revision }
-          : entry)
-      }
-    } : current);
+    setTailscale((current) => {
+      const result = applyTailscaleClassificationResult(current.result, saved);
+      return result ? { ...current, result } : current;
+    });
     return saved;
   }, []);
 
@@ -108,6 +107,7 @@ export function useComputeSources() {
     github,
     refreshGitHub,
     refreshTailscale,
+    tailscaleRefreshGeneration,
     tailscale
   };
 }

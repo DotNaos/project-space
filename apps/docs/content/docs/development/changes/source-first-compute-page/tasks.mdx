@@ -24,11 +24,11 @@ description: Implementation and verification checklist for the source-first Comp
 ## 3. Verification
 
 - [x] 3.1 Add focused provider, projection, UI, and regression coverage
-  - **Evidence:** the focused Compute and Codespaces test set passes 31 tests with no failures.
+  - **Evidence:** the focused Compute, simulated runtime, and Codespaces test set passes 45 tests with no failures.
 - [x] 3.2 Run repository-wide local quality checks
-  - **Evidence:** TypeScript checks, the web build, and all 474 test files pass locally with 2,979 passing tests and no failures.
+  - **Evidence:** TypeScript checks, the web build, and all 484 test files pass locally with 3,033 passing tests and no failures.
 - [ ] 3.3 Complete pull request CI and review-surface verification
 
 ## 4. Deferred follow-ups
 
-None.
+- Tailscale device detail, last-seen evidence, and a proven client-owned access affordance are deferred to [#724](https://github.com/DotNaos/project-space/issues/724). The server-originated data-plane boundary remains [#733](https://github.com/DotNaos/project-space/issues/733); #732 intentionally stays read-only and does not fabricate access or lifecycle actions.
