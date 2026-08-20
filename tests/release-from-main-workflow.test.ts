@@ -90,11 +90,17 @@ test('processes merged intents through one exact-tag release queue', () => {
   expect(publisher).toContain('isFirstParentAncestor');
   expect(publisher).toContain("'rev-list', '--first-parent', '--reverse'");
   expect(publisher).toContain('releaseIntentEnforcementPath');
-  expect(publisher).toContain('validateMergedIntentOnlyQueueItem');
+  expect(publisher).toContain('validateMergedIntentQueueItem');
   expect(publisher).toContain('validateReleaseIntentEnforcementChange');
   expect(queueValidation).toContain('isReleaseIntentFileName');
   expect(queueValidation).toContain(
     '299a6d583ce2d13aa0a44c9f0e3cada64c765826',
+  );
+  expect(queueValidation).toContain(
+    '781e04f0c662965ec2a62f1cf74f3ad6eced17a8',
+  );
+  expect(queueValidation).toContain(
+    '019fdc71-e8da-7723-89f6-77e3c6ab91f4',
   );
   expect(queueValidation).toContain('must declare intent none');
   expect(publisher).toContain('changes package version before queue assignment');

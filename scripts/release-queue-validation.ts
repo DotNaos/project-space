@@ -14,12 +14,17 @@ export interface MergedIntentOnlyQueueItem {
   productPaths: readonly string[];
 }
 
-export const releaseIntentEnforcementAdoptionCommit =
+export const releaseIntentEnforcementAdoptionSourceCommit =
   '299a6d583ce2d13aa0a44c9f0e3cada64c765826';
+export const releaseIntentEnforcementAdoptionMergeCommit =
+  '781e04f0c662965ec2a62f1cf74f3ad6eced17a8';
+export const releaseIntentEnforcementAdoptionIntentPath =
+  `${releaseIntentDirectory}/019fdc71-e8da-7723-89f6-77e3c6ab91f4.json`;
 
 export interface ReleaseIntentEnforcementChange {
   alreadyEnforced: boolean;
   commit: string;
+  containsAdoptionSource: boolean;
   enforcementCommit: string | undefined;
   markerAdded: boolean;
   markerChanged: boolean;
@@ -30,8 +35,9 @@ export function validateReleaseIntentEnforcementChange(
   change: ReleaseIntentEnforcementChange,
 ) {
   const isAdoptionCommit = !change.alreadyEnforced &&
-    change.commit === releaseIntentEnforcementAdoptionCommit &&
+    change.commit === releaseIntentEnforcementAdoptionMergeCommit &&
     change.commit === change.enforcementCommit &&
+    change.containsAdoptionSource &&
     change.markerAdded &&
     change.markerMatches;
   if (change.markerChanged && !isAdoptionCommit) {
@@ -40,6 +46,30 @@ export function validateReleaseIntentEnforcementChange(
     );
   }
   return isAdoptionCommit;
+}
+
+export function validateMergedIntentQueueItem(
+  item: MergedIntentOnlyQueueItem & {
+    commit: string;
+    isAdoptionCommit: boolean;
+  },
+) {
+  if (!item.isAdoptionCommit) {
+    validateMergedIntentOnlyQueueItem(item);
+    return;
+  }
+  if (
+    item.commit !== releaseIntentEnforcementAdoptionMergeCommit ||
+    item.intent !== 'patch' ||
+    item.intentPaths.length !== 1 ||
+    item.intentPaths[0] !== releaseIntentEnforcementAdoptionIntentPath ||
+    item.allIntentChanges.length !== 1 ||
+    item.allIntentChanges[0] !== releaseIntentEnforcementAdoptionIntentPath
+  ) {
+    throw new Error(
+      'Historical release-intent enforcement adoption does not match its canonical patch queue item.',
+    );
+  }
 }
 
 export function validateMergedIntentOnlyQueueItem(

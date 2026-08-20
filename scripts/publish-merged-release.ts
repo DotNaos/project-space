@@ -38,7 +38,8 @@ import {
   tagReservations,
 } from './release-queue-evidence';
 import {
-  validateMergedIntentOnlyQueueItem,
+  releaseIntentEnforcementAdoptionSourceCommit,
+  validateMergedIntentQueueItem,
   validateReleaseIntentEnforcementChange,
 } from './release-queue-validation';
 
@@ -210,6 +211,9 @@ async function queuedMerges(
     const isAdoptionCommit = validateReleaseIntentEnforcementChange({
       alreadyEnforced,
       commit,
+      containsAdoptionSource: gitOutput([
+        'merge-base', releaseIntentEnforcementAdoptionSourceCommit, commit,
+      ]) === releaseIntentEnforcementAdoptionSourceCommit,
       enforcementCommit: commits[enforcementIndex],
       markerAdded: addedPaths(commit, releaseIntentDirectory).includes(
         releaseIntentEnforcementPath,
@@ -308,10 +312,12 @@ async function queuedMerges(
     const productPaths = changedPaths.filter((path) =>
       path !== intentPaths[0] && path !== releaseIntentEnforcementPath,
     );
-    validateMergedIntentOnlyQueueItem({
+    validateMergedIntentQueueItem({
       allIntentChanges,
+      commit,
       intent,
       intentPaths,
+      isAdoptionCommit,
       productPaths,
     });
     queued.push({ commit, intent, pullRequest });
