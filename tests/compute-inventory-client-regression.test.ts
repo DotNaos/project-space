@@ -1,75 +1,47 @@
 import { describe, expect, test } from 'bun:test';
 import { HttpProjectSpaceClient } from '../src/api/project-space-client';
-import type { ProjectCliComputeInventory } from '../src/shared/compute-inventory-cli-api';
-import { computePlatformSections } from '../src/features/project-desktop/components/machines-page-model';
 
 class RegressionClient extends HttpProjectSpaceClient {
   calls: Array<{ path: string; init?: RequestInit }> = [];
 
   protected override request<Result>(path: string, init?: RequestInit): Promise<Result> {
     this.calls.push({ init, path });
-    if (path === '/api/connectors/overview') {
-      return Promise.reject(new Error('410 Gone'));
-    }
-    return Promise.resolve({
-      checkedAt: '2026-08-13T11:33:21.452Z',
-      environmentCatalog: [],
-      environmentInstances: [{
-        accessRoutes: [],
-        alias: 'project-space-537-qxpr6qvjp9vf5v',
-        environmentDefinitionId: 'definition-codespace',
-        hostResolution: 'not_applicable',
-        hostd: { state: 'unknown' },
-        id: 'environment-codespace',
-        kind: 'github_codespace',
-        name: 'GitHub Codespace',
-        platformId: 'platform-codespaces',
-        providerLifecycleState: 'unknown',
-        reference: 'platform-codespaces/provider/environment-codespace',
-        resourceMode: 'dedicated',
-        workspaceInventory: { state: 'unavailable' },
-        workspaces: []
-      }],
-      hosts: [],
-      inventoryState: 'ready',
-      platforms: [{ alias: 'github-codespaces', id: 'platform-codespaces', kind: 'github_codespaces', name: 'GitHub Codespaces' }],
-      privateNetworks: [],
-      schemaVersion: 3,
-      violations: []
-    } as Result);
+    return Promise.resolve({} as Result);
   }
 }
 
-describe('canonical compute inventory client regression', () => {
-  test('keeps Codespaces visible when the retired Connector overview returns 410', async () => {
+describe('source-first compute inventory client regression', () => {
+  test('loads the two authoritative providers without the retired Connector overview', async () => {
     const client = new RegressionClient();
-    await expect(client.getConnectorOverview()).rejects.toThrow('410 Gone');
-    const inventory = await client.getComputeInventory();
-    const sections = computePlatformSections(inventory as ProjectCliComputeInventory);
 
-    expect(client.calls.map(({ path }) => path)).toEqual([
-      '/api/connectors/overview',
-      '/api/compute/inventory'
+    await Promise.all([
+      client.getTailscaleInventory(true),
+      client.getGitHubCodespaceInventory()
     ]);
-    expect(client.calls[1]!.init?.headers).toEqual({
-      Accept: 'application/vnd.project-space.compute-inventory+json; version=3'
-    });
-    expect(sections[0]!.rows.map((row) => row.name)).toEqual(['project-space-537-qxpr6qvjp9vf5v']);
+
+    expect(client.calls).toEqual([
+      { init: undefined, path: '/api/compute/tailscale/devices?refresh=1' },
+      { init: undefined, path: '/api/compute/github/codespaces' }
+    ]);
+    expect(client.calls.some(({ path }) => path.includes('/api/connectors/overview'))).toBe(false);
+    expect(client.calls.some(({ path }) => path.includes('/api/compute/inventory'))).toBe(false);
+    expect(client.calls.some(({ path }) => path.includes('/api/compute/legacy-connectors'))).toBe(false);
   });
 
-  test('binds legacy cleanup to an exact record set and idempotency key', async () => {
+  test('sends inline classification with the observed revision', async () => {
     const client = new RegressionClient();
-    const records = [{ connectorId: 'legacy-machine', fingerprint: 'a'.repeat(64) }];
 
-    await client.removeLegacyConnectors(records, 'cleanup:legacy-machine:1');
+    await client.setTailscaleDeviceClassification('device-12', {
+      classification: 'environment',
+      expectedRevision: 4
+    });
 
     expect(client.calls).toEqual([{
       init: {
-        body: JSON.stringify({ records }),
-        headers: { 'Idempotency-Key': 'cleanup:legacy-machine:1' },
+        body: JSON.stringify({ classification: 'environment', expectedRevision: 4 }),
         method: 'POST'
       },
-      path: '/api/compute/legacy-connectors/removals'
+      path: '/api/compute/tailscale/devices/device-12/classification'
     }]);
   });
 });

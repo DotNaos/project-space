@@ -127,6 +127,38 @@ export function createLocalSimulationRequestHandler(options: {
       });
       return;
     }
+    if (url.pathname === '/api/compute/github/codespaces') {
+      if (method !== 'GET') {
+        writeJson(response, 405, {
+          error: { code: 'method_not_allowed', message: 'Method not allowed.' }
+        });
+        return;
+      }
+      if ([...url.searchParams.keys()].length > 0) {
+        writeJson(response, 400, {
+          error: {
+            code: 'invalid_request',
+            message: 'GitHub Codespaces inventory requests do not accept query parameters.'
+          }
+        });
+        return;
+      }
+      const now = new Date().toISOString();
+      writeJson(response, 200, {
+        apiVersion: 1,
+        checkedAt: now,
+        codespaces: [{
+          createdAt: state.createdAt,
+          displayName: 'Local simulation Codespace',
+          name: 'local-simulation-codespace',
+          ref: localSimulationIdentity.branchName,
+          repositoryFullName: repository.fullName,
+          state: 'Available'
+        }],
+        provider: { connectionState: 'connected', source: 'github_api' }
+      });
+      return;
+    }
     const simulatedClassification = url.pathname.match(/^\/api\/compute\/tailscale\/devices\/([^/]+)\/classification$/);
     if (method === 'POST' && simulatedClassification) {
       const deviceId = decodeURIComponent(simulatedClassification[1] ?? '');

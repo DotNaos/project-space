@@ -69,6 +69,41 @@ describe('local simulation HTTP runtime', () => {
     expect(inventory.devices).toHaveLength(0);
   });
 
+  test('publishes a provider-shaped simulated Codespaces inventory', async () => {
+    const inventory = await json('/api/compute/github/codespaces') as {
+      apiVersion: number;
+      checkedAt: string;
+      codespaces: Array<{ name: string; repositoryFullName: string; state: string }>;
+      provider: { connectionState: string; source: string };
+    };
+
+    expect(inventory.apiVersion).toBe(1);
+    expect(inventory.checkedAt).toEqual(expect.any(String));
+    expect(inventory.provider).toEqual({ connectionState: 'connected', source: 'github_api' });
+    expect(inventory.codespaces).toEqual([expect.objectContaining({
+      name: 'local-simulation-codespace',
+      repositoryFullName: 'DotNaos/project-space',
+      state: 'Available'
+    })]);
+  });
+
+  test('matches the production Codespaces inventory method and query contract', async () => {
+    const query = await fetch(`${baseUrl}/api/compute/github/codespaces?unexpected=true`);
+    expect(query.status).toBe(400);
+    expect(await query.json()).toEqual({
+      error: {
+        code: 'invalid_request',
+        message: 'GitHub Codespaces inventory requests do not accept query parameters.'
+      }
+    });
+
+    const mutation = await fetch(`${baseUrl}/api/compute/github/codespaces`, { method: 'POST' });
+    expect(mutation.status).toBe(405);
+    expect(await mutation.json()).toEqual({
+      error: { code: 'method_not_allowed', message: 'Method not allowed.' }
+    });
+  });
+
   test('persists mutations and fully resets optional scenario state', async () => {
     const start = await json('/api/codex/tasks/start', {
       body: JSON.stringify({ issue: 616, operationId: 'local-test-operation' }),

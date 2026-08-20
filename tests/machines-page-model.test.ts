@@ -1,209 +1,87 @@
-import { describe, expect, test } from 'bun:test';
-import type {
-  ProjectCliComputeInventory,
-  ProjectCliEnvironmentInstance,
-  ProjectCliHost,
-  ProjectCliPlatform
-} from '../src/shared/compute-inventory-cli-api';
+import { describe, expect, it } from 'bun:test';
 import {
-  computeInventoryCounts,
-  computePlatformSections,
-  filterComputePlatformSections,
-  isComputeInventoryStale
+  computeSourceSections,
+  countComputeSourceRows,
+  filterComputeSourceSections
 } from '../src/features/project-desktop/components/machines-page-model';
+import type { TailscaleInventoryDevice } from '../src/shared/tailscale-inventory-api';
+import type { GitHubCodespaceInventoryItem } from '../src/shared/github-codespace-inventory-api';
 
-const platform = (id: string, kind: ProjectCliPlatform['kind'], name: string): ProjectCliPlatform => ({
-  alias: id,
-  id,
-  kind,
-  name
-});
+const tailscaleDevice: TailscaleInventoryDevice = {
+  addresses: ['100.64.0.12', 'fd7a:115c:a1e0::12'],
+  classification: 'environment',
+  id: 'device-12',
+  name: 'os-pc',
+  network: {
+    checkedAt: '2026-08-16T12:00:00.000Z',
+    freshUntil: '2026-08-16T12:01:00.000Z',
+    state: 'online'
+  },
+  os: 'linux',
+  revision: 3,
+  tags: ['tag:workstation']
+};
 
-const host = (id: string, platformId: string, state: ProjectCliHost['capabilities']['state'] = 'available'): ProjectCliHost => ({
-  alias: id,
-  capabilities: { console: [], power: [], state },
-  id,
-  name: id,
-  platformId
-});
+const codespace: GitHubCodespaceInventoryItem = {
+  createdAt: '2026-08-15T12:00:00.000Z',
+  displayName: '#732 Compute redesign',
+  name: 'probable-space-lamp',
+  ref: 'refs/heads/issue-732-redesign-compute-page',
+  repositoryFullName: 'DotNaos/project-space',
+  state: 'Available',
+  url: 'https://example.test/codespaces/probable-space-lamp'
+};
 
-function environment({
-  alias,
-  hostId,
-  id = alias,
-  kind = 'native_linux',
-  parentEnvironmentInstanceId,
-  platformId = 'local',
-  resourceMode = 'dedicated',
-  routeState,
-  workspaces = [],
-  accessSummary,
-  hostd = { state: 'unknown' as const },
-  resources
-}: Partial<ProjectCliEnvironmentInstance> & {
-  alias: string;
-  routeState?: 'ready' | 'unavailable';
-}): ProjectCliEnvironmentInstance {
-  return {
-    accessRoutes: routeState ? [{ capabilities: [], id: `route-${id}`, lastVerifiedAt: new Date().toISOString(), priority: 1, state: routeState, type: 'ssh_private_network' }] : [],
-    accessSummary,
-    alias,
-    environmentDefinitionId: `definition-${kind}`,
-    hostId,
-    hostResolution: hostId ? 'manual' : 'not_applicable',
-    hostd,
-    id,
-    kind,
-    name: alias,
-    parentEnvironmentInstanceId,
-    platformId,
-    providerLifecycleState: 'unknown',
-    reference: `reference-${id}`,
-    resourceMode,
-    resources,
-    workspaceInventory: { state: workspaces.length > 0 ? 'available' : 'unavailable' },
-    workspaces
-  };
-}
+describe('source-first Compute page model', () => {
+  it('keeps the fixed source order and stable provider identities', () => {
+    const sections = computeSourceSections({ codespaces: [codespace], tailscaleDevices: [tailscaleDevice] });
 
-function inventory(overrides: Partial<ProjectCliComputeInventory> = {}): ProjectCliComputeInventory {
-  const local = platform('local', 'local', 'Local & self-hosted');
-  return {
-    checkedAt: new Date().toISOString(),
-    environmentCatalog: [],
-    environmentInstances: [],
-    hosts: [],
-    inventoryState: 'ready',
-    platforms: [local],
-    privateNetworks: [],
-    schemaVersion: 3,
-    violations: [],
-    ...overrides
-  };
-}
+    expect(sections.map((section) => section.label)).toEqual(['Tailscale', 'GitHub Codespaces']);
+    expect(sections[0]!.rows[0]!.id).toBe('tailscale:device-12');
+    expect(sections[1]!.rows[0]!.id).toBe('github:probable-space-lamp');
+    expect(countComputeSourceRows(sections)).toBe(2);
+  });
 
-describe('canonical compute inventory presentation', () => {
-  test('keeps provider-managed environments directly under their platform', () => {
-    const codespace = environment({
-      alias: 'project-space-537-qxpr6qvjp9vf5v',
-      kind: 'github_codespace',
-      platformId: 'codespaces'
+  it('keeps exact Tailscale addresses as row truth', () => {
+    const [section] = computeSourceSections({ tailscaleDevices: [tailscaleDevice] });
+    const row = section!.rows[0]!;
+
+    expect(row.kind).toBe('tailscale');
+    if (row.kind !== 'tailscale') throw new Error('Expected a Tailscale row.');
+    expect(row.record.addresses).toEqual(['100.64.0.12', 'fd7a:115c:a1e0::12']);
+    expect(row.status).toBe('available');
+  });
+
+  it('uses native GitHub lifecycle state rather than generic host state', () => {
+    const sections = computeSourceSections({
+      codespaces: [{ ...codespace, state: 'Shutdown' }]
     });
-    const sections = computePlatformSections(inventory({
-      environmentInstances: [codespace],
-      platforms: [platform('codespaces', 'github_codespaces', 'GitHub Codespaces')]
-    }));
 
-    expect(sections[0]!.rows.map((row) => [row.kind, row.name, row.depth])).toEqual([
-      ['environment', 'project-space-537-qxpr6qvjp9vf5v', 0]
-    ]);
-    expect(sections[0]!.rows[0]!.hostResolutionLabel).toBe('Provider managed');
-    expect(sections[0]!.hostCount).toBe(0);
+    expect(sections[1]!.rows[0]!.status).toBe('attention');
+    expect(sections[1]!.rows[0]!.searchTerms).toContain('Shutdown');
   });
 
-  test('hides platforms that only contain unassigned Hosts', () => {
-    const sections = computePlatformSections(inventory({
-      hosts: [host('host-a', 'local')]
-    }));
-
-    expect(sections).toEqual([]);
-    expect(computeInventoryCounts(sections)).toEqual({ environments: 0, hosts: 0, workspaces: 0 });
-  });
-
-  test('renders local Hosts separately from environment status', () => {
-    const instances = [
-      environment({ alias: 'windows-01', hostId: 'host-a', kind: 'native_windows', resourceMode: 'exclusive' }),
-      environment({ alias: 'ubuntu-01', hostId: 'host-a', resourceMode: 'exclusive' })
-    ];
-    const [section] = computePlatformSections(inventory({
-      environmentInstances: instances,
-      hosts: [host('host-a', 'local', 'available')]
-    }));
-
-    expect(section!.rows.map((row) => [row.kind, row.name, row.depth, row.relationship])).toEqual([
-      ['host', 'host-a', 0, undefined],
-      ['environment', 'windows-01', 1, 'dual-boot'],
-      ['environment', 'ubuntu-01', 1, 'dual-boot']
-    ]);
-    expect(section!.rows[0]!.hostStatus).toBe('Host reachable');
-    expect(section!.rows[1]!.environmentStatus).toBe('Status unavailable');
-  });
-
-  test('keeps Host capabilities and Environment access provenance on their owning rows', () => {
-    const instance = environment({
-      alias: 'ubuntu-01', hostId: 'host-a', routeState: 'ready',
-      accessSummary: {
-        providerKind: 'tailscale', route: 'available',
-        ssh: { hostKey: 'verified', projectCli: 'available', readiness: 'available' }
-      },
-      hostd: { state: 'stale' },
-      resources: {
-        architecture: 'amd64', cpuCores: 4, memoryTotalBytes: 8_000,
-        operatingSystem: 'linux', reportedAt: new Date().toISOString(),
-        source: 'hostd', storageTotalBytes: 50_000
-      }
+  it('deduplicates provider records by their stable source identity', () => {
+    const sections = computeSourceSections({
+      tailscaleDevices: [tailscaleDevice, { ...tailscaleDevice, name: 'duplicate' }],
+      codespaces: [codespace, { ...codespace, displayName: 'duplicate' }]
     });
-    const [section] = computePlatformSections(inventory({
-      environmentInstances: [instance],
-      hosts: [{
-        ...host('host-a', 'local'),
-        capabilities: {
-          console: [], power: [], state: 'available',
-          summary: {
-            console: 'available', power: 'available', provider: 'jetkvm',
-            reset: 'unavailable', wakeOnLan: 'unavailable'
-          }
-        }
-      }]
-    }));
 
-    expect(section!.rows[0]!.hostCapabilities?.provider).toBe('jetkvm');
-    expect(section!.rows[1]!.accessSummary?.ssh.hostKey).toBe('verified');
-    expect(section!.rows[1]!.resourceSource).toBe('Stale');
+    expect(sections[0]!.rows.map((row) => row.id)).toEqual(['tailscale:device-12']);
+    expect(sections[1]!.rows.map((row) => row.id)).toEqual(['github:probable-space-lamp']);
+    expect(countComputeSourceRows(sections)).toBe(2);
   });
 
-  test('nests child environments and retains Workspace Runtime summaries', () => {
-    const child = environment({
-      alias: 'wsl-ubuntu-01',
-      kind: 'wsl',
-      parentEnvironmentInstanceId: 'windows-01',
-      hostId: 'host-a',
-      workspaces: [{ id: 'workspace-1', name: 'Project Space', repository: 'DotNaos/project-space', state: 'active' }]
-    });
-    const [section] = computePlatformSections(inventory({
-      environmentInstances: [environment({ alias: 'windows-01', hostId: 'host-a', kind: 'native_windows' }), child],
-      hosts: [host('host-a', 'local')]
-    }));
+  it('searches both providers while preserving both source sections', () => {
+    const sections = computeSourceSections({ codespaces: [codespace], tailscaleDevices: [tailscaleDevice] });
 
-    expect(section!.rows.map((row) => [row.name, row.depth, row.relationship])).toEqual([
-      ['host-a', 0, undefined],
-      ['windows-01', 1, undefined],
-      ['wsl-ubuntu-01', 2, 'nested']
-    ]);
-    expect(section!.rows[2]!.workspaces[0]!.repository).toBe('DotNaos/project-space');
-  });
+    const byAddress = filterComputeSourceSections(sections, '100.64.0.12', 'all');
+    expect(byAddress.map((section) => section.rows.length)).toEqual([1, 0]);
 
-  test('filters available and attention states without collapsing the hierarchy', () => {
-    const sections = computePlatformSections(inventory({
-      environmentInstances: [
-        environment({ alias: 'ready', hostId: 'host-a', routeState: 'ready' }),
-        environment({ alias: 'offline', hostId: 'host-a', routeState: 'unavailable' })
-      ],
-      hosts: [host('host-a', 'local')]
-    }));
+    const byRepository = filterComputeSourceSections(sections, 'project-space', 'all');
+    expect(byRepository.map((section) => section.rows.length)).toEqual([0, 1]);
 
-    expect(filterComputePlatformSections(sections, 'ready', 'all')[0]!.rows.map((row) => row.name)).toEqual(['host-a', 'ready']);
-    expect(filterComputePlatformSections(sections, '', 'available')[0]!.rows.map((row) => row.name)).toEqual(['host-a', 'ready']);
-    expect(filterComputePlatformSections(sections, '', 'attention')[0]!.rows.map((row) => row.name)).toEqual(['host-a', 'offline']);
-  });
-
-  test('counts mixed inventories and distinguishes stale data', () => {
-    const sections = computePlatformSections(inventory({
-      environmentInstances: [environment({ alias: 'one', hostId: 'host-a', workspaces: [{ id: 'w', name: 'Workspace', state: 'active' }] })],
-      hosts: [host('host-a', 'local')]
-    }));
-    expect(computeInventoryCounts(sections)).toEqual({ environments: 1, hosts: 1, workspaces: 1 });
-    expect(isComputeInventoryStale('2026-08-13T11:00:00.000Z', Date.parse('2026-08-13T11:20:00.000Z'))).toBe(true);
-    expect(isComputeInventoryStale('2026-08-13T11:19:00.000Z', Date.parse('2026-08-13T11:20:00.000Z'))).toBe(false);
+    const available = filterComputeSourceSections(sections, '', 'available');
+    expect(available.map((section) => section.rows.length)).toEqual([1, 1]);
   });
 });

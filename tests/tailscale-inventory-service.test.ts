@@ -195,7 +195,9 @@ describe('Tailscale inventory service', () => {
     const failed = createTailscaleInventoryService({ now: () => new Date('2026-08-14T09:02:00.000Z'), source: { describe: descriptor, async observe() { return { available: false as const, error: { code: 'command_failed' as const, source: 'command' as const } }; } }, store });
     const unavailable = await failed.list('owner', true);
     expect(unavailable.provider).toEqual({ connectionState: 'unavailable', reasonCode: 'command_failed', refreshState: 'unavailable', source: 'tailscale_oauth_api' });
-    expect(unavailable.devices).toEqual([]);
+    expect(unavailable.devices).toEqual([
+      expect.objectContaining({ id: 'device-a', network: expect.objectContaining({ state: 'unknown' }) })
+    ]);
     expect(calls).toHaveLength(2);
   });
   test('does not return cached devices when deployment configuration is missing or invalid', async () => {

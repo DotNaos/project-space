@@ -1,0 +1,34 @@
+---
+title: Tasks
+description: Implementation and verification checklist for the source-first Compute redesign.
+---
+
+## 1. Provider inventory boundaries
+
+- [x] 1.1 Add a signed-in read-only GitHub Codespaces inventory endpoint
+  - **Evidence:** `server/github-codespace-runner/http.ts` and `configured-runtime.ts` expose the sanitized provider list through the normal OAuth path.
+- [x] 1.2 Keep deployment-owned Tailscale inventory authoritative
+  - **Evidence:** `use-compute-sources.ts` loads `/api/compute/tailscale/devices` directly and preserves its exact device records.
+
+## 2. Source-first Compute page
+
+- [x] 2.1 Render fixed Tailscale and GitHub Codespaces sections
+  - **Evidence:** `machines-page-model.ts` and `machines-page.tsx` create stable source rows without legacy Host or Connector rows.
+- [x] 2.2 Add independent refresh and error handling
+  - **Evidence:** `use-compute-sources.ts` owns separate source states and uses settled parallel loading.
+- [x] 2.3 Move Tailscale classification inline
+  - **Evidence:** `compute-source-rows.tsx` sends revision-aware classification updates from each device row.
+- [x] 2.4 Keep desktop and phone layouts usable
+  - **Evidence:** source rows and controls stack responsively, and the live signed-in page was visually checked at desktop and phone widths.
+
+## 3. Verification
+
+- [x] 3.1 Add focused provider, projection, UI, and regression coverage
+  - **Evidence:** the focused Compute, simulated runtime, and Codespaces test set passes 45 tests with no failures.
+- [x] 3.2 Run repository-wide local quality checks
+  - **Evidence:** TypeScript checks, the web build, and all 484 test files pass locally with 3,033 passing tests and no failures.
+- [ ] 3.3 Complete pull request CI and review-surface verification
+
+## 4. Deferred follow-ups
+
+- Tailscale device detail, last-seen evidence, and a proven client-owned access affordance are deferred to [#724](https://github.com/DotNaos/project-space/issues/724). The server-originated data-plane boundary remains [#733](https://github.com/DotNaos/project-space/issues/733); #732 intentionally stays read-only and does not fabricate access or lifecycle actions.

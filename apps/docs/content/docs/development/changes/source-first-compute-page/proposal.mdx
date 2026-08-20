@@ -1,0 +1,50 @@
+---
+title: Proposal
+description: Redesign Compute around deployment-owned Tailscale and GitHub Codespaces.
+---
+
+Change status: **Active**
+
+Change kind: **Feature**
+
+Issue: **[#732](https://github.com/DotNaos/project-space/issues/732)**
+Requirements: **Changed**
+
+## Summary
+
+Make the Compute page source-first: deployment-owned Tailscale devices and GitHub
+Codespaces appear in separate sections that keep their own identity, lifecycle, freshness,
+and errors.
+
+## Problem
+
+The existing hierarchy mixed Connector hosts, projected environments, and provider resources.
+That could duplicate Tailscale devices, hide GitHub lifecycle truth, and let one source failure
+blank the entire page.
+
+## Scope
+
+- Show Tailscale and GitHub Codespaces as the two primary Compute sources.
+- Keep exact direct Tailscale addresses and inline device classification.
+- Add a signed-in, read-only GitHub Codespaces inventory endpoint.
+- Refresh and report source errors independently.
+- Remove legacy Connector inventory and duplicate Tailnet controls from the primary page.
+- Keep search and availability filters useful across both sources.
+
+## Out of scope
+
+- Moving GitHub Codespaces ownership into Project Space.
+- Making MagicDNS a network-readiness dependency.
+- Deleting legacy Connector records or their compatibility APIs.
+- Adding credential entry or provider mutation controls.
+
+## Delivery
+
+The change ships through the normal pull request flow. Local review uses the signed-in
+full-stack server with live GitHub and deployment-owned Tailscale data. No database migration
+or production deployment is required for review.
+
+## Requirements rationale
+
+This change affects observable Compute identity, grouping, lifecycle, network truth, and
+failure behavior, so the requirement delta records those guarantees.

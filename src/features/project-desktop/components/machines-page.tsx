@@ -1,15 +1,10 @@
 import { useMemo, useState } from 'react';
 import {
-  Boxes,
   CheckCircle2,
-  ChevronRight,
   CircleAlert,
-  Cloud,
-  Copy,
-  Cpu,
+  Github,
   LoaderCircle,
-  MonitorCog,
-  Plus,
+  Network,
   RefreshCw
 } from 'lucide-react';
 import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
@@ -21,23 +16,20 @@ import {
   SearchFieldGroup,
   SearchFieldInput,
   SearchFieldSearchIcon,
+  Surface,
   Text
 } from '@/app/dotnaos-ui';
 import { cn } from '@/lib/utils';
+import { useComputeSources, type ComputeSourceStatus } from '../hooks/use-compute-sources';
 import {
-  computeEnvironmentKindLabels,
-  computeInventoryCounts,
-  computePlatformSections,
-  countComputePlatformRows,
-  filterComputePlatformSections,
-  isComputeInventoryStale,
-  type ComputePlatformSection,
-  type ComputeRow,
+  computeSourceSections,
+  countComputeSourceRows,
+  filterComputeSourceSections,
   type MachineFilter
 } from './machines-page-model';
+import { GitHubCodespaceRow, TailscaleDeviceRow } from './compute-source-rows';
 import type { SettingsMachineGroupsStatus } from './settings-machine-groups-view-model';
-import { LegacyConnectorCleanup } from './legacy-connector-cleanup';
-import { TailscaleDeviceClassification } from './tailscale-device-classification';
+import type { TailscaleInventoryResult } from '@/shared/tailscale-inventory-api';
 
 const filters: Array<{ id: MachineFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -45,337 +37,115 @@ const filters: Array<{ id: MachineFilter; label: string }> = [
   { id: 'attention', label: 'Needs attention' }
 ];
 
-function StatusChip({ label, status }: { label: string; status: ComputeRow['status'] }) {
+function sourceRefreshLabel(status: ComputeSourceStatus, providerLabel?: string) {
+  if (providerLabel) return providerLabel;
+  switch (status) {
+    case 'loading': return 'Loading';
+    case 'refreshing': return 'Refreshing';
+    case 'error': return 'Unavailable';
+    default: return 'Current';
+  }
+}
+
+function tailscaleSourceLabel(source: string | undefined) {
+  switch (source) {
+    case 'tailscale_oauth_api': return 'Deployment Tailscale API';
+    case 'temporary_vps_local_status': return 'Temporary VPS inventory';
+    case 'local_tailscale_command': return 'Local Tailscale inventory';
+    default: return 'Tailscale not connected';
+  }
+}
+
+function tailscaleProviderConnectionLabel(connectionState: TailscaleInventoryResult['provider']['connectionState'] | undefined) {
+  switch (connectionState) {
+    case 'not_configured': return 'Not configured';
+    case 'configuration_error': return 'Configuration error';
+    case 'authentication_error': return 'Authentication error';
+    case 'scope_insufficient': return 'Scope required';
+    case 'unavailable': return 'Unavailable';
+    default: return undefined;
+  }
+}
+
+function tailscaleProviderConnectionNotice(
+  connectionState: TailscaleInventoryResult['provider']['connectionState'] | undefined,
+  cachedCount: number
+) {
+  switch (connectionState) {
+    case 'not_configured': return 'Tailscale is not configured for this deployment.';
+    case 'configuration_error': return 'Tailscale configuration is invalid. An administrator must repair the provider configuration.';
+    case 'authentication_error': return cachedCount > 0
+      ? 'Tailscale authorization failed. Showing the last observed devices.'
+      : 'Tailscale authorization failed. Reconnect Tailscale to load devices.';
+    case 'scope_insufficient': return 'Tailscale authorization needs devices:core:read. Reconnect Tailscale once to grant device access.';
+    case 'unavailable': return cachedCount > 0
+      ? 'Tailscale is temporarily unavailable. Showing the last observed devices.'
+      : 'Tailscale is temporarily unavailable. No cached devices are available.';
+    default: return undefined;
+  }
+}
+
+function SourceHeader({
+  count,
+  description,
+  icon: Icon,
+  label,
+  onRefresh,
+  status,
+  statusLabel
+}: {
+  count: number;
+  description: string;
+  icon: typeof Network;
+  label: string;
+  onRefresh(): void;
+  status: ComputeSourceStatus;
+  statusLabel?: string;
+}) {
   return (
-    <Chip
-      size="sm"
+    <div className="flex min-w-0 flex-col gap-3 border-b border-neutral-800/70 pb-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-neutral-900 text-neutral-300">
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Text as="h2" className="text-base font-semibold text-neutral-100">{label}</Text>
+            <Chip size="sm">{count}</Chip>
+            <Chip size="sm" className={cn(
+              status === 'error' && 'text-amber-300',
+              status === 'ready' && 'text-emerald-300'
+            )}>{sourceRefreshLabel(status, statusLabel)}</Chip>
+          </div>
+          <Text className="mt-1 block text-xs text-neutral-500">{description}</Text>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        isDisabled={status === 'loading' || status === 'refreshing'}
+        onPress={onRefresh}
+      >
+        <RefreshCw className={cn('size-3.5', status === 'loading' || status === 'refreshing' ? 'animate-spin' : '')} />
+        Refresh
+      </Button>
+    </div>
+  );
+}
+
+function SourceMessage({ children, kind = 'empty' }: { children: React.ReactNode; kind?: 'empty' | 'error' }) {
+  return (
+    <div
+      role={kind === 'error' ? 'alert' : 'status'}
       className={cn(
-        'shrink-0 gap-1.5',
-        status === 'available' && 'text-emerald-300',
-        status === 'attention' && 'text-amber-300',
-        status === 'unknown' && 'text-neutral-500'
+        'flex min-h-28 items-center justify-center gap-2 px-5 text-center text-sm',
+        kind === 'error' ? 'text-amber-200' : 'text-neutral-500'
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          'size-1.5 rounded-full',
-          status === 'available' && 'bg-emerald-400',
-          status === 'attention' && 'bg-amber-400',
-          status === 'unknown' && 'bg-neutral-700'
-        )}
-      />
-      {label}
-    </Chip>
-  );
-}
-
-function evidenceLabel(value: string | undefined) {
-  switch (value) {
-    case 'available': return 'Available';
-    case 'stale': return 'Stale';
-    case 'unavailable': return 'Unavailable';
-    case 'verified': return 'Verified';
-    case 'unverified': return 'Not verified';
-    default: return 'Unknown';
-  }
-}
-
-function providerLabel(value: string | undefined) {
-  switch (value) {
-    case 'provider_native': return 'Provider';
-    case 'tailscale': return 'Tailscale';
-    case 'wireguard': return 'WireGuard';
-    case 'other': return 'Private network';
-    default: return 'Unavailable';
-  }
-}
-
-function HostRow({ row }: { row: ComputeRow }) {
-  const capabilities = row.hostCapabilities;
-  return (
-    <div className="flex min-w-0 items-center gap-3 px-1 py-3">
-      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
-        <Cpu className="size-4 text-emerald-300" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-neutral-200">{row.name}</span>
-        <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-600">
-          {capabilities ? (
-            <span className="truncate">
-              Power {evidenceLabel(capabilities.power)} · Reset {evidenceLabel(capabilities.reset)} · Wake-on-LAN {evidenceLabel(capabilities.wakeOnLan)} · Console {evidenceLabel(capabilities.console)} · {capabilities.provider === 'jetkvm' ? 'JetKVM' : 'Console provider unavailable'}
-            </span>
-          ) : <span className="truncate">Host capabilities unavailable</span>}
-          {row.resourcesSummary ? <span className="truncate">· {row.resourcesSummary}</span> : null}
-          {row.resourceSource ? <span className="truncate">· {row.resourceSource}</span> : null}
-        </span>
-      </span>
-      <StatusChip label={row.hostStatus ?? 'Host status unavailable'} status={row.status} />
+      {kind === 'error' ? <CircleAlert className="size-4 shrink-0" /> : null}
+      <span>{children}</span>
     </div>
   );
-}
-
-function EnvironmentRow({ row, onSelect }: { row: ComputeRow; onSelect(): void }) {
-  const instance = row.environment!;
-  return (
-    <button
-      type="button"
-      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg py-3 pr-1 text-left transition hover:bg-neutral-900/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60"
-      style={{ paddingLeft: `${0.25 + row.depth * 1.25}rem` }}
-      onClick={onSelect}
-    >
-      <span className="flex min-w-0 items-start gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
-          <Boxes className="size-4 text-violet-300" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {row.depth > 0 ? <ChevronRight className="size-3 shrink-0 text-neutral-700" /> : null}
-            <span className="truncate text-sm font-medium text-neutral-200">{row.name}</span>
-            <Chip size="sm" className="shrink-0 gap-1 text-neutral-500">
-              {computeEnvironmentKindLabels[instance.kind]}
-            </Chip>
-            {row.relationship === 'dual-boot' ? (
-              <Chip size="sm" className="shrink-0 text-sky-300">Dual-boot alternative</Chip>
-            ) : row.relationship === 'nested' ? (
-              <Chip size="sm" className="shrink-0 text-violet-300">Nested</Chip>
-            ) : null}
-          </span>
-          <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-600">
-            <span>{row.environmentStatus}</span>
-            <span>· {row.hostResolutionLabel ?? 'Environment Instance'}</span>
-            {row.accessSummary ? <span>· {providerLabel(row.accessSummary.providerKind)}</span> : null}
-            {row.resourcesSummary ? <span>· {row.resourcesSummary}</span> : null}
-            {row.resourceSource ? <span>· {row.resourceSource}</span> : null}
-            {row.workspaces.length > 0 ? (
-              <span>· {row.workspaces.length} Workspace Runtime{row.workspaces.length === 1 ? '' : 's'}</span>
-            ) : null}
-          </span>
-          {row.workspaces.length > 0 ? (
-            <span className="mt-1 block truncate text-[11px] text-neutral-500">
-              {row.workspaces.map((workspace) => (
-                <span key={workspace.id} className="mr-2 inline-block max-w-full truncate align-bottom">
-                  Workspace Runtime · {workspace.name}
-                  {workspace.repository && workspace.repository !== workspace.name
-                    ? ` · ${workspace.repository}`
-                    : ''}
-                </span>
-              ))}
-            </span>
-          ) : null}
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-1.5">
-        <StatusChip label={row.environmentStatus ?? 'Status unavailable'} status={row.status} />
-        <ChevronRight aria-hidden className="hidden size-4 text-neutral-700 sm:block" />
-      </span>
-    </button>
-  );
-}
-
-function ComputePlatformSectionView({
-  onSelectEnvironment,
-  section
-}: {
-  onSelectEnvironment(id: string): void;
-  section: ComputePlatformSection;
-}) {
-  return (
-    <div className="border-b border-neutral-800/70 pb-1 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2 px-1 pt-4 pb-1">
-        <Cloud className="size-3.5 shrink-0 text-sky-300" />
-        <Text className="truncate text-[11px] font-medium uppercase tracking-[.06em] text-neutral-500">
-          {section.name} · {section.platformKindLabel}
-        </Text>
-        <span className="ml-auto shrink-0 text-[11px] text-neutral-600">
-          {section.environmentCount} Environment{section.environmentCount === 1 ? '' : 's'}
-          {section.hostCount ? ` · ${section.hostCount} Host${section.hostCount === 1 ? '' : 's'}` : ''}
-        </span>
-      </div>
-      <div className="divide-y divide-neutral-800/50">
-        {section.rows.map((row) => (
-          row.kind === 'host'
-            ? <HostRow key={row.id} row={row} />
-            : <EnvironmentRow key={row.id} row={row} onSelect={() => onSelectEnvironment(row.id)} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EnvironmentDetails({
-  inventory,
-  instance,
-  onClose
-}: {
-  inventory: ProjectCliComputeInventory;
-  instance: NonNullable<ComputeRow['environment']>;
-  onClose(): void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const host = instance.hostId
-    ? inventory.hosts.find((entry) => entry.id === instance.hostId)
-    : undefined;
-  const parent = instance.parentEnvironmentInstanceId
-    ? inventory.environmentInstances.find((entry) => entry.id === instance.parentEnvironmentInstanceId)
-    : undefined;
-  const hostLabel = host?.name ?? (
-    instance.hostResolution === 'not_applicable'
-      ? 'Provider managed'
-      : instance.hostResolution === 'conflict'
-        ? 'Host needs review'
-        : instance.hostResolution === 'unresolved'
-          ? 'Host not assigned'
-          : 'Host unavailable'
-  );
-  const hostStatus = host?.capabilities.state === 'available'
-    ? 'Host reachable'
-    : host?.capabilities.state === 'unavailable'
-      ? 'Host unavailable'
-      : 'Host status unavailable';
-  const resources = instance.resources
-    ? `${instance.resources.cpuCores} CPU · ${formatDetailBytes(instance.resources.memoryLimitBytes ?? instance.resources.memoryTotalBytes)} · ${formatDetailBytes(instance.resources.storageTotalBytes)}`
-    : 'Not reported';
-  const definition = inventory.environmentCatalog.find((entry) => entry.id === instance.environmentDefinitionId);
-  const access = instance.accessSummary ?? {
-    providerKind: instance.hostResolution === 'not_applicable' ? 'provider_native' as const : 'none' as const,
-    route: instance.accessRoutes.some((route) => route.type !== 'connector') ? 'unknown' as const : 'unavailable' as const,
-    ssh: {
-      hostKey: 'unknown' as const,
-      projectCli: 'unknown' as const,
-      readiness: 'unknown' as const
-    }
-  };
-  const command = `project ssh ${instance.alias}`;
-
-  async function copyCommand() {
-    if (!navigator.clipboard) return;
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_500);
-  }
-
-  return (
-    <aside aria-label="Environment Instance details" className="border-t border-neutral-800/70 bg-neutral-950/60 px-4 py-4 sm:px-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Text className="text-[11px] font-medium uppercase tracking-[.08em] text-neutral-500">
-            Environment Instance
-          </Text>
-          <Text as="h2" className="mt-1 truncate text-lg font-semibold text-neutral-100">
-            {instance.alias}
-          </Text>
-        </div>
-        <Button size="sm" variant="ghost" onPress={onClose}>Close</Button>
-      </div>
-      <div className="mt-4 grid gap-x-6 gap-y-3 text-xs sm:grid-cols-2">
-        <DetailSectionLabel label="Identity" />
-        <DetailValue label="Definition" value={definition?.name ?? computeEnvironmentKindLabels[instance.kind]} />
-        <DetailValue label="Definition type" value={definition?.slug ?? computeEnvironmentKindLabels[instance.kind]} />
-        <DetailValue label="Bootstrap" value={definition?.bootstrapStrategy.replace('_', ' ')} />
-        <DetailValue label="Ownership" value={definition?.ownership.replace('_', ' ')} />
-        <DetailValue label="Operating system" value={definition?.operatingSystemFamily} />
-        <DetailValue label="Supported architectures" value={definition?.supportedArchitectures.join(' · ')} />
-        <DetailValue label="Platform" value={inventory.platforms.find((platform) => platform.id === instance.platformId)?.name} />
-        <DetailValue label="Host" value={hostLabel} />
-        <DetailValue label="Host status" value={host ? hostStatus : instance.hostResolution === 'not_applicable' ? 'Provider managed' : 'Not reported'} />
-        <DetailValue label="Parent environment" value={parent?.alias ?? 'None'} />
-        <DetailSectionLabel label="Access" />
-        <DetailValue label="Provider" value={providerLabel(access.providerKind)} />
-        <DetailValue label="Route readiness" value={evidenceLabel(access.route)} />
-        <DetailValue label="SSH readiness" value={evidenceLabel(access.ssh.readiness)} />
-        <DetailValue label="SSH host key" value={evidenceLabel(access.ssh.hostKey)} />
-        <DetailValue label="Project CLI" value={evidenceLabel(access.ssh.projectCli)} />
-        <DetailSectionLabel label="Resources" />
-        <DetailValue label="Capacity" value={resources} />
-        <DetailValue label="Resource source" value={resourceSourceLabel(instance.resources, instance.hostd.state)} />
-      </div>
-      <div className="mt-4 border-t border-neutral-800/70 pt-3">
-        <Text className="block text-[11px] font-medium uppercase tracking-[.08em] text-neutral-500">Workspace Runtimes</Text>
-        <Text className="mt-1 block text-xs text-neutral-500">
-          {instance.workspaceInventory.state === 'available' ? `${instance.workspaces.length} available` : 'Not reported'}
-        </Text>
-        {instance.workspaces.length > 0 ? (
-          <div className="mt-2 space-y-2">
-            {instance.workspaces.map((workspace) => (
-              <div key={workspace.id} className="border-l border-neutral-800 pl-3 text-xs">
-                <Text className="block truncate text-neutral-200">{workspace.name}</Text>
-                {workspace.repository !== workspace.name ? (
-                  <Text className="mt-0.5 block truncate text-neutral-500">{workspace.repository ?? 'Repository unavailable'}</Text>
-                ) : null}
-                {workspace.runtime ? (
-                  <>
-                    <Text className="mt-1 block text-neutral-400">
-                      Lifecycle {workspace.runtime.lifecycle} · Codex {evidenceLabel(workspace.runtime.codex)} · Connection {workspace.runtime.connection}
-                    </Text>
-                    {workspace.runtime.devServers.length > 0 ? (
-                      <Text className="mt-0.5 block truncate text-neutral-500">
-                        Development servers · {workspace.runtime.devServers.map((server) => `${server.name} (${server.state})`).join(' · ')}
-                      </Text>
-                    ) : (
-                      <Text className="mt-0.5 block text-neutral-500">No declared development servers</Text>
-                    )}
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Text className="mt-2 text-xs text-neutral-500">No Workspace Runtimes reported.</Text>
-        )}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800/70 bg-neutral-900/40 px-3 py-2">
-        <code className="min-w-0 flex-1 truncate text-xs text-neutral-300">{command}</code>
-        <Button size="sm" variant="secondary" onPress={() => void copyCommand()}>
-          <Copy className="size-3.5" />
-          {copied ? 'Copied' : 'Copy command'}
-        </Button>
-      </div>
-    </aside>
-  );
-}
-
-function resourceSourceLabel(
-  resources: NonNullable<NonNullable<ComputeRow['environment']>['resources']> | undefined,
-  hostdState: NonNullable<ComputeRow['environment']>['hostd']['state']
-) {
-  if (hostdState === 'stale') return 'Stale';
-  switch (resources?.source) {
-    case 'connector': return 'SSH snapshot';
-    case 'configured': return 'SSH snapshot';
-    case 'hostd': return 'project-hostd';
-    case 'provider': return 'Provider';
-    default: return 'Unavailable';
-  }
-}
-
-function DetailValue({ label, value }: { label: string; value?: string }) {
-  return (
-    <div className="min-w-0">
-      <Text className="block text-[11px] text-neutral-600">{label}</Text>
-      <Text className="mt-0.5 block truncate text-neutral-300">{value ?? 'Unavailable'}</Text>
-    </div>
-  );
-}
-
-function DetailSectionLabel({ label }: { label: string }) {
-  return (
-    <Text className="block border-b border-neutral-800/70 pb-1 text-[11px] font-medium uppercase tracking-[.08em] text-neutral-500 sm:col-span-2">
-      {label}
-    </Text>
-  );
-}
-
-function formatDetailBytes(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return 'Unavailable';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let amount = value;
-  let unit = 0;
-  while (amount >= 1_024 && unit < units.length - 1) {
-    amount /= 1_024;
-    unit += 1;
-  }
-  return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unit]}`;
 }
 
 export interface MachinesPageProps {
@@ -386,104 +156,195 @@ export interface MachinesPageProps {
   onRefresh(): Promise<unknown>;
 }
 
-export function MachinesPage({
-  computeInventory,
-  inventoryStatus,
-  localSimulation,
-  loadError,
-  onRefresh
-}: MachinesPageProps) {
+export function MachinesPage(_props: MachinesPageProps) {
   const [filter, setFilter] = useState<MachineFilter>('all');
   const [query, setQuery] = useState('');
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>();
-  const platformSections = useMemo(
-    () => (computeInventory ? computePlatformSections(computeInventory) : []),
-    [computeInventory]
-  );
+  const {
+    classifyTailscaleDevice,
+    github,
+    refreshGitHub,
+    refreshTailscale,
+    tailscale,
+    tailscaleRefreshGeneration
+  } = useComputeSources();
+  const sections = useMemo(() => computeSourceSections({
+    codespaces: github.result?.codespaces,
+    tailscaleDevices: tailscale.result?.devices
+  }), [github.result?.codespaces, tailscale.result?.devices]);
   const visibleSections = useMemo(
-    () => filterComputePlatformSections(platformSections, query, filter),
-    [filter, platformSections, query]
+    () => filterComputeSourceSections(sections, query, filter),
+    [filter, query, sections]
   );
-  const counts = computeInventoryCounts(platformSections);
-  const selectedEnvironment = computeInventory?.environmentInstances.find(
-    (instance) => instance.id === selectedEnvironmentId
+  const tailscaleSection = visibleSections[0]!;
+  const githubSection = visibleSections[1]!;
+  const tailscaleCachedCount = tailscale.result?.devices.length ?? 0;
+  const tailscaleConnectionState = tailscale.result?.provider.connectionState;
+  const tailscaleConnectionLabel = tailscaleProviderConnectionLabel(tailscaleConnectionState);
+  const tailscaleConnectionNotice = tailscaleProviderConnectionNotice(tailscaleConnectionState, tailscaleCachedCount);
+  const tailscaleProviderNotice = tailscaleConnectionNotice ?? (tailscale.result?.provider.refreshState === 'partial'
+    ? 'Tailscale returned a partial inventory. The available devices remain visible.'
+    : tailscale.result?.provider.refreshState === 'unavailable'
+      ? tailscaleCachedCount > 0
+        ? 'Tailscale is temporarily unavailable. Showing the last observed devices.'
+        : 'Tailscale is temporarily unavailable. No cached devices are available.'
+      : tailscale.result?.provider.refreshState === 'not_checked'
+        ? 'Tailscale inventory is cached. Provider freshness has not been checked.'
+      : '');
+  const tailscaleProviderNeedsAttention = Boolean(
+    tailscaleConnectionLabel ||
+    tailscale.result?.provider.refreshState === 'partial' ||
+    tailscale.result?.provider.refreshState === 'unavailable' ||
+    tailscale.result?.provider.refreshState === 'not_checked'
   );
-  const isReady = computeInventory?.inventoryState === 'ready' && computeInventory.violations.length === 0;
-  const isStale = Boolean(computeInventory && isComputeInventoryStale(computeInventory.checkedAt));
-  const showBlockingLoading = inventoryStatus === 'loading' && !computeInventory;
-  const showBlockingError = inventoryStatus === 'error' && !computeInventory;
-  const showEmpty = isReady && counts.environments === 0 && counts.hosts === 0;
+  const tailscaleDisplayStatus = tailscale.status === 'ready' && tailscaleProviderNeedsAttention
+    ? 'error'
+    : tailscale.status;
+  const tailscaleEmptyMessage = tailscaleProviderNeedsAttention
+    ? 'No cached Tailscale devices are available.'
+    : 'No Tailscale devices were reported.';
+  const tailscaleClassificationDisabled = Boolean(
+    tailscale.status === 'error' ||
+    tailscaleConnectionLabel ||
+    tailscale.result?.provider.refreshState === 'unavailable' ||
+    tailscale.result?.provider.refreshState === 'not_checked'
+  );
+  const githubProviderNeedsAttention = github.result?.provider.connectionState !== 'connected';
+  const githubDisplayStatus = github.status === 'ready' && githubProviderNeedsAttention ? 'error' : github.status;
+  const githubStatusLabel = github.result?.provider.connectionState === 'scope_insufficient'
+    ? 'Scope required'
+    : github.result?.provider.connectionState === 'not_connected'
+      ? 'Connection required'
+      : undefined;
+  const checkedAt = [
+    github.result?.checkedAt,
+    ...((tailscale.result?.devices ?? []).map((device) => device.network.checkedAt))
+  ].filter((value): value is string => Boolean(value)).sort().at(-1);
 
   return (
     <section className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-neutral-800/70 pb-4">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Text as="h1" className="block text-2xl font-semibold tracking-[-.02em] text-neutral-50">Compute</Text>
-            <Text className="mt-1 block text-sm text-neutral-500">Platforms, Hosts, Environment Instances, and Workspace Runtimes.</Text>
-          </div>
-          {!localSimulation ? (
-            <a href="/docs/environments/setup">
-              <Button size="sm" variant="primary"><Plus className="size-4" />Add environment</Button>
-            </a>
-          ) : null}
-          <TailscaleDeviceClassification />
-        </div>
-        <LegacyConnectorCleanup onChanged={onRefresh} />
+        <Text as="h1" className="block text-2xl font-semibold tracking-[-.02em] text-neutral-50">Compute</Text>
+        <Text className="mt-1 block max-w-2xl text-sm text-neutral-500">
+          Private-network devices and provider-owned development environments, grouped by their source of truth.
+        </Text>
       </header>
 
       <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-800/70 py-4 lg:flex-row lg:items-center lg:justify-between">
-        <SearchField aria-label="Search compute environments" className="w-full lg:max-w-sm" onChange={setQuery} value={query}>
+        <SearchField aria-label="Search compute" className="w-full lg:max-w-sm" onChange={setQuery} value={query}>
           <SearchFieldGroup className="h-10 rounded-full bg-neutral-900/80">
             <SearchFieldSearchIcon />
-            <SearchFieldInput placeholder="Search platforms and environments" spellCheck={false} />
+            <SearchFieldInput placeholder="Search devices and Codespaces" spellCheck={false} />
             <SearchFieldClearButton />
           </SearchFieldGroup>
         </SearchField>
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {filters.map(({ id, label }) => (
-            <Button key={id} size="sm" variant={filter === id ? 'secondary' : 'ghost'} className="shrink-0 rounded-full" onPress={() => setFilter(id)}>
+            <Button
+              key={id}
+              size="sm"
+              variant={filter === id ? 'secondary' : 'ghost'}
+              className="shrink-0 rounded-full"
+              aria-pressed={filter === id}
+              onPress={() => setFilter(id)}
+            >
               {label}
             </Button>
           ))}
-          <Button aria-label="Refresh compute inventory" isIconOnly size="sm" variant="ghost" className="ml-1 size-8 shrink-0 rounded-full px-0" onPress={() => void onRefresh()}>
-            <RefreshCw className={cn('size-3.5', inventoryStatus === 'refreshing' && 'animate-spin')} />
-          </Button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {loadError && computeInventory ? (
-          <div role="alert" className="mt-3 flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[.07] px-4 py-3">
-            <CircleAlert className="size-4 shrink-0 text-amber-300" />
-            <Text className="block text-xs text-amber-200">{loadError} Showing the last known inventory.</Text>
-          </div>
-        ) : null}
-        {isStale && computeInventory ? (
-          <div role="status" className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/[.05] px-4 py-3 text-xs text-sky-200">
-            This inventory may be out of date. Refresh to check again.
-          </div>
-        ) : null}
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain py-5 pr-1">
+        <Surface variant="transparent" className="rounded-2xl border border-neutral-800/80 p-4 sm:p-5">
+          <SourceHeader
+            count={sections[0]!.rows.length}
+            description={tailscaleSourceLabel(tailscale.result?.provider.source)}
+            icon={Network}
+            label="Tailscale"
+            status={tailscaleDisplayStatus}
+            statusLabel={tailscaleConnectionLabel ?? (
+              tailscale.result?.provider.refreshState === 'partial'
+                ? 'Partial'
+                : tailscale.result?.provider.refreshState === 'not_checked' ? 'Cached' : undefined
+            )}
+            onRefresh={() => void refreshTailscale(true)}
+          />
+          {tailscale.error && tailscale.result ? <SourceMessage kind="error">{tailscale.error} {tailscaleCachedCount > 0 ? 'Showing the last known devices.' : 'No cached devices are available.'}</SourceMessage> : null}
+          {tailscaleProviderNotice ? <SourceMessage kind="error">{tailscaleProviderNotice}</SourceMessage> : null}
+          {tailscale.error && !tailscale.result ? (
+            <SourceMessage kind="error">{tailscale.error}</SourceMessage>
+          ) : tailscale.status === 'loading' && !tailscale.result ? (
+            <SourceMessage><LoaderCircle className="inline size-4 animate-spin" /> Loading Tailscale devices…</SourceMessage>
+          ) : sections[0]!.rows.length === 0 ? (
+            <SourceMessage>{tailscaleEmptyMessage}</SourceMessage>
+          ) : tailscaleSection.rows.length === 0 ? (
+            <SourceMessage>No Tailscale devices match this search or filter.</SourceMessage>
+          ) : (
+            <div className="divide-y divide-neutral-800/70">
+              {tailscaleSection.rows.map((row) => row.kind === 'tailscale' ? (
+                <TailscaleDeviceRow
+                  key={row.id}
+                  device={row.record}
+                  onClassify={classifyTailscaleDevice}
+                  onReload={() => refreshTailscale(true)}
+                  classificationDisabled={tailscaleClassificationDisabled}
+                  providerRefreshIsProven={tailscale.status === 'ready' && (
+                    tailscale.result?.provider.refreshState === 'available' ||
+                    tailscale.result?.provider.refreshState === 'partial'
+                  )}
+                  providerRefreshGeneration={tailscaleRefreshGeneration}
+                />
+              ) : null)}
+            </div>
+          )}
+        </Surface>
 
-        {showBlockingLoading ? (
-          <div className="flex min-h-48 items-center justify-center gap-2 text-neutral-500"><LoaderCircle className="size-4 animate-spin" /><Text className="text-sm">Loading compute inventory…</Text></div>
-        ) : showBlockingError ? (
-          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center"><MonitorCog className="size-6 text-neutral-700" /><Text className="max-w-md text-sm text-neutral-500">{loadError || 'Compute is temporarily unavailable.'}</Text><Button size="sm" variant="secondary" onPress={() => void onRefresh()}>Try again</Button></div>
-        ) : !isReady ? (
-          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center"><MonitorCog className="size-6 text-neutral-700" /><Text className="max-w-md text-sm text-neutral-500">Compute details are not available right now.</Text></div>
-        ) : showEmpty ? (
-          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center"><CheckCircle2 className="size-6 text-neutral-700" /><Text className="text-sm text-neutral-500">No compute environments are configured yet.</Text></div>
-        ) : visibleSections.length === 0 ? (
-          <div className="grid min-h-48 place-items-center px-6 text-center"><Text className="text-sm text-neutral-500">No environments match this search or filter.</Text></div>
-        ) : (
-          visibleSections.map((section) => <ComputePlatformSectionView key={section.id} section={section} onSelectEnvironment={setSelectedEnvironmentId} />)
-        )}
+        <Surface variant="transparent" className="rounded-2xl border border-neutral-800/80 p-4 sm:p-5">
+          <SourceHeader
+            count={sections[1]!.rows.length}
+            description="Codespaces owned and managed by GitHub"
+            icon={Github}
+            label="GitHub Codespaces"
+            status={githubDisplayStatus}
+            statusLabel={githubStatusLabel}
+            onRefresh={() => void refreshGitHub()}
+          />
+          {github.error && github.result ? <SourceMessage kind="error">{github.error} Showing the last known Codespaces.</SourceMessage> : null}
+          {github.result?.provider.connectionState === 'not_connected' ? (
+            <SourceMessage kind="error">Connect GitHub to load Codespaces.</SourceMessage>
+          ) : github.result?.provider.connectionState === 'scope_insufficient' ? (
+            <SourceMessage kind="error">Reconnect GitHub once to grant Codespaces access.</SourceMessage>
+          ) : github.error && !github.result ? (
+            <SourceMessage kind="error">{github.error}</SourceMessage>
+          ) : github.status === 'loading' && !github.result ? (
+            <SourceMessage><LoaderCircle className="inline size-4 animate-spin" /> Loading GitHub Codespaces…</SourceMessage>
+          ) : sections[1]!.rows.length === 0 ? (
+            <SourceMessage>No GitHub Codespaces were reported.</SourceMessage>
+          ) : githubSection.rows.length === 0 ? (
+            <SourceMessage>No GitHub Codespaces match this search or filter.</SourceMessage>
+          ) : (
+            <div className="divide-y divide-neutral-800/70">
+              {githubSection.rows.map((row) => row.kind === 'github'
+                ? <GitHubCodespaceRow key={row.id} codespace={row.record} />
+                : null)}
+            </div>
+          )}
+        </Surface>
+
+        {countComputeSourceRows(sections) === 0 &&
+        tailscale.status === 'ready' &&
+        tailscale.result?.provider.connectionState === 'connected' &&
+        tailscale.result.provider.refreshState === 'available' &&
+        github.status === 'ready' &&
+        github.result?.provider.connectionState === 'connected' ? (
+          <div className="flex items-center justify-center gap-2 py-2 text-xs text-neutral-600">
+            <CheckCircle2 className="size-4" /> Both sources are current.
+          </div>
+        ) : null}
       </div>
 
-      {computeInventory && selectedEnvironment ? <EnvironmentDetails inventory={computeInventory} instance={selectedEnvironment} onClose={() => setSelectedEnvironmentId(undefined)} /> : null}
       <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-neutral-800/70 py-3 text-xs text-neutral-600">
-        <span>{countComputePlatformRows(visibleSections)} visible · {counts.hosts} Host{counts.hosts === 1 ? '' : 's'} · {counts.environments} Environment{counts.environments === 1 ? '' : 's'} · {counts.workspaces} Workspace Runtime{counts.workspaces === 1 ? '' : 's'}</span>
-        {computeInventory ? <span>Checked {new Date(computeInventory.checkedAt).toLocaleString()}</span> : null}
+        <span>{countComputeSourceRows(visibleSections)} visible · {sections[0]!.rows.length} Tailscale · {sections[1]!.rows.length} Codespaces</span>
+        {checkedAt ? <span>Checked {new Date(checkedAt).toLocaleString()}</span> : null}
       </footer>
     </section>
   );

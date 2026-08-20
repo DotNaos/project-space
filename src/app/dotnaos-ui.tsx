@@ -3,6 +3,7 @@ import {
   forwardRef,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ButtonHTMLAttributes,
@@ -778,6 +779,7 @@ interface ListBoxContextValue {
 const ListBoxContext = createContext<ListBoxContextValue>({});
 const SelectContext = createContext<{
   close(): void;
+  isDisabled: boolean;
   onChange(value: string | null): void;
   open: boolean;
   placeholder?: string;
@@ -829,6 +831,7 @@ export function ListBoxItem({
 }: ListBoxItemProps) {
   const listBox = useContext(ListBoxContext);
   const select = useContext(SelectContext);
+  const disabled = isDisabled || Boolean(select?.isDisabled);
   const selected = listBox.selectedKeys?.has(id) || select?.value === id;
 
   return (
@@ -837,13 +840,13 @@ export function ListBoxItem({
       type="button"
       role="option"
       aria-selected={selected}
-      aria-disabled={isDisabled}
+      aria-disabled={disabled}
       data-selected={selected ? 'true' : 'false'}
-      data-disabled={isDisabled ? 'true' : 'false'}
-      disabled={isDisabled}
+      data-disabled={disabled ? 'true' : 'false'}
+      disabled={disabled}
       onClick={(event) => {
         props.onClick?.(event);
-        if (!event.defaultPrevented && !isDisabled) {
+        if (!event.defaultPrevented && !disabled) {
           listBox.onAction?.(id);
           select?.onChange(id);
           select?.close();
@@ -865,6 +868,7 @@ export function Label({ children, className, ...props }: HTMLAttributes<HTMLSpan
 }
 
 interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
+  isDisabled?: boolean;
   onChange(value: string | null): void;
   placeholder?: string;
   value: string | null;
@@ -874,6 +878,7 @@ interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
 function SelectRoot({
   children,
   className,
+  isDisabled = false,
   onChange,
   placeholder,
   value,
@@ -882,10 +887,15 @@ function SelectRoot({
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [selectedLabel, setSelectedLabel] = useState<string | undefined>();
+  useEffect(() => {
+    if (isDisabled) setOpen(false);
+  }, [isDisabled]);
   const contextValue = useMemo(
     () => ({
       close: () => setOpen(false),
+      isDisabled,
       onChange(nextValue: string | null) {
+        if (isDisabled) return;
         onChange(nextValue);
         setSelectedLabel(undefined);
       },
@@ -895,7 +905,7 @@ function SelectRoot({
       setOpen,
       value
     }),
-    [onChange, open, placeholder, selectedLabel, value]
+    [isDisabled, onChange, open, placeholder, selectedLabel, value]
   );
 
   return (
@@ -907,6 +917,10 @@ function SelectRoot({
   );
 }
 
+export function isSelectPopoverVisible(open: boolean, isDisabled: boolean) {
+  return open && !isDisabled;
+}
+
 function SelectTrigger({ children, className, ...props }: HTMLAttributes<HTMLButtonElement>) {
   const select = useContext(SelectContext);
 
@@ -914,7 +928,11 @@ function SelectTrigger({ children, className, ...props }: HTMLAttributes<HTMLBut
     <button
       {...props}
       type="button"
-      onClick={() => select?.setOpen(!select.open)}
+      aria-disabled={select?.isDisabled || undefined}
+      disabled={select?.isDisabled}
+      onClick={() => {
+        if (select && !select.isDisabled) select.setOpen(!select.open);
+      }}
       className={cn('flex w-full items-center gap-2', className)}
     >
       {children}
@@ -948,7 +966,7 @@ function SelectIndicator({ className }: HTMLAttributes<HTMLSpanElement>) {
 function SelectPopover({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) {
   const select = useContext(SelectContext);
 
-  if (!select?.open) {
+  if (!select || !isSelectPopoverVisible(select.open, select.isDisabled)) {
     return null;
   }
 
