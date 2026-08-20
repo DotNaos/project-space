@@ -132,6 +132,7 @@ func TestClientStartAcceptsInitiatorBindingAndSharedWorkerSelectorSyntax(t *test
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		plan := testStartPlan()
 		plan.ReportingTask.Role = "initiator"
+		plan.ReportingTask.Evidence = "caller-supplied"
 		plan.Worker.Model = "provider/gpt-5.6-luna"
 		target := testTarget()
 		target.Environment = &struct {
@@ -155,6 +156,7 @@ func TestClientStartAcceptsInitiatorBindingAndSharedWorkerSelectorSyntax(t *test
 		t.Fatal(err)
 	}
 	if result.Plan == nil || result.Plan.ReportingTask.Role != "initiator" ||
+		result.Plan.ReportingTask.Evidence != "caller-supplied" ||
 		result.Plan.Worker.Model != "provider/gpt-5.6-luna" {
 		t.Fatalf("result = %#v", result)
 	}
