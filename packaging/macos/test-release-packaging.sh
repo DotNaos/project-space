@@ -55,12 +55,27 @@ SOURCE_DATE_EPOCH=0 "$script_directory/build-machine-tools.sh" "$version" "$temp
 archive="project-space-machine-tools-darwin-arm64-v${version}.tar.gz"
 cmp "$temporary_root/first/$archive" "$temporary_root/second/$archive"
 (cd "$temporary_root/first" && shasum -a 256 -c "${archive}.sha256")
+bash "$script_directory/../release/validate-machine-tools-bundle.sh" \
+  "$temporary_root/first/$archive" darwin-arm64 "$version" >/dev/null
 mkdir "$temporary_root/extracted-v1"
 gtar -xzf "$temporary_root/first/$archive" -C "$temporary_root/extracted-v1"
 bundle_v1="$temporary_root/extracted-v1/project-space-machine-tools-darwin-arm64-v${version}"
 expected_members=$'SHA256SUMS.txt\nVERSION\ninstall.sh\nproject\nproject-codex-host\nrelease-manifest-signing-public-key.pem'
 actual_members=$(find "$bundle_v1" -mindepth 1 -maxdepth 1 -type f -print | sed 's#.*/##' | sort)
 [[ $actual_members == "$expected_members" ]]
+
+incomplete_staging="$temporary_root/incomplete-staging"
+mkdir -p "$incomplete_staging"
+cp -R "$bundle_v1" "$incomplete_staging/"
+rm "$incomplete_staging/project-space-machine-tools-darwin-arm64-v${version}/project-codex-host"
+incomplete_archive="$temporary_root/incomplete.tar.gz"
+gtar -cf - -C "$incomplete_staging" \
+  "project-space-machine-tools-darwin-arm64-v${version}" | gzip -n > "$incomplete_archive"
+if bash "$script_directory/../release/validate-machine-tools-bundle.sh" \
+  "$incomplete_archive" darwin-arm64 "$version" >/dev/null 2>&1; then
+  echo 'Release validator accepted an incomplete macOS bundle.' >&2
+  exit 1
+fi
 
 home="$temporary_root/home"
 install_root="$home/.local/bin"

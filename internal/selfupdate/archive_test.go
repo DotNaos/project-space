@@ -28,62 +28,114 @@ type artifactExitError int
 func (code artifactExitError) Error() string { return "exit" }
 func (code artifactExitError) ExitCode() int { return int(code) }
 
-func TestManagedArtifactInstallerAppliesVerifiedBundle(t *testing.T) {
+func TestManagedArtifactInstallerAppliesVerifiedBundles(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
-	archive := testArtifactArchive(t, "linux-x64", "0.4.9", nil)
-	digest := sha256.Sum256(archive)
-	var calls []string
-	runner := func(
-		_ context.Context,
-		command string,
-		arguments []string,
-		directory string,
-		environment []string,
-		stdout io.Writer,
-		_ io.Writer,
-	) error {
-		calls = append(calls, filepath.Base(command))
-		if len(calls) == 1 {
-			if filepath.Base(command) != "install.sh" ||
-				!reflect.DeepEqual(arguments, []string{"--install-dir", "/safe/bin"}) ||
-				!reflect.DeepEqual(environment, []string{"HOME=/safe/home", "LC_ALL=C", "PATH=/usr/bin:/bin"}) {
-				t.Fatalf("installer invocation = %q %#v %#v", command, arguments, environment)
+	for _, test := range []struct {
+		target     string
+		version    string
+		installDir string
+	}{{
+		target:     "linux-x64",
+		version:    "0.4.9",
+		installDir: "/safe/linux-bin",
+	}, {
+		target:     "darwin-arm64",
+		version:    "0.27.0",
+		installDir: "/safe/macos-bin",
+	}} {
+		t.Run(test.target, func(t *testing.T) {
+			archive := testArtifactArchive(t, test.target, test.version, nil)
+			digest := sha256.Sum256(archive)
+			var calls []string
+			runner := func(
+				_ context.Context,
+				command string,
+				arguments []string,
+				directory string,
+				environment []string,
+				stdout io.Writer,
+				_ io.Writer,
+			) error {
+				calls = append(calls, filepath.Base(command))
+				if len(calls) == 1 {
+					if filepath.Base(command) != "install.sh" ||
+						!reflect.DeepEqual(arguments, []string{"--install-dir", test.installDir}) ||
+						!reflect.DeepEqual(environment, []string{"HOME=/safe/home", "LC_ALL=C", "PATH=/usr/bin:/bin"}) {
+						t.Fatalf("installer invocation = %q %#v %#v", command, arguments, environment)
+					}
+					if _, err := os.Stat(filepath.Join(directory, "project-codex-host")); err != nil {
+						t.Fatal(err)
+					}
+					return nil
+				}
+				_, _ = io.WriteString(stdout, "Project "+test.version+"\n")
+				return nil
 			}
-			if _, err := os.Stat(filepath.Join(directory, "project-codex-host")); err != nil {
-				t.Fatal(err)
+			installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+				Client:             &http.Client{Transport: testArtifactTransport(archive)},
+				CommandRunner:      runner,
+				HomeDirectory:      "/safe/home",
+				TemporaryDirectory: t.TempDir(),
+			})
+			outcome, err := installer.Apply(
+				context.Background(),
+				Installation{InstallDir: test.installDir, Source: InstallSourceManaged, Target: test.target},
+				Release{
+					Artifact: Artifact{
+						AssetName:   "project-space-machine-tools-" + test.target + "-v" + test.version + ".tar.gz",
+						DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v" + test.version + "/project-space-machine-tools-" + test.target + "-v" + test.version + ".tar.gz",
+						SHA256:      hex.EncodeToString(digest[:]),
+						SizeBytes:   int64(len(archive)),
+						Target:      test.target,
+					},
+					Manifest: Manifest{ReleaseID: "v" + test.version, Version: test.version},
+				},
+				io.Discard,
+				io.Discard,
+			)
+			if err != nil || outcome != ApplyOutcomeUpdated {
+				t.Fatalf("Apply() = %q, %v", outcome, err)
 			}
-			return nil
-		}
-		_, _ = io.WriteString(stdout, "Project "+"0.4.9\n")
-		return nil
+			if !reflect.DeepEqual(calls, []string{"install.sh", "project", "project-codex-host"}) {
+				t.Fatalf("calls = %#v", calls)
+			}
+		})
 	}
-	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
-		Client:             &http.Client{Transport: testArtifactTransport(archive)},
-		CommandRunner:      runner,
-		HomeDirectory:      "/safe/home",
-		TemporaryDirectory: t.TempDir(),
+}
+
+func TestManagedArtifactInstallerRejectsIncompleteDarwinBundleBeforeInstaller(t *testing.T) {
+	archive := testArtifactArchive(t, "darwin-arm64", "0.27.0", func(files map[string][]byte) map[string][]byte {
+		delete(files, "project-codex-host")
+		return files
 	})
-	outcome, err := installer.Apply(
+	digest := sha256.Sum256(archive)
+	calls := 0
+	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+		Client: &http.Client{Transport: testArtifactTransport(archive)},
+		CommandRunner: func(context.Context, string, []string, string, []string, io.Writer, io.Writer) error {
+			calls++
+			return nil
+		},
+		TemporaryDirectory: t.TempDir(),
+	}).(*managedArtifactInstaller)
+	_, err := installer.Apply(
 		context.Background(),
-		Installation{InstallDir: "/safe/bin", Source: InstallSourceManaged, Target: "linux-x64"},
+		Installation{InstallDir: "/safe/bin", Source: InstallSourceManaged, Target: "darwin-arm64"},
 		Release{
 			Artifact: Artifact{
-				AssetName:   "project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
-				DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v0.4.9/project-space-machine-tools-linux-x64-v0.4.9.tar.gz",
+				AssetName:   "project-space-machine-tools-darwin-arm64-v0.27.0.tar.gz",
+				DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v0.27.0/project-space-machine-tools-darwin-arm64-v0.27.0.tar.gz",
 				SHA256:      hex.EncodeToString(digest[:]),
 				SizeBytes:   int64(len(archive)),
-				Target:      "linux-x64",
+				Target:      "darwin-arm64",
 			},
-			Manifest: Manifest{ReleaseID: "v0.4.9", Version: "0.4.9"},
+			Manifest: Manifest{ReleaseID: "v0.27.0", Version: "0.27.0"},
 		},
 		io.Discard,
 		io.Discard,
 	)
-	if err != nil || outcome != ApplyOutcomeUpdated {
-		t.Fatalf("Apply() = %q, %v", outcome, err)
-	}
-	if !reflect.DeepEqual(calls, []string{"install.sh", "project", "project-codex-host"}) {
-		t.Fatalf("calls = %#v", calls)
+	if err == nil || !strings.Contains(err.Error(), "bundle is incomplete") || calls != 0 {
+		t.Fatalf("Apply() = %v, installer calls = %d", err, calls)
 	}
 }
 

@@ -447,6 +447,12 @@ jobs:
           linux-x64|project-space-machine-tools-linux-x64-v${VERSION}.tar.gz
           windows-x64|project-space-machine-tools-windows-x64-setup.exe
           TARGETS
+          bash packaging/release/validate-machine-tools-bundle.sh \
+            "$RUNNER_TEMP/release-assets/project-space-machine-tools-darwin-arm64-v${VERSION}.tar.gz" \
+            darwin-arm64 "$VERSION"
+          bash packaging/release/validate-machine-tools-bundle.sh \
+            "$RUNNER_TEMP/release-assets/project-space-machine-tools-linux-x64-v${VERSION}.tar.gz" \
+            linux-x64 "$VERSION"
           for target in darwin-arm64 linux-x64; do
             archive="$RUNNER_TEMP/release-assets/project-space-machine-tools-${target}-v${VERSION}.tar.gz"
             bundle="project-space-machine-tools-${target}-v${VERSION}"

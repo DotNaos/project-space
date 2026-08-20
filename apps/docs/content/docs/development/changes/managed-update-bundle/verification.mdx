@@ -1,0 +1,28 @@
+---
+title: Verification
+description: Evidence and final reconciliation for the managed update bundle repair.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+SELFUPDATE-BUNDLE is covered by target-specific extraction, successful Darwin
+upgrade tests from the older supported installation, and the release validator's
+exact archive inventory and checksum checks. SELFUPDATE-ROLLBACK is covered by
+the managed installer rollback mapping, the service regression, and the macOS
+packaging harness's unchanged-current-pointer assertion after binary-pair failure.
+
+The local dogfood path uses generated Darwin and Linux fixtures and never replaces
+the user's installed CLI. No signed production release was published.
+
+## Final reconciliation
+
+- [x] Target-specific bundle contracts are implemented
+- [x] Upgrade, malformed-bundle, and rollback/no-switch regressions are covered
+- [x] Focused and repository-wide local checks pass
+- [ ] Changed-path preflight is green on the exact pull-request revision
+- [ ] Project Manager review and delivery are complete
+
+The remaining checks are pull-request delivery gates; production deployment and
+the installed CLI remain untouched by this task.

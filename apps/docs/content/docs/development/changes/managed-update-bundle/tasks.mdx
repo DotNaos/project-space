@@ -1,0 +1,24 @@
+---
+title: Tasks
+description: Implementation and verification checklist for the managed update bundle repair.
+---
+
+## 1. Bundle contract
+
+- [x] 1.1 Make the updater use target-specific Darwin and Linux member inventories
+  - **Evidence:** `internal/selfupdate/archive.go` accepts the six-member Darwin bundle while retaining the Linux Codex members.
+- [x] 1.2 Add a release-finalize archive inventory and checksum validator
+  - **Evidence:** `packaging/release/validate-machine-tools-bundle.sh` is called for Darwin and Linux in `.github/workflows/release.yml`.
+
+## 2. Regression coverage
+
+- [x] 2.1 Cover successful managed Darwin upgrade from version 0.21.23 to 0.27.0
+  - **Evidence:** `internal/selfupdate/update_test.go` exercises the real artifact installer with the Darwin fixture.
+- [x] 2.2 Cover malformed-bundle rejection and rollback/no-switch behavior
+  - **Evidence:** `internal/selfupdate/archive_test.go`, `internal/selfupdate/update_test.go`, and `packaging/macos/test-release-packaging.sh` cover pre-installer rejection and failed-pair rollback.
+
+## 3. Verification and delivery
+
+- [x] 3.1 Run focused tests, repository checks, build, and packaging dogfood
+  - **Evidence:** Focused Go tests, `go test ./...`, `go vet`, `bun run check`, `bun run build`, `bun test --isolate`, and the macOS packaging harness pass locally.
+- [ ] 3.2 Run changed-path preflight and complete pull-request review

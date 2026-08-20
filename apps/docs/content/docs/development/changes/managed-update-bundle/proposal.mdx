@@ -1,0 +1,39 @@
+---
+title: Proposal
+description: Repair the managed macOS self-update bundle contract.
+---
+
+Change status: **Active**
+
+Change kind: **Bugfix**
+
+Issue: **[#837](https://github.com/DotNaos/project-space/issues/837)**
+Requirements: **Changed**
+
+## Summary
+
+Make the managed self-update client accept the exact macOS arm64 machine-tools
+bundle that the release pipeline builds, while keeping signed release, checksum,
+exact-version, and atomic rollback guarantees intact.
+
+## Problem
+
+The updater applied the Linux bundle inventory to macOS. A valid Darwin release
+therefore failed extraction as incomplete before its installer could run.
+
+## Scope
+
+- Keep target-specific archive member contracts in the managed updater.
+- Validate Darwin and Linux archive inventories before release handoff.
+- Cover an older managed installation, successful upgrade, and rollback/no-switch failure.
+
+## Out of scope
+
+- Weakening manifest signatures, artifact checksums, exact-version checks, or rollback.
+- Publishing or replacing the installed user CLI from this change.
+- Changing the separate Environment dispatch identity work in #835.
+
+## Delivery
+
+The change ships through the normal pull-request and Project review flow. Local
+dogfooding uses generated non-production packaging fixtures only.
