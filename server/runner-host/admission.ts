@@ -458,7 +458,14 @@ function validateExistingReservations(
         !positiveSafeInteger(reservation.idleTimeoutSeconds) ||
         !positiveSafeInteger(reservation.maximumRuntimeSeconds) ||
         typeof reservation.fingerprint !== 'string' ||
-        !/^[0-9a-f]{64}$/.test(reservation.fingerprint)) {
+        !/^[0-9a-f]{64}$/.test(reservation.fingerprint) ||
+        reservation.fingerprint !== requestFingerprint({
+          idleTimeoutSeconds: reservation.idleTimeoutSeconds,
+          identity: reservation.identity,
+          isolation: reservation.isolation,
+          maximumRuntimeSeconds: reservation.maximumRuntimeSeconds,
+          resources: reservation.resources
+        })) {
       return blocked('capacity_evidence_invalid', 'A durable sandbox reservation contains an invalid resource or scalar.');
     }
     const createdAt = parseStoredTimestamp(reservation.createdAt);

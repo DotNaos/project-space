@@ -89,12 +89,51 @@ describe('PostgreSQL runner admission concurrency integration', () => {
           '2026-08-20T10:30:01.000Z', '2026-08-20T10:15:01.000Z', '2026-08-20T22:00:01.000Z'
         ]
       );
+      const insertReleasedWithProof = async (reservationId: string, proof: unknown) => {
+        const identity = { ...request('db-contract-proof').identity, reservationId };
+        return pool.query(
+          `insert into runner_sandbox_reservations (
+             reservation_id, host_id, host_generation, identity, isolation, resources, state, fingerprint,
+             created_at, idle_timeout_seconds, maximum_runtime_seconds,
+             idle_expires_at, lease_expires_at, runtime_expires_at, absence_proof
+           ) values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)`,
+          [
+            reservationId, evidence.hostId, evidence.generation, JSON.stringify(identity),
+            JSON.stringify(request('db-contract-proof').isolation),
+            JSON.stringify(request('db-contract-proof').resources), 'released', 'a'.repeat(64),
+            '2026-08-20T10:00:01.000Z', 1_800, 43_200,
+            '2026-08-20T10:30:01.000Z', '2026-08-20T10:15:01.000Z', '2026-08-20T22:00:01.000Z',
+            JSON.stringify(proof)
+          ]
+        );
+      };
       await expect(insertReservation(
         'db-contract-host-mismatch', 'vps:wrong-host', request('db-contract-host').identity
       )).rejects.toThrow();
       await expect(insertReservation(
         'db-contract-negative-issue', evidence.hostId,
         { ...request('db-contract-issue').identity, issueNumber: -1 }
+      )).rejects.toThrow();
+      const proofIdentity = request('db-contract-proof').identity;
+      const proof = {
+        checkedAt: '2026-08-20T10:00:01.000Z',
+        identity: proofIdentity,
+        resourcesAbsent: true
+      };
+      await expect(insertReleasedWithProof(
+        'db-contract-proof-string-boolean', { ...proof, resourcesAbsent: 'true' }
+      )).rejects.toThrow();
+      await expect(insertReleasedWithProof(
+        'db-contract-proof-extra-key', { ...proof, extra: true }
+      )).rejects.toThrow();
+      await expect(insertReleasedWithProof(
+        'db-contract-proof-bad-checked-at', { ...proof, checkedAt: 1 }
+      )).rejects.toThrow();
+      await expect(insertReleasedWithProof(
+        'db-contract-proof-unparseable-checked-at', { ...proof, checkedAt: 'not-a-date' }
+      )).rejects.toThrow();
+      await expect(insertReleasedWithProof(
+        'db-contract-proof-long-checked-at', { ...proof, checkedAt: 'a'.repeat(65) }
       )).rejects.toThrow();
       const services = [1, 2, 3].map(() => new RunnerHostAdmissionService(
         new PostgresRunnerHostAdmissionStore(client),

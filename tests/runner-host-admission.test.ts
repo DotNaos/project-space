@@ -266,6 +266,10 @@ describe('VPS runner admission', () => {
         )?.reason).toBe('capacity_evidence_invalid');
       }
     }
+    const wrongFingerprint = `${active.reservation.fingerprint[0] === '0' ? '1' : '0'}${active.reservation.fingerprint.slice(1)}`;
+    expect(validateAdmission(
+      evidence, tiny, policy, [{ ...active.reservation, fingerprint: wrongFingerprint }], now
+    )?.reason).toBe('capacity_evidence_invalid');
     for (const identity of [
       { ...active.reservation.identity, branch: '' },
       { ...active.reservation.identity, branch: undefined as never },

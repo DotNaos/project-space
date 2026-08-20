@@ -576,6 +576,19 @@ describe('database migrations', () => {
     expect(runnerHostAdmissionMigrationSql).toContain('runner_sandbox_reservations');
     expect(runnerHostAdmissionMigrationSql).toContain('absence_proof jsonb');
     expect(runnerHostAdmissionMigrationSql).toContain("absence_proof->'identity' = identity");
+    expect(runnerHostAdmissionMigrationSql).toContain('jsonb_object_length(absence_proof) = 3');
+    expect(runnerHostAdmissionMigrationSql).toContain(
+      "jsonb_typeof(absence_proof->'resourcesAbsent') = 'boolean'"
+    );
+    expect(runnerHostAdmissionMigrationSql).toContain(
+      "absence_proof->'resourcesAbsent' = 'true'::jsonb"
+    );
+    expect(runnerHostAdmissionMigrationSql).toContain(
+      "char_length(absence_proof->>'checkedAt') between 1 and 64"
+    );
+    expect(runnerHostAdmissionMigrationSql).toContain(
+      "absence_proof->>'checkedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$'"
+    );
     expect(runnerHostAdmissionMigrationSql).toContain('jsonb_object_length(identity) = 13');
     expect(runnerHostAdmissionMigrationSql).toContain("identity->>'hostId' = host_id");
     expect(runnerHostAdmissionMigrationSql).toContain("identity->>'reservationId' = reservation_id");

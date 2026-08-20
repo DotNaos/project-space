@@ -110,11 +110,18 @@ export const runnerHostAdmissionMigrationSql = `
     check ((state = 'released') = (absence_proof is not null)),
     check (absence_proof is null or (
       jsonb_typeof(absence_proof) = 'object' and
+      jsonb_object_length(absence_proof) = 3 and
+      absence_proof ?& array['checkedAt', 'identity', 'resourcesAbsent'] and
       jsonb_typeof(absence_proof->'identity') = 'object' and
       absence_proof->'identity' = identity and
       absence_proof->'identity'->>'generation' = host_generation and
       jsonb_typeof(absence_proof->'checkedAt') = 'string' and
-      absence_proof->>'resourcesAbsent' = 'true'
+      btrim(absence_proof->>'checkedAt') = absence_proof->>'checkedAt' and
+      char_length(absence_proof->>'checkedAt') between 1 and 64 and
+      absence_proof->>'checkedAt' !~ '[[:cntrl:]]' and
+      absence_proof->>'checkedAt' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$' and
+      jsonb_typeof(absence_proof->'resourcesAbsent') = 'boolean' and
+      absence_proof->'resourcesAbsent' = 'true'::jsonb
     ))
   );
 

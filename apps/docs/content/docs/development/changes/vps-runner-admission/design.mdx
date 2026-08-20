@@ -39,7 +39,9 @@ per-dimension maximum, preventing either telemetry or state lag from undercounti
 released reservation cannot be resurrected; uncertain and expired reservations are fenced
 until same-generation absence is proven. Before that aggregation, every active durable row
 is revalidated for exact host/generation identity, allowed state, bounded resource/scalar
-values, coherent deadlines, and a canonical fingerprint; malformed rows block admission.
+values, coherent deadlines, and a recomputed canonical fingerprint that matches the stored
+value; malformed rows block admission. PostgreSQL also requires absence proofs to have the
+exact typed three-field shape, including Boolean `true` and a bounded checkedAt string.
 
 ## Decisions
 
