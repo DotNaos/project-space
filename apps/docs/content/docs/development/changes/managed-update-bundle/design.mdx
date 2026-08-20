@@ -1,0 +1,52 @@
+---
+title: Design
+description: Design for the managed macOS update bundle repair.
+---
+
+## Context
+
+Linux machine-tools bundles include the managed Codex runtime and its metadata.
+macOS arm64 bundles contain only the Project CLI, Codex host, installer, version,
+checksums, and release-manifest trust root. The updater had one shared allowlist,
+so it rejected a correctly built Darwin archive.
+
+## Goals and non-goals
+
+The goal is a target-specific, fail-closed bundle contract with release-time
+inventory validation and focused upgrade/rollback coverage. The change does not
+alter cryptographic trust, artifact digest checks, exact release identity, or the
+installer's atomic pointer transaction.
+
+## Architecture
+
+The managed artifact extractor returns a target-specific member map. Darwin and
+Linux retain their existing exact member modes and checksum validation. A release
+validation script independently enumerates and verifies the expected archive
+members, version, and checksums on the Ubuntu release-finalize runner before the
+publish handoff is created.
+
+## Decisions
+
+- Keep the target inventory explicit in both the updater and release validator.
+- Exercise the Darwin path with a generated fixture so no installed user CLI or
+  signed production artifact is overwritten.
+- Keep release intent at patch level because this repairs an existing update path.
+
+## Risks and mitigations
+
+- **Contract drift:** target-specific Go and release packaging tests validate both
+  platform inventories.
+- **Unsafe archive content:** exact member enumeration, regular-file checks, and
+  per-member checksums remain required.
+- **Partial installation:** existing installer rollback and post-install pair
+  verification remain unchanged and are covered by regressions.
+
+## Migration and rollout
+
+No data migration is needed. The fix is delivered in the next signed machine-tools
+release after the pull request passes its release gates.
+
+## Validation
+
+Run focused Go self-update tests, the macOS packaging harness, `bun run check`,
+`bun run build`, repository tests, and the canonical changed-path preflight.

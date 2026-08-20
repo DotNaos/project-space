@@ -3,8 +3,12 @@ package selfupdate
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
+	"path/filepath"
 	"testing"
 )
 
@@ -47,6 +51,26 @@ func testRelease(version string) Release {
 	return Release{
 		Manifest: Manifest{Version: version},
 		Artifact: Artifact{DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v" + version + "/project-space-machine-tools-windows-x64-setup.exe"},
+	}
+}
+
+func testDarwinRelease(t *testing.T, archive []byte, version string) Release {
+	t.Helper()
+	digest := sha256.Sum256(archive)
+	return Release{
+		Artifact: Artifact{
+			AssetName: "project-space-machine-tools-darwin-arm64-v" + version + ".tar.gz",
+			BundleVersions: BundleVersions{
+				Connector:    version,
+				MachineTools: version,
+				ProjectCLI:   version,
+			},
+			DownloadURL: "https://github.com/DotNaos/project-space/releases/download/v" + version + "/project-space-machine-tools-darwin-arm64-v" + version + ".tar.gz",
+			SHA256:      hex.EncodeToString(digest[:]),
+			SizeBytes:   int64(len(archive)),
+			Target:      "darwin-arm64",
+		},
+		Manifest: Manifest{ReleaseID: "v" + version, Version: version},
 	}
 }
 
@@ -136,6 +160,95 @@ func TestServiceMapsInstallerOutcomes(t *testing.T) {
 				t.Fatalf("Apply() = %#v, %v, calls %d", result, err, installer.calls)
 			}
 		})
+	}
+}
+
+func TestServiceAppliesManagedDarwinUpgradeFromOlderSupportedInstallation(t *testing.T) {
+	archive := testArtifactArchive(t, "darwin-arm64", "0.27.0", nil)
+	release := testDarwinRelease(t, archive, "0.27.0")
+	var calls []string
+	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+		Client: &http.Client{Transport: testArtifactTransport(archive)},
+		CommandRunner: func(
+			_ context.Context,
+			command string,
+			_ []string,
+			_ string,
+			_ []string,
+			stdout io.Writer,
+			_ io.Writer,
+		) error {
+			calls = append(calls, filepath.Base(command))
+			if len(calls) > 1 {
+				_, _ = io.WriteString(stdout, "Project 0.27.0\n")
+			}
+			return nil
+		},
+		HomeDirectory:      "/safe/home",
+		TemporaryDirectory: t.TempDir(),
+	})
+	service, err := NewService(
+		staticDetector{installation: Installation{
+			CurrentVersion: "0.21.23",
+			InstallDir:     "/safe/bin",
+			Source:         InstallSourceManaged,
+			Target:         "darwin-arm64",
+		}},
+		staticResolver{release: release},
+		installer,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := service.Plan(context.Background())
+	if err != nil || plan.Result.State != StateUpdateAvailable {
+		t.Fatalf("Plan() = %#v, %v", plan.Result, err)
+	}
+	result, err := service.Apply(context.Background(), plan, io.Discard, io.Discard)
+	if err != nil || result.State != StateUpdated {
+		t.Fatalf("Apply() = %#v, %v", result, err)
+	}
+	if len(calls) != 3 || calls[0] != "install.sh" || calls[1] != "project" || calls[2] != "project-codex-host" {
+		t.Fatalf("calls = %#v, want install.sh, project, project-codex-host", calls)
+	}
+}
+
+func TestServiceKeepsOlderManagedInstallationWhenDarwinUpgradeRollsBack(t *testing.T) {
+	archive := testArtifactArchive(t, "darwin-arm64", "0.27.0", nil)
+	release := testDarwinRelease(t, archive, "0.27.0")
+	var calls []string
+	installer := NewManagedArtifactInstaller(ArtifactInstallerOptions{
+		Client: &http.Client{Transport: testArtifactTransport(archive)},
+		CommandRunner: func(_ context.Context, command string, _ []string, _ string, _ []string, _ io.Writer, _ io.Writer) error {
+			calls = append(calls, filepath.Base(command))
+			return artifactExitError(70)
+		},
+		HomeDirectory:      "/safe/home",
+		TemporaryDirectory: t.TempDir(),
+	})
+	service, err := NewService(
+		staticDetector{installation: Installation{
+			CurrentVersion: "0.21.23",
+			InstallDir:     "/safe/bin",
+			Source:         InstallSourceManaged,
+			Target:         "darwin-arm64",
+		}},
+		staticResolver{release: release},
+		installer,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := service.Plan(context.Background())
+	if err != nil || plan.Result.State != StateUpdateAvailable {
+		t.Fatalf("Plan() = %#v, %v", plan.Result, err)
+	}
+	result, err := service.Apply(context.Background(), plan, io.Discard, io.Discard)
+	if err == nil || result.State != StateRolledBack {
+		t.Fatalf("Apply() = %#v, %v", result, err)
+	}
+	if len(calls) != 1 || calls[0] != "install.sh" {
+		t.Fatalf("calls = %#v, want only the rollback-capable installer", calls)
 	}
 }
 

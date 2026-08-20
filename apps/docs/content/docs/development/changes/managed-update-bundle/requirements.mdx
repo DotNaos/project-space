@@ -1,0 +1,36 @@
+---
+title: Requirement delta
+description: Requirements for the managed machine-tools update bundle contract.
+---
+
+Requirements: **Changed**
+
+## CHANGED Requirements
+
+### SELFUPDATE-BUNDLE — Managed updates MUST validate the target-specific signed bundle
+
+#### Scenario: Upgrade from an older managed macOS installation
+
+- **Given** a supported managed macOS arm64 installation at an older version
+- **When** a newer exact stable release is resolved and its artifact is downloaded
+- **Then** the updater MUST accept the exact Darwin bundle inventory, verify its signed manifest, checksum, version, and binary pair, and apply the candidate
+
+#### Scenario: Reject a malformed Darwin bundle
+
+- **Given** a Darwin artifact is missing a required member or contains an unexpected member
+- **When** the updater extracts the artifact
+- **Then** it MUST reject the bundle before invoking the installer or changing the installation
+
+### SELFUPDATE-ROLLBACK — Managed updates MUST preserve the previous release on failure
+
+#### Scenario: Candidate verification fails
+
+- **Given** the previous managed release is installed and the candidate installer cannot verify its new binary pair
+- **When** the update transaction fails
+- **Then** the updater MUST report rollback and leave the previous active release selected
+
+#### Scenario: Release handoff contains an incomplete bundle
+
+- **Given** a platform archive does not match its exact target-specific inventory
+- **When** release finalization validates the handoff
+- **Then** publication MUST stop before the artifact can become an approved update

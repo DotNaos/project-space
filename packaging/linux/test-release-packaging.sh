@@ -109,6 +109,8 @@ cmp -- "$first_archive" "$second_archive"
   cd -- "$temporary_root/first"
   sha256sum --check --strict "${archive_name}.sha256"
 )
+bash "$script_directory/../release/validate-machine-tools-bundle.sh" \
+  "$first_archive" linux-x64 "$version" >/dev/null
 
 mkdir -p -- "$temporary_root/extracted"
 tar -xzf "$first_archive" -C "$temporary_root/extracted"

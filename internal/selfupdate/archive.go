@@ -322,25 +322,32 @@ func (installer *managedArtifactInstaller) extract(
 }
 
 func archiveBundleMembers(target string) (map[string]fs.FileMode, bool) {
-	members := map[string]fs.FileMode{
-		"CODEX-LICENSE": 0o600,
-		"CODEX-NOTICE":  0o600,
-		"CODEX-VERSION": 0o600,
-		"SHA256SUMS.txt": 0o600,
-		"VERSION":        0o600,
-		"codex":          0o700,
-		"install.sh":              0o700,
-		"project":                 0o700,
-		"project-codex-host":      0o700,
-		"release-manifest-signing-public-key.pem": 0o600,
-	}
 	switch target {
 	case "darwin-arm64":
+		return map[string]fs.FileMode{
+			"SHA256SUMS.txt":     0o600,
+			"VERSION":            0o600,
+			"install.sh":         0o700,
+			"project":            0o700,
+			"project-codex-host": 0o700,
+			"release-manifest-signing-public-key.pem": 0o600,
+		}, true
 	case "linux-x64":
+		return map[string]fs.FileMode{
+			"CODEX-LICENSE":      0o600,
+			"CODEX-NOTICE":       0o600,
+			"CODEX-VERSION":      0o600,
+			"SHA256SUMS.txt":     0o600,
+			"VERSION":            0o600,
+			"codex":              0o700,
+			"install.sh":         0o700,
+			"project":            0o700,
+			"project-codex-host": 0o700,
+			"release-manifest-signing-public-key.pem": 0o600,
+		}, true
 	default:
 		return nil, false
 	}
-	return members, true
 }
 
 func safeArchiveName(name, expectedRoot string) (string, error) {
