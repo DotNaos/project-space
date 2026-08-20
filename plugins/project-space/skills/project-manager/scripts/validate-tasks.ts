@@ -21,8 +21,12 @@ export function validateTasksDocument(source: string): string[] {
   if (activeRows.length > 3) {
     errors.push(`at most three active implementation workers are allowed; found ${activeRows.length}`);
   }
-  if (workerRows.some((line) => !/gpt-5\.6-luna\/high|<model\/reasoning>/.test(line))) {
-    errors.push('each worker row must record model and reasoning effort');
+  if (workerRows.some((line) => {
+    const columns = line.split('|').slice(1, -1).map((column) => column.trim());
+    const modelAndReasoning = columns[3]?.replaceAll('`', '').trim() ?? '';
+    return !/^[^\s/]+\/[^\s/]+$/.test(modelAndReasoning);
+  })) {
+    errors.push('each worker row must record a non-empty model/reasoning record');
   }
   if (workerRows.some((line) => !/Preview|no Preview/i.test(line))) {
     errors.push('each worker row must record Preview proof or an explicit no Preview alternative');

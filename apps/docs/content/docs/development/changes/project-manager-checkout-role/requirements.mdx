@@ -45,6 +45,20 @@ turns are reconciliation events, not blockers.
 - **When** the Manager heartbeat runs
 - **Then** the Manager resumes, repairs, changes approach, or advances the queue
 
+### PM-004 — Narrow human escalation
+
+Normal authentication checks, protected gates, signing, compatibility, merge,
+release, and Production delivery MUST remain Manager-owned technical work under
+standing authorization. The Manager MUST escalate only a material product
+decision, exceptional irreversible/external/privacy risk, or human-only
+blocker.
+
+#### Scenario: A normal technical gate fails
+
+- **Given** a normal authentication, protected, signing, compatibility, merge, release, or Production gate needs repair
+- **When** the Manager reconciles the failure
+- **Then** it repairs or routes the technical work without escalating to the user
+
 ## CHANGED Requirements
 
 None.

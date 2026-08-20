@@ -7,6 +7,16 @@ Every pull request that changes the product must add exactly one immutable
 Markdown file at `changelog/<PR-number>.md`. The filename is the pull request
 number, not the issue number and not a generated UUID.
 
+It must also add exactly one immutable JSON file directly under
+`.github/release-intents/`, named with a new lowercase UUID:
+
+```json
+{
+  "schema": "project-space.release-intent/v1",
+  "intent": "patch"
+}
+```
+
 ```md
 ---
 bump: patch
@@ -29,6 +39,7 @@ means a release-documentation problem cannot make a changelog disappear.
 Do not edit another pull request's changelog file or historical files under
 `apps/docs/content/docs/releases/entries/`.
 
-The rollout PR may carry one matching legacy release-intent file solely so the
-trusted validator from the previous `main` revision can recognize the
-migration. New pull requests must not add release-intent files.
+Do not edit historical release-intent files. A new release-intent file must be
+added, use the exact schema above, and declare the same non-`none` bump as the
+pull request changelog. The one-time migration compatibility file remains
+accepted only when a historical migration needs it.

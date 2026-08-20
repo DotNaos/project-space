@@ -38,6 +38,10 @@ function gateInput(
         source: changelogSource('patch'),
         status: 'added',
       }),
+      changed(`${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`, {
+        source: legacyIntentSource('patch'),
+        status: 'added',
+      }),
     ],
     headPackageVersion: '0.8.2',
     pullRequestNumber: 473,
@@ -96,6 +100,38 @@ describe('pull request changelog gate', () => {
       changelog: { pullRequest: 473 },
       ok: true,
     });
+  });
+
+  test('requires one newly added matching PR-owned release intent', () => {
+    const result = validateReleasePullRequest(gateInput({
+      changedFiles: [
+        changed('src/main.ts'),
+        changed(`${prChangelogDirectory}/473.md`, {
+          source: changelogSource('patch'),
+          status: 'added',
+        }),
+      ],
+    }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join('\n')).toContain('exactly one immutable release intent JSON file');
+  });
+
+  test('accepts a new lowercase UUID intent when it matches the changelog', () => {
+    const result = validateReleasePullRequest(gateInput({
+      changedFiles: [
+        changed('src/main.ts'),
+        changed(`${prChangelogDirectory}/473.md`, {
+          source: changelogSource('minor'),
+          status: 'added',
+        }),
+        changed(`${releaseIntentDirectory}/4a35123b-2783-4f15-a29b-05da1aa6630a.json`, {
+          source: legacyIntentSource('minor'),
+          status: 'added',
+        }),
+      ],
+    }));
+    expect(result).toMatchObject({ bump: 'minor', ok: true });
   });
 
   test.each([

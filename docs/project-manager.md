@@ -26,6 +26,11 @@ the same worker until clean, after which the Manager readies the PR and complete
 normal delivery. If no Preview-compatible surface exists, the Manager records
 that fact and uses the strongest realistic alternative proof.
 
+Normal authentication checks, protected gates, signing, compatibility, merge,
+release, and Production delivery remain Manager-owned technical work under
+standing authorization. Only a material product decision, exceptional
+irreversible, external, or privacy risk, or a human-only blocker is escalated.
+
 Every 30 minutes the Manager reconciles active worker state. Idle, interrupted,
 failed, timed-out, and completed turns are events to repair or advance, not
 blockers. Only a genuine human-in-the-loop decision, exceptional risk, or

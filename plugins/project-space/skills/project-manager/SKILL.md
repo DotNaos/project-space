@@ -41,12 +41,14 @@ landed dependency before a worker becomes merge-ready.
 
 The Project Manager is the only task that communicates with the user. Workers
 report progress, evidence, review findings, and escalations to the Manager only.
-Escalate only a genuinely material product decision, exceptional irreversible,
-external, privacy, authentication, authorization, billing, production,
-protected-environment, signing, compatibility, or human-only risk. Include the
-exact question, mutually exclusive options, recommendation, risk, worker task,
-revision, and safe work that can continue. Minor implementation, review, CI,
-approval, and delivery decisions belong to the Manager.
+Normal authentication checks, protected gates, signing, compatibility, merge,
+release, and Production delivery remain Manager-owned technical work under the
+task's standing authorization. Escalate only a genuinely material product
+decision, exceptional irreversible, external, or privacy risk, or a human-only
+blocker. Include the exact question, mutually exclusive options,
+recommendation, risk, worker task, revision, and safe work that can continue.
+Minor implementation, review, CI, approval, and delivery decisions belong to
+the Manager.
 
 An idle, interrupted, failed, timed-out, or completed worker turn is an event to
 reconcile, not a blocker. The Manager owns forward progress: resume the same

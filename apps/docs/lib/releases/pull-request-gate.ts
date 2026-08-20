@@ -6,7 +6,6 @@ import {
 } from '../changelog/pr-file';
 import {
   isReleaseIntentFileName,
-  legacyReleaseIntentMigrationPath,
   parseReleaseIntent,
   releaseIntentDirectory,
 } from './release-intent';
@@ -51,15 +50,16 @@ export function validateReleasePullRequest(
     );
   }
 
-  const changedLegacyIntents = input.changedFiles.filter((file) =>
-    file.path.startsWith(`${releaseIntentDirectory}/`),
+  const changedReleaseIntents = input.changedFiles.filter((file) =>
+    file.path.startsWith(`${releaseIntentDirectory}/`) &&
+    file.path.endsWith('.json'),
   );
   const changelogPaths = input.changedFiles.filter((file) =>
     file.path.startsWith(`${prChangelogDirectory}/`),
   );
-  if (changedLegacyIntents.length > 0 && changelogPaths.length === 0) {
+  if (changedReleaseIntents.length > 0 && changelogPaths.length === 0) {
     errors.push(
-      `Pull request #${input.pullRequestNumber} must use changelog/<PR>.md; legacy release-intents are historical compatibility data and may not be added or changed.`,
+      `Pull request #${input.pullRequestNumber} must use changelog/<PR>.md with one matching release intent.`,
     );
   }
   if (changelogPaths.length !== 1) {
@@ -97,37 +97,32 @@ export function validateReleasePullRequest(
     return { errors: unique(errors), ok: false };
   }
 
-  if (changedLegacyIntents.length > 0) {
+  if (changedReleaseIntents.length !== 1) {
+    errors.push(
+      `Pull request #${input.pullRequestNumber} must add exactly one immutable release intent JSON file; found ${changedReleaseIntents.length}.`,
+    );
+  } else {
+    const intentFile = changedReleaseIntents[0];
+    const intentName = intentFile.path.slice(`${releaseIntentDirectory}/`.length);
     if (
-      changedLegacyIntents.length !== 1 ||
-      changedLegacyIntents[0].path !== legacyReleaseIntentMigrationPath
+      intentFile.status !== 'added' ||
+      !isReleaseIntentFileName(intentName) ||
+      !intentFile.source?.trim()
     ) {
       errors.push(
-        'Only the one-time migration compatibility intent may accompany this changelog.',
+        `${intentFile.path} must be one newly added immutable lowercase-UUID release intent JSON file.`,
       );
     } else {
-      const legacy = changedLegacyIntents[0];
-      const legacyName = legacy.path.slice(`${releaseIntentDirectory}/`.length);
-      if (
-        legacy.status !== 'added' ||
-        !isReleaseIntentFileName(legacyName) ||
-        !legacy.source?.trim()
+      const parsedIntent = parseReleaseIntent(intentFile.source, intentFile.path);
+      if (!parsedIntent.ok) {
+        errors.push(...parsedIntent.errors);
+      } else if (
+        parsedIntent.intent.intent === 'none' ||
+        parsedIntent.intent.intent !== parsed.changelog.bump
       ) {
         errors.push(
-          `${legacy.path} is only allowed as one newly added canonical legacy compatibility intent during changelog migration.`,
+          `${intentFile.path} must use the same non-none bump as ${prChangelogDirectory}/${input.pullRequestNumber}.md.`,
         );
-      } else {
-        const parsedLegacy = parseReleaseIntent(legacy.source, legacy.path);
-        if (!parsedLegacy.ok) {
-          errors.push(...parsedLegacy.errors);
-        } else if (
-          parsedLegacy.intent.intent === 'none' ||
-          parsedLegacy.intent.intent !== parsed.changelog.bump
-        ) {
-          errors.push(
-            `${legacy.path} must use the same non-none bump as ${prChangelogDirectory}/${input.pullRequestNumber}.md.`,
-          );
-        }
       }
     }
   }

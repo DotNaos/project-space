@@ -6,6 +6,7 @@ const root = new URL('..', import.meta.url).pathname;
 
 test('versioned Project Manager skill owns completion and Preview dogfooding', async () => {
   const skill = await readFile(`${root}plugins/project-space/skills/project-manager/SKILL.md`, 'utf8');
+  const agents = await readFile(`${root}AGENTS.md`, 'utf8');
   expect(skill).toContain('version: 1.0.0');
   for (const phrase of [
     'main` is a read-only Project Manager surface',
@@ -19,8 +20,19 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
     'desktop and mobile sizes',
     'same worker task',
     'no Preview-compatible surface',
+    'Normal authentication checks, protected gates, signing, compatibility, merge',
   ]) {
     expect(skill).toContain(phrase);
+  }
+  for (const phrase of [
+    'project worktree context --format json',
+    'state=main',
+    'state=owned',
+    'state=foreign',
+    'state=unmanaged',
+    'fail-closed',
+  ]) {
+    expect(agents).toContain(phrase);
   }
 });
 
@@ -33,10 +45,23 @@ test('TASKS template and validator preserve the three-worker and proof contract'
     activeRow,
   ) + `\n${activeRow.replace('#001', '#002')}\n${activeRow.replace('#001', '#003')}\n${activeRow.replace('#001', '#004')}`;
   expect(validateTasksDocument(tooMany).join('\n')).toContain('at most three active');
+
+  const escalated = template.replace(
+    '`gpt-5.6-luna/high`',
+    '`gpt-5.6-orion/medium`',
+  );
+  expect(validateTasksDocument(escalated)).toEqual([]);
+  expect(validateTasksDocument(escalated.replace('`gpt-5.6-orion/medium`', ''))).toContain(
+    'each worker row must record a non-empty model/reasoning record',
+  );
+  expect(validateTasksDocument(escalated.replace('`gpt-5.6-orion/medium`', '`escalated`'))).toContain(
+    'each worker row must record a non-empty model/reasoning record',
+  );
 });
 
 test('workflow documentation repeats the no-Preview alternative', async () => {
   const docs = await readFile(`${root}docs/project-manager.md`, 'utf8');
   expect(docs).toContain('no Preview-compatible surface exists');
   expect(docs).toContain('desktop and mobile sizes');
+  expect(docs).toContain('Normal authentication checks, protected gates, signing');
 });

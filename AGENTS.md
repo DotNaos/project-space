@@ -1,3 +1,15 @@
+## Checkout role routing
+
+After claiming an agent name, every agent MUST run
+`project worktree context --format json` before any repository action. When the
+result is `state=main`, invoke the versioned
+`plugins/project-space/skills/project-manager/SKILL.md` workflow and keep the
+shared checkout read-only. When the result is `state=owned`, use the returned
+Project-managed issue worktree for implementation. `state=foreign` and
+`state=unmanaged` are observer-only and must not mutate, install, generate,
+build, commit, or deploy. Missing, invalid, ambiguous, or failed context is
+fail-closed: stop mutation and obtain a proven Project-managed context.
+
 ## Parallel Codex Work
 
 - Before changing the repository, list the active Codex tasks and inspect every active task working in this repository. Identify its branch, worktree, owner thread, and likely file ownership before choosing where to work. The agent must perform this check itself instead of waiting for the user to mention parallel work.

@@ -13,7 +13,7 @@ import {
   releaseIntentDirectory,
   releaseIntentEnforcementPath,
   releaseIntentEnforcementSource,
-  legacyReleaseIntentMigrationPath,
+  isReleaseIntentFileName,
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
 import { parseStableSemver } from '../apps/docs/lib/releases/semver';
@@ -267,30 +267,26 @@ async function queuedMerges(
           `Merged commit ${commit} changelog ${changelogPaths[0]} belongs to PR #${parsed.changelog.pullRequest}, not merged PR #${pullRequest}.`,
         );
       }
+      const allIntentChanges = changedPaths.filter((path) =>
+        path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
+      );
       if (intentPaths.length > 0) {
         if (
           intentPaths.length !== 1 ||
-          intentPaths[0] !== legacyReleaseIntentMigrationPath
+          allIntentChanges.length !== 1 ||
+          !isReleaseIntentFileName(basename(intentPaths[0]))
         ) {
           throw new Error(
-            `Merged commit ${commit} may carry at most one legacy release intent during changelog migration.`,
+            `Merged commit ${commit} must add exactly one lowercase-UUID release intent with its changelog.`,
           );
         }
-        const allIntentChanges = changedPaths.filter((path) =>
-          path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
-        );
-        if (allIntentChanges.length !== 1) {
-          throw new Error(
-            `Merged commit ${commit} modifies release-intent history instead of adding one migration compatibility item.`,
-          );
-        }
-        const legacyIntent = readIntent(commit, intentPaths[0]);
+        const intent = readIntent(commit, intentPaths[0]);
         if (
-          legacyIntent === 'none' ||
-          legacyIntent !== parsed.changelog.bump
+          intent === 'none' ||
+          intent !== parsed.changelog.bump
         ) {
           throw new Error(
-            `Merged commit ${commit} legacy release intent must match changelog bump ${parsed.changelog.bump}.`,
+            `Merged commit ${commit} release intent must match changelog bump ${parsed.changelog.bump}.`,
           );
         }
       }
