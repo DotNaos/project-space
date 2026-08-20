@@ -43,9 +43,14 @@ then strips the temporary owner field before returning the existing public snaps
    owner-scoped; duplicate ambiguity remains fail-closed.
 6. Run migration `0059_tailscale_environment_ownership` only when a current, online,
    deployment-owned Tailscale Environment has one OS/name match to one user-owned connector
-   grouped into one local physical Host and the account has an equivalent built-in definition.
-   It copies the Environment into that account with the same UUID and manual/user evidence,
-   while leaving the deployment projection unchanged.
+   identity grouped into one local physical Host and the account has an equivalent built-in
+   definition. Two connectors remain ambiguous even when they point to the same Host. The
+   migration copies the Environment into that account with the same UUID and manual/user
+   evidence, while leaving the deployment projection unchanged.
+7. Suppress the deployment projection from combined presentation only when the same-UUID user
+   record is an equivalent built-in with resolved identity, manual user evidence, a Host ID, and
+   the same copied kind, name, and resource mode. Unresolved, unrelated, and user-defined rows do
+   not establish migration provenance and therefore cannot hide deployment evidence.
 
 ## Validation model
 
@@ -73,17 +78,20 @@ the HTTP start/send boundary. No preconstructed inventory snapshot bypasses eith
 - **Fabricated target:** configured runtime projection requires exact owner-valid Host evidence;
   otherwise the service returns the existing actionable unavailable result before dispatch.
 - **Unsafe backfill:** the migration inserts no row when the observation matches multiple
-  accounts, connectors, or Hosts, when the evidence is stale/offline, or when the account has a
-  user-defined definition at that identity. Existing rows with user-defined evidence are not
-  overwritten.
+  accounts, connector identities, or Hosts, including multiple connectors grouped into one Host,
+  when the evidence is stale/offline, or when the account has a user-defined definition at that
+  identity. Existing rows with user-defined evidence are not overwritten.
+- **Premature projection suppression:** combined presentation requires the complete repaired-copy
+  signature. A same-ID unresolved, unrelated, or user-defined account row leaves the deployment
+  evidence visible.
 
 ## Migration and rollout
 
 The forward migration is additive and idempotent. It copies only the exact eligible
 deployment-derived Environment into the account scope; ambiguous or stale evidence is left
 untouched, and the original deployment projection remains intact. Combined presentation hides
-only the matching deployment projection after a built-in account copy exists, preserving
-user-defined and unrelated deployment evidence.
+only the matching deployment projection after a fully repaired built-in account copy exists,
+preserving unresolved, user-defined, and unrelated evidence.
 
 ## Validation
 

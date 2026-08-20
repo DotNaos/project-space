@@ -267,6 +267,9 @@ describe('database migrations', () => {
     expect(tailscaleEnvironmentOwnershipMigrationSql).toContain(
       'having count(*) = 1'
     );
+    expect(tailscaleEnvironmentOwnershipMigrationSql).toMatch(
+      /select distinct\s+machine_connector\.connector_id as connector_id,\s+environment\.id as environment_id/
+    );
     expect(tailscaleEnvironmentOwnershipMigrationSql).toContain(
       'physical_machine_connectors'
     );
@@ -277,6 +280,20 @@ describe('database migrations', () => {
       "host_resolution, host_evidence, resource_mode"
     );
     expect(databaseMigrations.at(-1)?.id).toBe(tailscaleEnvironmentOwnershipMigrationId);
+  });
+
+  test('keeps two matching connectors on one Host as two migration candidates', () => {
+    const distinctCandidateColumns = tailscaleEnvironmentOwnershipMigrationSql.match(
+      /select distinct([\s\S]*?)from tailscale_compute_environment_projections/
+    )?.[1];
+
+    expect(distinctCandidateColumns).toContain(
+      'machine_connector.connector_id as connector_id'
+    );
+    expect(distinctCandidateColumns).toContain('host.id as host_id');
+    expect(tailscaleEnvironmentOwnershipMigrationSql).toMatch(
+      /group by environment_id\s+having count\(\*\) = 1/
+    );
   });
 
   test('repairs compute-environment identity resolution after the original migration', () => {

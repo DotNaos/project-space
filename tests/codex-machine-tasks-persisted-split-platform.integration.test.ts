@@ -29,10 +29,17 @@ interface Row extends Record<string, unknown> {
   owner_user_id?: string;
 }
 
+type SplitPlatformMode =
+  | 'valid'
+  | 'ambiguous'
+  | 'unresolved-copy'
+  | 'unrelated-copy'
+  | 'user-defined-copy';
+
 class SplitPlatformDatabase implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
 
-  constructor(private readonly mode: 'valid' | 'ambiguous' = 'valid') {}
+  constructor(private readonly mode: SplitPlatformMode = 'valid') {}
 
   async query<Result>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
@@ -65,21 +72,36 @@ class SplitPlatformDatabase implements DatabaseQueryClient {
       return { rows: this.visible(hosts, combined) as Result[] };
     }
     if (sql.includes('from compute_environments') && sql.includes('order by lower')) {
-      const environments = this.mode === 'ambiguous'
-        ? [environment(userId, environmentId, 'a', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
+      if (this.mode === 'ambiguous') {
+        return { rows: [environment(
+          userId,
+          environmentId,
+          'a',
+          'b721aada-d38b-4f44-a9ff-4fa86bb7cc31',
+          {
             host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
-          })]
-        : [
-            environment(userId, environmentId, 'a', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
-              host_evidence: 'user', host_id: hostId, host_resolution: 'manual'
-            }),
-            environment(deploymentOwnerId, environmentId, 'x', 'a4731568-0d82-460a-b048-1db063b4b470', {
-              host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
-            }),
-            environment(userId, '1cbcf4d5-985d-4216-8782-6107cb365688', 'x', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
-              host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
-            })
-          ];
+          }
+        )] as Result[] };
+      }
+      const userAssociation = this.mode === 'unresolved-copy'
+        ? { host_evidence: 'none', host_id: null, host_resolution: 'unresolved' }
+        : { host_evidence: 'user', host_id: hostId, host_resolution: 'manual' };
+      const environments = [
+        environment(
+          userId,
+          environmentId,
+          this.mode === 'user-defined-copy' ? 'x' : 'a',
+          'b721aada-d38b-4f44-a9ff-4fa86bb7cc31',
+          userAssociation,
+          this.mode === 'unrelated-copy' ? 'unrelated-mac' : 'os-macbook'
+        ),
+        environment(deploymentOwnerId, environmentId, 'x', 'a4731568-0d82-460a-b048-1db063b4b470', {
+          host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
+        }),
+        environment(userId, '1cbcf4d5-985d-4216-8782-6107cb365688', 'x', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
+          host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
+        })
+      ];
       return { rows: this.visible(environments, combined) as Result[] };
     }
     if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
@@ -118,12 +140,13 @@ function environment(
   id: string,
   definitionId: string,
   platformId: string,
-  association: { host_evidence: string; host_id: string | null; host_resolution: string }
+  association: { host_evidence: string; host_id: string | null; host_resolution: string },
+  name = 'os-macbook'
 ) {
   return {
     ...association, environment_definition_id: definitionId, id,
     identity_key: `environment:${owner}:${id}`, identity_resolution: 'resolved', identity_version: 1,
-    kind: 'native_macos', legacy_tombstoned_only: false, name: 'os-macbook', owner_user_id: owner,
+    kind: 'native_macos', legacy_tombstoned_only: false, name, owner_user_id: owner,
     parent_environment_id: null, platform_id: platformId, resource_mode: 'dedicated', resources: null,
     tailscale_projected: owner === deploymentOwnerId
   };
@@ -184,7 +207,7 @@ function backend() {
   };
 }
 
-async function configuredHttp(mode: 'valid' | 'ambiguous' = 'valid') {
+async function configuredHttp(mode: SplitPlatformMode = 'valid') {
   const database = new SplitPlatformDatabase(mode);
   const commands: WorkspaceRuntimeCodexCommand[] = [];
   const runtime = await createConfiguredCodexMachineTasksRuntime({
@@ -242,7 +265,7 @@ describe('persisted split-platform Codex ownership integration', () => {
       additionalOwnerUserIds: [deploymentOwnerId]
     });
     expect(combinedInventory.violations).toEqual([]);
-    expect(combinedInventory.environments.some(({ id }) => id === environmentId)).toBe(true);
+    expect(combinedInventory.environments.filter(({ id }) => id === environmentId)).toHaveLength(1);
     const configuredCallStart = configured.database.calls.length;
     const start = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation('split-start-842', {
       expectedBranch: branch, expectedCommit: commit, issue: 842,
@@ -301,5 +324,26 @@ describe('persisted split-platform Codex ownership integration', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ state: 'blocked', reason: 'unauthorized' });
     expect(configured.commands).toEqual([]);
+  });
+
+  test.each([
+    ['unresolved user built-in', 'unresolved-copy'],
+    ['unrelated user built-in', 'unrelated-copy'],
+    ['user-defined user Environment', 'user-defined-copy']
+  ] as const)('keeps deployment evidence beside an %s', async (_description, mode) => {
+    const configured = await configuredHttp(mode);
+    const combinedInventory = await configured.repository.listComputeInventory(userId, {
+      additionalOwnerUserIds: [deploymentOwnerId]
+    });
+    const collisionRows = combinedInventory.environments.filter(({ id }) => id === environmentId);
+
+    expect(collisionRows).toHaveLength(2);
+    expect(collisionRows.some(({ hostAssociation }) => (
+      hostAssociation.resolution === 'unresolved'
+    ))).toBe(true);
+    if (mode === 'user-defined-copy') {
+      expect(collisionRows.some(({ environmentDefinitionId }) => environmentDefinitionId === 'x'))
+        .toBe(true);
+    }
   });
 });

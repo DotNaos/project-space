@@ -17,9 +17,12 @@ Verification status: **Incomplete**
 - [x] The exact cross-owner UUID collision has focused regression coverage.
 - [x] Focused tests, type check, full tests, and build pass locally.
 - [x] Migration `0059_tailscale_environment_ownership` is additive and fail-closed: it copies
-  only one current deployment observation with one exact user-owned connector/Host match and
-  an existing built-in definition, leaves the deployment projection unchanged, and no-ops on
-  stale, duplicate, wrong-owner, or user-defined evidence.
+  only one current deployment observation with one exact user-owned connector identity/Host
+  match and an existing built-in definition, leaves the deployment projection unchanged, and
+  no-ops on stale, duplicate, wrong-owner, user-defined, or two-connectors-to-one-Host evidence.
+- [x] Combined presentation suppresses a deployment projection only for a same-UUID user built-in
+  with resolved identity, manual user Host evidence, and matching copied fields; unresolved,
+  unrelated, and user-defined rows retain the deployment evidence.
 - [x] The configured start/send service path selects the exact verified Host and Environment and
   fails closed with an actionable typed unavailable result for missing, unresolved, or conflicting
   user-owned association evidence.

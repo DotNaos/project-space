@@ -57,6 +57,20 @@ actionable unavailable state otherwise.
 - **Then** the request is blocked with `Select one exact physical machine.` and no start or send
   dispatch is attempted
 
+#### Scenario: Combined projection suppression requires a repaired copy
+
+- **Given** a deployment Tailscale projection shares its UUID with an unresolved, unrelated, or
+  user-defined Environment in the user scope
+- **When** the combined inventory is presented
+- **Then** both records remain visible; suppression occurs only for an equivalent built-in copy
+  with resolved identity, manual user evidence, a Host association, and matching copied fields
+
+#### Scenario: Two connectors match the same Host
+
+- **Given** two matching user-owned connector identities are grouped into the same physical Host
+- **When** the ownership backfill evaluates the deployment Environment
+- **Then** the two connectors remain distinct candidates and the migration performs no backfill
+
 ## CHANGED Requirements
 
 None.

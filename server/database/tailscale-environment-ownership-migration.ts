@@ -32,6 +32,7 @@ export const tailscaleEnvironmentOwnershipMigrationSql = `
   )
   with candidate_rows as (
     select distinct
+           machine_connector.connector_id as connector_id,
            environment.id as environment_id,
            identity.owner_user_id,
            host.platform_id,

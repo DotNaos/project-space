@@ -21,11 +21,13 @@ description: Implementation and verification checklist for Environment ownership
   - **Evidence:** The regression expects the duplicate-slug violation; the full test suite passes without changes to authorization boundaries.
 - [x] 2.3 Audit persisted and projected paths
   - **Evidence:** Migration `0059_tailscale_environment_ownership` copies only one exact eligible
-    deployment projection into the user scope; stale, duplicate, wrong-owner, and user-defined
-    evidence remains untouched and fail-closed.
+    deployment projection into the user scope; connector identity remains part of candidate
+    uniqueness, so two connectors on one Host remain ambiguous. Stale, duplicate, wrong-owner,
+    and user-defined evidence remains untouched and fail-closed.
 - [x] 2.4 Keep combined presentation owner-safe after the backfill
   - **Evidence:** The repository suppresses only the matching deployment projection when the
-    user-owned built-in copy exists, while retaining user-defined and unrelated deployment rows.
+    user-owned copy has the complete repaired built-in signature, while retaining unresolved,
+    user-defined, and unrelated rows.
 
 ## 3. Delivery evidence
 

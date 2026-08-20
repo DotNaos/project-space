@@ -45,6 +45,7 @@ import {
   reconcileBuiltInEnvironmentDefinitions,
   validateComputeInventory
 } from '../../src/shared/compute-environment-api';
+import { isRepairedTailscaleEnvironmentCopy } from './tailscale-environment-repair';
 
 interface MachineMembershipRow {
   created_at: Date | string;
@@ -366,14 +367,13 @@ export class ProjectSpaceDatabaseRepository {
     const environmentDefinitionsByKey = new Map(
       definitionResult.rows.map((row) => [`${row.owner_user_id}\u0000${row.id}`, row])
     );
-    const userBuiltInEnvironmentIds = new Set(
-      environmentResult.rows
-        .filter((row) => row.owner_user_id === ownerUserId)
-        .filter((row) => environmentDefinitionsByKey.get(
-          `${row.owner_user_id}\u0000${row.environment_definition_id}`
-        )?.ownership === 'built_in')
-        .map((row) => row.id)
-    );
+    const userEnvironmentsById = new Map<string, ComputeEnvironmentRow[]>();
+    for (const row of environmentResult.rows) {
+      if (row.owner_user_id !== ownerUserId) continue;
+      const matching = userEnvironmentsById.get(row.id) ?? [];
+      matching.push(row);
+      userEnvironmentsById.set(row.id, matching);
+    }
     // A migrated account-scoped copy is authoritative for the account's
     // configured runtime. Hide only the matching deployment Tailscale
     // projection from combined presentation inventory; preserve every
@@ -382,7 +382,13 @@ export class ProjectSpaceDatabaseRepository {
       !row.legacy_tombstoned_only && !(
         row.owner_user_id !== ownerUserId &&
         row.tailscale_projected === true &&
-        userBuiltInEnvironmentIds.has(row.id)
+        (userEnvironmentsById.get(row.id) ?? []).some((userEnvironment) => (
+          isRepairedTailscaleEnvironmentCopy(
+            userEnvironment,
+            row,
+            environmentDefinitionsByKey
+          )
+        ))
       )
     ));
     const hosts: ComputeHostRecord[] = hostResult.rows.filter((row) => !row.legacy_tombstoned_only).map((row) => ({
