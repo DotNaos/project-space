@@ -356,6 +356,37 @@ describe('VPS runner admission', () => {
     expect((await store.read(hostId, malformed.identity.reservationId))?.state).toBe('active');
   });
 
+  test('does not fence or reserve against durable rows under an oversized lease policy', async () => {
+    const store = new MemoryRunnerHostAdmissionStore();
+    const seedService = new RunnerHostAdmissionService(
+      store, policy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    const reserved = await seedService.reserve(evidence, request('oversized-lease'));
+    if (reserved.kind !== 'reserved') throw new Error('fixture did not reserve');
+    const expired = {
+      ...reserved.reservation,
+      createdAt: '2026-08-20T09:00:00.000Z',
+      idleExpiresAt: '2026-08-20T09:30:00.000Z',
+      leaseExpiresAt: '2026-08-20T09:15:00.000Z',
+      runtimeExpiresAt: '2026-08-20T21:00:00.000Z'
+    };
+    await store.save(hostId, expired);
+
+    const oversizedPolicy = {
+      ...policy,
+      leaseSeconds: policy.maximumRuntimeSeconds + 1
+    };
+    const service = new RunnerHostAdmissionService(
+      store, oversizedPolicy, () => new Date('2026-08-20T10:00:01.000Z')
+    );
+    expect(await service.fenceExpired(hostId)).toEqual([]);
+    expect((await store.read(hostId, expired.identity.reservationId))?.state).toBe('active');
+    expect(await service.reserve(evidence, request('oversized-lease-next'))).toMatchObject({
+      kind: 'blocked', reason: 'invalid_lease'
+    });
+    expect((await store.read(hostId, expired.identity.reservationId))?.state).toBe('active');
+  });
+
   test('fences expired idle, lease, or runtime reservations before capacity reuse', async () => {
     const store = new MemoryRunnerHostAdmissionStore();
     const service = new RunnerHostAdmissionService(store, policy, () => new Date('2026-08-20T10:00:01.000Z'));

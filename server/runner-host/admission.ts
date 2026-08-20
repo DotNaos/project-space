@@ -542,7 +542,8 @@ function validPolicyResourceScalars(policy: unknown) {
 function validPolicyLeaseScalars(policy: unknown) {
   return isRecord(policy) &&
     positiveSafeInteger(policy.leaseSeconds) &&
-    positiveSafeInteger(policy.maximumRuntimeSeconds);
+    positiveSafeInteger(policy.maximumRuntimeSeconds) &&
+    policy.leaseSeconds <= policy.maximumRuntimeSeconds;
 }
 
 function validRequestDurationScalars(request: unknown) {
