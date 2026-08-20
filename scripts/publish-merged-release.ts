@@ -204,18 +204,22 @@ async function queuedMerges(
     const changedPaths = gitOutput([
       'diff', '--no-renames', '--name-only', parent, commit,
     ]).split('\n').filter(Boolean);
+    const isAdoptionCommit = !alreadyEnforced &&
+      commit === commits[enforcementIndex] &&
+      addedPaths(commit, releaseIntentDirectory).includes(
+        releaseIntentEnforcementPath,
+      ) && markerMatchesAt(commit);
     if (changedPaths.includes(releaseIntentEnforcementPath)) {
-      const isAdoptionCommit = !alreadyEnforced &&
-        commit === commits[enforcementIndex] &&
-        addedPaths(commit, releaseIntentDirectory).includes(
-          releaseIntentEnforcementPath,
-        ) && markerMatchesAt(commit);
       if (!isAdoptionCommit) {
         throw new Error(
           `Merged commit ${commit} changes the immutable release-intent enforcement marker.`,
         );
       }
     }
+    const allIntentChanges = changedPaths.filter((path) =>
+      path.startsWith(`${releaseIntentDirectory}/`) &&
+      !(isAdoptionCommit && path === releaseIntentEnforcementPath),
+    );
     const intentPaths = addedPaths(commit, releaseIntentDirectory)
       .filter((path) => path.endsWith('.json'));
     const changelogPaths = addedPaths(commit, prChangelogDirectory)
@@ -266,21 +270,14 @@ async function queuedMerges(
           `Merged commit ${commit} changelog ${changelogPaths[0]} belongs to PR #${parsed.changelog.pullRequest}, not merged PR #${pullRequest}.`,
         );
       }
-      if (intentPaths.length > 0) {
+      if (allIntentChanges.length > 0) {
         if (
           intentPaths.length !== 1 ||
-          intentPaths[0] !== legacyReleaseIntentMigrationPath
+          intentPaths[0] !== legacyReleaseIntentMigrationPath ||
+          allIntentChanges.length !== 1
         ) {
           throw new Error(
             `Merged commit ${commit} may carry at most one legacy release intent during changelog migration.`,
-          );
-        }
-        const allIntentChanges = changedPaths.filter((path) =>
-          path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
-        );
-        if (allIntentChanges.length !== 1) {
-          throw new Error(
-            `Merged commit ${commit} modifies release-intent history instead of adding one migration compatibility item.`,
           );
         }
         const legacyIntent = readIntent(commit, intentPaths[0]);
@@ -301,9 +298,6 @@ async function queuedMerges(
       continue;
     }
 
-    const allIntentChanges = changedPaths.filter((path) =>
-      path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
-    );
     if (intentPaths.length !== 1 || allIntentChanges.length !== 1) {
       throw new Error(
         `Merged commit ${commit} modifies release-intent history instead of adding one queue item.`,

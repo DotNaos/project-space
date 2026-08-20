@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import {
   isReleaseIntentFileName,
+  releaseIntentDirectory,
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
 import { connectorReleaseSensitivePaths } from
@@ -16,10 +17,15 @@ export interface MergedIntentOnlyQueueItem {
 export function validateMergedIntentOnlyQueueItem(
   item: MergedIntentOnlyQueueItem,
 ) {
+  const intentPath = item.intentPaths[0] ?? '';
+  const intentFileName = basename(intentPath);
+  const expectedDirectChild = `${releaseIntentDirectory}/${intentFileName}`;
   if (
     item.intentPaths.length !== 1 ||
     item.allIntentChanges.length !== 1 ||
-    !isReleaseIntentFileName(basename(item.intentPaths[0] ?? ''))
+    item.allIntentChanges[0] !== intentPath ||
+    intentPath !== expectedDirectChild ||
+    !isReleaseIntentFileName(intentFileName)
   ) {
     throw new Error(
       'Merged commit must add exactly one lowercase-UUID release intent without a changelog.',

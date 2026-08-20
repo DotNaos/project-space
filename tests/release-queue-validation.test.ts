@@ -17,7 +17,9 @@ const validHistoricalItem = {
 };
 
 test('accepts a valid historical intent-only compatibility item', () => {
-  expect(() => validateMergedIntentOnlyQueueItem(validHistoricalItem)).not.toThrow();
+  expect(() =>
+    validateMergedIntentOnlyQueueItem(validHistoricalItem)
+  ).not.toThrow();
 });
 
 test.each([
@@ -32,11 +34,35 @@ test.each([
   })).toThrow('lowercase-UUID');
 });
 
+test('rejects a nested intent path even when its basename is a valid UUID', () => {
+  const path =
+    `${releaseIntentDirectory}/nested/4a35123b-2783-4f15-a29b-05da1aa6630a.json`;
+  expect(() => validateMergedIntentOnlyQueueItem({
+    ...validHistoricalItem,
+    allIntentChanges: [path],
+    intentPaths: [path],
+  })).toThrow('lowercase-UUID');
+});
+
+test('rejects a valid intent beside another release-intent history change', () => {
+  expect(() => validateMergedIntentOnlyQueueItem({
+    ...validHistoricalItem,
+    allIntentChanges: [validPath, `${releaseIntentDirectory}/README.md`],
+  })).toThrow('lowercase-UUID');
+});
+
 test('rejects a non-none historical intent-only item', () => {
   expect(() => validateMergedIntentOnlyQueueItem({
     ...validHistoricalItem,
     intent: 'patch',
   })).toThrow('must declare intent none');
+});
+
+test('rejects a historical none intent that changes release-sensitive paths', () => {
+  expect(() => validateMergedIntentOnlyQueueItem({
+    ...validHistoricalItem,
+    productPaths: ['cmd/project/main.go'],
+  })).toThrow('release-sensitive paths');
 });
 
 test('accepts the current changelog PR contract without a release-intent file', () => {
@@ -49,13 +75,13 @@ test('accepts the current changelog PR contract without a release-intent file', 
         status: 'modified',
       },
       {
-        path: 'changelog/836.md',
+        path: 'changelog/839.md',
         source,
         status: 'added',
       },
     ],
     headPackageVersion: '0.27.0',
-    pullRequestNumber: 836,
+    pullRequestNumber: 839,
   })).toMatchObject({
     bump: 'patch',
     ok: true,
