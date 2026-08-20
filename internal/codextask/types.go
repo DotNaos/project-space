@@ -68,6 +68,7 @@ type WorkerSelection struct {
 type ReportingTask struct {
 	Role     string `json:"role"`
 	ThreadID string `json:"threadId"`
+	Evidence string `json:"evidence,omitempty"`
 }
 
 type TaskIdentity struct {

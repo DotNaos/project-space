@@ -68,7 +68,11 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
     );
     const row = result.rows[0];
     if (!row) return { kind: 'missing' } as const;
-    const legacy = isLegacyStartPayload(row.start_payload) || isLegacyStartResult(row.result);
+    // A NULL payload is only a legacy row when the caller proves it with the
+    // historical fingerprint. This keeps a newly malformed reservation from
+    // being silently treated as an upgrade artifact.
+    const legacy = isLegacyStartPayload(row.start_payload) || isLegacyStartResult(row.result) ||
+      (row.start_payload === null && input.legacyFingerprint === row.fingerprint_sha256);
     if (row.fingerprint_sha256 !== input.fingerprint &&
         !(legacy && input.legacyFingerprint === row.fingerprint_sha256)) {
       return { kind: 'conflict' } as const;
@@ -242,7 +246,8 @@ export class PostgresCodexMachineTasksStore implements CodexMachineTasksStore {
       );
       const row = current.rows[0];
       if (!row) return 'missing' as const;
-      const legacy = isLegacyStartPayload(row.start_payload) || isLegacyStartResult(row.result);
+      const legacy = isLegacyStartPayload(row.start_payload) || isLegacyStartResult(row.result) ||
+        (row.start_payload === null && input.legacyFingerprint === row.fingerprint_sha256);
       if (row.fingerprint_sha256 !== input.fingerprint &&
           !(legacy && input.legacyFingerprint === row.fingerprint_sha256)) return 'conflict' as const;
       if (row.state !== 'uncertain') return 'not_uncertain' as const;
@@ -646,7 +651,8 @@ function isStartPayload(value: unknown): value is CodexMachineTaskStartPayload {
     (reportingTask === undefined || (
       (reportingTask.role === 'project-manager' || reportingTask.role === 'initiator') &&
       typeof reportingTask.threadId === 'string' &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportingTask.threadId)
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportingTask.threadId) &&
+      (reportingTask.evidence === undefined || reportingTask.evidence === 'caller-supplied' || reportingTask.evidence === 'manager-verified')
     ));
 }
 

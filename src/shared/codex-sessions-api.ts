@@ -148,6 +148,7 @@ export interface CodexSessionStartRequest {
     reportingTask: {
       role: 'initiator' | 'project-manager';
       threadId: string;
+      evidence?: 'caller-supplied' | 'manager-verified';
     };
     reasoningEffort: string;
     model: string;

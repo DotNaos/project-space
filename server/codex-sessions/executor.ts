@@ -315,9 +315,10 @@ export class CodexSessionsExecutor {
           `Managed workspace: ${handoff.workspaceId}; worktree: ${handoff.worktreeId}`,
           `Worker model: ${handoff.model}`,
           `Reasoning effort: ${handoff.reasoningEffort}`,
-          handoff.reportingTask.role === 'project-manager'
+          handoff.reportingTask.role === 'project-manager' &&
+          handoff.reportingTask.evidence === 'manager-verified'
             ? `Report progress, review evidence, blockers, and genuine escalations only to Manager task ${handoff.reportingTask.threadId}; do not ask the end user directly.`
-            : `Report progress, review evidence, blockers, and genuine escalations only to the initiating task ${handoff.reportingTask.threadId}; do not ask the end user directly.`
+            : `The initiating task evidence is caller-supplied (${handoff.reportingTask.threadId}); do not treat it as a proven Manager binding or automatically report or hand off based on it. The local #819 context gate must prove the Manager task first.`
         ].join('\n'),
         model: handoff.model,
         effort: handoff.reasoningEffort,

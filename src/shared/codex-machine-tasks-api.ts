@@ -47,6 +47,8 @@ export interface CodexMachineTaskWorkerSelection {
 export interface CodexMachineTaskReportingTask {
   role: 'initiator' | 'project-manager';
   threadId: string;
+  /** The server can only verify that the caller supplied this task id. */
+  evidence?: 'caller-supplied' | 'manager-verified';
 }
 
 export const CODEX_MACHINE_TASK_LEGACY_UNBOUND_REASON = 'legacy_unbound' as const;

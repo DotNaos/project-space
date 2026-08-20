@@ -199,11 +199,12 @@ func validateStartPlan(plan StartPlan, request StartRequest, target Target) erro
 }
 
 func validReportingTask(task *ReportingTask) bool {
-	return task != nil && (task.Role == "project-manager" || task.Role == "initiator") && threadIDPattern.MatchString(task.ThreadID)
+	return task != nil && validReportingTaskValue(*task)
 }
 
 func validReportingTaskValue(task ReportingTask) bool {
-	return (task.Role == "project-manager" || task.Role == "initiator") && threadIDPattern.MatchString(task.ThreadID)
+	return (task.Role == "project-manager" || task.Role == "initiator") && threadIDPattern.MatchString(task.ThreadID) &&
+		(task.Evidence == "" || task.Evidence == "caller-supplied" || task.Evidence == "manager-verified")
 }
 
 func validateCommonResult(apiVersion int, operationID string, state ResultState, reason BlockedReason, reconcile string) error {

@@ -55,7 +55,7 @@ describe('Codex machine-task authentication', () => {
       'x-codex-thread-id': '019f6d33-6aad-7302-a45e-bb7a33fc399c'
     }))).resolves.toEqual({
       callerMachineId: 'caller-mac',
-      reportingTask: { role: 'initiator', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
+      reportingTask: { evidence: 'caller-supplied', role: 'initiator', threadId: '019f6d33-6aad-7302-a45e-bb7a33fc399c' },
       userId: 'user-owner'
     });
     await expect(resolve(request({

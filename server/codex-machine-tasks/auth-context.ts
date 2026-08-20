@@ -53,7 +53,7 @@ function reportingTask(request: IncomingMessage) {
   // This header identifies the initiating Codex task only. The server cannot
   // infer Project Manager ownership from an arbitrary caller-supplied UUID;
   // #819's worktree-context gate must prove that role before dispatch.
-  return { reportingTask: { role: 'initiator' as const, threadId } };
+  return { reportingTask: { evidence: 'caller-supplied' as const, role: 'initiator' as const, threadId } };
 }
 
 function singleHeader(request: IncomingMessage, name: string) {
