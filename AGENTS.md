@@ -14,9 +14,25 @@ fail-closed: stop mutation and obtain a proven Project-managed context.
 
 - Before changing the repository, list the active Codex tasks and inspect every active task working in this repository. Identify its branch, worktree, owner thread, and likely file ownership before choosing where to work. The agent must perform this check itself instead of waiting for the user to mention parallel work.
 - Never implement changes in the shared `main` worktree. It is read-only orientation and bootstrap space only: do not edit files, run generators or builds, create commits, or use it as an integration area.
-- Every repository mutation requires a dedicated branch and a Project-managed worktree under `~/projects/.worktrees/{project}/{branch}`. GitHub issues are recommended for larger work but are not required for every change.
-- Before editing, the persistent main Codex task runs `project worktree check`. In a correctly placed but unowned linked worktree, it may run `project worktree prepare` to claim that checkout. Otherwise it runs `project worktree prepare <task-name>` or `project worktree prepare --issue <number>` and continues exclusively in the returned path.
-- Project-managed worktrees are owned by the main task's `CODEX_THREAD_ID`. The same Codex chat may reuse its worktree for multiple related changes without creating additional issues. Subagents work under that established claim and must not prepare or check the worktree using their distinct subagent thread IDs. A different main Codex chat must use a different worktree and must never overwrite the existing owner.
+- Every implementation mutation requires a GitHub issue, a dedicated branch,
+  and a Project-managed issue worktree under
+  `~/projects/.worktrees/{project}/{branch}`. Issue-less claims are
+  observer-only and fail closed for mutation.
+- Before editing, the main Project Manager task runs the context gate from the
+  shared main checkout and remains read-only there. It does not run local
+  `project worktree check` or `project worktree prepare`; the canonical Codex
+  start operation owns preparation and returns the implementer task.
+- The main Project Manager task remains in the shared main checkout after the
+  context gate and never mutates or claims an implementation worktree. It
+  dispatches through the canonical
+  `project codex start --issue <number> --environment-id <id> --operation-id <id> --format json`
+  operation. That operation prepares the issue-bound Project-managed worktree
+  and returns the implementer task; only that implementer task owns and uses
+  the returned worktree. The same Codex chat may reuse its Manager surface for
+  related changes without creating additional issues. Subagents work under an
+  established implementer claim and must not prepare or check the worktree
+  using their distinct subagent thread IDs. A different main Codex chat must
+  use a different worktree and must never overwrite the existing owner.
 - If `CODEX_THREAD_ID` is unavailable, do not mutate the repository. Continue the work in a Codex chat that has a thread ID, then prepare its worktree.
 - If the current worktree is dirty, belongs to another task, or contains changes whose ownership is unclear, leave those changes untouched and prepare a fresh worktree based on the latest `origin/main`. Do not solve the collision by stashing, committing, resetting, or moving another task's files.
 - Integrate completed work through its dedicated branch and pull request. Reconcile with the latest `main` inside that task's worktree before merging, rather than using the shared worktree as an integration area.

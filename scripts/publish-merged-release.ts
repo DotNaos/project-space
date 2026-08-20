@@ -13,7 +13,6 @@ import {
   releaseIntentDirectory,
   releaseIntentEnforcementPath,
   releaseIntentEnforcementSource,
-  isReleaseIntentFileName,
   type ReleaseIntent,
 } from '../apps/docs/lib/releases/release-intent';
 import { parseStableSemver } from '../apps/docs/lib/releases/semver';
@@ -39,6 +38,7 @@ import {
   manifestIssuedAt,
   tagReservations,
 } from './release-queue-evidence';
+import { validateMergedChangelogQueueItem } from './release-queue-validation';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEntryDirectory = 'apps/docs/content/docs/releases/entries';
@@ -270,26 +270,17 @@ async function queuedMerges(
       const allIntentChanges = changedPaths.filter((path) =>
         path.startsWith(`${releaseIntentDirectory}/`) && path.endsWith('.json'),
       );
-      if (intentPaths.length > 0) {
-        if (
-          intentPaths.length !== 1 ||
-          allIntentChanges.length !== 1 ||
-          !isReleaseIntentFileName(basename(intentPaths[0]))
-        ) {
-          throw new Error(
-            `Merged commit ${commit} must add exactly one lowercase-UUID release intent with its changelog.`,
-          );
-        }
-        const intent = readIntent(commit, intentPaths[0]);
-        if (
-          intent === 'none' ||
-          intent !== parsed.changelog.bump
-        ) {
-          throw new Error(
-            `Merged commit ${commit} release intent must match changelog bump ${parsed.changelog.bump}.`,
-          );
-        }
-      }
+      const intent = intentPaths.length === 1
+        ? readIntent(commit, intentPaths[0])
+        : 'none';
+      validateMergedChangelogQueueItem({
+        allChangelogChanges,
+        allIntentChanges,
+        changelogBump: parsed.changelog.bump,
+        changelogPaths,
+        intent,
+        intentPaths,
+      });
       queued.push({
         bump: parsed.changelog.bump,
         commit,

@@ -34,8 +34,21 @@ test('versioned Project Manager skill owns completion and Preview dogfooding', a
     'state=foreign',
     'state=unmanaged',
     'fail-closed',
+    'Every implementation mutation requires a GitHub issue',
+    'main Project Manager task remains in the shared main checkout',
+    'project codex start --issue <number> --environment-id <id> --operation-id <id>',
+    'only that implementer task owns',
+    'returned worktree',
   ]) {
     expect(agents).toContain(phrase);
+  }
+  for (const legacyPhrase of [
+    'GitHub issues are recommended for larger work but are not required',
+    'persistent main Codex task runs `project worktree check`',
+    'Otherwise it runs `project worktree prepare',
+    "Project-managed worktrees are owned by the main task's",
+  ]) {
+    expect(agents).not.toContain(legacyPhrase);
   }
 });
 
