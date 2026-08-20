@@ -63,6 +63,14 @@ func newCodexStartCommand(dependencies codexCommandDependencies) *cobra.Command 
 		Short: "Start a persistent Codex task from a GitHub issue",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			threadID, _ := dependencies.LookupEnv("CODEX_THREAD_ID")
+			startPath, err := dependencies.CurrentDirectory()
+			if err != nil {
+				return fmt.Errorf("read current Project checkout: %w", err)
+			}
+			if err := requireProjectManagerStartContext(startPath, threadID, dependencies.InspectContext); err != nil {
+				return err
+			}
 			if repositoryID == "" {
 				var err error
 				repositoryID, err = dependencies.ResolveRepository(command.Context())

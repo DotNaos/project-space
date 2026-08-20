@@ -1,0 +1,43 @@
+---
+title: Proposal
+description: Route main-checkout agents into a versioned Project Manager workflow.
+---
+
+Change status: **Active**
+
+Change kind: **Feature**
+
+Issue: **[#819](https://github.com/DotNaos/project-space/issues/819)**
+Requirements: **Required**
+
+## Summary
+
+Make checkout identity the structural role boundary for Project Space agents. A
+shared `main` checkout is a read-only Project Manager surface. Implementation is
+dispatched into an issue-bound Project-managed worktree and is completed only
+after Manager review, realistic proof, and ordered delivery.
+
+## Problem
+
+Without a proven checkout boundary, an agent can mistake shared `main` for an
+implementation surface, lose ownership after handoff, or stop at a green worker
+PR without independent review and realistic proof.
+
+## Scope
+
+- Add read-only structured context output for main, owned, foreign, and unmanaged checkouts.
+- Version the `project-manager` skill, TASKS ledger template, and validator in the plugin.
+- Route workers to `gpt-5.6-luna` with high reasoning by default and cap active workers at three.
+- Preserve same-worker review corrections, sole Manager user communication, and 30-minute reconciliation.
+- Make the Manager own exact-head PR review, supported Preview/browser dogfooding, approval, and normal delivery.
+
+## Delivery
+
+Existing worktree preparation and ownership commands remain compatible. The new
+context command is read-only, and the versioned skill adds the Manager workflow.
+
+## Out of scope
+
+- Implementing in shared `main`.
+- Inventing Preview artifacts for non-Preview-compatible changes.
+- Merge or production deployment in this change revision.

@@ -11,6 +11,17 @@ Choose the interface that matches where the work happens.
 - Use the `project` CLI for local checkout, machine, worktree, roadmap, command, diagnostics, and deployment workflows.
 - If the user names an interface, use that interface. Otherwise prefer MCP for account-wide state and the CLI for machine-local state.
 
+When the repository is Project Space, run `project worktree context --format json`
+after the agent-name claim and before consequential work. A `main` checkout is
+the read-only Project Manager boundary; only an `owned` issue worktree is an
+implementation surface. `foreign` and `unmanaged` contexts are non-mutating.
+Invoke the versioned `project-manager` skill for the main-checkout workflow and
+keep its `TASKS.md` ledger and 30-minute reconciliation contract in force. The
+Manager dispatches implementation through the canonical
+`project codex start --issue <n> --environment-id <id> --operation-id <id>`
+operation, which owns issue-bound preparation and returns the worker task; do
+not use local `project worktree prepare` as a dispatch substitute.
+
 ## Start with discovery
 
 Before a consequential action, resolve exact targets with read-only operations.
@@ -47,7 +58,13 @@ Use `project --help` and `project <command> --help` as the current command contr
 - `project deploy` and `project deploy status` for approved deployment workflows;
 - `project self-update` only when an update is explicitly intended.
 
-Run CLI commands from the relevant project or managed worktree when repository context matters. Before repository mutation, use `project worktree check`; prepare an isolated worktree according to that repository's instructions rather than modifying a shared main checkout.
+Run CLI commands from the relevant project or managed worktree when repository context matters. Before repository mutation, use `project worktree check`; Manager implementation dispatch must use the canonical Codex start operation rather than a local worktree preparation substitute.
+
+The Project Manager owns completion after a worker reports ready: review the
+exact PR head, unresolved feedback, CI, and realistic Preview/browser evidence;
+send corrections to the same worker until clean; then ready the PR and complete
+normal delivery. If no Preview-compatible surface exists, record that fact and
+use the strongest realistic alternative proof.
 
 ## Safety and handoff
 

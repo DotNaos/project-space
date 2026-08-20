@@ -1,0 +1,39 @@
+---
+title: Tasks
+description: Implementation and verification checklist for the Project Manager role.
+---
+
+## 1. Role boundary
+
+- [x] 1.1 Add structured `project worktree context --format json` output.
+  - **Evidence:** Focused ownership tests and live command dogfooding cover main, owned, and foreign contexts; unmanaged is covered by unit tests.
+- [x] 1.2 Keep invalid and ambiguous contexts non-mutating.
+  - **Evidence:** Context results expose `mutatingAllowed: false` unless the exact owner is proven.
+
+## 2. Versioned workflow
+
+- [x] 2.1 Add the `project-manager` skill, agent metadata, TASKS template, and validator.
+  - **Evidence:** `plugins/project-space/skills/project-manager/` is tracked and tested.
+- [x] 2.2 Document sole communication, three-worker cap, Luna/high default, assumptions, and 30-minute reconciliation.
+  - **Evidence:** Skill and docs assertions pass.
+- [x] 2.3 Document exact-head review, Preview/browser dogfooding, same-worker feedback, and no-Preview alternatives.
+  - **Evidence:** Skill, docs, and TASKS completion checklist assertions pass.
+- [x] 2.4 Document Production blocker intake, duplicate avoidance, honest queue ordering, and automatic unblock reconciliation.
+  - **Evidence:** Skill, TASKS ledger contract, requirements scenarios, and validator regressions cover existing, new, parallel, fixed, and human-decision cases.
+
+## 3. Verification
+
+- [x] 3.1 Run focused skill and validator tests.
+  - **Evidence:** Three focused tests and the template validator pass.
+- [x] 3.2 Run all Go tests.
+  - **Evidence:** `go test ./...` passes.
+- [x] 3.3 Regenerate and validate CLI documentation.
+  - **Evidence:** `bun run docs:cli:check` passes after regeneration.
+- [x] 3.4 Run the canonical PR preflight after the draft PR exists.
+  - **Evidence:** Corrected draft head passed every reproducible local lane;
+    protected release, signing, Preview, and Production gates remain remote-only.
+
+## 4. Dependency reconciliation
+
+- [x] Reconcile the exact landed #763 dispatch contract before merge-ready status.
+  - **Evidence:** Reviewed head `7e0e321f63e0d3bde8a862b936cda821b25951d2` landed as squash `b92d411c995d605358dd8c05c80362e80f6bbdd0`; the local gate matches its environment/operation/model/reasoning contract and preserves caller-supplied reporting evidence honestly.

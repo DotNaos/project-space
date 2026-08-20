@@ -1,0 +1,45 @@
+---
+title: Verification
+description: Evidence for checkout routing and Project Manager completion ownership.
+---
+
+Verification status: **Incomplete**
+
+## Requirement evidence
+
+- [x] PM-001 — Proven checkout role
+- [x] PM-002 — Manager-owned completion workflow documented and tested
+- [x] PM-003 — Durable coordination rules documented and tested
+- [x] PM-004 — Narrow human escalation documented and tested
+- [x] PM-006 — Production blocker intake, queue ordering, and unblock reconciliation documented and tested
+- [x] PM-005 — Canonical #763 dispatch contract reconciled
+
+## Recorded checks
+
+- [x] `go test ./...`
+- [x] `bun test --isolate tests/project-manager-skill.test.ts`
+- [x] `bun run docs:specs:check`
+- [x] `bun run docs:cli:check`
+- [x] `git diff --check`
+- [ ] `bun run check` — host has Bun 1.3.9; repository policy requires 1.3.14.
+- [x] Canonical PR preflight — local lanes passed for the corrected draft head;
+  protected release, signing, Preview, and Production gates remain remote-only.
+
+## Reconciliation
+
+The #763 dispatch dependency was developed in parallel and is now reconciled
+against reviewed head `7e0e321f63e0d3bde8a862b936cda821b25951d2`, squash-merged
+as `b92d411c995d605358dd8c05c80362e80f6bbdd0`. The landed contract carries
+model/reasoning and reporting-task fields, while the server labels reporting
+evidence `caller-supplied`; the local main/Manager/current-thread gate remains
+the workflow proof.
+
+## Final reconciliation
+
+- [x] Requirements, design, tasks, and verification describe the same boundary.
+- [x] Focused and repository Go tests pass.
+- [x] Skill, TASKS template, validator, and docs assertions pass.
+- [x] Production blocker intake covers existing issue promotion, new blocker filing and queue insertion, parallel nonblocking bugs, verified unblocks, and no false human stop.
+- [x] Bun policy check passes through the canonical preflight and commit hook on
+  the required Bun 1.3.14 runtime.
+- [x] Exact #763 dispatch contract is reconciled after landing.

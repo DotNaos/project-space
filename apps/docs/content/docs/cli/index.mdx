@@ -1740,6 +1740,21 @@ project worktree check
 | `--format` | `string` | local | output format: text or json |
 | `-h`, `--help` | `bool` | local | help for check |
 
+<h3 id="project-worktree-context" className="scroll-m-28"><code>project worktree context</code></h3>
+
+Describe the read-only role implied by the current checkout
+
+```sh
+project worktree context
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--directory` | `string` | local | checkout to inspect |
+| `--format` | `string` | local | output format: text or json |
+| `-h`, `--help` | `bool` | local | help for context |
+| `--thread-id` | `string` | local | current Codex task UUID (defaults to CODEX_THREAD_ID) |
+
 <h3 id="project-worktree-materialize" className="scroll-m-28"><code>project worktree materialize</code></h3>
 
 Materialize a server-approved GitHub branch in the Project-managed worktree root

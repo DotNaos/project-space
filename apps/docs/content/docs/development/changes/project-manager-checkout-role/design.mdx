@@ -1,0 +1,92 @@
+---
+title: Design
+description: Read-only checkout classification and versioned Manager workflow.
+---
+
+## Context
+
+Project Space already records branch, path, issue, owner, managed, and workspace
+metadata in Git worktree configuration. The Manager needs a read-only decision
+before any implementation or delivery action.
+
+## Goals and non-goals
+
+Goals:
+
+- Make checkout identity a stable role boundary.
+- Keep shared `main` read-only and delivery ownership explicit.
+- Preserve useful parallel development while ordering integration and delivery.
+
+Non-goals:
+
+- Mutating or repairing ambiguous checkouts automatically.
+- Creating Preview artifacts when the changed surface cannot support one.
+
+## Boundary
+
+```mermaid
+flowchart LR
+    C[worktree context] -->|main| M[Project Manager]
+    C -->|owned| W[issue worker]
+    C -->|foreign or unmanaged| O[read-only observer]
+    W --> R[exact-head review]
+    R -->|defect| W
+    R -->|clean| D[ordered delivery]
+```
+
+The context classifier reads Git worktree paths and worktree-specific ownership
+metadata without changing them. Invalid or ambiguous evidence becomes a
+non-mutating `unmanaged` result. The Manager skill carries the operational
+workflow, while the TASKS template records exact handoff, review, Preview, and
+delivery evidence.
+
+## Decisions
+
+1. `main` always routes to the Manager, even when no Codex thread ID is present.
+2. A managed worktree is mutable only when its recorded owner equals the current
+   task; a different owner is `foreign` and remains read-only.
+3. A worker-ready PR is an input to Manager review, never a terminal state.
+4. Preview proof is conditional on the changed surface; alternative proof is
+   explicit when Preview is not supported.
+5. Review corrections reuse the same task and integration/rebase/merge order is
+   preserved even when development proceeds against explicit assumptions.
+6. Implementation dispatch uses the canonical #763 operation, not a local
+   worktree preparation followed by an untracked handoff. Landed reviewed head
+   `7e0e321f63e0d3bde8a862b936cda821b25951d2` (squash
+   `b92d411c995d605358dd8c05c80362e80f6bbdd0`) carries model/reasoning and
+   reporting-task fields, but reporting evidence remains caller-supplied. The
+   local main/Manager/current-thread gate is the workflow proof; this dependency
+   is reconciled.
+7. Production blocker intake searches open issues and equivalent incident
+   records before dispatch and on each heartbeat. Existing bugs are linked and
+   promoted, new reproduced blockers are filed and queued before the blocked
+   stage, nonblocking bugs remain parallel, and verified fixes resume dependent
+   work after the actual Production path is checked.
+
+## Architecture
+
+The CLI reads Git worktree inventory and worktree-specific configuration. It emits
+structured context without writing configuration. The skill consumes that output
+and records handoff, review, Preview, and delivery evidence in `TASKS.md`.
+
+## Risks and mitigations
+
+- **Ambiguous checkout is mutated:** invalid evidence is classified as
+  non-mutating `unmanaged`.
+- **Worker PR is mistaken for completion:** the skill requires exact-head review,
+  Preview/browser proof, and same-worker correction.
+- **Resource fan-out:** the TASKS validator rejects more than three active rows.
+- **Production drift:** the TASKS validator requires an issue-search, queue-edge,
+  owner, and recovery record for every blocker or an explicit no-blocker row.
+
+## Migration and rollout
+
+No data migration is required. Existing managed worktrees remain valid, including
+legacy owned worktrees without a Workspace ID. The new command and skill roll out
+with the Project Space plugin.
+
+## Validation
+
+Run ownership Go tests, skill/ledger tests, CLI documentation checks, and docs
+specification checks. Dogfood the command against shared `main`, an owned issue
+worktree, and a foreign task identity.

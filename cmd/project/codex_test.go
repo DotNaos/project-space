@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/DotNaos/project-space/internal/codextask"
+	"github.com/DotNaos/project-space/internal/worktreeownership"
 )
 
 const codexTestThreadID = "019f6cfb-733e-7ab1-a1ce-1a583f4d9844"
@@ -79,6 +80,9 @@ func TestCodexStartHereUsesAuthenticatedCallerWithoutPhysicalSelector(t *testing
 	if !strings.Contains(output.String(), `"state":"ready"`) {
 		t.Fatalf("output = %s", output)
 	}
+	if !strings.Contains(output.String(), `"evidence":"caller-supplied"`) {
+		t.Fatalf("output must preserve caller-supplied reporting evidence: %s", output)
+	}
 }
 
 func codexTestStartPlan(operationID string) *codextask.StartPlan {
@@ -88,10 +92,90 @@ func codexTestStartPlan(operationID string) *codextask.StartPlan {
 	plan.Issue.Number, plan.Issue.URL = 262, "https://github.com/DotNaos/project-space/issues/262"
 	plan.Operation.ID, plan.Operation.State = operationID, codextask.StateReady
 	plan.Repository.ID, plan.Repository.NameWithOwner = "DotNaos/project-space", "DotNaos/project-space"
-	plan.ReportingTask = codextask.ReportingTask{Role: "project-manager", ThreadID: codexTestThreadID}
+	plan.ReportingTask = codextask.ReportingTask{Role: "project-manager", ThreadID: codexTestThreadID, Evidence: "caller-supplied"}
 	plan.Worker = codextask.WorkerSelection{Model: codextask.DefaultModel, ReasoningEffort: codextask.DefaultReasoningEffort}
 	plan.Workspace.ID, plan.Workspace.Branch = "workspace-1", "issue-262"
 	return plan
+}
+
+func TestCodexStartRequiresExactCurrentMainProjectManagerContext(t *testing.T) {
+	startCalls := 0
+	client := fakeCodexTaskAPI{
+		start: func(_ context.Context, request codextask.StartRequest) (codextask.StartResult, error) {
+			startCalls++
+			if request.Issue != 262 {
+				t.Fatalf("request = %#v", request)
+			}
+			return codextask.StartResult{APIVersion: codextask.APIVersion, State: codextask.StateAccepted}, nil
+		},
+	}
+	command := newCodexCommandWithDependencies(codexTestDependencies(client))
+	command.SetArgs([]string{"start", "--issue", "262", "--machine-id", "physical-1"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if startCalls != 1 {
+		t.Fatalf("start calls = %d, want 1", startCalls)
+	}
+}
+
+func TestCodexStartRejectsUnprovenContextsBeforeHTTPDispatch(t *testing.T) {
+	validMain := worktreeownership.CheckoutContext{
+		State: "main", Role: "project-manager", CurrentThreadID: codexTestThreadID,
+		MutatingAllowed: false,
+	}
+	cases := []struct {
+		name       string
+		threadSet  bool
+		threadID   string
+		checkout   worktreeownership.CheckoutContext
+		inspectErr error
+		args       []string
+		want       string
+	}{
+		{name: "owned implementer", threadID: codexTestThreadID, checkout: worktreeownership.CheckoutContext{State: "owned", Role: "implementer", CurrentThreadID: codexTestThreadID, MutatingAllowed: true}, want: "state=main"},
+		{name: "foreign", threadID: codexTestThreadID, checkout: worktreeownership.CheckoutContext{State: "foreign", Role: "observer", CurrentThreadID: codexTestThreadID}, want: "state=main"},
+		{name: "unmanaged", threadID: codexTestThreadID, checkout: worktreeownership.CheckoutContext{State: "unmanaged", Role: "observer", CurrentThreadID: codexTestThreadID}, want: "state=main"},
+		{name: "missing context", threadID: codexTestThreadID, inspectErr: errors.New("checkout context unavailable"), want: "prove Project Manager checkout context"},
+		{name: "missing current thread", checkout: validMain, want: "current CODEX_THREAD_ID"},
+		{name: "invalid current thread", threadSet: true, threadID: "not-a-thread", checkout: validMain, want: "valid current CODEX_THREAD_ID"},
+		{name: "mismatched current thread", threadID: codexTestThreadID, checkout: worktreeownership.CheckoutContext{State: "main", Role: "project-manager", CurrentThreadID: "019f6cfb-733e-7ab1-a1ce-1a583f4d9845"}, want: "CODEX_THREAD_ID to match"},
+		{name: "caller supplied thread alternative", threadID: codexTestThreadID, checkout: validMain, args: []string{"--thread-id", codexTestThreadID}, want: "unknown flag: --thread-id"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			startCalls := 0
+			client := fakeCodexTaskAPI{
+				start: func(context.Context, codextask.StartRequest) (codextask.StartResult, error) {
+					startCalls++
+					return codextask.StartResult{APIVersion: codextask.APIVersion, State: codextask.StateAccepted}, nil
+				},
+			}
+			dependencies := codexTestDependencies(client)
+			dependencies.LookupEnv = func(key string) (string, bool) {
+				if key != "CODEX_THREAD_ID" || !testCase.threadSet && testCase.threadID == "" {
+					return "", false
+				}
+				return testCase.threadID, true
+			}
+			dependencies.InspectContext = func(string, string) (worktreeownership.CheckoutContext, error) {
+				if testCase.inspectErr != nil {
+					return worktreeownership.CheckoutContext{}, testCase.inspectErr
+				}
+				return testCase.checkout, nil
+			}
+			command := newCodexCommandWithDependencies(dependencies)
+			command.SetArgs(append([]string{"start", "--issue", "262", "--machine-id", "physical-1"}, testCase.args...))
+			err := command.Execute()
+			if err == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("error = %v, want substring %q", err, testCase.want)
+			}
+			if startCalls != 0 {
+				t.Fatalf("start calls = %d, want 0", startCalls)
+			}
+		})
+	}
 }
 
 func TestCodexReadWritesOnlyJSON(t *testing.T) {
@@ -551,6 +635,19 @@ func TestCodexLoginReportsAnUncertainAutomaticCancel(t *testing.T) {
 
 func codexTestDependencies(client codexTaskAPI) codexCommandDependencies {
 	return codexCommandDependencies{
+		CurrentDirectory: func() (string, error) { return "/project-space", nil },
+		InspectContext: func(string, string) (worktreeownership.CheckoutContext, error) {
+			return worktreeownership.CheckoutContext{
+				State: "main", Role: "project-manager", CurrentThreadID: codexTestThreadID,
+				MutatingAllowed: false,
+			}, nil
+		},
+		LookupEnv: func(key string) (string, bool) {
+			if key == "CODEX_THREAD_ID" {
+				return codexTestThreadID, true
+			}
+			return "", false
+		},
 		LoadRuntime: func(context.Context) (codexCommandRuntime, error) {
 			return codexCommandRuntime{client: client, localMachineName: "Local Connector"}, nil
 		},

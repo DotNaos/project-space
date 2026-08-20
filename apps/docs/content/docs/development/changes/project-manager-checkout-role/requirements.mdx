@@ -1,0 +1,126 @@
+---
+title: Requirement delta
+description: Role routing and Project Manager completion requirements.
+---
+
+## ADDED Requirements
+
+### PM-001 — Proven checkout role
+
+`project worktree context --format json` MUST classify `main`, `owned`, `foreign`,
+and `unmanaged` checkouts. Only the exact owner of a valid Project-managed issue
+worktree may mutate.
+
+#### Scenario: Agent starts in shared main
+
+- **Given** the current checkout is the repository's shared `main`
+- **When** the agent requests worktree context
+- **Then** the result is `main`, routes to Project Manager, and is non-mutating
+
+### PM-002 — Manager-owned completion
+
+After a worker reports ready, the Project Manager MUST inspect the exact PR head,
+unresolved feedback, required CI, and realistic user-flow proof. If the surface
+supports Preview, it MUST obtain the exact-head Preview and dogfood primary and
+critical edge paths at desktop and mobile sizes through the browser. Findings
+MUST return to the same worker until clean. A no-Preview surface MUST record the
+fact and strongest alternative proof.
+
+#### Scenario: Worker reports a green PR
+
+- **Given** a worker reports a PR with green tests
+- **When** the Manager reconciles the worker
+- **Then** it reviews the exact head and Preview or alternative proof before readiness
+
+### PM-003 — Durable coordination
+
+The Manager MUST be the sole user communicator, maintain at most three active
+implementation workers, default to `gpt-5.6-luna` with high reasoning, and run a
+30-minute support heartbeat. Idle, interrupted, failed, timed-out, and completed
+turns are reconciliation events, not blockers.
+
+#### Scenario: Worker turn becomes idle
+
+- **Given** a worker turn is idle, interrupted, failed, timed out, or complete
+- **When** the Manager heartbeat runs
+- **Then** the Manager resumes, repairs, changes approach, or advances the queue
+
+### PM-004 — Narrow human escalation
+
+Normal authentication checks, CI and Preview gates, protected gates, signing,
+compatibility, merge, release, and Production delivery MUST remain
+Manager-owned technical work under standing authorization. The Manager MUST
+escalate only a material product decision, exceptional
+irreversible/external/privacy risk, or human-only blocker.
+
+#### Scenario: A normal technical gate fails
+
+- **Given** a normal authentication, protected, signing, compatibility, merge, release, or Production gate needs repair
+- **When** the Manager reconciles the failure
+- **Then** it repairs or routes the technical work without escalating to the user
+
+### PM-005 — Canonical issue dispatch
+
+Implementation MUST dispatch through the canonical #763 operation
+`project codex start --issue <n> --environment-id <id> --operation-id <id>`,
+which owns issue-bound preparation and returns the worker task. The Manager MUST
+record model/reasoning and Manager-only reporting fields. The local caller gate
+MUST prove the exact main/Project-Manager/current-thread context before dispatch;
+remote `reportingTask.evidence=caller-supplied` MUST remain honest evidence and
+MUST NOT be treated as server authentication.
+
+#### Scenario: Landed dispatch preserves honest Manager evidence
+
+- **Given** the reviewed #763 head `7e0e321f63e0d3bde8a862b936cda821b25951d2` is squash-merged as `b92d411c995d605358dd8c05c80362e80f6bbdd0`
+- **When** the Manager records the dispatch handoff
+- **Then** it runs the local main/Manager/current-thread gate and records the remote reporting evidence as caller-supplied without fabricating server proof
+
+### PM-006 — Production blocker intake
+
+Before dispatching feature implementation and on every 30-minute heartbeat, the
+Manager MUST search the owning repository's open issues, known-issues/bug labels,
+and equivalent Production incident records for defects that plausibly affect
+runtime, Preview, delivery, authentication, transport, data, CI, or deployment.
+Existing issues MUST be linked and promoted rather than duplicated. A new
+focused bug MAY be filed only when no existing issue captures the evidence.
+
+A reproduced Production bug that blocks development, realistic verification,
+merge readiness, release, or delivery MUST be added to the active roadmap with
+the exact blocked tasks/stage, dependency edge, evidence, severity, owner, and
+shortest recovery path. The Delivery Queue MUST put it before the affected
+stage, while nonblocking work remains parallel under explicit assumptions.
+Production fixes are Manager-owned critical-path work within the three-worker
+cap; only a genuine human decision or exceptional approval/private input is a
+human blocker.
+
+#### Scenario: Existing known bug is found before dispatch
+
+- **Given** an open issue already records a Production defect affecting the feature path
+- **When** the Manager performs blocker intake
+- **Then** it links and promotes that issue without creating a duplicate
+
+#### Scenario: A new reproduced Production defect blocks delivery
+
+- **Given** no issue captures a reproduced defect and it blocks a feature's delivery stage
+- **When** the Manager files and records the defect
+- **Then** it inserts the bug before that stage with evidence, severity, owner, and a recovery path
+
+#### Scenario: A Production bug is nonblocking or fixed
+
+- **Given** a bug is nonblocking, or its fix has shipped
+- **When** the Manager rescans the path
+- **Then** nonblocking work stays parallel, while a verified Production fix relaxes the edge and resumes the dependent worker
+
+#### Scenario: No human decision is needed
+
+- **Given** a technical Production, CI, authentication, or delivery gate needs repair
+- **When** the Manager reconciles it
+- **Then** it continues Manager-owned work rather than falsely stopping for a user decision
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.
