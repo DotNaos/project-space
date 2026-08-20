@@ -301,7 +301,18 @@ describe('database migrations', () => {
       /join compute_environment_definitions deployment_definition[\s\S]*?deployment_definition\.id = environment\.environment_definition_id/
     );
     expect(tailscaleEnvironmentOwnershipMigrationSql).toMatch(
-      /\(definition\.slug, definition\.name, definition\.kind,\s*definition\.operating_system_family, definition\.supported_architectures,\s*definition\.bootstrap_strategy, definition\.ownership\) =\s*\(deployment_definition\.slug, deployment_definition\.name,\s*deployment_definition\.kind, deployment_definition\.operating_system_family,\s*deployment_definition\.supported_architectures,\s*deployment_definition\.bootstrap_strategy, deployment_definition\.ownership\)/
+      /\(definition\.slug, definition\.name, definition\.kind,\s*definition\.operating_system_family, definition\.bootstrap_strategy,\s*definition\.ownership\) =\s*\(deployment_definition\.slug, deployment_definition\.name,\s*deployment_definition\.kind, deployment_definition\.operating_system_family,\s*deployment_definition\.bootstrap_strategy, deployment_definition\.ownership\)/
+    );
+  });
+
+  test('accepts equivalent built-in architectures in a different order', () => {
+    const userArchitectures = ['arm64', 'x64'];
+    const deploymentArchitectures = ['x64', 'arm64'];
+
+    expect(userArchitectures).not.toEqual(deploymentArchitectures);
+    expect([...userArchitectures].sort()).toEqual([...deploymentArchitectures].sort());
+    expect(tailscaleEnvironmentOwnershipMigrationSql).toMatch(
+      /array\(\s*select architecture\s+from unnest\(definition\.supported_architectures\)\s+as supported_architecture\(architecture\)\s+order by architecture\s*\) = array\(\s*select architecture\s+from unnest\(deployment_definition\.supported_architectures\)\s+as supported_architecture\(architecture\)\s+order by architecture\s*\)/
     );
   });
 

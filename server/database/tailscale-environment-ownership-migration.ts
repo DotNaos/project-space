@@ -97,12 +97,22 @@ export const tailscaleEnvironmentOwnershipMigrationSql = `
        and definition.kind = environment.kind
        and definition.ownership = 'built_in'
        and (definition.slug, definition.name, definition.kind,
-            definition.operating_system_family, definition.supported_architectures,
-            definition.bootstrap_strategy, definition.ownership) =
+            definition.operating_system_family, definition.bootstrap_strategy,
+            definition.ownership) =
            (deployment_definition.slug, deployment_definition.name,
             deployment_definition.kind, deployment_definition.operating_system_family,
-            deployment_definition.supported_architectures,
             deployment_definition.bootstrap_strategy, deployment_definition.ownership)
+       and array(
+         select architecture
+           from unnest(definition.supported_architectures)
+             as supported_architecture(architecture)
+          order by architecture
+       ) = array(
+         select architecture
+           from unnest(deployment_definition.supported_architectures)
+             as supported_architecture(architecture)
+          order by architecture
+       )
      where projection.owner_user_id = 'project-space:tailscale-deployment'
        and not exists (
          select 1
