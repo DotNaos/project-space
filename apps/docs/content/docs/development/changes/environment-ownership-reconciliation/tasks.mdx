@@ -33,9 +33,9 @@ description: Implementation and verification checklist for Environment ownership
 - [x] 2.5 Add the repeatable ownership reconciler
   - **Evidence:** `server/database/tailscale-environment-ownership-reconciler.ts` evaluates fresh deployment evidence globally and copies only one exact connector/Host candidate without changing migration `0059`.
 - [x] 2.6 Bind reconciliation to evidence mutations
-  - **Evidence:** Tailscale projection refresh, machine identity enrollment, connector inventory, and physical Host membership updates share a transaction-scoped advisory lock and reconcile before commit.
+  - **Evidence:** Tailscale projection refresh, deployment classification/projection, machine identity enrollment, connector inventory, and physical Host membership updates share a transaction-scoped advisory lock and reconcile before commit.
 - [x] 2.7 Cover lifecycle and concurrency regressions
-  - **Evidence:** `tests/tailscale-environment-ownership-reconciliation.test.ts` covers stale-to-fresh repair, post-startup Host membership, repeated no-op, ambiguity, and concurrent Host updates.
+  - **Evidence:** `tests/tailscale-environment-ownership-reconciliation.test.ts` covers stale-to-fresh repair, fresh-observation-to-classification repair without a later refresh, post-startup Host membership, repeated no-op, ambiguity, and concurrent Host updates.
 
 ## 3. Delivery evidence
 
@@ -43,9 +43,9 @@ description: Implementation and verification checklist for Environment ownership
   - **Evidence:** Focused lifecycle, repository, machine-connection, physical Host, and migration tests pass; `bun run check`, `bun test --isolate`, and `bun run build` pass.
 - [x] 3.2 Verify the persisted configured repository/HTTP start/send flow
   - **Evidence:** `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` starts with
-    owner-scoped database query rows, reconciles the combined collision, lets the configured
-    runtime construct its strict `ProjectSpaceDatabaseRepository` boundary over the same fixture,
-    then performs HTTP start and send.
+    deployment-only state, runs real Tailscale refresh/classification through the configured
+    database boundary, observes the created user-owned row through `ProjectSpaceDatabaseRepository`,
+    then performs HTTP start, read, and send with exact Host and Environment IDs.
 - [x] 3.3 Preserve private fail-closed Host diagnostics
   - **Evidence:** Missing, unresolved, and conflicting user-owned Environment association evidence
     returns a typed unavailable state and recovery message without a target or dispatch. An absent

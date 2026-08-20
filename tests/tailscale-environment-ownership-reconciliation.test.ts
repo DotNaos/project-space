@@ -19,6 +19,9 @@ class LifecycleDatabase implements DatabaseQueryClient {
   hostMembership = true;
   ambiguous = false;
   userDefinedEvidence = false;
+  requireClassificationForRepair = false;
+  private observedDevice = false;
+  private classification: 'unclassified' | 'environment' = 'unclassified';
 
   private transactionTail = Promise.resolve();
 
@@ -28,6 +31,7 @@ class LifecycleDatabase implements DatabaseQueryClient {
 
     if (sql.includes('with candidate_rows')) {
       if (this.freshEvidence && this.hostMembership && !this.ambiguous &&
+          (!this.requireClassificationForRepair || this.classification === 'environment') &&
           !this.userDefinedEvidence && !this.copied) {
         this.copied = true;
         this.copyCount += 1;
@@ -36,7 +40,18 @@ class LifecycleDatabase implements DatabaseQueryClient {
     }
     if (sql.includes('insert into tailscale_device_observations')) {
       this.freshEvidence = true;
+      this.observedDevice = true;
       return { rows: [] as Row[] };
+    }
+    if (sql.includes('select device_id from tailscale_device_observations')) {
+      return { rows: this.observedDevice ? [{ device_id: 'device-1' }] as Row[] : [] as Row[] };
+    }
+    if (sql.includes('select classification, revision from tailscale_device_classifications')) {
+      return { rows: [{ classification: this.classification, revision: this.classification === 'environment' ? 1 : 0 }] as Row[] };
+    }
+    if (sql.includes('insert into tailscale_device_classifications')) {
+      this.classification = String(values[2]) as typeof this.classification;
+      return { rows: [{ classification: this.classification, revision: 1 }] as Row[] };
     }
     if (sql.includes('select classification.revision')) return { rows: [{ revision: 1 }] as Row[] };
     if (sql.includes('select observed_name, os')) {
@@ -110,6 +125,38 @@ describe('repeatable Tailscale Environment ownership reconciliation', () => {
     expect(client.copyCount).toBe(1);
     expect(client.calls.findLastIndex((sql) => sql.includes('insert into tailscale_device_observations')))
       .toBeLessThan(client.calls.findLastIndex((sql) => sql.includes('with candidate_rows')));
+  });
+
+  test('repairs a fresh deployment device when classification creates its projection', async () => {
+    const client = new LifecycleDatabase();
+    client.requireClassificationForRepair = true;
+    const store = new PostgresTailscaleInventoryStore(client);
+
+    await store.reconcile(tailscaleDeploymentOwner, {
+      complete: true,
+      kind: 'snapshot',
+      snapshot: freshSnapshot
+    });
+    expect(client.copyCount).toBe(0);
+
+    await store.setClassification({
+      actorId: 'project-manager',
+      classification: 'environment',
+      deviceId: 'device-1',
+      expectedRevision: 0,
+      ownerUserId: tailscaleDeploymentOwner
+    });
+
+    expect(client.copyCount).toBe(1);
+    const lockIndex = client.calls.findLastIndex((sql) => sql.includes('pg_advisory_xact_lock'));
+    const observationLockIndex = client.calls.findIndex((sql) => (
+      sql.includes('select device_id from tailscale_device_observations') && sql.includes('for update')
+    ));
+    const auditIndex = client.calls.findLastIndex((sql) => sql.includes('insert into tailscale_device_classification_audits'));
+    const repairIndex = client.calls.findLastIndex((sql) => sql.includes('with candidate_rows'));
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(lockIndex).toBeLessThan(observationLockIndex);
+    expect(auditIndex).toBeLessThan(repairIndex);
   });
 
   test('repairs after a Host membership is added after startup', async () => {

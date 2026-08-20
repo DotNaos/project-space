@@ -31,8 +31,9 @@ builds built-in aliases from the visible catalog, keys each alias by owner and d
 then strips the temporary owner field before returning the existing public snapshot.
 
 The persisted ownership reconciler is a separate, repeatable boundary. It runs inside the same
-transaction as fresh deployment projection writes, connector identity writes, and physical Host
-membership writes. A shared transaction-scoped advisory lock serializes those evidence changes
+transaction as fresh deployment projection writes, deployment classification/projection writes,
+connector identity writes, and physical Host membership writes. A shared transaction-scoped
+advisory lock serializes those evidence changes
 with the candidate query and copy, so a concurrent update cannot leave a candidate permanently
 unseen or create conflicting copies.
 
@@ -59,10 +60,10 @@ unseen or create conflicting copies.
    same-UUID user record is an equivalent built-in with resolved identity, manual user evidence,
    a Host ID, and the same copied kind, name, and resource mode. Unresolved, unrelated,
    user-defined, and projected records from any other owner cannot hide evidence.
-8. Re-run the ownership copy after each fresh deployment projection and after connector identity
-   or physical Host membership mutations. The reconciler evaluates candidates globally, retains
-   connector identity in uniqueness, and updates an existing built-in copy only when its durable
-   signature differs.
+8. Re-run the ownership copy after each fresh deployment projection or deployment classification
+   projection, and after connector identity or physical Host membership mutations. The reconciler
+   evaluates candidates globally, retains connector identity in uniqueness, and updates an existing
+   built-in copy only when its durable signature differs.
 
 ## Validation model
 
@@ -75,10 +76,11 @@ manual evidence resolving to exactly one Host. The supported start and send path
 same selected Host and Environment; unresolved, deployment-only, duplicate same-UUID, and
 missing evidence remain unavailable through the configured service.
 
-Integration coverage starts with representative owner-scoped database query rows. A real
-`ProjectSpaceDatabaseRepository` reconciles the combined collision rows, then the configured
-runtime constructs its own strict user-scoped repository over the same persisted fixture before
-the HTTP start/send boundary. No preconstructed inventory snapshot bypasses either path.
+The stateful configured regression starts with deployment-only evidence, runs the real Tailscale
+refresh and classification projection boundary, and observes the newly created user-owned row
+through `ProjectSpaceDatabaseRepository`. The configured HTTP start, read, and send requests then
+use the exact Host ID and retain the repaired Environment ID. No preconstructed inventory snapshot
+bypasses either path.
 
 ## Risks and mitigations
 
@@ -110,9 +112,9 @@ preserving unresolved, user-defined, and unrelated evidence.
 
 - Focused model and repository regressions cover the canonical `a`, deployment `x`, and
   user-defined `x` collision, including equal built-in UUIDs across owners.
-- The configured repository/HTTP regression captures repository reconciliation, HTTP start and
-  send, and proves deployment-only, duplicate same-UUID, missing, and conflicting Host evidence
-  fail closed before dispatch.
+- The configured repository/HTTP regressions capture classification-triggered repair plus HTTP
+  start, read, and send, and prove deployment-only, duplicate same-UUID, missing, and conflicting
+  Host evidence fail closed before dispatch.
 - Type checking, the full Bun test suite, and the project/prototype build pass locally.
 - The exact pull-request head is checked by the repository preflight before push.
 - Migration SQL and lifecycle coverage prove the exact eligibility, repeatable owner-scoped copy,

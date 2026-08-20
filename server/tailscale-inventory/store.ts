@@ -161,6 +161,10 @@ export class PostgresTailscaleInventoryStore {
       throw new Error('The expected Tailscale classification revision is invalid.');
     }
     const run = async (client: DatabaseQueryClient) => {
+      const reconcileOwnership = input.ownerUserId === tailscaleDeploymentOwner;
+      if (reconcileOwnership) {
+        await lockTailscaleEnvironmentOwnershipReconciliation(client);
+      }
       const observed = await client.query<{ device_id: string }>(
         `select device_id from tailscale_device_observations
           where owner_user_id = $1 and device_id = $2 for update`,
@@ -211,6 +215,7 @@ export class PostgresTailscaleInventoryStore {
          ) values ($1, $2, $3, $4, $5, $6)`,
         [input.ownerUserId, input.deviceId, input.actorId, classification, next.classification, nextRevision]
       );
+      if (reconcileOwnership) await reconcileTailscaleEnvironmentOwnership(client);
       return { classification: next.classification, id: input.deviceId, revision: nextRevision };
     };
     return this.transaction(run);

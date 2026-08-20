@@ -27,23 +27,21 @@ Verification status: **Incomplete**
   with resolved identity, manual user Host evidence, matching copied fields, and the exact
   `project-space:tailscale-deployment` owner; unresolved, unrelated, user-defined, and
   other-owner projected rows retain their evidence.
-- [x] The configured start/send service path selects the exact verified Host and Environment and
+- [x] The configured start/read/send service path selects the exact verified Host and Environment and
   fails closed with an actionable typed unavailable result for missing, unresolved, or conflicting
   user-owned association evidence.
 - [x] Deployment-only, absent, or duplicate same-UUID Host evidence remains generic and does not
   reveal cross-owner inventory.
-- [x] `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` begins with persisted
-  query rows and exercises repository reconciliation plus configured HTTP start and send without
-  a prebuilt inventory shortcut.
+- [x] `tests/codex-machine-tasks-persisted-ownership.integration.test.ts` begins with deployment-only
+  state, invokes the real Tailscale refresh/classification boundary, observes the new user-owned
+  row through the repository, and exercises configured HTTP start, read, and send without a
+  prebuilt inventory shortcut.
 - [x] The configured HTTP regression covers both exact Host selection and the authenticated
   `--here` equivalent while retaining strict authorization.
 - [x] The CLI validates and preserves the typed unavailable result in JSON output.
 - [x] PR #845 merged at `77b7c6c52c678fd31efe11daff6f8470d7a38296`; signed v0.27.5 and
   Production are healthy. Migration `0059` applied before the later fresh projection, leaving
   the exact candidate unrepaired.
-- [x] A new draft PR carries this follow-up. PR #846 is open as a draft at
-  `785bbfd36859b1e1de8e07baed6372f148de2eb4` on base
-  `77b7c6c52c678fd31efe11daff6f8470d7a38296`; the canonical exact-head preflight is
-  `passed-local`. Fast CI is still pending remotely, Release decision is skipped for the draft,
-  and CodeRabbit is passing with its draft-review skip. No merge, release, deployment, or
-  Production mutation is part of this follow-up.
+- [x] Draft PR #846 carries this follow-up. Its corrected exact head, canonical preflight, and
+  remote checks are recorded in the PR body and Manager handoff. No merge, release, deployment,
+  or Production mutation is part of this follow-up.

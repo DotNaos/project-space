@@ -6,6 +6,7 @@ import { createConfiguredCodexMachineTasksRuntime } from '../server/codex-machin
 import { createCodexMachineTasksHttpApi } from '../server/codex-machine-tasks/http';
 import type { DatabaseQueryClient } from '../server/database/client';
 import { ProjectSpaceDatabaseRepository } from '../server/database/repository';
+import { PostgresTailscaleInventoryStore } from '../server/tailscale-inventory/store';
 import type { CodexSessionsRuntime } from '../server/codex-sessions/runtime';
 import type { WorkspaceRuntimeSessionService } from '../server/workspace-runtime-session/service';
 import type { WorkspaceRuntimeCodexCommand, WorkspaceRuntimeCodexMessage } from '../src/shared/workspace-runtime-codex-api';
@@ -29,7 +30,8 @@ type AssociationState =
   | 'unresolved'
   | 'conflict'
   | 'deployment-only'
-  | 'ambiguous';
+  | 'ambiguous'
+  | 'fresh-classification';
 
 interface PersistedRow extends Record<string, unknown> {
   owner_user_id?: string;
@@ -38,11 +40,57 @@ interface PersistedRow extends Record<string, unknown> {
 class PersistedCollisionDatabase implements DatabaseQueryClient {
   readonly calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   readonly returnedDefinitionOwners: string[] = [];
+  private observedDevice = false;
+  private classification: 'unclassified' | 'environment' = 'unclassified';
+  private repairTriggered = false;
 
   constructor(private readonly associationState: AssociationState) {}
 
   async query<Row>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
+    if (sql.includes('pg_advisory_xact_lock')) return { rows: [] as Row[] };
+    if (sql.includes('with candidate_rows')) {
+      if (this.associationState === 'fresh-classification' && this.classification === 'environment') {
+        this.repairTriggered = true;
+      }
+      return { rows: [] as Row[] };
+    }
+    if (sql.includes('insert into tailscale_device_observations')) {
+      this.observedDevice = true;
+      return { rows: [] as Row[] };
+    }
+    if (sql.includes('select device_id from tailscale_device_observations')) {
+      return { rows: this.observedDevice ? [{ device_id: 'device-842' }] as Row[] : [] as Row[] };
+    }
+    if (sql.includes('select classification, revision from tailscale_device_classifications')) {
+      return {
+        rows: this.observedDevice
+          ? [{ classification: this.classification, revision: this.classification === 'environment' ? 1 : 0 }] as Row[]
+          : [] as Row[]
+      };
+    }
+    if (sql.includes('insert into tailscale_device_classifications')) {
+      this.classification = String(values[2]) as typeof this.classification;
+      return { rows: [{ classification: this.classification, revision: 1 }] as Row[] };
+    }
+    if (sql.includes('select observed_name, os from tailscale_device_observations')) {
+      return { rows: [{ observed_name: 'os-macbook.tail1234.ts.net', os: 'darwin' }] as Row[] };
+    }
+    if (sql.includes('insert into compute_platforms')) {
+      return { rows: [{ id: 'platform-user' }] as Row[] };
+    }
+    if (sql.includes('insert into compute_environment_definitions')) {
+      return { rows: [{ id: 'same-definition-id' }] as Row[] };
+    }
+    if (sql.includes('insert into compute_environments')) {
+      return { rows: [{ id: environmentId }] as Row[] };
+    }
+    if (sql.includes('insert into tailscale_compute_environment_projections')) {
+      return { rows: [] as Row[] };
+    }
+    if (sql.includes('insert into tailscale_device_classification_audits')) {
+      return { rows: [] as Row[] };
+    }
     if (sql.includes('from compute_environment_definitions') && sql.includes('order by lower')) {
       const rows = this.visible([
         definition(userId, 'a', 'built_in', 'macOS'),
@@ -98,9 +146,11 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
   }
 
   private environmentRows(): PersistedRow[] {
+    const freshClassificationUserEnvironment = this.associationState !== 'fresh-classification' || this.repairTriggered;
     const userAssociation = this.associationState === 'verified' ||
       this.associationState === 'ambiguous' ||
-      this.associationState === 'deployment-only'
+      this.associationState === 'deployment-only' ||
+      (this.associationState === 'fresh-classification' && this.repairTriggered)
       ? { host_evidence: 'smbios', host_id: hostId, host_resolution: 'verified' }
       : this.associationState === 'conflict'
         ? { host_evidence: 'host_broker', host_id: hostId, host_resolution: 'conflict' }
@@ -111,10 +161,12 @@ class PersistedCollisionDatabase implements DatabaseQueryClient {
       ? environmentId
       : '1cbcf4d5-985d-4216-8782-6107cb365699';
     return [
-      environment(userId, environmentId, 'a', 'platform-user', 'User macOS', userAssociation),
+      ...(freshClassificationUserEnvironment
+        ? [environment(userId, environmentId, 'a', 'platform-user', 'User macOS', userAssociation)]
+        : []),
       environment(
         deploymentOwnerId,
-        deploymentEnvironmentId,
+        this.associationState === 'fresh-classification' ? environmentId : deploymentEnvironmentId,
         'x',
         'platform-deployment',
         'Deployment macOS',
@@ -287,6 +339,64 @@ function mutation(operationId: string, body: Record<string, unknown>) {
 }
 
 describe('persisted configured Codex ownership integration', () => {
+  test('creates the user row from fresh classification before HTTP start, read, and send', async () => {
+    const configured = await configuredHttp('fresh-classification');
+    const inventory = new PostgresTailscaleInventoryStore(configured.database);
+    const snapshot = {
+      backendState: 'running' as const,
+      deviceErrors: [],
+      devices: [{
+        addresses: ['100.64.0.10'], id: 'device-842', observedName: 'os-macbook.tail1234.ts.net',
+        online: true, os: 'darwin', tags: []
+      }],
+      freshness: {
+        freshUntil: '2026-08-21T00:00:00.000Z', observedAt: '2026-08-20T23:00:00.000Z', state: 'fresh' as const
+      },
+      source: 'tailscale_status_json' as const
+    };
+
+    const deploymentOnly = await configured.repository.listComputeInventory(userId);
+    expect(deploymentOnly.environments.some(({ id }) => id === environmentId)).toBe(false);
+    await inventory.reconcile(deploymentOwnerId, { complete: true, kind: 'snapshot', snapshot });
+    await inventory.setClassification({
+      actorId: 'project-manager', classification: 'environment', deviceId: 'device-842',
+      expectedRevision: 0, ownerUserId: deploymentOwnerId
+    });
+
+    const repaired = await configured.repository.listComputeInventory(userId);
+    expect(repaired.environments.find(({ id }) => id === environmentId)).toMatchObject({
+      id: environmentId, hostAssociation: { hostId }
+    });
+
+    const start = await fetch(`${configured.origin}/api/codex/tasks/start`, mutation('classification-start-842', {
+      expectedBranch: branch, expectedCommit: commit, issue: 842,
+      physicalMachineId: hostId, repositoryId: 'DotNaos/project-space'
+    }));
+    const started = await start.json() as { state: string; task?: { threadId?: string } };
+    expect(start.status).toBe(200);
+    expect(started).toMatchObject({ state: 'confirmed', task: { physicalMachine: { id: hostId } } });
+
+    const read = await fetch(`${configured.origin}/api/codex/tasks/${started.task?.threadId}?physicalMachineId=${hostId}`);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ state: 'confirmed', target: { physicalMachine: { id: hostId } } });
+
+    const send = await fetch(
+      `${configured.origin}/api/codex/tasks/${started.task?.threadId}/send`,
+      mutation('classification-send-842', {
+        delivery: 'new-turn', message: 'Continue through fresh classification ownership.', physicalMachineId: hostId
+      })
+    );
+    expect(send.status).toBe(200);
+    expect(await send.json()).toMatchObject({ state: 'accepted', target: { physicalMachine: { id: hostId } } });
+    expect(configured.commands.map(({ kind, environmentId: selectedEnvironment }) => ({
+      kind, selectedEnvironment
+    }))).toEqual([
+      { kind: 'start', selectedEnvironment: environmentId },
+      { kind: 'read', selectedEnvironment: environmentId },
+      { kind: 'continue', selectedEnvironment: environmentId }
+    ]);
+  });
+
   test('reconciles persisted owner collisions before HTTP start and send retain the exact Host', async () => {
     const configured = await configuredHttp('verified');
     const reconciledInventory = await configured.repository.listComputeInventory(userId, {

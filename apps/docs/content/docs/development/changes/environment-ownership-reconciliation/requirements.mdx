@@ -87,8 +87,9 @@ actionable unavailable state otherwise.
 
 ### ENV-OWN-003 — Ownership repair MUST be repeatable and atomic
 
-Ownership reconciliation MUST run after fresh deployment Tailscale projection updates and
-after connector identity or physical Host membership updates. It MUST consume those evidence
+Ownership reconciliation MUST run after fresh deployment Tailscale projection updates, after a
+deployment device is classified into an Environment and its projection is persisted, and after
+connector identity or physical Host membership updates. It MUST consume those evidence
 mutations atomically or through one durable transaction-scoped retry boundary.
 
 #### Scenario: Stale startup evidence becomes fresh
