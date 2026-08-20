@@ -1,0 +1,79 @@
+---
+title: Requirement delta
+description: Safety and resource requirements for bounded VPS development sandboxes.
+---
+
+## ADDED Requirements
+
+### RUNNER-001 — Fresh host and Production admission evidence
+
+The Project Manager MUST refuse a sandbox reservation unless host capacity evidence is
+fresh, internally valid, cleanup is proven, and the reserved Production headroom remains
+healthy and sufficient.
+
+#### Scenario: Missing or unsafe evidence
+
+- **Given** capacity evidence is missing, stale, future-dated, expired, cleanup-uncertain, or Production-unhealthy
+- **When** the manager receives a sandbox reservation request
+- **Then** admission returns a fail-closed blocked reason and creates no active reservation
+
+#### Scenario: Production headroom is preserved
+
+- **Given** current evidence reports healthy Production usage and a configured Production reservation
+- **When** a sandbox reservation would exceed the remaining aggregate host capacity
+- **Then** admission blocks the request without reducing the Production reservation
+
+### RUNNER-002 — Complete resource and concurrency bounds
+
+Each sandbox and the aggregate active sandbox set MUST fit the configured limits for CPU,
+memory, swap, PIDs, open files, disk, inodes, logs, I/O, network connections, exposed
+ports, model concurrency, CPU scheduling weight, I/O weight, leases, idle/runtime
+deadlines, and concurrent sandbox count.
+
+#### Scenario: A requested dimension exceeds its cap
+
+- **Given** a reservation request exceeds either its per-sandbox or aggregate cap in any dimension
+- **When** the manager evaluates the request against observed and reserved usage
+- **Then** admission blocks it and reports the resource-limit reason
+
+#### Scenario: Concurrent requests race for the final slot
+
+- **Given** only one bounded sandbox slot remains on a host
+- **When** multiple requests arrive concurrently
+- **Then** the host lock admits at most one request and the others observe a concurrency or capacity block
+
+### RUNNER-003 — Sandbox isolation and stable identity
+
+Every active reservation MUST carry stable task and workspace identity plus an isolation
+profile that denies host Docker access, host networking, Production filesystems and
+databases, deployment credentials, and cross-sandbox writable volumes.
+
+#### Scenario: Isolation proof is incomplete
+
+- **Given** a request presents an isolation profile with a denied boundary weakened or unrestricted egress
+- **When** the manager evaluates the request
+- **Then** admission blocks it before workspace creation
+
+#### Scenario: Identity is replayed or changed
+
+- **Given** an active reservation already exists for a reservation identity
+- **When** the same request is replayed or the identity is reused with changed inputs
+- **Then** an exact replay returns the existing reservation and changed inputs are rejected as an identity conflict
+
+### RUNNER-004 — Uncertain cleanup is fenced
+
+An uncertain or expired reservation MUST NOT be reused until a positive absence proof from
+the same host generation is recorded, and release MUST be idempotent for an already released
+reservation.
+
+#### Scenario: Cleanup is uncertain
+
+- **Given** a reservation is marked uncertain or its idle, lease, or runtime deadline expires
+- **When** a new sandbox requests the fenced capacity
+- **Then** admission blocks the request until same-generation absence is proven
+
+#### Scenario: Cleanup proof is current
+
+- **Given** the exact reservation is absent on the same host generation and the proof is recorded
+- **When** the manager releases the reservation and retries a bounded request
+- **Then** release is safe to repeat and the capacity can be admitted again if all other limits pass

@@ -1,0 +1,70 @@
+version: 1
+mode: rootless-docker
+manager:
+  supervisor: systemd
+  restart: always
+  reconciliation: required
+  identity: project-manager-vps
+capacity:
+  evidenceMaxAgeSeconds: 30
+  maxConcurrentSandboxes: 2
+  leaseSeconds: 900
+  maximumRuntimeSeconds: 43200
+  productionReservation:
+    cpuMillis: 2000
+    cpuSchedulingWeight: 0
+    memoryBytes: 4294967296
+    swapBytes: 0
+    pids: 256
+    openFiles: 4096
+    diskBytes: 21474836480
+    inodes: 200000
+    ioBytesPerSecond: 52428800
+    ioWeight: 0
+    networkConnections: 128
+    exposedPorts: 0
+    logBytes: 1073741824
+    modelConcurrency: 0
+  sandboxMaximum:
+    cpuMillis: 1000
+    cpuSchedulingWeight: 100
+    memoryBytes: 2147483648
+    swapBytes: 0
+    pids: 128
+    openFiles: 2048
+    diskBytes: 10737418240
+    inodes: 100000
+    ioBytesPerSecond: 10485760
+    ioWeight: 100
+    networkConnections: 64
+    exposedPorts: 4
+    logBytes: 268435456
+    modelConcurrency: 1
+  aggregateMaximum:
+    cpuMillis: 2000
+    cpuSchedulingWeight: 200
+    memoryBytes: 4294967296
+    swapBytes: 0
+    pids: 256
+    openFiles: 4096
+    diskBytes: 21474836480
+    inodes: 200000
+    ioBytesPerSecond: 20971520
+    ioWeight: 200
+    networkConnections: 128
+    exposedPorts: 8
+    logBytes: 536870912
+    modelConcurrency: 2
+isolation:
+  dockerSocket: denied
+  hostNetwork: denied
+  productionDatabase: denied
+  productionFilesystem: denied
+  deploymentCredentials: denied
+  crossSandboxWritableVolumes: denied
+  egress: development
+  sharedCaches: immutable-only
+lifecycle:
+  idleTimeoutSeconds: 1800
+  maximumRuntimeSeconds: 43200
+  uncertainCleanup: fence-capacity
