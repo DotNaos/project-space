@@ -124,6 +124,8 @@ describe('local simulation HTTP runtime', () => {
         worktree: { id: 'local-simulation-worktree' }
       }
     });
+    const confirmedTask = confirmed.task as { threadId: string; reportingTask: { threadId: string } };
+    expect(confirmedTask.reportingTask.threadId).not.toBe(confirmedTask.threadId);
   });
 
   test('keeps simulated provider identities coherent', async () => {

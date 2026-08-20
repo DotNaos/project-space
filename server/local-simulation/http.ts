@@ -408,7 +408,7 @@ export function createLocalSimulationRequestHandler(options: {
             issue: { number: payload.issue, url: `https://github.com/${repository.fullName}/issues/${payload.issue}` },
             operation: { id: payload.operationId, state: 'ready' },
             repository: { id: repository.fullName, nameWithOwner: repository.fullName },
-            reportingTask: { role: 'initiator', threadId: '61600000-0000-4000-8000-000000000001' },
+            reportingTask: { role: 'initiator', threadId: '61600000-0000-4000-8000-000000000002' },
             worker: { model, reasoningEffort },
             workspace: { branch: worktree.branchName, commit: worktree.headSha, id: worktree.id, path: worktree.path },
             worktree: { branch: worktree.branchName, id: worktree.id }
@@ -426,7 +426,7 @@ export function createLocalSimulationRequestHandler(options: {
           canonicalTaskUrl: 'http://127.0.0.1/codex/local-simulation-thread',
           issue: { number: payload.issue, url: `https://github.com/${repository.fullName}/issues/${payload.issue}` },
           repository: { id: repository.fullName, nameWithOwner: repository.fullName },
-          reportingTask: { role: 'initiator', threadId: '61600000-0000-4000-8000-000000000001' },
+          reportingTask: { role: 'initiator', threadId: '61600000-0000-4000-8000-000000000002' },
           threadId: '61600000-0000-4000-8000-000000000001',
           worker: { model, reasoningEffort },
           workspace: { branch: worktree.branchName, commit: worktree.headSha, id: worktree.id, path: worktree.path },

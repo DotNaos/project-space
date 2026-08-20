@@ -163,7 +163,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
           reportingTask: actor.reportingTask,
           userId: actor.userId
         }),
-        legacyFingerprint: fingerprint({ request, userId: actor.userId }),
+        legacyFingerprint: fingerprint({ request: legacyStartRequest(request), userId: actor.userId }),
         operationId: request.operationId,
         userId: actor.userId
       });
@@ -186,7 +186,7 @@ export function createCodexMachineTasksService(options: CodexMachineTasksService
       const requestFingerprint = fingerprint({
         request: normalizedStartRequest(request), reportingTask, userId: actor.userId
       });
-      const legacyFingerprint = fingerprint({ request, userId: actor.userId });
+      const legacyFingerprint = fingerprint({ request: legacyStartRequest(request), userId: actor.userId });
       if (options.requireReportingTaskBinding && !reportingTask) {
         return blocked(
           request.operationId,
@@ -887,4 +887,10 @@ function normalizedStartRequest(request: CodexMachineTaskStartRequest) {
     model: worker.model,
     reasoningEffort: worker.reasoningEffort
   };
+}
+
+/** The f0d7b422 request shape, before worker selection became part of start. */
+function legacyStartRequest(request: CodexMachineTaskStartRequest) {
+  const { model: _model, reasoningEffort: _reasoningEffort, ...legacy } = request;
+  return legacy;
 }

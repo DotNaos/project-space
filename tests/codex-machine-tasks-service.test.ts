@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 
 import {
   CodexMachineTasksConflictError,
   CodexMachineTasksInputError,
   codexAttachToken
 } from '../server/codex-machine-tasks/service';
+import { canonicalJson } from '../server/codex-sessions/canonical-json';
 import { CodexMachineTaskIssueError } from '../server/codex-machine-tasks/issue-provider';
 import {
   connector,
@@ -92,6 +94,36 @@ describe('Codex machine-task service', () => {
       store
     }).start({ userId: 'user-owner', reportingTask: { role: 'initiator', threadId } }, request);
     expect(result).toMatchObject({ state: 'uncertain', reconcile: 'required', message: expect.stringContaining('pre-upgrade') });
+    expect(starts).toBe(0);
+  });
+
+  test('matches the actual pre-worker fingerprint when current retries include defaults', async () => {
+    const store = memoryStore();
+    const currentRequest = { ...request, model: 'gpt-5.6-luna', reasoningEffort: 'high' };
+    const preWorkerRequest = { ...request };
+    const oldFingerprint = createHash('sha256')
+      .update(canonicalJson({ request: preWorkerRequest, userId: 'user-owner' }))
+      .digest('hex');
+    store.lookupStart = async (input) => {
+      expect(input.legacyFingerprint).toBe(oldFingerprint);
+      return {
+        connectorId: 'connector-local',
+        durableOperations: true,
+        generation: 1,
+        kind: 'legacy' as const,
+        physicalMachineId: 'physical-local',
+        state: 'uncertain' as const
+      };
+    };
+    let starts = 0;
+    const result = await service({
+      start: async () => {
+        starts += 1;
+        throw new Error('legacy reservation must not dispatch');
+      },
+      store
+    }).start({ userId: 'user-owner', reportingTask: { role: 'initiator', threadId } }, currentRequest);
+    expect(result).toMatchObject({ state: 'uncertain', message: expect.stringContaining('pre-upgrade') });
     expect(starts).toBe(0);
   });
 
