@@ -16,6 +16,7 @@ import { memoryStore } from './fixtures/codex-machine-tasks-service';
 
 const userId = 'user-owner';
 const deploymentOwnerId = 'project-space:tailscale-deployment';
+const unrelatedOwnerId = 'project-space:unrelated-infrastructure';
 const environmentId = '1cbcf4d5-985d-4216-8782-6107cb36562f';
 const hostId = '24000000-0000-4000-8000-000000000002';
 const workspaceId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -34,6 +35,7 @@ type SplitPlatformMode =
   | 'ambiguous'
   | 'unresolved-copy'
   | 'unrelated-copy'
+  | 'unrelated-owner'
   | 'user-defined-copy';
 
 class SplitPlatformDatabase implements DatabaseQueryClient {
@@ -44,20 +46,22 @@ class SplitPlatformDatabase implements DatabaseQueryClient {
   async query<Result>(sql: string, values: readonly unknown[] = []) {
     this.calls.push({ sql, values });
     const requestedOwners = Array.isArray(values[0]) ? values[0] as string[] : [userId];
-    const combined = requestedOwners.includes(deploymentOwnerId);
+    const projectedOwnerId = this.mode === 'unrelated-owner'
+      ? unrelatedOwnerId
+      : deploymentOwnerId;
 
     if (sql.includes('from compute_environment_definitions') && sql.includes('order by lower')) {
       return { rows: this.visible([
         definition(userId, 'a', 'built_in', 'macOS'),
-        definition(deploymentOwnerId, 'x', 'built_in', 'macOS'),
+        definition(projectedOwnerId, 'x', 'built_in', 'macOS'),
         definition(userId, 'x', 'user_defined', 'User macOS')
-      ], combined) as Result[] };
+      ], requestedOwners) as Result[] };
     }
     if (sql.includes('from compute_platforms') && sql.includes('order by lower')) {
       return { rows: this.visible([
         platform(userId, 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', 'Local & self-hosted'),
-        platform(deploymentOwnerId, 'a4731568-0d82-460a-b048-1db063b4b470', 'Local & self-hosted')
-      ], combined) as Result[] };
+        platform(projectedOwnerId, 'a4731568-0d82-460a-b048-1db063b4b470', 'Local & self-hosted')
+      ], requestedOwners) as Result[] };
     }
     if (sql.includes('from compute_hosts') && sql.includes('order by lower')) {
       const hosts = this.mode === 'ambiguous'
@@ -67,9 +71,9 @@ class SplitPlatformDatabase implements DatabaseQueryClient {
           ]
         : [
             host(userId, hostId, 'os-macbook', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31'),
-            host(deploymentOwnerId, '24000000-0000-4000-8000-000000000099', 'deployment-mac', 'a4731568-0d82-460a-b048-1db063b4b470')
+            host(projectedOwnerId, '24000000-0000-4000-8000-000000000099', 'deployment-mac', 'a4731568-0d82-460a-b048-1db063b4b470')
           ];
-      return { rows: this.visible(hosts, combined) as Result[] };
+      return { rows: this.visible(hosts, requestedOwners) as Result[] };
     }
     if (sql.includes('from compute_environments') && sql.includes('order by lower')) {
       if (this.mode === 'ambiguous') {
@@ -95,14 +99,14 @@ class SplitPlatformDatabase implements DatabaseQueryClient {
           userAssociation,
           this.mode === 'unrelated-copy' ? 'unrelated-mac' : 'os-macbook'
         ),
-        environment(deploymentOwnerId, environmentId, 'x', 'a4731568-0d82-460a-b048-1db063b4b470', {
+        environment(projectedOwnerId, environmentId, 'x', 'a4731568-0d82-460a-b048-1db063b4b470', {
           host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
         }),
         environment(userId, '1cbcf4d5-985d-4216-8782-6107cb365688', 'x', 'b721aada-d38b-4f44-a9ff-4fa86bb7cc31', {
           host_evidence: 'none', host_id: null, host_resolution: 'unresolved'
         })
       ];
-      return { rows: this.visible(environments, combined) as Result[] };
+      return { rows: this.visible(environments, requestedOwners) as Result[] };
     }
     if (sql.includes('from connector_compute_environments') && sql.includes('order by connector_id')) {
       return { rows: [] as Result[] };
@@ -110,8 +114,8 @@ class SplitPlatformDatabase implements DatabaseQueryClient {
     return { rows: [] as Result[] };
   }
 
-  private visible(rows: Row[], combined: boolean) {
-    return rows.filter((row) => combined || row.owner_user_id === userId);
+  private visible(rows: Row[], requestedOwners: readonly string[]) {
+    return rows.filter((row) => row.owner_user_id && requestedOwners.includes(row.owner_user_id));
   }
 }
 
@@ -148,7 +152,7 @@ function environment(
     identity_key: `environment:${owner}:${id}`, identity_resolution: 'resolved', identity_version: 1,
     kind: 'native_macos', legacy_tombstoned_only: false, name, owner_user_id: owner,
     parent_environment_id: null, platform_id: platformId, resource_mode: 'dedicated', resources: null,
-    tailscale_projected: owner === deploymentOwnerId
+    tailscale_projected: owner !== userId
   };
 }
 
@@ -345,5 +349,15 @@ describe('persisted split-platform Codex ownership integration', () => {
       expect(collisionRows.some(({ environmentDefinitionId }) => environmentDefinitionId === 'x'))
         .toBe(true);
     }
+  });
+
+  test('keeps an equivalent projected Environment from an unrelated owner', async () => {
+    const configured = await configuredHttp('unrelated-owner');
+    const combinedInventory = await configured.repository.listComputeInventory(userId, {
+      additionalOwnerUserIds: [unrelatedOwnerId]
+    });
+
+    expect(combinedInventory.environments.filter(({ id }) => id === environmentId))
+      .toHaveLength(2);
   });
 });

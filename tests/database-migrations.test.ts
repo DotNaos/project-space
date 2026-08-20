@@ -296,6 +296,15 @@ describe('database migrations', () => {
     );
   });
 
+  test('rejects a mismatched built-in blueprint before persisting a candidate', () => {
+    expect(tailscaleEnvironmentOwnershipMigrationSql).toMatch(
+      /join compute_environment_definitions deployment_definition[\s\S]*?deployment_definition\.id = environment\.environment_definition_id/
+    );
+    expect(tailscaleEnvironmentOwnershipMigrationSql).toMatch(
+      /\(definition\.slug, definition\.name, definition\.kind,\s*definition\.operating_system_family, definition\.supported_architectures,\s*definition\.bootstrap_strategy, definition\.ownership\) =\s*\(deployment_definition\.slug, deployment_definition\.name,\s*deployment_definition\.kind, deployment_definition\.operating_system_family,\s*deployment_definition\.supported_architectures,\s*deployment_definition\.bootstrap_strategy, deployment_definition\.ownership\)/
+    );
+  });
+
   test('repairs compute-environment identity resolution after the original migration', () => {
     expect(computeEnvironmentIdentityResolutionMigrationId).toBe(
       '0031_compute_environment_identity_resolution'

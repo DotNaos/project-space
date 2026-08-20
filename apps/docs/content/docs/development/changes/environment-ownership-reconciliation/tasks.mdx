@@ -22,12 +22,14 @@ description: Implementation and verification checklist for Environment ownership
 - [x] 2.3 Audit persisted and projected paths
   - **Evidence:** Migration `0059_tailscale_environment_ownership` copies only one exact eligible
     deployment projection into the user scope; connector identity remains part of candidate
-    uniqueness, so two connectors on one Host remain ambiguous. Stale, duplicate, wrong-owner,
-    and user-defined evidence remains untouched and fail-closed.
+    uniqueness, so two connectors on one Host remain ambiguous. The user and deployment built-ins
+    must match across every blueprint field. Stale, duplicate, wrong-owner, incompatible, and
+    user-defined evidence remains untouched and fail-closed.
 - [x] 2.4 Keep combined presentation owner-safe after the backfill
   - **Evidence:** The repository suppresses only the matching deployment projection when the
-    user-owned copy has the complete repaired built-in signature, while retaining unresolved,
-    user-defined, and unrelated rows.
+    user-owned copy has the complete repaired built-in signature and the projection belongs to
+    the exact deployment owner, while retaining unresolved, user-defined, unrelated, and
+    other-owner projected rows.
 
 ## 3. Delivery evidence
 

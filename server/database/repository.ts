@@ -375,12 +375,12 @@ export class ProjectSpaceDatabaseRepository {
       userEnvironmentsById.set(row.id, matching);
     }
     // A migrated account-scoped copy is authoritative for the account's
-    // configured runtime. Hide only the matching deployment Tailscale
+    // configured runtime. Hide only the matching canonical Tailscale deployment
     // projection from combined presentation inventory; preserve every
-    // user-defined Environment and every unrelated deployment record.
+    // user-defined Environment and every projection from another owner.
     const visibleEnvironmentRows = environmentResult.rows.filter((row) => (
       !row.legacy_tombstoned_only && !(
-        row.owner_user_id !== ownerUserId &&
+        row.owner_user_id === 'project-space:tailscale-deployment' &&
         row.tailscale_projected === true &&
         (userEnvironmentsById.get(row.id) ?? []).some((userEnvironment) => (
           isRepairedTailscaleEnvironmentCopy(

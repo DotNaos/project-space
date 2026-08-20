@@ -18,11 +18,13 @@ Verification status: **Incomplete**
 - [x] Focused tests, type check, full tests, and build pass locally.
 - [x] Migration `0059_tailscale_environment_ownership` is additive and fail-closed: it copies
   only one current deployment observation with one exact user-owned connector identity/Host
-  match and an existing built-in definition, leaves the deployment projection unchanged, and
-  no-ops on stale, duplicate, wrong-owner, user-defined, or two-connectors-to-one-Host evidence.
+  match and a completely equivalent built-in definition, leaves the deployment projection
+  unchanged, and no-ops on stale, duplicate, wrong-owner, incompatible, user-defined, or
+  two-connectors-to-one-Host evidence.
 - [x] Combined presentation suppresses a deployment projection only for a same-UUID user built-in
-  with resolved identity, manual user Host evidence, and matching copied fields; unresolved,
-  unrelated, and user-defined rows retain the deployment evidence.
+  with resolved identity, manual user Host evidence, matching copied fields, and the exact
+  `project-space:tailscale-deployment` owner; unresolved, unrelated, user-defined, and
+  other-owner projected rows retain their evidence.
 - [x] The configured start/send service path selects the exact verified Host and Environment and
   fails closed with an actionable typed unavailable result for missing, unresolved, or conflicting
   user-owned association evidence.

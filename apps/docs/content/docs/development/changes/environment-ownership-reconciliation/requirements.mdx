@@ -65,11 +65,25 @@ actionable unavailable state otherwise.
 - **Then** both records remain visible; suppression occurs only for an equivalent built-in copy
   with resolved identity, manual user evidence, a Host association, and matching copied fields
 
+#### Scenario: An unrelated owner has an equivalent projection
+
+- **Given** an additional non-user scope other than `project-space:tailscale-deployment` contains
+  an equivalent projected Environment with the repaired copy's UUID
+- **When** the combined inventory is presented
+- **Then** the unrelated owner's projected evidence remains visible
+
 #### Scenario: Two connectors match the same Host
 
 - **Given** two matching user-owned connector identities are grouped into the same physical Host
 - **When** the ownership backfill evaluates the deployment Environment
 - **Then** the two connectors remain distinct candidates and the migration performs no backfill
+
+#### Scenario: The user built-in blueprint differs
+
+- **Given** the matching user built-in differs from the deployment definition in name, operating
+  system family, supported architectures, or bootstrap strategy
+- **When** the ownership backfill evaluates the deployment Environment
+- **Then** the migration performs no backfill
 
 ## CHANGED Requirements
 
