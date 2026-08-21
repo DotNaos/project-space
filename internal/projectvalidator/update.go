@@ -2,6 +2,7 @@ package projectvalidator
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,6 +31,8 @@ type templateUpdateContext struct {
 	nextChecksum    string
 	currentValues   TemplateValues
 	nextValues      TemplateValues
+	currentModules  []string
+	nextModules     []string
 	plan            TemplateUpdatePlan
 }
 
@@ -66,12 +69,18 @@ func loadTemplateUpdateContext(projectRoot string, options TemplateUpdateOptions
 	if err != nil {
 		return templateUpdateContext{}, err
 	}
-	nextValues, err := mergeTemplateValuesForModules(root, nextTemplate, lock.Modules, currentValues)
+	modules, err := resolveTemplateUpdateModules(nextTemplate, lock.Modules, options.Targets)
+	if err != nil {
+		return templateUpdateContext{}, err
+	}
+	seedValues := cloneTemplateValues(currentValues)
+	mergeTemplateValueMaps(seedValues, modules.selectionValues)
+	nextValues, err := mergeTemplateValuesForModules(root, nextTemplate, modules.next, seedValues)
 	if err != nil {
 		return templateUpdateContext{}, err
 	}
 	valueChanges := planTemplateUpdateValues(currentValues, nextValues)
-	fileChanges, err := planTemplateUpdateFiles(root, currentTemplate, nextTemplate, currentValues, nextValues, lock.Modules)
+	fileChanges, err := planTemplateUpdateFiles(root, currentTemplate, nextTemplate, currentValues, nextValues, modules.current, modules.next)
 	if err != nil {
 		return templateUpdateContext{}, err
 	}
@@ -87,6 +96,8 @@ func loadTemplateUpdateContext(projectRoot string, options TemplateUpdateOptions
 		ToTemplate:     nextTemplate.Name,
 		ToVersion:      nextTemplate.Version,
 		ToChecksum:     nextChecksum,
+		FromModules:    append([]string{}, modules.current...),
+		ToModules:      append([]string{}, modules.next...),
 		Values:         valueChanges,
 		Files:          fileChanges,
 		WouldWrite:     len(valueChanges) > 0 || len(fileChanges) > 0 || lock.Checksum != nextChecksum || lock.Version != nextTemplate.Version,
@@ -102,6 +113,8 @@ func loadTemplateUpdateContext(projectRoot string, options TemplateUpdateOptions
 		nextChecksum:    nextChecksum,
 		currentValues:   currentValues,
 		nextValues:      nextValues,
+		currentModules:  modules.current,
+		nextModules:     modules.next,
 		plan:            plan,
 	}, nil
 }
@@ -134,6 +147,7 @@ func ApplyTemplateUpdate(projectRoot string, options TemplateUpdateOptions) (Tem
 	lock.Commit = context.sourceCommit
 	lock.Checksum = context.nextChecksum
 	lock.ChecksumVersion = templateChecksumVersion
+	lock.Modules = append([]string{}, context.nextModules...)
 	if options.TemplatePath != "" {
 		lock.TemplatePath = options.TemplatePath
 	} else if context.sourceCommit != "" {
@@ -259,12 +273,12 @@ func flattenTemplateValues(values TemplateValues) map[string]string {
 	return flat
 }
 
-func planTemplateUpdateFiles(projectRoot string, current TemplateSpec, next TemplateSpec, currentValues TemplateValues, nextValues TemplateValues, modules []string) ([]TemplateUpdateFileChange, error) {
-	currentFiles, err := templateFilesForModules(current, modules)
+func planTemplateUpdateFiles(projectRoot string, current TemplateSpec, next TemplateSpec, currentValues TemplateValues, nextValues TemplateValues, currentModules []string, nextModules []string) ([]TemplateUpdateFileChange, error) {
+	currentFiles, err := templateFilesForModules(current, currentModules)
 	if err != nil {
 		return nil, err
 	}
-	nextFiles, err := templateFilesForModules(next, modules)
+	nextFiles, err := templateFilesForModules(next, nextModules)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +396,7 @@ func templateFileUpdateResult(projectRoot string, path string, base []byte, thei
 	}
 	_, clean, err := threeWayMerge(body, base, theirs)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s: %w", path, err)
 	}
 	if clean {
 		return "merged", nil
@@ -530,15 +544,19 @@ func threeWayMerge(mine []byte, base []byte, theirs []byte) ([]byte, bool, error
 		return nil, false, err
 	}
 	command := exec.Command("git", "merge-file", "-p", minePath, basePath, theirsPath)
-	output, err := command.Output()
+	output, err := command.CombinedOutput()
 	if err == nil {
 		return output, true, nil
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+	if bytes.Contains(output, []byte("<<<<<<<")) && bytes.Contains(output, []byte(">>>>>>>")) {
 		return output, false, nil
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return nil, false, fmt.Errorf("git merge-file: %s", strings.TrimSpace(string(exitErr.Stderr)))
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return output, false, nil
+	}
+	if errors.As(err, &exitErr) {
+		return nil, false, fmt.Errorf("git merge-file (exit %d): %s", exitErr.ExitCode(), strings.TrimSpace(string(output)))
 	}
 	return nil, false, err
 }

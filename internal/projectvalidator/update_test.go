@@ -30,6 +30,54 @@ func TestPlanTemplateUpdateValuesShowsAddedModuleValues(t *testing.T) {
 	}
 }
 
+func TestTemplateUpdateMigratesSplitModuleWithExplicitTarget(t *testing.T) {
+	oldTemplateRoot := writeUpdateTestTemplate(t, "0.1.0", "title: {{ project.slug }}\n")
+	newTemplateRoot := writeSplitModuleUpdateTemplate(t)
+	projectRoot := filepath.Join(t.TempDir(), "demo-project")
+	if _, err := CreateProject(projectRoot, InitOptions{TemplatePath: oldTemplateRoot}); err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	if _, err := WriteTmpTemplateValues(projectRoot); err != nil {
+		t.Fatalf("WriteTmpTemplateValues returned error: %v", err)
+	}
+	if _, err := InstallDefaultModules(projectRoot); err != nil {
+		t.Fatalf("InstallDefaultModules returned error: %v", err)
+	}
+
+	options := TemplateUpdateOptions{
+		TemplatePath: newTemplateRoot,
+		Targets:      []AppTargetSelection{{Target: "web", Devices: []string{"desktop", "mobile"}}},
+	}
+	plan, err := PlanTemplateUpdate(projectRoot, options)
+	if err != nil {
+		t.Fatalf("PlanTemplateUpdate returned error: %v", err)
+	}
+	if len(plan.FromModules) != 1 || plan.FromModules[0] != "core.fullstack" {
+		t.Fatalf("unexpected source modules: %#v", plan.FromModules)
+	}
+	if got := strings.Join(plan.ToModules, ","); got != "core.shared,implementation.web.shared,target.web" {
+		t.Fatalf("unexpected migrated modules: %s", got)
+	}
+
+	if _, err := ApplyTemplateUpdate(projectRoot, options); err != nil {
+		t.Fatalf("ApplyTemplateUpdate returned error: %v", err)
+	}
+	lock, err := readTemplateLock(projectRoot)
+	if err != nil {
+		t.Fatalf("readTemplateLock returned error: %v", err)
+	}
+	if got := strings.Join(lock.Modules, ","); got != "core.shared,implementation.web.shared,target.web" {
+		t.Fatalf("lock modules = %s", got)
+	}
+	values, err := readTemplateValues(projectRoot)
+	if err != nil {
+		t.Fatalf("readTemplateValues returned error: %v", err)
+	}
+	if value, ok := lookupTemplateValue(values, "app.targets.web"); !ok || value != "true" {
+		t.Fatalf("app.targets.web = %q, present=%v", value, ok)
+	}
+}
+
 func TestFlattenTemplateValuesHandlesNamedRootType(t *testing.T) {
 	values := TemplateValues{
 		"project": map[string]any{
@@ -163,6 +211,20 @@ func writeUpdateSelfValueTemplate(t *testing.T) string {
 	mustWriteFile(t, filepath.Join(root, "template", "manifest.yaml"), "name: project-template\nversion: 0.1.0\nmodules:\n  - modules/core.yaml\n")
 	mustWriteFile(t, filepath.Join(root, "template", "modules", "core.yaml"), "name: core.fullstack\ndescription: Core test module.\ndefault: true\nvalues:\n  project.slug:\n    type: string\n    required: true\nowns:\n  - README.md\n")
 	mustWriteFile(t, filepath.Join(root, "README.md"), "# project-template\n")
+	return root
+}
+
+func writeSplitModuleUpdateTemplate(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, ".templateignore"), ".templateignore\ntemplate/**\n")
+	mustWriteFile(t, filepath.Join(root, "template", "manifest.yaml"), "name: project-template\nversion: 0.2.0\nmodules:\n  - modules/core.yaml\n  - modules/target.yaml\n  - modules/shared.yaml\n  - modules/desktop.yaml\n  - modules/mobile.yaml\n")
+	mustWriteFile(t, filepath.Join(root, "template", "modules", "core.yaml"), "name: core.shared\ndescription: Shared core.\ndefault: true\nmigratesFrom: [core.fullstack]\nvalues:\n  project.slug:\n    type: string\n    required: true\n  app.targets.web:\n    type: boolean\n    required: true\n    default: \"false\"\n  app.devices.web.desktop:\n    type: boolean\n    required: true\n    default: \"false\"\n  app.devices.web.mobile:\n    type: boolean\n    required: true\n    default: \"false\"\n  app.implementations.web.shared:\n    type: boolean\n    required: true\n    default: \"false\"\nowns:\n  - README.md\n")
+	mustWriteFile(t, filepath.Join(root, "template", "modules", "target.yaml"), "name: target.web\ndescription: Web target.\ndependsOn: [core.shared]\nappTarget:\n  id: web\n  devices: [desktop, mobile]\n  sharedModule: implementation.web.shared\n  sharedDevices: [desktop, mobile]\n  deviceModules:\n    desktop: implementation.web.desktop\n    mobile: implementation.web.mobile\n")
+	mustWriteFile(t, filepath.Join(root, "template", "modules", "shared.yaml"), "name: implementation.web.shared\ndescription: Shared web root.\ndependsOn: [target.web]\n")
+	mustWriteFile(t, filepath.Join(root, "template", "modules", "desktop.yaml"), "name: implementation.web.desktop\ndescription: Desktop root.\ndependsOn: [target.web]\n")
+	mustWriteFile(t, filepath.Join(root, "template", "modules", "mobile.yaml"), "name: implementation.web.mobile\ndescription: Mobile root.\ndependsOn: [target.web]\n")
+	mustWriteFile(t, filepath.Join(root, "README.md.template"), "title: {{ project.slug }}\n")
 	return root
 }
 

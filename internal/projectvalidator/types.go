@@ -30,15 +30,16 @@ type TemplateFileSpec struct {
 }
 
 type TemplateModuleSpec struct {
-	Name        string                       `yaml:"name"`
-	Description string                       `yaml:"description"`
-	Default     bool                         `yaml:"default"`
-	DependsOn   []string                     `yaml:"dependsOn"`
-	Values      map[string]TemplateValueSpec `yaml:"values"`
-	Rules       map[string]TemplateFileRules `yaml:"rules"`
-	Blockers    []TemplateBlockerRule        `yaml:"blockers"`
-	Owns        []string                     `yaml:"owns"`
-	AppTarget   *TemplateAppTargetSpec       `yaml:"appTarget"`
+	Name         string                       `yaml:"name"`
+	Description  string                       `yaml:"description"`
+	Default      bool                         `yaml:"default"`
+	DependsOn    []string                     `yaml:"dependsOn"`
+	MigratesFrom []string                     `yaml:"migratesFrom"`
+	Values       map[string]TemplateValueSpec `yaml:"values"`
+	Rules        map[string]TemplateFileRules `yaml:"rules"`
+	Blockers     []TemplateBlockerRule        `yaml:"blockers"`
+	Owns         []string                     `yaml:"owns"`
+	AppTarget    *TemplateAppTargetSpec       `yaml:"appTarget"`
 }
 
 type TemplateAppTargetSpec struct {
@@ -281,6 +282,7 @@ type ViolationQuarantineFile struct {
 type TemplateUpdateOptions struct {
 	TemplatePath string
 	DryRun       bool
+	Targets      []AppTargetSelection
 }
 
 type TemplateUpdatePlan struct {
@@ -294,6 +296,8 @@ type TemplateUpdatePlan struct {
 	ToTemplate     string
 	ToVersion      string
 	ToChecksum     string
+	FromModules    []string
+	ToModules      []string
 	Values         []TemplateUpdateValueChange
 	Files          []TemplateUpdateFileChange
 	WouldWrite     bool
