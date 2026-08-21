@@ -27,6 +27,19 @@ on success, failure, cancellation, and interruption. Credentials and terminal
 bytes remain in the local SSH process; the bridge never reconnects
 automatically (`MaxReconnectAttempts = 0`).
 
+The client-owned Workspace Runtime path uses the same target proof. `project
+environment bootstrap <id> --client-owned` obtains a short-lived, typed Runtime
+credential for the exact Environment, Host, Workspace, generation, and target
+identity revision. It then sends one bounded `workspace-runtime.start.v1`
+control frame directly over that pinned SSH connection. The server issues the
+credential and records authorization, but it never opens or relays the SSH
+connection. The target's installed control-gateway identity must include the
+same Host binding; a missing or changed Host binding is rejected before the
+runtime manager starts. A successful response is only accepted when it matches
+the requested Environment, Host, Workspace, generation, commit, manifest,
+operation, and identity revision. The Runtime then registers its
+`runtime.codex.v1` session through the existing authenticated Runtime socket.
+
 The browser Compute detail view displays this exact-ID command as informational
 text. It does not claim overall SSH readiness, start a browser session, send an
 SSH request, open a server socket, or ask Project Space to relay a session. It
@@ -50,18 +63,17 @@ resize, and cleans up its temporary host-key file on every exit path. Reconnect
 is bounded at zero automatic attempts so a fresh authorization and identity
 check is required for another session.
 
-The Codex phase is reserved for #726's client-owned discovery/runtime bridge;
-it must consume the same target identity and local transport boundary rather
-than introducing a server-side SSH fallback.
+Codex commands use the registered Workspace Runtime session after bootstrap.
+They remain bound to the exact Environment, Workspace, generation, and online
+`runtime.codex.v1` capability; there is no server-side SSH fallback.
 
 ## Assumed dispatch/runtime contract
 
-The final #763 contract was reconciled against landed merge commit `b92d411c`.
-It retains canonical workspace and Environment identity validation, caller-supplied
-initiating-task evidence, the local Project Manager worktree gate, explicit
-unavailable outcomes, and local runtime ownership. #724 does not call the #763
-start endpoint, so no shared payload change is required; an unavailable runtime
-remains unavailable and cannot become a server-originated SSH or Codex session.
+The client-owned Runtime launch is a separate typed endpoint from the legacy
+server-dispatched launch. It returns only the short-lived Runtime credential
+and its exact binding; the local CLI owns the SSH transport. An unavailable or
+stale route remains unavailable and cannot become a server-originated SSH or
+Codex session.
 
 ## Validation matrix
 
@@ -71,6 +83,9 @@ remains unavailable and cannot become a server-originated SSH or Codex session.
 | Client has no local Tailscale route | Block before key scan or SSH | non-tailnet test |
 | Target evidence is stale/unverified or route is non-Tailscale | Block before local execution | target/CLI tests |
 | Current target key differs from pinned identity | Block before SSH | host-key mismatch test |
+| Exact Host or identity revision changes during launch | Block before credential issuance or control execution | client-launch binding and control-gateway tests |
+| Client-owned Runtime control result changes Environment, Host, Workspace, or generation | Reject the result | exact-host bootstrap test |
+| Runtime does not register online with `runtime.codex.v1` | Keep Codex unavailable | existing Runtime session registration boundary |
 | SSH reports authentication failure | Return `authentication_failed` | classification test |
 | SSH reports route failure | Return `target_unavailable` | classification test |
 | Server inventory response | Contains launch metadata only; no credentials or raw identity keys | compute inventory privacy test |

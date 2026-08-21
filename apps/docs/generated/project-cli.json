@@ -1708,6 +1708,12 @@
                 "inherited": false
               },
               {
+                "name": "client-owned",
+                "type": "bool",
+                "description": "start the Runtime over the caller's direct verified Tailscale SSH path",
+                "inherited": false
+              },
+              {
                 "name": "commit",
                 "type": "string",
                 "description": "expected immutable Workspace commit (auto-detected)",

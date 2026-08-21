@@ -190,6 +190,81 @@ func Open(ctx context.Context, target Target, input io.Reader, output, errorOutp
 	return classifySSHFailure(interactiveError, transcript.String())
 }
 
+// RunControl opens one bounded, non-interactive control exchange directly
+// from the caller's machine. The Project Space server is never a transport
+// participant; it only supplied the inventory metadata and launch token.
+func RunControl(ctx context.Context, target Target, payload []byte, dependencies Dependencies) (string, string, error) {
+	if dependencies.LookPath == nil || dependencies.Run == nil {
+		return "", "", &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "the local SSH bridge is not configured"}
+	}
+	if !isValidTarget(target) {
+		return "", "", &Failure{Phase: PhaseTarget, Code: CodeTargetUnavailable, Message: "the client-owned SSH target is invalid"}
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "the local SSH session was cancelled"}
+	}
+	if _, err := dependencies.LookPath("tailscale"); err != nil {
+		return "", "", &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "Tailscale is not installed on this client"}
+	}
+	if _, err := dependencies.LookPath("ssh-keyscan"); err != nil {
+		return "", "", &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "ssh-keyscan is not available on this client"}
+	}
+	sshBinary, err := dependencies.LookPath("ssh")
+	if err != nil {
+		return "", "", &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "ssh is not available on this client"}
+	}
+	if err := verifyTailnet(ctx, dependencies); err != nil {
+		return "", "", err
+	}
+	keyscan, stderr, err := dependencies.Run(ctx, "ssh-keyscan", []string{"-4", "-p", strconv.Itoa(target.Port), target.Address}, nil)
+	if err != nil {
+		return "", stderr, &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "the client could not inspect the target SSH service"}
+	}
+	keyLine, ok := matchingHostKey(keyscan, target.HostKeySHA256)
+	if !ok {
+		return "", "", &Failure{Phase: PhaseHostKey, Code: CodeHostKeyMismatch, Message: "the target SSH host key does not match the verified Environment identity"}
+	}
+	knownHosts, err := os.CreateTemp("", "project-space-known-hosts-")
+	if err != nil {
+		return "", "", &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "the client could not create a private host-key file"}
+	}
+	knownHostsPath := filepath.Clean(knownHosts.Name())
+	defer os.Remove(knownHostsPath)
+	if err := knownHosts.Chmod(0o600); err != nil {
+		_ = knownHosts.Close()
+		return "", "", &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "the client could not protect the temporary host-key file"}
+	}
+	if _, err := knownHosts.WriteString(keyLine + "\n"); err != nil {
+		_ = knownHosts.Close()
+		return "", "", &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "the client could not prepare host-key verification"}
+	}
+	if err := knownHosts.Close(); err != nil {
+		return "", "", &Failure{Phase: PhaseLocalClient, Code: CodeLocalClientUnavailable, Message: "the client could not finalize host-key verification"}
+	}
+	args := []string{
+		"-4", "-T", "-p", strconv.Itoa(target.Port),
+		"-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+		"-o", "GlobalKnownHostsFile=" + os.DevNull,
+		"-o", "UserKnownHostsFile=" + knownHostsPath,
+		"-o", "ProxyCommand=none", "-o", "ProxyJump=none",
+		"-o", "PermitLocalCommand=no", "-o", "StrictHostKeyChecking=yes",
+		target.User + "@" + target.Address, "project", "control-gateway", "--stdio",
+	}
+	stdout, stderr, runErr := dependencies.Run(ctx, sshBinary, args, payload)
+	if runErr == nil {
+		return stdout, stderr, nil
+	}
+	if ctx.Err() != nil {
+		return stdout, stderr, &Failure{Phase: PhaseSSH, Code: CodeSSHUnavailable, Message: "the local SSH session was cancelled"}
+	}
+	return stdout, stderr, classifySSHFailure(runErr, stderr)
+}
+
+func isValidTarget(target Target) bool {
+	return isTailscaleIPv4(target.Address) && target.Port >= 1 && target.Port <= 65535 &&
+		target.User != "" && target.HostKeySHA256 != "" && target.TargetIdentityRevision != ""
+}
+
 func verifyTailnet(ctx context.Context, dependencies Dependencies) error {
 	stdout, stderr, err := dependencies.Run(ctx, "tailscale", []string{"status", "--json"}, nil)
 	if err != nil {

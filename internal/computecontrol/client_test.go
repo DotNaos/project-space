@@ -112,6 +112,57 @@ func TestLaunchWorkspaceRuntimeUsesTypedMachineBoundary(t *testing.T) {
 	}
 }
 
+func TestPrepareClientOwnedWorkspaceRuntimeReturnsExactHostLaunchDescriptor(t *testing.T) {
+	requestBody := WorkspaceRuntimeClientLaunchRequest{}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/compute/control/workspace-runtime/client-launch" ||
+			request.Method != http.MethodPost || request.Header.Get("Authorization") != "Bearer token" ||
+			request.Header.Get("X-Project-Machine-ID") != "machine-one" ||
+			request.Header.Get("Idempotency-Key") != "client-bootstrap-one" {
+			t.Fatalf("request = %#v, headers = %#v", request.URL, request.Header)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(response, `{
+          "branch":"%s","commit":"%s","controlTargetIdentityRevision":"7:environment:canonical","environmentId":"%s","generation":"%s","hostId":"%s",
+          "manifestDigest":"%s","mode":"process","operation":"workspace-runtime.start.v1","operationId":"client-bootstrap-one",
+          "profile":"codex","runtimeSessionCapabilities":["runtime.lifecycle","runtime.heartbeat"],
+          "runtimeSessionEndpoint":"wss://projects.os-home.net/api/workspace-runtimes/socket",
+          "runtimeSessionExpiresAt":"%s","runtimeSessionOwnerUserId":"owner-one",
+          "runtimeSessionRequestedCapabilities":["runtime.codex.v1","runtime.control.v1"],
+          "runtimeSessionToken":"%s","runtimeSessionVersion":"0.5.0","runtimeVersion":"0.5.0",
+          "sourceHead":"%s","state":"ready","targetIdentityRevision":"7:environment:canonical",
+          "workspaceId":"%s"}`,
+			"issue-724", strings.Repeat("a", 40),
+			"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+			"33333333-3333-4333-8333-333333333333", strings.Repeat("b", 64),
+			time.Now().Add(5*time.Minute).UTC().Format(time.RFC3339Nano), strings.Repeat("A", 43), strings.Repeat("a", 40),
+			"44444444-4444-4444-8444-444444444444")
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{
+		BaseURL: server.URL, CallerMachineID: "machine-one",
+		CredentialProvider: CredentialProviderFunc(func(context.Context) (string, error) { return "token", nil }),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := WorkspaceRuntimeClientLaunchRequest{
+		Branch: "issue-724", Commit: strings.Repeat("a", 40),
+		EnvironmentID: "11111111-1111-4111-8111-111111111111", Generation: "22222222-2222-4222-8222-222222222222",
+		HostID: "33333333-3333-4333-8333-333333333333", ManifestDigest: strings.Repeat("b", 64), Mode: "process",
+		OperationID: "client-bootstrap-one", Profile: "codex", RuntimeVersion: "0.5.0",
+		TargetIdentityRevision: "7:environment:canonical", WorkspaceID: "44444444-4444-4444-8444-444444444444",
+	}
+	result, err := client.PrepareClientOwnedWorkspaceRuntime(context.Background(), input)
+	if err != nil || requestBody != input || result.HostID != input.HostID ||
+		result.TargetIdentityRevision != input.TargetIdentityRevision || result.ControlTargetIdentityRevision != "7:environment:canonical" || result.RuntimeSessionToken != strings.Repeat("A", 43) {
+		t.Fatalf("result = %#v, request = %#v, err = %v", result, requestBody, err)
+	}
+}
+
 func TestWorkspaceRuntimePresentationCapabilityNegotiation(t *testing.T) {
 	capabilityResponse := `{"capabilities":["workspace-runtime-presentation.v1"],"schemaVersion":1}`
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

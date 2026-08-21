@@ -55,6 +55,42 @@ func TestOpenUsesTheLocalTailnetAndDirectIPWithoutServerRelay(t *testing.T) {
 	}
 }
 
+func TestRunControlUsesDirectPinnedSSHWithoutServerRelay(t *testing.T) {
+	key := []byte("verified-environment-host-key")
+	var sshArgs []string
+	var payload []byte
+	dependencies := Dependencies{
+		LookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil },
+		Run: func(_ context.Context, name string, args []string, stdin []byte) (string, string, error) {
+			if name == "tailscale" {
+				return `{"BackendState":"Running","Self":{"TailscaleIPs":["100.64.0.2"]}}`, "", nil
+			}
+			if name == "ssh-keyscan" {
+				return "100.64.0.10 ssh-ed25519 " + base64.StdEncoding.EncodeToString(key), "", nil
+			}
+			sshArgs = append([]string(nil), args...)
+			payload = append([]byte(nil), stdin...)
+			return `{"environmentId":"environment-1","state":"running"}` + "\n", "", nil
+		},
+	}
+	stdout, _, err := RunControl(context.Background(), Target{
+		Address: "100.64.0.10", HostKeySHA256: fingerprint(key), Port: 22,
+		TargetIdentityRevision: "1:environment-key", User: "project-user",
+	}, []byte(`{"type":"operation"}`+"\n"), dependencies)
+	if err != nil {
+		t.Fatalf("run control: %v", err)
+	}
+	if !strings.Contains(stdout, `"state":"running"`) || len(payload) == 0 {
+		t.Fatalf("control exchange = %q payload = %q", stdout, payload)
+	}
+	joined := strings.Join(sshArgs, " ")
+	if !strings.Contains(joined, "project-user@100.64.0.10 project control-gateway --stdio") ||
+		!strings.Contains(joined, "ProxyCommand=none") || !strings.Contains(joined, "ProxyJump=none") ||
+		strings.Contains(joined, "projects.os-home.net") || strings.Contains(joined, "credential") {
+		t.Fatalf("ssh args = %#v", sshArgs)
+	}
+}
+
 func TestOpenBlocksWhenTheViewingClientIsNotOnTheTailnet(t *testing.T) {
 	keyscanCalled := false
 	dependencies := Dependencies{

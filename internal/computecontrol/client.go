@@ -47,6 +47,10 @@ type WorkspaceRuntimeAPI interface {
 	LaunchWorkspaceRuntime(context.Context, WorkspaceRuntimeLaunchRequest) (WorkspaceRuntimeLaunchExecution, error)
 }
 
+type WorkspaceRuntimeClientAPI interface {
+	PrepareClientOwnedWorkspaceRuntime(context.Context, WorkspaceRuntimeClientLaunchRequest) (WorkspaceRuntimeClientLaunchResult, error)
+}
+
 type Config struct {
 	BaseURL            string
 	CallerMachineID    string
@@ -196,6 +200,60 @@ func (client *Client) LaunchWorkspaceRuntime(
 	return result, nil
 }
 
+func (client *Client) PrepareClientOwnedWorkspaceRuntime(
+	ctx context.Context,
+	input WorkspaceRuntimeClientLaunchRequest,
+) (WorkspaceRuntimeClientLaunchResult, error) {
+	if !validClientLaunchRequest(input) {
+		return WorkspaceRuntimeClientLaunchResult{}, ErrInvalidInput
+	}
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return WorkspaceRuntimeClientLaunchResult{}, ErrInvalidInput
+	}
+	endpoint := *client.baseURL
+	endpoint.Path = strings.TrimRight(client.baseURL.Path, "/") +
+		"/api/compute/control/workspace-runtime/client-launch"
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(encoded))
+	if err != nil {
+		return WorkspaceRuntimeClientLaunchResult{}, ErrInvalidInput
+	}
+	token, err := client.credentials.AccessToken(ctx)
+	if err != nil || strings.TrimSpace(token) == "" {
+		return WorkspaceRuntimeClientLaunchResult{}, ErrUnauthorized
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", input.OperationID)
+	request.Header.Set("X-Project-Machine-ID", client.callerMachineID)
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return WorkspaceRuntimeClientLaunchResult{}, ctx.Err()
+		}
+		return WorkspaceRuntimeClientLaunchResult{}, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return WorkspaceRuntimeClientLaunchResult{}, ErrUnauthorized
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode >= 500 {
+			return WorkspaceRuntimeClientLaunchResult{}, ErrUnavailable
+		}
+		return WorkspaceRuntimeClientLaunchResult{}, ErrInvalidInput
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, (1<<20)+1))
+	decoder.DisallowUnknownFields()
+	var result WorkspaceRuntimeClientLaunchResult
+	if decoder.Decode(&result) != nil || decoder.Decode(&struct{}{}) != io.EOF ||
+		!validClientLaunchResult(result, input) {
+		return WorkspaceRuntimeClientLaunchResult{}, ErrInvalidResponse
+	}
+	return result, nil
+}
+
 func (client *Client) SupportsWorkspaceRuntimePresentation(ctx context.Context) bool {
 	probeContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
@@ -250,6 +308,54 @@ func validLaunchRequest(value WorkspaceRuntimeLaunchRequest) bool {
 		(value.Profile != "mutation" || uuidPattern.MatchString(value.WorktreeOwnerThreadID)) &&
 		(value.WorktreeOwnerThreadID == "" || uuidPattern.MatchString(value.WorktreeOwnerThreadID)) &&
 		value.Branch != "" && len(value.Branch) <= 256 && !strings.ContainsAny(value.Branch, "\x00\r\n")
+}
+
+func validClientLaunchRequest(value WorkspaceRuntimeClientLaunchRequest) bool {
+	return validLaunchRequest(WorkspaceRuntimeLaunchRequest{
+		Branch: value.Branch, Commit: value.Commit, EnvironmentID: value.EnvironmentID,
+		Generation: value.Generation, ManifestDigest: value.ManifestDigest, Mode: value.Mode,
+		OperationID: value.OperationID, Profile: value.Profile, RuntimeVersion: value.RuntimeVersion,
+		WorkspaceID: value.WorkspaceID, WorktreeOwnerThreadID: value.WorktreeOwnerThreadID,
+	}) && uuidPattern.MatchString(value.HostID) && revisionPattern.MatchString(value.TargetIdentityRevision) &&
+		(value.Profile != "mutation" || uuidPattern.MatchString(value.WorktreeOwnerThreadID))
+}
+
+func validClientLaunchResult(
+	value WorkspaceRuntimeClientLaunchResult,
+	input WorkspaceRuntimeClientLaunchRequest,
+) bool {
+	expiresAt, parseErr := time.Parse(time.RFC3339Nano, value.RuntimeSessionExpiresAt)
+	return value.Branch == input.Branch && value.Commit == input.Commit &&
+		revisionPattern.MatchString(value.ControlTargetIdentityRevision) &&
+		value.EnvironmentID == input.EnvironmentID && value.Generation == input.Generation &&
+		value.HostID == input.HostID && value.ManifestDigest == input.ManifestDigest &&
+		value.Mode == input.Mode && value.Operation == "workspace-runtime.start.v1" &&
+		value.OperationID == input.OperationID && value.Profile == input.Profile &&
+		value.RuntimeVersion == input.RuntimeVersion && value.SourceHead == input.Commit &&
+		value.State == "ready" && value.TargetIdentityRevision == input.TargetIdentityRevision &&
+		value.WorkspaceID == input.WorkspaceID && validRuntimeSessionEndpoint(value.RuntimeSessionEndpoint) &&
+		value.RuntimeSessionOwnerUserID != "" && value.RuntimeSessionVersion == input.RuntimeVersion &&
+		regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`).MatchString(value.RuntimeSessionToken) &&
+		parseErr == nil && expiresAt.After(time.Now()) && expiresAt.Before(time.Now().Add(time.Hour)) &&
+		containsString(value.RuntimeSessionCapabilities, "runtime.lifecycle") &&
+		containsString(value.RuntimeSessionCapabilities, "runtime.heartbeat") &&
+		containsString(value.RuntimeSessionRequestedCapabilities, "runtime.codex.v1")
+}
+
+func validRuntimeSessionEndpoint(value string) bool {
+	endpoint, err := url.Parse(value)
+	return err == nil && endpoint.Scheme == "wss" && endpoint.Host != "" &&
+		endpoint.User == nil && endpoint.RawQuery == "" && endpoint.Fragment == "" &&
+		endpoint.Path == "/api/workspace-runtimes/socket"
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func validLaunchResult(

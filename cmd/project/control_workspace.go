@@ -47,6 +47,8 @@ func controlOperations() []string {
 type controlWorkspaceRuntimeResult struct {
 	CheckedAt              string                    `json:"checkedAt"`
 	Disposition            workspacerun.Disposition  `json:"disposition,omitempty"`
+	Environment            string                    `json:"environmentId,omitempty"`
+	HostID                 string                    `json:"hostId,omitempty"`
 	Generation             string                    `json:"generation,omitempty"`
 	ManifestDigest         string                    `json:"manifestDigest"`
 	Mode                   workspacerun.Mode         `json:"mode"`
@@ -135,8 +137,13 @@ func executeWorkspaceRuntimeControl(
 	} else if result.Generation != request.ExpectedGeneration {
 		return fmt.Errorf("Workspace runtime result generation changed")
 	}
+	environmentID, hostID := "", ""
+	if request.TargetHostID != "" {
+		environmentID, hostID = request.EnvironmentID, identity.HostID
+	}
 	return writeControlFrame(output, controlWorkspaceRuntimeResult{
 		CheckedAt: result.CheckedAt, Disposition: result.Disposition, Generation: result.Generation,
+		Environment: environmentID, HostID: hostID,
 		ManifestDigest: result.ManifestDigest, Mode: result.Mode, Operation: request.Operation,
 		OperationID: request.OperationID, SchemaVersion: controlSchemaVersion, SourceHead: result.SourceHead,
 		State: result.State, TargetIdentityRevision: identity.TargetIdentityRevision,

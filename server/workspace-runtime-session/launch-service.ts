@@ -15,8 +15,10 @@ import type { RuntimeSessionStore } from './contracts';
 export interface WorkspaceRuntimeStartAuthority {
   branch: string;
   commit: string;
+  controlTargetIdentityRevision?: string;
   environmentId: string;
   generation: string;
+  hostId?: string;
   manifestDigest: string;
   mode: 'process' | 'devcontainer';
   operationId: string;
@@ -24,6 +26,38 @@ export interface WorkspaceRuntimeStartAuthority {
   presentation?: WorkspaceRuntimePresentation;
   profile: 'codex' | 'inspection' | 'mutation';
   runtimeVersion: string;
+  targetIdentityRevision?: string;
+  workspaceId: string;
+  worktreeOwnerThreadId?: string;
+}
+
+/**
+ * A client-owned launch returns the Runtime credential without opening an SSH
+ * transport. The caller uses the descriptor to open its own pinned process.
+ */
+export interface WorkspaceRuntimeClientLaunchResult {
+  branch: string;
+  commit: string;
+  controlTargetIdentityRevision: string;
+  environmentId: string;
+  generation: string;
+  hostId?: string;
+  manifestDigest: string;
+  mode: WorkspaceRuntimeStartAuthority['mode'];
+  operation: 'workspace-runtime.start.v1';
+  operationId: string;
+  profile: WorkspaceRuntimeStartAuthority['profile'];
+  runtimeSessionCapabilities: string[];
+  runtimeSessionEndpoint: string;
+  runtimeSessionExpiresAt: string;
+  runtimeSessionOwnerUserId: string;
+  runtimeSessionRequestedCapabilities: string[];
+  runtimeSessionToken: string;
+  runtimeSessionVersion: string;
+  runtimeVersion: string;
+  sourceHead: string;
+  state: 'ready';
+  targetIdentityRevision: string;
   workspaceId: string;
   worktreeOwnerThreadId?: string;
 }
@@ -164,8 +198,8 @@ export class WorkspaceRuntimeLaunchService {
       expiresInSeconds: 300,
       generation: input.generation,
       manifestDigest: input.manifestDigest,
-      ownerUserId: input.ownerUserId,
       operationId: input.operationId,
+      ownerUserId: input.ownerUserId,
       ...(input.presentation ? { presentation: input.presentation } : {}),
       requestedCapabilities: capabilities,
       runtimeVersion: input.runtimeVersion,
@@ -204,6 +238,62 @@ export class WorkspaceRuntimeLaunchService {
       );
       throw error;
     }
+  }
+
+  async prepareClientOwned(
+    input: WorkspaceRuntimeStartAuthority
+  ): Promise<WorkspaceRuntimeClientLaunchResult> {
+    if (!/^[A-Za-z0-9:._-]{1,256}$/.test(input.operationId)) {
+      throw new Error('Workspace Runtime operation identity is invalid.');
+    }
+    await this.authorizeMutation(input);
+    const capabilities = requestedCapabilities(input.profile);
+    const issued = await this.dependencies.sessions.issue({
+      branch: input.branch,
+      capabilities: [...workspaceRuntimeBaseCapabilities],
+      commit: input.commit,
+      environmentId: input.environmentId,
+      expiresInSeconds: 300,
+      generation: input.generation,
+      manifestDigest: input.manifestDigest,
+      operationId: input.operationId,
+      ownerUserId: input.ownerUserId,
+      ...(input.presentation ? { presentation: input.presentation } : {}),
+      requestedCapabilities: capabilities,
+      runtimeVersion: input.runtimeVersion,
+      workspaceId: input.workspaceId
+    });
+    return {
+      branch: input.branch,
+      commit: input.commit,
+      controlTargetIdentityRevision:
+        input.controlTargetIdentityRevision ??
+        input.targetIdentityRevision ??
+        '',
+      environmentId: input.environmentId,
+      generation: input.generation,
+      manifestDigest: input.manifestDigest,
+      mode: input.mode,
+      operation: 'workspace-runtime.start.v1',
+      operationId: input.operationId,
+      profile: input.profile,
+      runtimeSessionCapabilities: [...issued.credential.capabilities],
+      runtimeSessionEndpoint: this.dependencies.endpoint,
+      runtimeSessionExpiresAt: issued.credential.expiresAt,
+      runtimeSessionOwnerUserId: input.ownerUserId,
+      runtimeSessionRequestedCapabilities: capabilities,
+      runtimeSessionToken: issued.credential.token,
+      runtimeSessionVersion: input.runtimeVersion,
+      runtimeVersion: input.runtimeVersion,
+      sourceHead: input.commit,
+      state: 'ready',
+      targetIdentityRevision: input.targetIdentityRevision ?? '',
+      workspaceId: input.workspaceId,
+      ...(input.hostId ? { hostId: input.hostId } : {}),
+      ...(input.profile === 'mutation' && input.worktreeOwnerThreadId
+        ? { worktreeOwnerThreadId: input.worktreeOwnerThreadId }
+        : {})
+    };
   }
 
   private async authorizeMutation(input: WorkspaceRuntimeStartAuthority) {

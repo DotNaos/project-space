@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/DotNaos/project-space/internal/clientaccess"
 	"github.com/DotNaos/project-space/internal/computecontrol"
 	"github.com/DotNaos/project-space/internal/computeinventory"
 	"github.com/spf13/cobra"
@@ -24,6 +27,7 @@ type environmentLaunchPlan struct {
 }
 
 type environmentBootstrapDependencies struct {
+	Access         clientaccess.Dependencies
 	Inventory      computeInventoryCommandDependencies
 	LoadControl    func(context.Context) (computecontrol.WorkspaceRuntimeAPI, error)
 	NewGeneration  func() (string, error)
@@ -44,6 +48,7 @@ type environmentBootstrapOptions struct {
 	runtimeVersion        string
 	workspaceID           string
 	worktreeOwnerThreadID string
+	clientOwned           bool
 }
 
 func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencies) *cobra.Command {
@@ -132,6 +137,72 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 				client.SupportsWorkspaceRuntimePresentation(command.Context()) {
 				options.worktreeOwnerThreadID = plan.WorktreeOwnerThreadID
 			}
+			if options.clientOwned {
+				clientAPI, ok := client.(computecontrol.WorkspaceRuntimeClientAPI)
+				if !ok {
+					return errors.New("the connected Project CLI does not support client-owned Workspace Runtime launch")
+				}
+				if instance.HostID == "" {
+					return errors.New("client-owned Workspace Runtime launch requires the exact Environment Host binding")
+				}
+				route, routeErr := selectClientAccessRoute(instance)
+				if routeErr != nil {
+					return routeErr
+				}
+				target, targetErr := clientaccess.TargetFromRoute(route)
+				if targetErr != nil {
+					return targetErr
+				}
+				prepared, prepareErr := clientAPI.PrepareClientOwnedWorkspaceRuntime(command.Context(), computecontrol.WorkspaceRuntimeClientLaunchRequest{
+					Branch: options.branch, Commit: options.commit, EnvironmentID: instance.ID,
+					Generation: options.generation, HostID: instance.HostID,
+					ManifestDigest: options.manifestDigest, Mode: options.mode,
+					OperationID: operationID, Profile: options.profile, RuntimeVersion: options.runtimeVersion,
+					TargetIdentityRevision: target.TargetIdentityRevision, WorkspaceID: options.workspaceID,
+					WorktreeOwnerThreadID: options.worktreeOwnerThreadID,
+				})
+				if prepareErr != nil {
+					return fmt.Errorf("prepare client-owned environment bootstrap %s: %w", operationID, prepareErr)
+				}
+				payload, marshalErr := json.Marshal(controlGatewayOperationRequest{
+					Branch: options.branch, EnvironmentID: instance.ID,
+					ExpectedCLIVersion: projectMachineClientVersion, ExpectedProtocolVersion: 1,
+					ExpectedBranch: options.branch, ExpectedCommit: options.commit,
+					ExpectedManifestDigest: options.manifestDigest, ExpectedGeneration: options.generation,
+					ExpectedRuntimeVersion: options.runtimeVersion, Mode: options.mode,
+					Operation: "workspace-runtime.start.v1", OperationID: operationID,
+					RuntimeSessionCapabilities:          prepared.RuntimeSessionCapabilities,
+					RuntimeSessionEndpoint:              prepared.RuntimeSessionEndpoint,
+					RuntimeSessionExpiresAt:             prepared.RuntimeSessionExpiresAt,
+					RuntimeSessionOwnerUserID:           prepared.RuntimeSessionOwnerUserID,
+					RuntimeSessionRequestedCapabilities: prepared.RuntimeSessionRequestedCapabilities,
+					RuntimeSessionToken:                 prepared.RuntimeSessionToken, RuntimeSessionVersion: prepared.RuntimeSessionVersion,
+					SchemaVersion: controlSchemaVersion, TargetIdentityRevision: prepared.ControlTargetIdentityRevision,
+					TargetHostID: instance.HostID, Type: "operation", WorkspaceID: options.workspaceID,
+				})
+				if marshalErr != nil {
+					return errors.New("encode client-owned Workspace Runtime control request")
+				}
+				payload = append(payload, '\n')
+				stdout, _, runErr := clientaccess.RunControl(command.Context(), target, payload, dependencies.Access)
+				if runErr != nil {
+					return fmt.Errorf("open client-owned Workspace Runtime SSH path to %s: %w", instance.Reference, runErr)
+				}
+				var controlResult controlWorkspaceRuntimeResult
+				if decodeErr := json.NewDecoder(bytes.NewReader([]byte(stdout))).Decode(&controlResult); decodeErr != nil ||
+					controlResult.Operation != "workspace-runtime.start.v1" || controlResult.OperationID != operationID ||
+					controlResult.Environment != instance.ID || controlResult.HostID != instance.HostID || controlResult.WorkspaceID != options.workspaceID ||
+					controlResult.Generation != options.generation || controlResult.SourceHead != options.commit ||
+					controlResult.ManifestDigest != options.manifestDigest || controlResult.State != "running" ||
+					controlResult.TargetIdentityRevision != prepared.ControlTargetIdentityRevision {
+					return errors.New("client-owned Workspace Runtime SSH result binding changed")
+				}
+				if options.format == "json" {
+					return writeJSON(command.OutOrStdout(), controlResult)
+				}
+				_, err = fmt.Fprintf(command.OutOrStdout(), "%s bootstrapped client-owned Workspace Runtime %s at generation %s via Host %s\n", instance.Reference, controlResult.WorkspaceID, controlResult.Generation, instance.HostID)
+				return err
+			}
 			result, err := client.LaunchWorkspaceRuntime(command.Context(), computecontrol.WorkspaceRuntimeLaunchRequest{
 				Branch: options.branch, Commit: options.commit, EnvironmentID: instance.ID,
 				Generation: options.generation, ManifestDigest: options.manifestDigest,
@@ -162,6 +233,7 @@ func newEnvironmentBootstrapCommand(dependencies environmentBootstrapDependencie
 	flags.StringVar(&options.worktreeOwnerThreadID, "worktree-owner-thread", "", "exact managed Worktree owner task UUID (auto-detected for mutation)")
 	flags.StringVar(&options.operationID, "operation-id", "", "stable idempotency identity")
 	flags.StringVar(&options.format, "format", options.format, "output format: text or json")
+	flags.BoolVar(&options.clientOwned, "client-owned", false, "start the Runtime over the caller's direct verified Tailscale SSH path")
 	return command
 }
 

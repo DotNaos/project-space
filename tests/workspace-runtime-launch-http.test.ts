@@ -3,9 +3,11 @@ import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { createWorkspaceRuntimeLaunchHttpApi } from '../server/workspace-runtime-session/launch-http';
+import { createWorkspaceRuntimeClientLaunchHttpApi } from '../server/workspace-runtime-session/client-launch-http';
 
 const servers: Server[] = [];
 const worktreeOwnerThreadId = '44444444-4444-4444-8444-444444444444';
+const clientTargetIdentityRevision = 'identity-d893e11b0c955018d297d71ee445e277';
 const request = {
   branch: 'issue-625', commit: 'a'.repeat(40),
   environmentId: '11111111-1111-4111-8111-111111111111',
@@ -19,6 +21,87 @@ afterEach(async () => {
 });
 
 describe('Workspace Runtime productive launch HTTP boundary', () => {
+  test('issues an exact Environment/Host Runtime credential without opening server SSH', async () => {
+    const token = 'A'.repeat(43);
+    let issued = 0;
+    const origin = await startClient(createWorkspaceRuntimeClientLaunchHttpApi({
+      endpoint: () => 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      resolveActor: async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' }),
+      resolveTarget: async () => ({
+        environmentId: request.environmentId,
+        hostId: '33333333-3333-4333-8333-333333333333',
+        targetIdentityRevision: '7:environment:canonical'
+      }),
+      sessions: {
+        async issue(input) {
+          issued += 1;
+          return { credential: {
+            capabilities: input.capabilities,
+            credentialId: '55555555-5555-4555-8555-555555555555',
+            environmentId: input.environmentId,
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            generation: input.generation,
+            schemaVersion: 1,
+            token,
+            workspaceId: input.workspaceId
+          } };
+        },
+        async revoke() { throw new Error('must not revoke'); }
+      }
+    }));
+    const response = await fetch(`${origin}/api/compute/control/workspace-runtime/client-launch`, {
+      body: JSON.stringify({
+        ...request,
+        hostId: '33333333-3333-4333-8333-333333333333',
+        targetIdentityRevision: clientTargetIdentityRevision
+      }),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': request.operationId },
+      method: 'POST'
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      controlTargetIdentityRevision: '7:environment:canonical',
+      environmentId: request.environmentId,
+      hostId: '33333333-3333-4333-8333-333333333333',
+      operation: 'workspace-runtime.start.v1',
+      runtimeSessionToken: token,
+      state: 'ready',
+      targetIdentityRevision: clientTargetIdentityRevision
+    });
+    expect(issued).toBe(1);
+  });
+
+  test('rejects a changed exact Host or identity revision before issuing a Runtime credential', async () => {
+    let issued = 0;
+    const origin = await startClient(createWorkspaceRuntimeClientLaunchHttpApi({
+      endpoint: () => 'wss://projects.os-home.net/api/workspace-runtimes/socket',
+      resolveActor: async () => ({ callerMachineId: 'machine-one', userId: 'owner-one' }),
+      resolveTarget: async () => ({
+        environmentId: request.environmentId,
+        hostId: '33333333-3333-4333-8333-333333333333',
+        targetIdentityRevision: '7:environment:canonical'
+      }),
+      sessions: {
+        async issue() { issued += 1; throw new Error('must not issue'); },
+        async revoke() {}
+      }
+    }));
+    const changedHost = await postClient(origin, {
+      ...request,
+      hostId: '44444444-4444-4444-8444-444444444444',
+      targetIdentityRevision: '7:environment:canonical'
+    });
+    expect(changedHost.status).toBe(503);
+    const changedRevision = await postClient(origin, {
+      ...request,
+      hostId: '33333333-3333-4333-8333-333333333333',
+      targetIdentityRevision: '8:environment:canonical'
+    });
+    expect(changedRevision.status).toBe(503);
+    expect(issued).toBe(0);
+  });
+
   test('binds machine owner identity and reaches the trusted launch service without exposing the token', async () => {
     const token = 'A'.repeat(43);
     const calls: unknown[] = [];
@@ -226,8 +309,28 @@ async function start(handler: ReturnType<typeof createWorkspaceRuntimeLaunchHttp
   return `http://127.0.0.1:${address.port}`;
 }
 
+async function startClient(handler: ReturnType<typeof createWorkspaceRuntimeClientLaunchHttpApi>) {
+  const server = createServer(async (incoming, response) => {
+    const url = new URL(incoming.url ?? '/', 'http://127.0.0.1');
+    if (!await handler(incoming, response, url)) response.writeHead(404).end();
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing server address.');
+  return `http://127.0.0.1:${address.port}`;
+}
+
 function post(origin: string, body: Record<string, unknown>) {
   return fetch(`${origin}/api/compute/control/workspace-runtime/launch`, {
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': request.operationId },
+    method: 'POST'
+  });
+}
+
+function postClient(origin: string, body: Record<string, unknown>) {
+  return fetch(`${origin}/api/compute/control/workspace-runtime/client-launch`, {
     body: JSON.stringify(body),
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': request.operationId },
     method: 'POST'

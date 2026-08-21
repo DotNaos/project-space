@@ -302,6 +302,18 @@ func TestControlGatewayRejectsUnregisteredWorkspaceAndRemotePathInjection(t *tes
 	}
 }
 
+func TestControlGatewayRejectsAClientOwnedOperationForAnotherHost(t *testing.T) {
+	previous := projectMachineClientVersion
+	projectMachineClientVersion = "0.5.0-test"
+	t.Cleanup(func() { projectMachineClientVersion = previous })
+	identity := controlTestIdentity()
+	identity.HostID = "22222222-2222-4222-8222-222222222222"
+	request := `{"environmentId":"11111111-1111-4111-8111-111111111111","expectedCliVersion":"0.5.0-test","expectedProtocolVersion":1,"operation":"status.v1","operationId":"host-mismatch","schemaVersion":1,"targetHostId":"33333333-3333-4333-8333-333333333333","targetIdentityRevision":"1:environment:test","type":"operation"}` + "\n"
+	if err := serveControlGateway(strings.NewReader(request), &bytes.Buffer{}, identity); err == nil {
+		t.Fatal("expected exact Host binding mismatch to fail closed")
+	}
+}
+
 func TestWorkspaceControlDispatchesEveryTypedLifecycleOperation(t *testing.T) {
 	const workspaceID = "123e4567-e89b-42d3-a456-426614174001"
 	const commit = "0123456789abcdef0123456789abcdef01234567"

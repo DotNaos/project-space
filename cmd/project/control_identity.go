@@ -16,6 +16,7 @@ import (
 
 func newControlGatewayInstallIdentityCommand() *cobra.Command {
 	environmentID := ""
+	hostID := ""
 	revision := ""
 	replace := false
 	workspaceValues := []string{}
@@ -33,6 +34,7 @@ func newControlGatewayInstallIdentityCommand() *cobra.Command {
 			}
 			identity := controlGatewayIdentity{
 				EnvironmentID:          environmentID,
+				HostID:                 hostID,
 				TargetIdentityRevision: revision,
 				Workspaces:             workspaces,
 			}
@@ -43,6 +45,7 @@ func newControlGatewayInstallIdentityCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&environmentID, "environment-id", "", "exact Environment Instance UUID")
+	command.Flags().StringVar(&hostID, "host-id", "", "exact physical Host UUID")
 	command.Flags().StringVar(&revision, "target-identity-revision", "", "exact inventory identity revision")
 	command.Flags().BoolVar(&replace, "replace", false, "replace a different installed identity")
 	command.Flags().StringArrayVar(&workspaceValues, "workspace", nil, "trusted Workspace binding as ws_id=/absolute/path")
@@ -131,6 +134,7 @@ func ownedByCurrentUser(info os.FileInfo) bool {
 
 func validControlGatewayIdentity(identity controlGatewayIdentity) bool {
 	return controlEnvironmentIDPattern.MatchString(identity.EnvironmentID) &&
+		(identity.HostID == "" || controlEnvironmentIDPattern.MatchString(identity.HostID)) &&
 		controlRevisionPattern.MatchString(identity.TargetIdentityRevision) &&
 		validWorkspaceBindings(identity.Workspaces)
 }

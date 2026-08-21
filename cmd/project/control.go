@@ -60,6 +60,7 @@ type controlGatewayOperationRequest struct {
 	Repository                          string   `json:"repository,omitempty"`
 	SchemaVersion                       int      `json:"schemaVersion"`
 	TargetIdentityRevision              string   `json:"targetIdentityRevision"`
+	TargetHostID                        string   `json:"targetHostId,omitempty"`
 	Type                                string   `json:"type"`
 	WorkspaceID                         string   `json:"workspaceId,omitempty"`
 	ExpectedBranch                      string   `json:"expectedBranch,omitempty"`
@@ -80,6 +81,7 @@ type controlGatewayOperationRequest struct {
 
 type controlGatewayIdentity struct {
 	EnvironmentID          string            `json:"environmentId"`
+	HostID                 string            `json:"hostId,omitempty"`
 	TargetIdentityRevision string            `json:"targetIdentityRevision"`
 	Workspaces             map[string]string `json:"workspaces,omitempty"`
 }
@@ -266,6 +268,7 @@ func serveControlGatewayWithRuntime(
 		!controlOperationIDPattern.MatchString(request.OperationID) ||
 		!controlRevisionPattern.MatchString(request.TargetIdentityRevision) ||
 		request.EnvironmentID != identity.EnvironmentID ||
+		(request.TargetHostID != "" && request.TargetHostID != identity.HostID) ||
 		request.TargetIdentityRevision != identity.TargetIdentityRevision {
 		return fmt.Errorf("invalid control operation")
 	}
