@@ -56,6 +56,14 @@ describe('Project build routing', () => {
     );
   });
 
+  test('installs the CA trust store for GitHub API calls in both web runtimes', async () => {
+    const previewDockerfile = await readFile(previewWebDockerfile, 'utf8');
+    const productionDockerfile = await readFile(productionWebDockerfile, 'utf8');
+
+    expect(previewDockerfile).toContain('apt-get install -y --no-install-recommends ca-certificates git');
+    expect(productionDockerfile).toContain('apt-get install -y --no-install-recommends ca-certificates git');
+  });
+
   test('keeps server-side changelog modules in the production web runtime', async () => {
     const dockerfile = await readFile(productionWebDockerfile, 'utf8');
 

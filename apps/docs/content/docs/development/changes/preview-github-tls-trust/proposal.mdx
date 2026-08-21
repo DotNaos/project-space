@@ -1,0 +1,43 @@
+---
+title: Proposal
+description: Restore trusted CA certificates for Preview GitHub API calls.
+---
+
+Change status: **Complete**
+
+Change kind: **Bug fix**
+
+Issue: **[#588](https://github.com/DotNaos/project-space/issues/588)**
+Requirements: **Not applicable**
+
+## Summary
+
+Install the system CA trust store in the Project Space web runtimes so the Preview
+deployment CLI can verify GitHub's HTTPS certificate.
+
+## Problem
+
+The Preview Manager currently reports an unknown-authority TLS error while the trusted
+CLI loads GitHub repository permissions. The runtime image did not explicitly install
+the CA certificate package required by outbound GitHub API calls.
+
+## Scope
+
+- Install `ca-certificates` in the production web image.
+- Install `ca-certificates` in the Preview web image.
+- Keep the existing fail-closed GitHub and Preview authorization behavior.
+
+## Out of scope
+
+- Disabling TLS verification or trusting arbitrary certificates.
+- Changing Preview routing, authentication, or lifecycle behavior.
+- Redesigning the Preview Manager; that work is tracked in #801.
+
+## Delivery
+
+The fix ships through the normal image build and deployment workflow.
+
+## Requirements rationale
+
+Requirements are not applicable because this restores a missing base-image dependency;
+it does not change supported Preview behavior, authorization, or certificate validation.

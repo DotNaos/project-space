@@ -1,0 +1,21 @@
+---
+title: Verification
+description: Verification evidence for Preview GitHub TLS trust.
+---
+
+Verification status: **Complete**
+
+## Requirement evidence
+
+Requirements are not applicable because this restores a standard runtime dependency
+without changing supported behavior or security policy.
+
+## Final reconciliation
+
+- [x] Both affected web images install the public CA trust store.
+- [x] No TLS verification bypass or custom trust anchor was added.
+- [x] Focused image contract tests pass.
+- [x] TypeScript and diff checks pass.
+
+Live Preview Manager verification remains a protected deployment gate for the PR; it is
+not claimed by these local checks.
