@@ -19,6 +19,7 @@ import type {
   CodexSessionEvent,
   CodexThreadSummary
 } from './contracts';
+import { appServerActivityDetail } from './transcript-activities';
 
 const redactedText = '[Sensitive content redacted]';
 
@@ -266,21 +267,21 @@ function visibleItemText(kind: CodexConversationItemKind, item: Record<string, u
 }
 
 function itemDetail(kind: CodexConversationItemKind, item: Record<string, unknown>) {
-  if (kind === 'reasoning') return 'Reasoning update';
-  if (kind === 'command') return 'Command execution';
-  if (kind === 'file-change') return 'File change';
-  if (kind === 'mcp-tool') return safeText(item.tool ?? item.serverName) ?? 'Tool call';
-  return undefined;
+  const detail = appServerActivityDetail(kind, item);
+  return detail ? safeText(detail) : undefined;
 }
 
 function itemKind(value: string): CodexConversationItemKind | undefined {
   return ({
     agentMessage: 'agent-message',
     commandExecution: 'command',
+    collabAgentToolCall: 'mcp-tool',
+    dynamicToolCall: 'mcp-tool',
     fileChange: 'file-change',
     mcpToolCall: 'mcp-tool',
     plan: 'plan',
     reasoning: 'reasoning',
+    webSearch: 'mcp-tool',
     userMessage: 'user-message'
   } as Record<string, CodexConversationItemKind>)[value];
 }
