@@ -1708,6 +1708,12 @@
                 "inherited": false
               },
               {
+                "name": "client-owned",
+                "type": "bool",
+                "description": "start the Runtime over the caller's direct verified Tailscale SSH path",
+                "inherited": false
+              },
+              {
                 "name": "commit",
                 "type": "string",
                 "description": "expected immutable Workspace commit (auto-detected)",
@@ -3233,6 +3239,30 @@
             "commands": []
           }
         ]
+      },
+      {
+        "path": "project ssh",
+        "name": "ssh",
+        "usage": "ssh [environment-instance]",
+        "short": "Open a client-owned SSH session to a Tailscale Environment",
+        "aliases": [],
+        "runnable": true,
+        "flags": [
+          {
+            "name": "environment-id",
+            "type": "string",
+            "description": "exact Environment Instance ID",
+            "inherited": false
+          },
+          {
+            "name": "help",
+            "shorthand": "h",
+            "type": "bool",
+            "description": "help for ssh",
+            "inherited": false
+          }
+        ],
+        "commands": []
       },
       {
         "path": "project status",

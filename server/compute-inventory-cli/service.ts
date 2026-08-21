@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIPv4 } from 'node:net';
 import type {
   ComputeEnvironmentRecord,
   ComputeInventorySnapshot,
@@ -28,6 +29,7 @@ import type { ProjectHostdSnapshot } from '../../src/shared/project-hostd-api';
 import type { WorkspaceRuntimeSessionSnapshot } from '../../src/shared/workspace-runtime-session-api';
 
 interface BuildProjectCliInventoryInput {
+  authorizedInteractiveRouteIds?: ReadonlySet<string>;
   checkedAt: string;
   connectors: readonly MachineRecord[];
   hostdSnapshots?: readonly ProjectHostdSnapshot[];
@@ -72,7 +74,8 @@ export function buildProjectCliComputeInventory(
           controlledRoutesByHost.get(host.id) ?? [],
           networksById,
           targetIdentityRevision(host.identity),
-          new Date(input.checkedAt)
+          new Date(input.checkedAt),
+          input.authorizedInteractiveRouteIds
         )
       : [];
     return {
@@ -96,7 +99,8 @@ export function buildProjectCliComputeInventory(
           controlledRoutesByEnvironment.get(environment.id) ?? [],
           networksById,
           targetIdentityRevision(environment.identity),
-          new Date(input.checkedAt)
+          new Date(input.checkedAt),
+          input.authorizedInteractiveRouteIds
         )
       : [];
     const routes = [
@@ -312,22 +316,57 @@ function projectControlledRoutes(
   routes: readonly AccessRouteRecord[],
   networksById: ReadonlyMap<string, PrivateNetworkRecord>,
   identityRevision: string,
-  now: Date
+  now: Date,
+  authorizedInteractiveRouteIds?: ReadonlySet<string>
 ): ProjectCliAccessRoute[] {
-  return routes.map((route) => ({
-    capabilities: [...new Set(route.capabilities)].sort(),
-    id: safeProjectionId('route', route.id),
-    ...(route.lastVerifiedAt ? { lastVerifiedAt: route.lastVerifiedAt } : {}),
-    priority: route.priority,
-    ...(route.providerKind ? { providerKind: route.providerKind } : {}),
-    state: routeEvidenceState({
+  return routes.map((route) => {
+    const state = routeEvidenceState({
       network: route.privateNetworkId ? networksById.get(route.privateNetworkId) : undefined,
       now,
       route,
       targetIdentityRevision: identityRevision
-    }),
-    type: route.routeKind
-  })).sort(routeOrder);
+    });
+    return {
+      capabilities: [...new Set(route.capabilities)].sort(),
+      ...(clientAccessMetadata(route, state, identityRevision, authorizedInteractiveRouteIds)),
+      id: safeProjectionId('route', route.id),
+      ...(route.lastVerifiedAt ? { lastVerifiedAt: route.lastVerifiedAt } : {}),
+      priority: route.priority,
+      ...(route.providerKind ? { providerKind: route.providerKind } : {}),
+      state,
+      type: route.routeKind
+    };
+  }).sort(routeOrder);
+}
+
+function clientAccessMetadata(
+  route: AccessRouteRecord,
+  state: ReturnType<typeof routeEvidenceState>,
+  targetIdentityRevision: string,
+  authorizedInteractiveRouteIds?: ReadonlySet<string>
+) {
+  if (state !== 'ready' || route.routeKind !== 'ssh_private_network' ||
+    route.providerKind !== 'tailscale' || !route.capabilities.includes('interactive_shell') ||
+    !authorizedInteractiveRouteIds?.has(route.id) ||
+    !route.privateAddress || !isCanonicalTailscaleAddress(route.privateAddress) || !route.sshPort ||
+    !route.sshUser || !route.hostKeySha256) {
+    return {};
+  }
+  return {
+    clientAccess: {
+      address: route.privateAddress,
+      hostKeySha256: route.hostKeySha256,
+      port: route.sshPort,
+      targetIdentityRevision: safeProjectionId('identity', targetIdentityRevision),
+      user: route.sshUser
+    }
+  };
+}
+
+function isCanonicalTailscaleAddress(value: string) {
+  if (!isIPv4(value)) return false;
+  const octets = value.split('.').map(Number);
+  return octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
 }
 
 function hostCapabilities(routes: readonly ProjectCliAccessRoute[]) {

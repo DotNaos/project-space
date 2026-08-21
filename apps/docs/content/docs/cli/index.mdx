@@ -56,6 +56,7 @@ project
 | [`run`](#project-run) | - | Run a configured project script in the foreground |
 | [`self-update`](#project-self-update) | - | Check for and install a signed Project CLI release |
 | [`serve`](#project-serve) | - | Run a project script with an explicit backend binding |
+| [`ssh`](#project-ssh) | - | Open a client-owned SSH session to a Tailscale Environment |
 | [`status`](#project-status) | - | Show this machine's Project Space connection |
 | [`storage`](#project-storage) | - | Audit local project storage |
 | [`template`](#project-template) | - | Manage the local project template snapshot |
@@ -714,6 +715,7 @@ project environment bootstrap [environment-instance]
 | Flag | Type | Scope | Description |
 | --- | --- | --- | --- |
 | `--branch` | `string` | local | expected Workspace branch (auto-detected) |
+| `--client-owned` | `bool` | local | start the Runtime over the caller's direct verified Tailscale SSH path |
 | `--commit` | `string` | local | expected immutable Workspace commit (auto-detected) |
 | `--directory` | `string` | local | Project-managed Worktree to detect |
 | `--format` | `string` | local | output format: text or json |
@@ -1372,6 +1374,19 @@ project serve stop [directory]
 | `-h`, `--help` | `bool` | local | help for stop |
 | `--json` | `bool` | local | print machine-readable JSON output |
 | `--script` | `string` | local | configured script name |
+
+<h3 id="project-ssh" className="scroll-m-28"><code>project ssh</code></h3>
+
+Open a client-owned SSH session to a Tailscale Environment
+
+```sh
+project ssh [environment-instance]
+```
+
+| Flag | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `--environment-id` | `string` | local | exact Environment Instance ID |
+| `-h`, `--help` | `bool` | local | help for ssh |
 
 <h3 id="project-status" className="scroll-m-28"><code>project status</code></h3>
 

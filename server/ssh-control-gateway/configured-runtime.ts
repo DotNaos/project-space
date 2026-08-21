@@ -21,6 +21,10 @@ import {
   workspaceRuntimeCapabilitiesRoute,
   workspaceRuntimeLaunchRoute
 } from '../workspace-runtime-session/launch-http';
+import {
+  createWorkspaceRuntimeClientLaunchHttpApi,
+  workspaceRuntimeClientLaunchRoute
+} from '../workspace-runtime-session/client-launch-http';
 import type { SshGatewayAuthorizationProvider } from './contracts';
 import { SshGatewayError } from './contracts';
 import { createSshControlGatewayHttpApi } from './http';
@@ -36,7 +40,8 @@ const routes = new Set([
   '/api/compute/control/workspace-runtime',
   '/api/compute/control/worktree/prepare',
   workspaceRuntimeCapabilitiesRoute,
-  workspaceRuntimeLaunchRoute
+  workspaceRuntimeLaunchRoute,
+  workspaceRuntimeClientLaunchRoute
 ]);
 
 export function isConfiguredSshControlGatewayRoute(pathname: string) {
@@ -51,7 +56,11 @@ export function createConfiguredSshControlGatewayHandler(options: {
   let runtime: Promise<ReturnType<typeof createSshControlGatewayHttpApi>> | undefined;
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     if (!isConfiguredSshControlGatewayRoute(url.pathname)) return false;
-    if (url.pathname === workspaceRuntimeLaunchRoute && !options.runtimeSessions) {
+    if (
+      (url.pathname === workspaceRuntimeLaunchRoute ||
+        url.pathname === workspaceRuntimeClientLaunchRoute) &&
+      !options.runtimeSessions
+    ) {
       unavailable(response);
       return true;
     }
@@ -135,7 +144,29 @@ async function createHandler(options: {
     resolvePresentation: createWorkspaceRuntimePresentationResolver(options.backend, taskExecutions),
     sessions: options.runtimeSessions
   });
+  const clientLaunch = options.runtimeSessions && createWorkspaceRuntimeClientLaunchHttpApi({
+    authorizeMutation: createWorkspaceRuntimeMutationLaunchAuthorizer(taskExecutions),
+    endpoint(request) {
+      const endpoint = new URL('/api/workspace-runtimes/socket', requestPublicOrigin(request));
+      endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+      return endpoint.toString();
+    },
+    resolveActor,
+    resolvePresentation: createWorkspaceRuntimePresentationResolver(options.backend, taskExecutions),
+    async resolveTarget(ownerUserId, environmentId) {
+      const target = await targets.resolve(ownerUserId, environmentId);
+      if (!target.hostId) {
+        throw new SshGatewayError(
+          'route_unavailable',
+          'The Environment has no exact Host binding.'
+        );
+      }
+      return target;
+    },
+    sessions: options.runtimeSessions
+  });
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+    if (clientLaunch && await clientLaunch(request, response, url)) return true;
     if (launch && await launch(request, response, url)) return true;
     return control(request, response, url);
   };

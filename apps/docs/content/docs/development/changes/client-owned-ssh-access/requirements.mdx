@@ -1,0 +1,86 @@
+---
+title: Requirement delta
+description: Client-owned access, freshness, and failure requirements for Tailscale SSH.
+---
+
+## ADDED Requirements
+
+### CLIENT-SSH-001 — Client-owned data plane
+
+Project Space MUST keep credentials, local Tailscale sockets, the SSH process, remote commands,
+and terminal traffic on the client; the server MAY only authorize and describe a project-scoped
+target.
+
+#### Scenario: Client opens an allowed target
+
+- **Given** a project-scoped Environment has a fresh verified Tailscale SSH route
+- **When** the local client starts `project ssh --environment-id <id>`
+- **Then** the local client runs SSH directly against the exact target IP and Project Space does
+  not relay credentials, commands, or terminal traffic
+
+### CLIENT-SSH-002 — Exact target and host identity
+
+The access descriptor MUST contain an exact Tailscale IPv4 address and verified host-key
+fingerprint, and the client MUST fail closed when the probed key differs from that fingerprint.
+
+#### Scenario: Target host key changes
+
+- **Given** the target is reachable but its SSH host key differs from the verified fingerprint
+- **When** the local client probes the target before SSH
+- **Then** it returns `host_key_mismatch` and does not start SSH
+
+### CLIENT-SSH-003 — Fresh local and remote readiness
+
+The client MUST require local Tailscale running evidence and a fresh ready Tailscale route, and
+MUST block stale, unverified, unavailable, policy-blocked, non-Tailscale, and non-tailnet paths.
+
+#### Scenario: Client is outside the tailnet
+
+- **Given** the target descriptor is otherwise valid but local Tailscale has no running `100.x`
+  address
+- **When** the client attempts access
+- **Then** it returns `tailnet_unavailable` before host-key probing or SSH
+
+### CLIENT-SSH-004 — Typed failure boundary
+
+The shared client/runtime contract MUST distinguish local-client, Tailscale, target, SSH,
+host-key, authentication, and Codex failures without exposing secrets or raw provider output.
+
+#### Scenario: SSH authentication fails
+
+- **Given** local Tailscale and host-key checks succeed
+- **When** the local SSH process reports an authentication failure
+- **Then** the client returns `authentication_failed` in the SSH phase
+
+### CLIENT-SSH-005 — Bounded local session lifecycle
+
+The local session MUST force direct SSH configuration, expose the SSH exit status when available,
+support terminal resize through a PTY, propagate interruption/cancellation, perform no automatic
+reconnect, and remove temporary host-key state on every exit path.
+
+#### Scenario: Local session ends or is interrupted
+
+- **Given** the local client has started an authorized direct session
+- **When** SSH exits or the caller cancels the session
+- **Then** the client returns the exit status or typed cancellation, cleans up temporary state, and
+  performs zero automatic reconnect attempts
+
+### CLIENT-SSH-006 — Dispatch/runtime reconciliation
+
+The access implementation MUST reconcile its assumed dispatch identity, unavailable-state, and
+runtime handoff contracts with the exact landed #763 implementation before merge-ready status.
+
+#### Scenario: #763 lands with a changed contract
+
+- **Given** the exact landed #763 contract is represented by merge commit `b92d411c`
+- **When** this change is prepared for merge
+- **Then** the descriptor preserves canonical Environment/workspace identity and explicit unavailable
+  outcomes, with no server SSH or Codex fallback
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

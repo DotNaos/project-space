@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 import type {
   AccessRouteAuthorization,
   AccessRouteCapability,
@@ -73,6 +75,9 @@ export function routeEligibility(input: {
   if (route.ownerUserId !== authorization.ownerUserId ||
     route.target.kind !== authorization.target.kind || route.target.id !== authorization.target.id ||
     !route.capabilities.includes(authorization.capability) ||
+    authorization.capability === 'interactive_shell' &&
+      (route.routeKind !== 'ssh_private_network' || route.providerKind !== 'tailscale' ||
+        !isCanonicalTailscaleIPv4(route.privateAddress)) ||
     !route.allowedGatewayIds.includes(authorization.gatewayId) ||
     (route.requiresInteractiveApproval ||
       capabilityRequiresInteractiveApproval(authorization.capability)) &&
@@ -132,6 +137,12 @@ function freshWindow(start: string, end: string, freshnessSeconds: number, now: 
   return Number.isFinite(startMs) && Number.isFinite(endMs) && startMs <= now.getTime() &&
     endMs > now.getTime() && endMs >= startMs &&
     now.getTime() - startMs <= freshnessSeconds * 1000;
+}
+
+function isCanonicalTailscaleIPv4(value: string | undefined) {
+  if (!value || isIP(value) !== 4) return false;
+  const [first, second] = value.split('.').map(Number);
+  return first === 100 && second !== undefined && second >= 64 && second <= 127;
 }
 
 function selection(route: AccessRouteRecord): AuthorizedAccessRouteSelection {

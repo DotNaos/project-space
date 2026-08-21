@@ -52,6 +52,49 @@ type WorkspaceRuntimeLaunchRequest struct {
 	WorktreeOwnerThreadID string `json:"worktreeOwnerThreadId,omitempty"`
 }
 
+type WorkspaceRuntimeClientLaunchRequest struct {
+	Branch                 string `json:"branch"`
+	Commit                 string `json:"commit"`
+	EnvironmentID          string `json:"environmentId"`
+	Generation             string `json:"generation"`
+	HostID                 string `json:"hostId"`
+	ManifestDigest         string `json:"manifestDigest"`
+	Mode                   string `json:"mode"`
+	OperationID            string `json:"operationId"`
+	Profile                string `json:"profile"`
+	RuntimeVersion         string `json:"runtimeVersion"`
+	TargetIdentityRevision string `json:"targetIdentityRevision"`
+	WorkspaceID            string `json:"workspaceId"`
+	WorktreeOwnerThreadID  string `json:"worktreeOwnerThreadId,omitempty"`
+}
+
+type WorkspaceRuntimeClientLaunchResult struct {
+	Branch                              string   `json:"branch"`
+	Commit                              string   `json:"commit"`
+	ControlTargetIdentityRevision       string   `json:"controlTargetIdentityRevision"`
+	EnvironmentID                       string   `json:"environmentId"`
+	Generation                          string   `json:"generation"`
+	HostID                              string   `json:"hostId"`
+	ManifestDigest                      string   `json:"manifestDigest"`
+	Mode                                string   `json:"mode"`
+	Operation                           string   `json:"operation"`
+	OperationID                         string   `json:"operationId"`
+	Profile                             string   `json:"profile"`
+	RuntimeSessionCapabilities          []string `json:"runtimeSessionCapabilities"`
+	RuntimeSessionEndpoint              string   `json:"runtimeSessionEndpoint"`
+	RuntimeSessionExpiresAt             string   `json:"runtimeSessionExpiresAt"`
+	RuntimeSessionOwnerUserID           string   `json:"runtimeSessionOwnerUserId"`
+	RuntimeSessionRequestedCapabilities []string `json:"runtimeSessionRequestedCapabilities"`
+	RuntimeSessionToken                 string   `json:"runtimeSessionToken"`
+	RuntimeSessionVersion               string   `json:"runtimeSessionVersion"`
+	RuntimeVersion                      string   `json:"runtimeVersion"`
+	SourceHead                          string   `json:"sourceHead"`
+	State                               string   `json:"state"`
+	TargetIdentityRevision              string   `json:"targetIdentityRevision"`
+	WorkspaceID                         string   `json:"workspaceId"`
+	WorktreeOwnerThreadID               string   `json:"worktreeOwnerThreadId,omitempty"`
+}
+
 type WorkspaceRuntimeLaunchResult struct {
 	CheckedAt      string `json:"checkedAt"`
 	Generation     string `json:"generation"`

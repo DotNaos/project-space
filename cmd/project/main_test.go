@@ -2,12 +2,25 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"slices"
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/DotNaos/project-space/internal/clientaccess"
 )
+
+func TestProjectErrorExitCodePreservesSSHStatus(t *testing.T) {
+	status := 23
+	if got := projectErrorExitCode(&clientaccess.Failure{ExitStatus: &status}); got != status {
+		t.Fatalf("exit code = %d, want %d", got, status)
+	}
+	if got := projectErrorExitCode(errors.New("ordinary failure")); got != 1 {
+		t.Fatalf("ordinary exit code = %d, want 1", got)
+	}
+}
 
 func TestProjectTerminationSignalsIncludeHangup(t *testing.T) {
 	wanted := map[os.Signal]bool{
@@ -64,6 +77,7 @@ func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 		"run",
 		"self-update",
 		"serve",
+		"ssh",
 		"status",
 		"storage",
 		"template",

@@ -1,0 +1,55 @@
+---
+title: Proposal
+description: Direct local and Tailscale SSH access without a Project Space relay.
+---
+
+Change status: **Active**
+
+Change kind: **Feature**
+
+Issue: **[#724](https://github.com/DotNaos/project-space/issues/724)**
+Requirements: **Required**
+
+## Summary
+
+Expose a typed, project-scoped SSH launch description from Compute and let the local Project
+CLI perform the connection. The server authorizes and describes a fresh Tailscale target; the
+client owns Tailscale reachability, host-key verification, credentials, the SSH process, and all
+terminal traffic.
+
+## Problem
+
+The existing Compute presentation can describe SSH evidence but does not provide a safe,
+client-owned launch boundary. A server-side relay would expose credentials and terminal traffic
+to Project Space and would make stale or ambiguous target evidence unsafe.
+
+## Scope
+
+- Project fresh Tailscale SSH metadata with the exact `100.x` target address, port, user, verified
+  host-key fingerprint, and opaque target identity revision.
+- Add `project ssh [environment-instance]` and display the exact informational UI command using
+  `--environment-id`; the browser does not launch a session until a trusted local bridge exists
+  (#831).
+- Require local Tailscale readiness, direct IPv4 use, a live target host-key probe, and strict
+  temporary known-hosts verification before starting local interactive SSH.
+- Return distinct local-client, Tailscale, target, SSH, host-key, authentication, and Codex
+  failure states for the shared browser/runtime boundary.
+- Preserve project-scoped live access semantics and honest stale, unavailable, and policy-blocked
+  states.
+
+## Out of scope
+
+- Running SSH, terminal, credentials, agent sockets, or remote commands on the Project Space
+  server.
+- Treating MagicDNS, ordinary DNS aliases, or server-side connectivity as a readiness proof.
+- Provider-native Codespaces access or a connector fallback.
+- Providing a browser-to-local Project CLI bridge; this remains tracked in #831.
+
+## Delivery
+
+This is a minor release because it adds a user-facing CLI capability. The dispatch/runtime
+assumptions were reconciled against the landed #763 contract at merge commit `b92d411c`; #724
+does not call that start endpoint. The browser surface remains informational until the separately
+tracked local bridge in #831 exists.
+The current trusted changelog contract is satisfied by the PR-owned `changelog/830.md` record;
+this change does not add a release-intent UUID file or duplicate the shared release-policy gate.

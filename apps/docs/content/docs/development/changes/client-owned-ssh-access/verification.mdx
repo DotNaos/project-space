@@ -1,0 +1,34 @@
+---
+title: Verification
+description: Requirement evidence and dependency reconciliation for client-owned SSH access.
+---
+
+Verification status: **Incomplete** (browser launch intentionally deferred to #831)
+
+## Requirement evidence
+
+- [x] CLIENT-SSH-001 — Client-owned data plane
+- [x] CLIENT-SSH-002 — Exact target and host identity
+- [x] CLIENT-SSH-003 — Fresh local and remote readiness
+- [x] CLIENT-SSH-004 — Typed failure boundary
+- [x] CLIENT-SSH-005 — Bounded local session lifecycle
+- [x] CLIENT-SSH-006 — Dispatch/runtime reconciliation with final #763
+
+## Final reconciliation
+
+- [x] Current documentation describes the implemented client-owned boundary
+- [x] The server path contains no SSH relay, credentials, sockets, commands, or terminal traffic
+- [x] Focused tests, TypeScript build, all Go tests, CLI docs, and specification checks pass
+- [x] Allowed direct and blocked non-tailnet/stale/host-key paths are covered by deterministic tests
+- [x] Exact #763 dispatch and runtime contracts are reconciled against landed merge commit
+  `b92d411c`
+- [x] Compute UI is informational and states that local Tailscale/SSH checks are required
+- [x] Current trusted changelog contract is satisfied by `changelog/830.md`; no release-intent
+  UUID file is part of this change
+- [ ] Trusted browser-to-local launch bridge is available (#831)
+- [ ] Visual browser dogfood is still pending because no browser connector is available in this task
+
+The incomplete status is deliberate: the CLI boundary is reviewable, but browser launch is not
+claimed until #831 supplies a trusted local bridge. Any full-suite environment failures are listed
+separately from this product boundary. Release-intent migration is outside this PR's scope; this
+PR contributes only its current changelog record under the trusted changelog contract.

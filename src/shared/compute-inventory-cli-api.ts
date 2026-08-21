@@ -97,12 +97,25 @@ export interface ProjectCliConnectorAccessRoute {
 
 export interface ProjectCliControlledAccessRoute {
   capabilities: string[];
+  clientAccess?: ProjectCliClientAccess;
   id: string;
   lastVerifiedAt?: string;
   priority: number;
   providerKind?: 'tailscale' | 'wireguard' | 'other';
   state: 'ready' | 'unavailable' | 'unverified' | 'stale' | 'policy_blocked';
   type: 'ssh_private_network' | 'provider_native' | 'host_console' | 'hostd';
+}
+
+/**
+ * Non-secret launch metadata for the client-owned access bridge.
+ * Credentials, sockets, terminal data, and remote command text never belong here.
+ */
+export interface ProjectCliClientAccess {
+  address: string;
+  hostKeySha256: string;
+  port: number;
+  targetIdentityRevision: string;
+  user: string;
 }
 
 export type ProjectCliAccessRoute =

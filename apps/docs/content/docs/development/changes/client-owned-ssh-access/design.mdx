@@ -1,0 +1,83 @@
+---
+title: Design
+description: Direct client-owned SSH with typed readiness and failure boundaries.
+---
+
+## Context
+
+Compute already records project-scoped private-network evidence, but a server relay would turn
+the control plane into a credential and terminal transport. The client therefore receives only
+safe launch metadata and performs every network and SSH operation locally.
+
+## Goals and non-goals
+
+Goals:
+
+- Keep exact direct Tailscale IPs canonical; DNS is not a readiness dependency.
+- Bind launch metadata to the fresh route, target identity revision, and project Environment.
+- Make local, tailnet, target, SSH, host-key, authentication, and Codex states observable.
+- Prove allowed local/remote access and blocked non-tailnet and stale paths.
+
+Non-goals:
+
+- SSH relay, browser terminal, server-held credentials, agent forwarding, or arbitrary command
+  execution by Project Space.
+- Inferring readiness from a provider API, MagicDNS, or an ordinary DNS alias.
+- Replacing the provider-native or connector access paths owned by other issues.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    S[Compute authorization and route evidence] --> D[Safe client access descriptor]
+    D --> C[Local Project CLI]
+    C --> T[Local Tailscale proof]
+    T --> K[Local host-key probe]
+    K --> H[Temporary pinned known_hosts]
+    H --> X[Local interactive SSH]
+    X --> R[Target over direct Tailscale IP]
+    S -. no credentials or terminal traffic .-> R
+```
+
+## Decisions
+
+1. Publish only exact address, port, user, verified host-key fingerprint, and opaque target
+   identity revision; do not publish credentials, sockets, commands, or terminal data.
+2. Emit launch metadata only for a ready `ssh_private_network` Tailscale route with complete
+   evidence. Stale and unavailable routes remain visible but have no launch metadata.
+3. Require local `tailscale status --json` to report `Running` and a local `100.x` address before
+   probing the target.
+4. Probe the exact IP with `ssh-keyscan`, compare the SHA-256 fingerprint, and use a temporary
+   `0600` known-hosts file with strict checking for the interactive SSH process.
+5. Keep `codex_unavailable` in the shared contract for #726, while this CLI currently owns the
+   local SSH phases.
+6. Reconcile the dispatch/runtime boundary with the landed #763 merge commit `b92d411c`; #724
+   does not call its start endpoint and keeps unavailable runtime states explicit.
+
+## Risks and mitigations
+
+- **Server relay drift:** the client bridge has no server transport dependency and tests inspect the
+  exact direct SSH arguments.
+- **Stale or spoofed route:** the server emits metadata only for fresh ready evidence and the Go
+  client rejects non-Tailscale addresses and malformed metadata.
+- **Host impersonation:** a live key probe must match the verified fingerprint before SSH starts.
+- **Ambiguous target selection:** only one highest-priority verified route is accepted.
+- **Local environment failures:** typed phase/code failures distinguish missing tools, offline
+  Tailscale, target reachability, SSH, and host-key problems.
+- **Contract drift in #763:** the final identity and unavailable-state contract is recorded above;
+  no server relay or runtime fallback is introduced.
+
+## Migration and rollout
+
+The descriptor is additive and preserves existing inventory consumers. The UI displays the command
+informationally when a fresh client route is present and states that local Tailscale and SSH checks
+are required. No server deployment or data migration is part of this change; browser launch remains
+deferred to #831.
+
+## Validation
+
+- Focused Go tests cover direct allowed access, missing local Tailscale, non-tailnet blocking,
+  stale routes, host-key mismatch, authentication, and target failures.
+- Compute inventory tests cover exact IP/host-key projection, opaque identity, and privacy.
+- TypeScript build and changed UI/model tests cover the command and availability state.
+- Full Go tests, CLI documentation checks, and change-spec validation are run before handoff.

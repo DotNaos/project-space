@@ -115,6 +115,50 @@ func TestClientAcceptsVersionThreeHostdTelemetry(t *testing.T) {
 	}
 }
 
+func TestClientAcceptsOnlyFreshTailscaleClientAccessMetadata(t *testing.T) {
+	inventory := testInventoryV2()
+	inventory.EnvironmentInstances[0].AccessRoutes[0].Capabilities = []string{"interactive_shell"}
+	inventory.EnvironmentInstances[0].AccessRoutes[0].ClientAccess = &ClientAccess{
+		Address: "100.64.0.10", HostKeySHA256: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		Port: 22, TargetIdentityRevision: "identity-opaque-revision", User: "project-user",
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(response).Encode(inventory)
+	}))
+	defer server.Close()
+	if _, err := testClient(t, server.URL).List(context.Background()); err != nil {
+		t.Fatalf("valid client access metadata: %v", err)
+	}
+
+	unauthorized := testInventoryV2()
+	unauthorized.EnvironmentInstances[0].AccessRoutes[0].Capabilities = []string{"project_cli"}
+	unauthorized.EnvironmentInstances[0].AccessRoutes[0].ClientAccess = inventory.EnvironmentInstances[0].AccessRoutes[0].ClientAccess
+	unauthorizedServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(response).Encode(unauthorized)
+	}))
+	_, err := testClient(t, unauthorizedServer.URL).List(context.Background())
+	unauthorizedServer.Close()
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("missing interactive-shell capability error = %v", err)
+	}
+
+	for _, address := range []string{"203.0.113.10", "device.example.com"} {
+		spoofed := testInventoryV2()
+		spoofed.EnvironmentInstances[0].AccessRoutes[0].ClientAccess = &ClientAccess{
+			Address: address, HostKeySHA256: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			Port: 22, TargetIdentityRevision: "identity-opaque-revision", User: "project-user",
+		}
+		spoofedServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(response).Encode(spoofed)
+		}))
+		_, err := testClient(t, spoofedServer.URL).List(context.Background())
+		spoofedServer.Close()
+		if !errors.Is(err, ErrInvalidResponse) {
+			t.Fatalf("address %q error = %v", address, err)
+		}
+	}
+}
+
 func TestClientAcceptsVersionThreePartialHostdTelemetry(t *testing.T) {
 	inventory := testInventoryV3()
 	instance := &inventory.EnvironmentInstances[0]
@@ -319,7 +363,7 @@ func testInventoryV2() Inventory {
 		Name: "Private tailnet", ProviderKind: "tailscale", State: "available",
 	}}
 	inventory.EnvironmentInstances[0].AccessRoutes = []AccessRoute{{
-		Capabilities: []string{"project_cli"}, ID: "route-one",
+		Capabilities: []string{"interactive_shell"}, ID: "route-one",
 		LastVerifiedAt: "2026-08-11T10:00:00Z", Priority: 100,
 		ProviderKind: "tailscale", State: "ready", Type: "ssh_private_network",
 	}}

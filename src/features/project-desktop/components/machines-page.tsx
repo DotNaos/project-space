@@ -5,14 +5,17 @@ import {
   ChevronRight,
   CircleAlert,
   Cloud,
-  Copy,
   Cpu,
   LoaderCircle,
   MonitorCog,
   Plus,
   RefreshCw
 } from 'lucide-react';
-import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
+import type {
+  ProjectCliComputeInventory,
+  ProjectCliAccessRoute,
+  ProjectCliControlledAccessRoute
+} from '@/shared/compute-inventory-cli-api';
 import {
   Button,
   Chip,
@@ -212,7 +215,6 @@ function EnvironmentDetails({
   instance: NonNullable<ComputeRow['environment']>;
   onClose(): void;
 }) {
-  const [copied, setCopied] = useState(false);
   const host = instance.hostId
     ? inventory.hosts.find((entry) => entry.id === instance.hostId)
     : undefined;
@@ -246,14 +248,8 @@ function EnvironmentDetails({
       readiness: 'unknown' as const
     }
   };
-  const command = `project ssh ${instance.alias}`;
-
-  async function copyCommand() {
-    if (!navigator.clipboard) return;
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_500);
-  }
+  const clientRoute = selectClientOwnedRoute(instance.accessRoutes);
+  const command = `project ssh --environment-id ${instance.id}`;
 
   return (
     <aside aria-label="Environment Instance details" className="border-t border-neutral-800/70 bg-neutral-950/60 px-4 py-4 sm:px-6">
@@ -283,9 +279,10 @@ function EnvironmentDetails({
         <DetailSectionLabel label="Access" />
         <DetailValue label="Provider" value={providerLabel(access.providerKind)} />
         <DetailValue label="Route readiness" value={evidenceLabel(access.route)} />
-        <DetailValue label="SSH readiness" value={evidenceLabel(access.ssh.readiness)} />
+        <DetailValue label="SSH route evidence" value={evidenceLabel(access.ssh.readiness)} />
         <DetailValue label="SSH host key" value={evidenceLabel(access.ssh.hostKey)} />
         <DetailValue label="Project CLI" value={evidenceLabel(access.ssh.projectCli)} />
+        <DetailValue label="Client-owned target" value={clientRoute ? `Target ready · ${clientRoute.clientAccess!.address}; local client check required` : 'Unavailable until fresh interactive-shell evidence'} />
         <DetailSectionLabel label="Resources" />
         <DetailValue label="Capacity" value={resources} />
         <DetailValue label="Resource source" value={resourceSourceLabel(instance.resources, instance.hostd.state)} />
@@ -326,13 +323,24 @@ function EnvironmentDetails({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800/70 bg-neutral-900/40 px-3 py-2">
         <code className="min-w-0 flex-1 truncate text-xs text-neutral-300">{command}</code>
-        <Button size="sm" variant="secondary" onPress={() => void copyCommand()}>
-          <Copy className="size-3.5" />
-          {copied ? 'Copied' : 'Copy command'}
-        </Button>
+        <Text className="basis-full text-xs text-neutral-500">
+          {clientRoute
+            ? 'Target metadata is ready. Run this command on an authorized client with Tailscale and SSH; this browser cannot start the local session.'
+            : 'Informational only. Refresh for fresh interactive-shell evidence before checking the local client.'}
+        </Text>
       </div>
     </aside>
   );
+}
+
+function selectClientOwnedRoute(routes: readonly ProjectCliAccessRoute[]) {
+  const eligible = routes.filter((route): route is ProjectCliControlledAccessRoute =>
+    route.type === 'ssh_private_network' && route.state === 'ready' &&
+    route.capabilities.includes('interactive_shell') && Boolean(route.clientAccess));
+  if (eligible.length === 0) return undefined;
+  const priority = Math.max(...eligible.map((route) => route.priority));
+  const preferred = eligible.filter((route) => route.priority === priority);
+  return preferred.length === 1 ? preferred[0] : undefined;
 }
 
 function resourceSourceLabel(

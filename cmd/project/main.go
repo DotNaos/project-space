@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/DotNaos/project-space/internal/clientaccess"
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +19,17 @@ func main() {
 	root := newRootCommand()
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "VIOLATION", err)
-		os.Exit(1)
+		os.Exit(projectErrorExitCode(err))
 	}
+}
+
+func projectErrorExitCode(err error) int {
+	var failure *clientaccess.Failure
+	if errors.As(err, &failure) && failure.ExitStatus != nil &&
+		*failure.ExitStatus > 0 && *failure.ExitStatus <= 255 {
+		return *failure.ExitStatus
+	}
+	return 1
 }
 
 func projectTerminationSignals() []os.Signal {
@@ -64,6 +75,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newRoadmapCommand())
 	root.AddCommand(newSelfUpdateCommand())
 	root.AddCommand(newServeCommand())
+	root.AddCommand(newSSHCommand())
 	root.AddCommand(newStorageCommand())
 	root.AddCommand(newMachineStatusCommand())
 	root.AddCommand(newTemplateCommand())
