@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verified Implementation"
+  short_description: "Prove code changes work before stopping"
+  default_prompt: "Use $verified-implementation to implement this change end to end and prove it works before declaring it done."
