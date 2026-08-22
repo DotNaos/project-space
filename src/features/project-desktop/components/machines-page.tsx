@@ -124,7 +124,25 @@ function DeviceTable({ assignmentDisabled, hosts, onAssign, onOpenDevice, readOn
     });
   }
   const columns: DataTableColumn<TailnetDeviceRow>[] = [
-    { id: 'device', header: 'Device', width: '48%', cell: (row) => <DeviceName onOpen={() => onOpenDevice('tailnet', row.id)} row={row} /> },
+    {
+      id: 'device', header: 'Device', width: readOnly ? '48%' : '60%', cell: (row) => (
+        <div className="flex min-w-0 items-center gap-2">
+          {!readOnly ? (
+            <span className="flex max-w-24 shrink-0 overflow-hidden opacity-100 transition-[max-width,opacity] duration-150 sm:[@media(pointer:fine)]:max-w-0 sm:[@media(pointer:fine)]:opacity-0 sm:[@media(pointer:fine)]:group-hover/row:max-w-24 sm:[@media(pointer:fine)]:group-hover/row:opacity-100 sm:[@media(pointer:fine)]:group-focus-within/row:max-w-24 sm:[@media(pointer:fine)]:group-focus-within/row:opacity-100">
+              <Button
+                accessibilityLabel={`${row.device.hostId ? 'Move' : 'Assign'} ${row.name} ${row.device.hostId ? 'to another Host' : 'to a Host'}`}
+                disabled={assignmentDisabled}
+                icon={row.device.hostId ? 'arrow-right' : 'plus'}
+                label={row.device.hostId ? 'Move' : 'Assign'}
+                onPress={() => setAssignmentDevice(row.device)}
+                variant="primary"
+              />
+            </span>
+          ) : null}
+          <DeviceName onOpen={() => onOpenDevice('tailnet', row.id)} row={row} />
+        </div>
+      )
+    },
     {
       id: 'os', header: 'Operating system', width: '22%', hideOnMobile: true,
       cell: (row) => <OperatingSystem value={row.operatingSystem} />
@@ -132,23 +150,22 @@ function DeviceTable({ assignmentDisabled, hosts, onAssign, onOpenDevice, readOn
     {
       id: 'status', header: 'Status', width: '18%',
       cell: (row) => <StatusChip label={row.statusLabel} status={row.status} />
-    },
-    {
+    }
+  ];
+  if (readOnly) {
+    columns.push({
       id: 'action', header: '', width: '6rem',
       cell: (row) => (
         <Button
-          accessibilityLabel={readOnly
-            ? `${expanded.has(row.id) ? 'Hide' : 'Show'} details for ${row.name}`
-            : `${row.device.hostId ? 'Move' : 'Assign'} ${row.name} ${row.device.hostId ? 'to another Host' : 'to a Host'}`}
-          disabled={!readOnly && assignmentDisabled}
-          icon={readOnly ? (expanded.has(row.id) ? 'chevron-down' : 'chevron-right') : row.device.hostId ? 'arrow-right' : 'plus'}
-          label={readOnly ? 'Details' : row.device.hostId ? 'Move' : 'Assign'}
-          onPress={() => readOnly ? toggle(row.id) : setAssignmentDevice(row.device)}
+          accessibilityLabel={`${expanded.has(row.id) ? 'Hide' : 'Show'} details for ${row.name}`}
+          icon={expanded.has(row.id) ? 'chevron-down' : 'chevron-right'}
+          label="Details"
+          onPress={() => toggle(row.id)}
           variant="ghost"
         />
       )
-    }
-  ];
+    });
+  }
   return (
     <>
       <DataTable

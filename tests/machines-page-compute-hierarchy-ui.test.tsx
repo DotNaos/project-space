@@ -173,6 +173,8 @@ describe('machines page Tailnet device to Host hierarchy', () => {
     expect(html).toContain('Available Tailnet devices');
     expect(html).toContain('os-macbook');
     expect(html).toContain('Assign');
+    expect(html).toContain('group-hover/row:max-w-24');
+    expect(html).toContain('bg-accent text-text-inverted');
     expect(html).toContain('Online');
     expect(html).toContain('macOS');
   });

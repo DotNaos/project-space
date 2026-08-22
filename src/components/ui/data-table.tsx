@@ -78,7 +78,7 @@ function FragmentRow<Row>({
 }) {
   return (
     <>
-      <tr className="h-10 align-middle hover:bg-control-hover/40">
+      <tr className="group/row h-10 align-middle hover:bg-control-hover/40">
         {columns.map((column) => (
           <td
             key={column.id}
