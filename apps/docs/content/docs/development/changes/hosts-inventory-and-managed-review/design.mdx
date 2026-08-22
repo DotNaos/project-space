@@ -24,7 +24,7 @@ Non-goals:
 
 - Automatically merge devices by display-name similarity.
 - Model Codespaces as physical machines.
-- Add server-originated SSH, terminal, remote desktop, or arbitrary commands.
+- Add a Production Project Space SSH relay, remote desktop implementation, or arbitrary command path.
 - Duplicate private DNS, TLS, or proxy infrastructure inside Project Space.
 
 ## Architecture
@@ -37,6 +37,11 @@ flowchart LR
     N --> S[Collapsible Hosts sections]
     N --> D[Device workspace]
     H[Host-agent observations] --> D
+
+    D --> W[wterm terminal]
+    W --> B[Project CLI local SSH bridge]
+    B --> L[Fresh local Tailnet identity]
+    B --> O[Local OpenSSH and SSH agent]
 
     P[Project CLI serve] --> R[Private review-route API]
     R --> V[Exact HTTPS review host]
@@ -52,6 +57,14 @@ flowchart LR
 5. Host-agent telemetry is displayed only from a real observation; absent evidence is labelled plainly.
 6. Generic local UI boundaries use DotNaos design tokens and APIs suitable for later package promotion.
 7. Project CLI allows only its exact returned review hostname and owns lease renewal and cleanup.
+8. The reusable terminal surface owns only wterm rendering and lifecycle; it has no SSH or Project
+   Space data dependency and is tracked for promotion to DotNaos UI in
+   [DotNaos/ui#87](https://github.com/DotNaos/ui/issues/87).
+9. The development SSH bridge is registered only by Vite, requires the existing signed-in session and
+   same-origin WebSocket, and resolves a unique control-plane device name to a fresh local Tailnet
+   address. Browser messages cannot choose an address or carry credentials.
+10. OpenSSH uses the Project CLI machine's agent, accepts a previously unseen host key once, rejects key
+    changes, disables forwarding and proxy configuration, and terminates its PTY when the socket ends.
 
 ## Risks and mitigations
 
@@ -61,6 +74,9 @@ flowchart LR
 - **Drawer styling escaping the theme:** the overlay is rendered inside the DotNaos token boundary and tested for opaque surfaces.
 - **Stale private routes:** bounded heartbeats and idempotent stop cleanup remove abandoned routes.
 - **Mobile overflow:** the shared hierarchy uses responsive rows and bounded metric charts.
+- **SSH target or credential injection:** the bridge accepts only a device selector and username,
+  resolves the address locally, isolates SSH configuration, and never accepts passwords or key data.
+- **SSH host impersonation:** first contact is recorded locally and later key changes fail closed.
 
 ## Migration and rollout
 
@@ -71,8 +87,11 @@ managed route use without changing Tailnet devices or provider-managed Codespace
 
 ## Validation
 
-- Run focused inventory-model, assignment-store, drawer, metric, routing, and UI tests first.
+- Run focused inventory-model, assignment-store, drawer, metric, routing, terminal, and SSH-bridge
+  tests first.
 - Run TypeScript, UI-copy, Go, Rust, and changed-path quality checks after the interaction stabilizes.
 - Dogfood the authenticated private HTTPS review with live provider inventory.
 - Inspect desktop and mobile layouts, assignment focus behavior, counts, filters, sorting, and device details.
+- Exercise a real Tailnet SSH preflight and confirm that host trust and authentication failures remain
+  distinct.
 - Keep merge and production verification separate from this user-owned review checkpoint.

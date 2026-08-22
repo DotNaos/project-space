@@ -92,12 +92,19 @@ function decodeDevice(value: unknown):
       addresses: addresses.addresses,
       id,
       lastSeenAt: optionalTimestamp(value.LastSeen),
-      observedName: safeLabel(value.HostName) ?? safeLabel(value.Name),
+      observedName: canonicalDnsDeviceName(value.DNSName) ??
+        safeLabel(value.HostName) ?? safeLabel(value.Name),
       online: value.Online,
       os: safeToken(value.OS),
       tags: safeTags(value.Tags)
     }
   };
+}
+
+function canonicalDnsDeviceName(value: unknown) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 255) return undefined;
+  const firstLabel = value.replace(/\.$/, '').split('.')[0];
+  return safeLabel(firstLabel);
 }
 
 function decodeAddresses(value: unknown):

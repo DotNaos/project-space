@@ -62,6 +62,21 @@ remove it when serving stops, and MUST allow only the returned hostname at the d
 - **When** Project CLI starts and later stops the development server
 - **Then** it presents the returned HTTPS URL, renews the lease while active, and removes the route on stop
 
+### HOSTS-INVENTORY-006 — Client-owned SSH terminal
+
+The Project-managed development server MUST open SSH from its local Tailnet machine, MUST resolve
+the selected device against a fresh local Tailnet observation, and MUST NOT accept a browser-supplied
+host, address, password, or private key. It MUST use that machine's local SSH agent, remember a new
+host key once, reject later key changes, bound terminal traffic, and release the local process when the
+session ends.
+
+#### Scenario: SSH authentication is not available
+
+- **Given** an online Tailnet device resolves uniquely on the Project CLI machine
+- **And** no local SSH-agent key is accepted for the entered username
+- **When** the owner connects from the wterm terminal
+- **Then** the UI reports that exact authentication failure without requesting a password or private key
+
 ## CHANGED Requirements
 
 None.

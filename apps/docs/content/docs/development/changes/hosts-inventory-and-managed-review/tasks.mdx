@@ -20,6 +20,10 @@ description: Implementation and verification checklist for issue 732.
   - **Evidence:** Go tests cover exact-host registration, renewal, state persistence, and cleanup; the private HTTPS review URL served the authenticated page.
 - [x] 2.3 Apply DotNaos UI policy and copy linting
   - **Evidence:** Package boundaries, token CSS, Devtools, generic local UI modules, and UI-copy audit checks are present in the staged change.
+- [x] 2.4 Add a client-owned wterm SSH path for managed development
+  - **Evidence:** The transport-neutral terminal boundary, same-origin local WebSocket bridge, fresh
+    Tailnet resolution, OpenSSH restrictions, PTY cleanup, and live authentication failure are covered
+    by focused tests and the authenticated private review.
 
 ## 3. Verification
 
@@ -35,7 +39,8 @@ description: Implementation and verification checklist for issue 732.
 
 ## 4. Deferred follow-ups
 
-- [ ] 4.1 Add client-owned SSH control
+- [ ] 4.1 Extend client-owned SSH beyond the managed local development client
   - **Issue:** #724
-  - **Reason:** Real SSH requires a client-owned trust and transport boundary and must not become a Project Space server relay.
-  - **Acceptance criteria:** The viewing client owns credentials, host-key verification, sockets, and terminal bytes while Project Space authorizes an exact current device identity.
+  - **Reason:** The current real SSH bridge exists only in the Project CLI/Vite client and is not registered by the Production Project Space server.
+  - **Acceptance criteria:** A packaged viewing client keeps credentials, host-key verification, sockets,
+    and terminal bytes outside the Production Project Space server while authorizing an exact current device identity.

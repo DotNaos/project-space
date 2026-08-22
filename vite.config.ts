@@ -15,6 +15,7 @@ import {
   createMachineTerminalUpgradeHandler,
   createProjectTerminalUpgradeHandler
 } from './server/machine-terminal-websocket';
+import { createClientTailnetSshUpgradeHandler } from './server/client-tailnet-ssh-websocket';
 import { createProjectSpaceRequestHandler } from './server/project-space-http';
 import { writeJson } from './server/project-space-http-response';
 import { createPrototypeReviewLocalRuntime } from './server/prototype-review-local-runtime';
@@ -108,6 +109,7 @@ function projectSpaceApiPlugin(binding: RuntimeBindingEvidence): Plugin {
       });
       const handleMachineTerminalUpgrade = createMachineTerminalUpgradeHandler(authorizedBackend);
       const handleProjectTerminalUpgrade = createProjectTerminalUpgradeHandler();
+      const handleClientTailnetSshUpgrade = createClientTailnetSshUpgradeHandler();
       server.httpServer?.once('close', () => {
         void localReviewRuntime.then((runtime) => runtime.close());
         void machineConnectionRuntime.then((runtime) => runtime?.stop());
@@ -115,6 +117,7 @@ function projectSpaceApiPlugin(binding: RuntimeBindingEvidence): Plugin {
 
       server.httpServer?.on('upgrade', (request, socket, head) => {
         if (
+          !handleClientTailnetSshUpgrade(request, socket, head) &&
           !handleMachineTerminalUpgrade(request, socket, head) &&
           !handleProjectTerminalUpgrade(request, socket, head)
         ) {

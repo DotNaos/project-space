@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Button, Chip, Container, Icon, Input, Text } from '@dotnaos/ui/base';
+import { Button, Chip, Container, Icon, Text } from '@dotnaos/ui/base';
 import { useMetricHistory, type MetricSample, type MetricTone } from '@dotnaos/ui/system';
 import { MetricBarChart } from '../../../components/ui/metric-bar-chart';
 import type { HostsDeviceDescriptor } from './hosts-device-model';
 import { OperatingSystem } from './hosts-device-visuals';
+import { HostsDeviceSshTerminal } from './hosts-device-ssh-terminal';
 
 type WorkspaceTool = 'desktop' | 'terminal';
 
@@ -84,53 +85,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <Text color="muted" size="s" text={label} />
       <span className="truncate text-right text-sm text-text">{value}</span>
     </div>
-  );
-}
-
-function TerminalPreview({ device }: { device: HostsDeviceDescriptor }) {
-  const [command, setCommand] = useState('');
-  const [lines, setLines] = useState<string[]>([
-    'Preview terminal ready. No SSH connection has been opened.',
-    'Type “help” to inspect the mocked session.'
-  ]);
-
-  function submit() {
-    const next = command.trim();
-    if (!next) return;
-    if (next === 'clear') {
-      setLines([]);
-    } else {
-      const response = next === 'help'
-        ? 'Available preview commands: help, hostname, uptime, clear'
-        : next === 'hostname'
-          ? device.name
-          : next === 'uptime'
-            ? 'up 3 days, 4 hours (mocked)'
-            : `command not available in preview: ${next}`;
-      setLines((current) => [...current, `$ ${next}`, response]);
-    }
-    setCommand('');
-  }
-
-  return (
-    <section aria-label="SSH terminal preview" className="flex min-h-96 flex-col overflow-hidden rounded-xl bg-bg-0 ring-1 ring-border/70 sm:min-h-[30rem]">
-      <div className="flex items-center justify-between gap-3 bg-bg-2/70 px-4 py-2 text-xs text-text-muted">
-        <span className="inline-flex items-center gap-2"><Icon color="muted" name="terminal" size="s" />Mock SSH terminal</span>
-        <span className="font-mono">{device.name}</span>
-      </div>
-      <pre className="min-h-0 flex-1 whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-6 text-text">
-        {lines.join('\n')}
-      </pre>
-      <form
-        className="flex gap-2 border-t border-border/60 bg-bg-1 p-3"
-        onSubmit={(event) => { event.preventDefault(); submit(); }}
-      >
-        <div className="min-w-0 flex-1">
-          <Input accessibilityLabel="Preview terminal command" fullWidth onValueChange={setCommand} placeholder="Enter a preview command" size="sm" value={command} />
-        </div>
-        <Button disabled={!command.trim()} icon="arrow-right" label="Run" type="submit" variant="secondary" />
-      </form>
-    </section>
   );
 }
 
@@ -236,7 +190,7 @@ export function HostsDeviceWorkspace({ device, onBack }: {
         <Button label="Remote Desktop" onPress={() => setTool('desktop')} variant={tool === 'desktop' ? 'secondary' : 'ghost'} />
       </div>
 
-      {tool === 'terminal' ? <TerminalPreview device={device} /> : <RemoteDesktopPreview device={device} />}
+      {tool === 'terminal' ? <HostsDeviceSshTerminal device={device} /> : <RemoteDesktopPreview device={device} />}
 
       {resources ? (
         <section aria-label="Reported hardware profile" className="grid gap-x-10 md:grid-cols-2">

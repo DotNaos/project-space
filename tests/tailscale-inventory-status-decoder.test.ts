@@ -5,6 +5,19 @@ import { decodeTailscaleStatus } from '../server/tailscale-inventory/status-deco
 const observedAt = '2026-08-14T10:00:00Z';
 
 describe('Tailscale status decoder', () => {
+  test('prefers the unique control-plane DNS label over a repeated local hostname', () => {
+    const snapshot = decode(status({
+      Self: device({
+        DNSName: 'os-work-2.tail5bb1d7.ts.net.',
+        HostName: 'os-work',
+        ID: 'node-self',
+        TailscaleIPs: ['100.84.1.2']
+      })
+    }));
+
+    expect(snapshot.devices[0]?.observedName).toBe('os-work-2');
+  });
+
   test('uses stable IDs and exact Tailscale addresses, not names or MagicDNS', () => {
     const snapshot = decode(status({
       Self: device({ ID: 'node-self', HostName: 'same-name', TailscaleIPs: ['100.84.1.2'] }),

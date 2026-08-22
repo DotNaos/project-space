@@ -31,6 +31,8 @@ secondary detail, and required manual serving workarounds for remote review.
 - Assign an available device through a right-side drawer that can create or select a Host.
 - Keep connectivity, operating system, Host membership, and telemetry as distinct states.
 - Show a responsive device workspace with real host-agent utilization when observations exist.
+- Provide a real wterm SSH terminal through the Project CLI machine's local bridge, local
+  Tailnet observation, OpenSSH host trust, and SSH agent.
 - Register, renew, and remove exact private review routes through Project CLI.
 - Use DotNaos UI boundaries, tokens, icons, layout primitives, and copy conventions.
 
@@ -38,8 +40,9 @@ secondary detail, and required manual serving workarounds for remote review.
 
 - Inferring Host membership automatically from similar names.
 - Treating GitHub Codespaces as physical Hosts.
-- A Project Space server-side SSH relay, remote desktop implementation, or arbitrary command path;
-  client-owned SSH continues in [#724](https://github.com/DotNaos/project-space/issues/724).
+- A Production Project Space SSH relay, browser-supplied SSH credentials, remote desktop
+  implementation, or arbitrary command path. Production client ownership continues in
+  [#724](https://github.com/DotNaos/project-space/issues/724).
 - Production deployment or migration before user approval.
 
 ## Delivery

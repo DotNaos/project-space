@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { HostsDeviceWorkspace } from '../src/features/project-desktop/components/hosts-device-workspace';
 
 describe('Hosts device workspace', () => {
-  test('keeps real telemetry separate from mocked control previews', () => {
+  test('keeps real telemetry separate from client-owned SSH and mocked desktop control', () => {
     const html = renderToStaticMarkup(createElement(HostsDeviceWorkspace, {
       device: {
         address: '100.80.135.9',
@@ -37,8 +37,10 @@ describe('Hosts device workspace', () => {
     expect(html).toContain('project-hostd observation');
     expect(html).toContain('14%');
     expect(html).toContain('Apple M4 GPU');
-    expect(html).toContain('Mock SSH terminal');
-    expect(html).toContain('No SSH connection has been opened');
+    expect(html).toContain('SSH username');
+    expect(html).toContain('No SSH connection is active');
+    expect(html).toContain('Trusts a new device key once');
+    expect(html).not.toContain('Mock SSH terminal');
     expect(html).toContain('Remote Desktop');
     expect(html).toContain('grid-cols-2');
     expect(html).toContain('min-h-36');
