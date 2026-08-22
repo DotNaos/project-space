@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Container, Icon, Input, Select, Spinner, Text } from '@dotnaos/ui/base';
+import { Button, Container, Icon, Input, Spinner, Text } from '@dotnaos/ui/base';
 import { Drawer } from '../../../components/ui/drawer';
+import { SearchableSelect } from '../../../components/ui/searchable-select';
 import type { ProjectCliHost } from '@/shared/compute-inventory-cli-api';
 import type { TailscaleInventoryDevice } from '@/shared/tailscale-inventory-api';
 import type { TailnetHostAssignmentDraft } from '../hooks/use-tailnet-compute-inventory';
@@ -99,12 +100,13 @@ export function TailnetHostAssignmentDrawer({
           <div>
             <Text color="muted" size="s" text="Host" />
             <div className="mt-2">
-              <Select
+              <SearchableSelect
                 accessibilityLabel={`Host for ${machineName}`}
                 disabled={disabled || pending}
                 fullWidth
                 onValueChange={setSelection}
                 options={options}
+                placeholder="Search Hosts"
                 size="sm"
                 value={selection}
               />
