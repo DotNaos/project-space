@@ -131,7 +131,10 @@ describe('machines page Tailnet device to Host hierarchy', () => {
   });
 
   test('groups only manually assigned Tailnet devices under a Host', () => {
-    tailnetDevices = [device({ hostAssignmentRevision: 2, hostId: 'host-macbook' })];
+    tailnetDevices = [
+      device({ hostAssignmentRevision: 2, hostId: 'host-macbook' }),
+      device({ hostAssignmentRevision: 2, hostId: 'host-macbook', id: 'device-macbook-vm', name: 'os-macbook-vm' })
+    ];
     const html = renderToStaticMarkup(createElement(MachinesPage, {
       ...baseProps,
       computeInventory: inventory({
@@ -151,7 +154,8 @@ describe('machines page Tailnet device to Host hierarchy', () => {
 
     expect(html).toContain('Hosts');
     expect(html).toContain('os-macbook');
-    expect(html).toContain('1/1 online');
+    expect(html).not.toContain('2/2 online');
+    expect(html).toContain('data-section-summary="true">2</span>');
     expect(html).toContain('Move');
     expect(html).not.toContain('legacy-environment');
     expect(html).not.toContain('Environment');
@@ -181,7 +185,7 @@ describe('machines page Tailnet device to Host hierarchy', () => {
     }));
 
     expect(html).toContain('Excluded Tailnet devices');
-    expect(html).toContain('1 devices');
+    expect(html).toContain('data-section-summary="true">1</span>');
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('oli-iphone');
   });
@@ -211,6 +215,7 @@ describe('machines page Tailnet device to Host hierarchy', () => {
     expect(html).toContain('Assign os-vps-1 to a Host');
     expect(html).not.toContain('Create new Host');
     expect((html.match(/data-separated="true"/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((html.match(/ml-4 sm:ml-6/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect((html.match(/<thead class="sr-only">/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 

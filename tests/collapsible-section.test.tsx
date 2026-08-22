@@ -15,6 +15,7 @@ describe('CollapsibleSection', () => {
     expect(html).toContain('Local &amp; self-hosted');
     expect(html).toContain('Inventory table');
     expect(html).not.toContain('uppercase');
+    expect(html).not.toContain('chevron');
   });
 
   test('keeps a collapsed section body out of the rendered hierarchy', () => {
@@ -32,7 +33,7 @@ describe('CollapsibleSection', () => {
   test('can render as a visually separated top-level section', () => {
     const html = renderToStaticMarkup(createElement(
       CollapsibleSection,
-      { id: 'available', separated: true, title: 'Available Tailnet devices' },
+      { id: 'available', insetContent: true, separated: true, summary: 3, title: 'Available Tailnet devices' },
       createElement('p', undefined, 'Devices'),
     ));
 
@@ -40,5 +41,7 @@ describe('CollapsibleSection', () => {
     expect(html).toContain('border-b');
     expect(html).not.toContain('border-y');
     expect(html).toContain('text-text-muted');
+    expect(html).toContain('data-section-summary="true">3</span>');
+    expect(html).toContain('ml-4 sm:ml-6');
   });
 });

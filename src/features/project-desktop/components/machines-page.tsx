@@ -78,13 +78,8 @@ function DeviceName({ onOpen, row }: { onOpen(): void; row: TailnetDeviceRow }) 
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md text-left outline-none transition hover:text-accent focus-visible:ring-2 focus-visible:ring-accent"
+      className="flex w-full min-w-0 items-center overflow-hidden rounded-md text-left outline-none transition hover:text-accent focus-visible:ring-2 focus-visible:ring-accent"
     >
-      <Icon
-        color={row.status === 'available' ? 'success' : row.status === 'attention' ? 'warning' : 'text'}
-        name="globe"
-        size="m"
-      />
       <span className="truncate font-medium text-text">{row.name}</span>
     </button>
   );
@@ -181,12 +176,11 @@ function HostGroupView({ assignmentDisabled, group, hosts, onAssign, onOpenDevic
   onAssign(device: TailscaleInventoryDevice, request: TailnetHostAssignmentDraft): Promise<unknown>;
   onOpenDevice(kind: HostsDeviceKind, id: string): void;
 }) {
-  const online = group.devices.filter(({ status }) => status === 'available').length;
   return (
     <CollapsibleSection
       id={`compute-host-${group.id}`}
-      leading={<Icon color={group.status === 'available' ? 'success' : group.status === 'attention' ? 'warning' : 'text'} name="box" size="s" />}
-      summary={`${online}/${group.devices.length} online`}
+      insetContent
+      summary={group.devices.length > 1 ? group.devices.length : undefined}
       title={group.name}
     >
       <DeviceTable assignmentDisabled={assignmentDisabled} hosts={hosts} onAssign={onAssign} onOpenDevice={onOpenDevice} rows={group.devices} />
@@ -204,9 +198,8 @@ function CodespacesTable({ onOpenDevice, rows }: {
         <button
           type="button"
           onClick={() => onOpenDevice('codespace', row.id)}
-          className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md text-left outline-none transition hover:text-accent focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex w-full min-w-0 items-center overflow-hidden rounded-md text-left outline-none transition hover:text-accent focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <Icon.Brand appearance="monochrome" color="text" name="github" size="m" />
           <span className="truncate font-medium text-text">{row.name}</span>
         </button>
       )
@@ -382,24 +375,24 @@ export function MachinesPage({ computeInventory, inventoryStatus, localSimulatio
             className: 'min-w-0'
           }}>
             {showCodespaces ? (
-              <CollapsibleSection separated id="compute-codespaces" leading={<Icon.Brand appearance="monochrome" color="muted" name="github" size="s" />} summary={`${visible.codespaces.length} items`} title="GitHub Codespaces">
+              <CollapsibleSection insetContent separated id="compute-codespaces" summary={visible.codespaces.length} title="GitHub Codespaces">
                 {visible.codespaces.length > 0 ? <CodespacesTable onOpenDevice={openDevice} rows={visible.codespaces} /> : <EmptySection text="No Codespaces match the current filters." />}
               </CollapsibleSection>
             ) : null}
             {showHosts ? (
-              <CollapsibleSection separated id="compute-hosts" leading={<Icon color="muted" name="box" size="s" />} summary={`${visible.hosts.length} Hosts`} title="Hosts">
+              <CollapsibleSection insetContent separated id="compute-hosts" summary={visible.hosts.length} title="Hosts">
                 {visible.hosts.length > 0 ? visible.hosts.map((group) => (
                   <HostGroupView key={group.id} assignmentDisabled={assignmentDisabled} group={group} hosts={assignableHosts} onAssign={tailnet.assignHost} onOpenDevice={openDevice} />
                 )) : <EmptySection text="No Hosts match the current filters. Assign an available device to create one." />}
               </CollapsibleSection>
             ) : null}
             {showAvailable ? (
-              <CollapsibleSection separated id="compute-available-devices" leading={<Icon color="muted" name="globe" size="s" />} summary={`${visible.available.length} devices`} title="Available Tailnet devices">
+              <CollapsibleSection insetContent separated id="compute-available-devices" summary={visible.available.length} title="Available Tailnet devices">
                 {visible.available.length > 0 ? <DeviceTable assignmentDisabled={assignmentDisabled} hosts={assignableHosts} onAssign={tailnet.assignHost} onOpenDevice={openDevice} rows={visible.available} /> : <EmptySection text="No available devices match the current filters." />}
               </CollapsibleSection>
             ) : null}
             {showAvailable && inventory.excluded.length > 0 ? (
-              <CollapsibleSection separated defaultExpanded={false} id="compute-excluded-devices" leading={<Icon color="muted" name="eye-off" size="s" />} summary={`${visible.excluded.length} devices`} title="Excluded Tailnet devices">
+              <CollapsibleSection insetContent separated defaultExpanded={false} id="compute-excluded-devices" summary={visible.excluded.length} title="Excluded Tailnet devices">
                 {visible.excluded.length > 0 ? <DeviceTable assignmentDisabled hosts={assignableHosts} onAssign={tailnet.assignHost} onOpenDevice={openDevice} readOnly rows={visible.excluded} /> : <EmptySection text="No excluded devices match the current filters." />}
               </CollapsibleSection>
             ) : null}
