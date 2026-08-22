@@ -22,6 +22,8 @@
     "ci:preflight": "bun scripts/ci-preflight.ts --mode fast",
     "ci:preflight:full": "bun scripts/ci-preflight.ts --mode full",
     "ci:inventory:open-prs": "bun scripts/report-open-pr-ci.ts",
+    "copy:lint": "bun scripts/audit-ui-copy.ts --max-warnings=0",
+    "copy:lint:all": "bun scripts/audit-ui-copy.ts --all",
     "docs:release:check": "bun scripts/validate-release-pr.ts --catalog",
     "docs:release:pr": "bun scripts/validate-release-pr.ts",
     "docs:cli:check": "bun scripts/generate-cli-docs.ts --check",
@@ -47,8 +49,10 @@
   "dependencies": {
     "@clerk/backend": "^3.9.0",
     "@clerk/react": "^6.11.3",
+    "@dotnaos/design": "0.0.13",
     "@dotnaos/react-ui": "^0.0.2",
     "@dotnaos/ui": "0.0.13",
+    "@dotnaos/ui-base": "0.0.13",
     "@heroui/react": "3.0.4",
     "@heroui/styles": "3.0.4",
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -83,6 +87,7 @@
     "lefthook": "2.1.10",
     "tailwindcss": "^4.1.11",
     "typescript": "^7.0.2",
+    "typescript-ui-copy-audit": "npm:typescript@5.9.2",
     "vite": "^7.0.6"
   },
   "packageManager": "bun@1.3.14"

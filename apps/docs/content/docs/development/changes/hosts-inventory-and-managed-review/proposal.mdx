@@ -1,0 +1,50 @@
+---
+title: Proposal
+description: Host-first Tailnet inventory, device workspace, and managed review access.
+---
+
+Change status: **Active**
+
+Change kind: **Feature**
+
+Issue: **[#732](https://github.com/DotNaos/project-space/issues/732)**
+Requirements: **Required**
+
+## Summary
+
+Replace the competing Compute inventories with one compact Hosts experience. Tailnet devices are
+assigned to physical Hosts, unsupported devices remain observable in an excluded section, and a
+device workspace reports truthful connectivity and host-agent telemetry. Project CLI serves the
+review through its managed private HTTPS route rather than a manually configured development URL.
+
+## Problem
+
+The previous page duplicated machines across Tailnet, Host, Environment, and runtime contexts. It
+also described online devices as unavailable when no workspace runtime existed, exposed too much
+secondary detail, and required manual serving workarounds for remote review.
+
+## Scope
+
+- Present GitHub Codespaces, assigned Hosts, available Tailnet devices, and excluded devices as
+  separate collapsible sections in one searchable and sortable page.
+- Require every Host to have at least one manually assigned Tailnet device.
+- Assign an available device through a right-side drawer that can create or select a Host.
+- Keep connectivity, operating system, Host membership, and telemetry as distinct states.
+- Show a responsive device workspace with real host-agent utilization when observations exist.
+- Register, renew, and remove exact private review routes through Project CLI.
+- Use DotNaos UI boundaries, tokens, icons, layout primitives, and copy conventions.
+
+## Out of scope
+
+- Inferring Host membership automatically from similar names.
+- Treating GitHub Codespaces as physical Hosts.
+- A Project Space server-side SSH relay, remote desktop implementation, or arbitrary command path;
+  client-owned SSH continues in [#724](https://github.com/DotNaos/project-space/issues/724).
+- Production deployment or migration before user approval.
+
+## Delivery
+
+The change is additive until the new Host assignment data is populated. Existing Tailnet inventory
+remains the source of discovered devices, and Project CLI owns the private review-route lifecycle.
+This active specification records the implemented checkpoint; merge and production delivery remain
+user-controlled.

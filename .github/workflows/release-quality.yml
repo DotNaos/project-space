@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: bun run ci:check -- locked-root-dependencies
       - name: Test TypeScript and build web surfaces
-        run: bun run ci:check -- typecheck tests web-build
+        run: bun run ci:check -- ui-copy typecheck tests web-build
 
   mobile:
     name: Mobile Expo build

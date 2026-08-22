@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 )
 
 type runtimeState struct {
@@ -38,6 +39,15 @@ type runtimeState struct {
 	PortlessURL        string    `json:"portlessUrl,omitempty"`
 	PublicPort         int       `json:"publicPort,omitempty"`
 	TailscaleIPv4      string    `json:"tailscaleIPv4,omitempty"`
+	ReviewTaskID       string    `json:"reviewTaskId,omitempty"`
+	ReviewRouteID      string    `json:"reviewRouteId,omitempty"`
+	ReviewHostname     string    `json:"reviewHostname,omitempty"`
+	ReviewURL          string    `json:"reviewUrl,omitempty"`
+	ReviewExpiresAt    string    `json:"reviewExpiresAt,omitempty"`
+	ReviewLeaseToken   string    `json:"reviewLeaseToken,omitempty"`
+	ReviewAPITokenRef  string    `json:"reviewApiTokenRef,omitempty"`
+	ReviewPID          int       `json:"reviewPid,omitempty"`
+	ReviewProcessID    string    `json:"reviewProcessIdentity,omitempty"`
 	AllowedHosts       []string  `json:"allowedHosts"`
 	StartedAt          string    `json:"startedAt,omitempty"`
 	CheckedAt          string    `json:"checkedAt"`
@@ -285,6 +295,31 @@ func validateRuntimeState(state runtimeState) error {
 		(state.PublicPort == 0 || net.ParseIP(state.TailscaleIPv4).To4() == nil) {
 		return fmt.Errorf("managed runtime has no valid Tailscale port and IPv4 address")
 	}
+	reviewValues := []string{
+		state.ReviewRouteID, state.ReviewHostname, state.ReviewURL,
+		state.ReviewExpiresAt, state.ReviewLeaseToken, state.ReviewAPITokenRef,
+	}
+	reviewCount := 0
+	for _, value := range reviewValues {
+		if value != "" {
+			reviewCount++
+		}
+	}
+	if reviewCount != 0 && reviewCount != len(reviewValues) {
+		return fmt.Errorf("review route state is incomplete")
+	}
+	if reviewCount > 0 {
+		if state.Mode != ServeModeManaged || state.ReviewTaskID == "" || !strings.HasSuffix(state.ReviewHostname, ".review.vpn.os-home.net") ||
+			state.ReviewURL != "https://"+state.ReviewHostname {
+			return fmt.Errorf("review route state is invalid")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, state.ReviewExpiresAt); err != nil {
+			return fmt.Errorf("review route expiry is invalid")
+		}
+		if len(state.ReviewLeaseToken) < 32 || len(state.ReviewLeaseToken) > 256 {
+			return fmt.Errorf("review route lease token is invalid")
+		}
+	}
 	if state.PortlessName != "" {
 		if err := validatePortlessName(state.PortlessName); err != nil {
 			return err
@@ -301,6 +336,12 @@ func validateRuntimeState(state runtimeState) error {
 	}
 	if state.PID < 0 || (state.PID == 0) != (state.ProcessID == "") {
 		return fmt.Errorf("process identity is inconsistent")
+	}
+	if state.ReviewPID < 0 || (state.ReviewPID == 0) != (state.ReviewProcessID == "") {
+		return fmt.Errorf("review process identity is inconsistent")
+	}
+	if state.ReviewPID > 0 && reviewCount == 0 {
+		return fmt.Errorf("review process has no route state")
 	}
 	if state.CheckedAt == "" {
 		return fmt.Errorf("checked timestamp is missing")
@@ -352,6 +393,10 @@ func (store *stateStore) logPath(serverID string) string {
 	return filepath.Join(store.root, "logs", serverID+".log")
 }
 
+func (store *stateStore) reviewLogPath(serverID string) string {
+	return filepath.Join(store.root, "logs", serverID+"-review-route.log")
+}
+
 func (store *stateStore) requestPath(serverID, generation string) string {
 	return filepath.Join(store.root, "requests", serverID+"-"+generation+".json")
 }
@@ -363,6 +408,17 @@ func (store *stateStore) deleteLog(serverID string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("remove serve log: %w", err)
+	}
+	return nil
+}
+
+func (store *stateStore) deleteReviewLog(serverID string) error {
+	err := os.Remove(store.reviewLogPath(serverID))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("remove review route log: %w", err)
 	}
 	return nil
 }

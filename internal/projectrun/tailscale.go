@@ -21,6 +21,26 @@ type TailscaleCLI struct {
 	Run func(context.Context, string, ...string) (string, error)
 }
 
+func (tailscale TailscaleCLI) DeviceName(ctx context.Context) (string, error) {
+	output, err := tailscale.output(ctx, "tailscale", "status", "--json")
+	if err != nil {
+		return "", fmt.Errorf("read Tailscale device name: %w", err)
+	}
+	payload := struct {
+		Self struct {
+			HostName string `json:"HostName"`
+		} `json:"Self"`
+	}{}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return "", fmt.Errorf("parse Tailscale device name: %w", err)
+	}
+	name := strings.ToLower(strings.TrimSpace(payload.Self.HostName))
+	if !dnsLabelPattern.MatchString(name) {
+		return "", fmt.Errorf("tailscale status returned invalid device name %q", payload.Self.HostName)
+	}
+	return name, nil
+}
+
 func (tailscale TailscaleCLI) IPv4(ctx context.Context) (string, error) {
 	output, err := tailscale.output(ctx, "tailscale", "ip", "-4")
 	if err != nil {

@@ -6,36 +6,43 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 )
 
 type Dependencies struct {
-	Processes  ProcessRunner
-	Tmux       TmuxManager
-	Portless   LocalRouter
-	Tailnet    Tailnet
-	Prober     Prober
-	Ports      PortAllocator
-	StateRoot  string
-	Now        Clock
-	Repository RepositoryInspector
-	Identity   ServerIdentityResolver
-	Token      func() (string, error)
+	Processes    ProcessRunner
+	Tmux         TmuxManager
+	Portless     LocalRouter
+	Tailnet      Tailnet
+	Prober       Prober
+	Ports        PortAllocator
+	StateRoot    string
+	Now          Clock
+	Repository   RepositoryInspector
+	Identity     ServerIdentityResolver
+	Token        func() (string, error)
+	ReviewRoutes ReviewRouteAPI
+	Executable   func() (string, error)
+	Secrets      func(context.Context, map[string]string) (map[string]string, error)
 }
 
 type Manager struct {
-	processes  ProcessRunner
-	tmux       TmuxManager
-	portless   LocalRouter
-	tailnet    Tailnet
-	prober     Prober
-	ports      PortAllocator
-	store      *stateStore
-	now        Clock
-	repository RepositoryInspector
-	identity   ServerIdentityResolver
-	token      func() (string, error)
+	processes    ProcessRunner
+	tmux         TmuxManager
+	portless     LocalRouter
+	tailnet      Tailnet
+	prober       Prober
+	ports        PortAllocator
+	store        *stateStore
+	now          Clock
+	repository   RepositoryInspector
+	identity     ServerIdentityResolver
+	token        func() (string, error)
+	reviewRoutes ReviewRouteAPI
+	executable   func() (string, error)
+	secrets      func(context.Context, map[string]string) (map[string]string, error)
 }
 
 func NewDefaultManager() (*Manager, error) {
@@ -45,14 +52,17 @@ func NewDefaultManager() (*Manager, error) {
 	}
 	processes := OSProcessRunner{}
 	return NewManager(Dependencies{
-		Processes: processes,
-		Tmux:      TmuxCLI{},
-		Portless:  PortlessCLI{},
-		Tailnet:   TailscaleCLI{},
-		Prober:    NetworkProber{},
-		Ports:     NetworkPortAllocator{},
-		StateRoot: root,
-		Now:       time.Now,
+		Processes:    processes,
+		Tmux:         TmuxCLI{},
+		Portless:     PortlessCLI{},
+		Tailnet:      TailscaleCLI{},
+		Prober:       NetworkProber{},
+		Ports:        NetworkPortAllocator{},
+		StateRoot:    root,
+		Now:          time.Now,
+		ReviewRoutes: HTTPReviewRouteAPI{},
+		Executable:   os.Executable,
+		Secrets:      resolveCommandSecrets,
 	})
 }
 
@@ -76,22 +86,34 @@ func NewManager(dependencies Dependencies) (*Manager, error) {
 	if dependencies.Token == nil {
 		dependencies.Token = randomGeneration
 	}
+	if dependencies.ReviewRoutes == nil {
+		dependencies.ReviewRoutes = HTTPReviewRouteAPI{}
+	}
+	if dependencies.Executable == nil {
+		dependencies.Executable = os.Executable
+	}
+	if dependencies.Secrets == nil {
+		dependencies.Secrets = resolveCommandSecrets
+	}
 	store, err := newStateStore(dependencies.StateRoot)
 	if err != nil {
 		return nil, err
 	}
 	return &Manager{
-		processes:  dependencies.Processes,
-		tmux:       dependencies.Tmux,
-		portless:   dependencies.Portless,
-		tailnet:    dependencies.Tailnet,
-		prober:     dependencies.Prober,
-		ports:      dependencies.Ports,
-		store:      store,
-		now:        dependencies.Now,
-		repository: dependencies.Repository,
-		identity:   dependencies.Identity,
-		token:      dependencies.Token,
+		processes:    dependencies.Processes,
+		tmux:         dependencies.Tmux,
+		portless:     dependencies.Portless,
+		tailnet:      dependencies.Tailnet,
+		prober:       dependencies.Prober,
+		ports:        dependencies.Ports,
+		store:        store,
+		now:          dependencies.Now,
+		repository:   dependencies.Repository,
+		identity:     dependencies.Identity,
+		token:        dependencies.Token,
+		reviewRoutes: dependencies.ReviewRoutes,
+		executable:   dependencies.Executable,
+		secrets:      dependencies.Secrets,
 	}, nil
 }
 
@@ -158,17 +180,49 @@ func (manager *Manager) StartWithOptions(
 		err := fmt.Errorf("simulated APIs cannot use remote data")
 		return manager.runtimeErrorResult("start", root, scriptName, err), err
 	}
-	if apis == APIsModeExternal {
-		err := fmt.Errorf("external APIs are blocked until secure detached service-account delivery is configured")
+	if apis == APIsModeExternal && len(script.SecretEnvironment) == 0 {
+		err := fmt.Errorf("external APIs require a declared Infisical secret environment")
 		return manager.runtimeErrorResult("start", root, scriptName, err), err
 	}
 	mode := ServeModeManaged
 	if options.LocalOnly {
 		mode = ServeModeLocalOnly
 	}
-	allowedHosts, err := NormalizeAllowedHosts(options.AllowedHosts)
+	reviewTaskID := ""
+	reviewHostname := ""
+	if mode == ServeModeManaged && script.ReviewRoute != nil {
+		var taskLabel string
+		reviewHostname, _, taskLabel, err = expectedReviewHostname(
+			script.ReviewRoute.ProjectSlug,
+			options.ReviewTaskID,
+		)
+		if err != nil {
+			cause := fmt.Errorf("review task ID is required: %w", err)
+			return manager.runtimeErrorResult("start", root, scriptName, cause), cause
+		}
+		reviewTaskID = taskLabel
+	}
+	allowedHostCandidates := append([]string{}, options.AllowedHosts...)
+	if mode == ServeModeManaged {
+		deviceName, deviceNameErr := manager.tailnet.DeviceName(ctx)
+		if deviceNameErr != nil {
+			cause := fmt.Errorf("resolve private VPN device hostname: %w", deviceNameErr)
+			return manager.runtimeErrorResult("start", root, scriptName, cause), cause
+		}
+		allowedHostCandidates = append(allowedHostCandidates, deviceName+".vpn.os-home.net")
+	}
+	allowedHosts, err := NormalizeAllowedHosts(allowedHostCandidates)
 	if err != nil {
 		return manager.runtimeErrorResult("start", root, scriptName, err), err
+	}
+	if reviewHostname != "" {
+		allowedHosts, err = NormalizeAllowedHosts(append(
+			allowedHosts,
+			reviewHostname,
+		))
+		if err != nil {
+			return manager.runtimeErrorResult("start", root, scriptName, err), err
+		}
 	}
 	unlock, err := acquireFileLock(manager.store.sessionLockPath(identity.ServerID))
 	if err != nil {
@@ -188,6 +242,13 @@ func (manager *Manager) StartWithOptions(
 		}
 		if existing.State == StateRunning || existing.State == StateLocalOnly {
 			if healthErr := manager.checkRuntime(ctx, existing, script); healthErr == nil {
+				if existing.ReviewTaskID != reviewTaskID {
+					err := fmt.Errorf(
+						"serve session is already running for review task %q; stop it before requesting %q",
+						existing.ReviewTaskID, reviewTaskID,
+					)
+					return manager.resultFromState("start", CapabilityConfigured, existing, err), err
+				}
 				if existing.APIs != apis || existing.Data != data {
 					err := fmt.Errorf(
 						"serve session is already running with APIs=%s and data=%s; stop it before requesting APIs=%s and data=%s",
@@ -238,7 +299,7 @@ func (manager *Manager) StartWithOptions(
 	state, failure, err := manager.startLocalRuntime(
 		startCtx, identity, requestedDirectory, mode, allowedHosts, script, root,
 		apis, data, options.WorkspaceID, options.RuntimeGeneration,
-		options.Environment,
+		options.Environment, reviewTaskID, reviewHostname,
 	)
 	if err != nil {
 		return failure, err
@@ -253,6 +314,20 @@ func (manager *Manager) StartWithOptions(
 		remote := ProbeTarget{Host: state.TailscaleIPv4, Port: state.PublicPort, Path: script.HealthPath()}
 		if err := manager.prober.Wait(startCtx, remote, script.Timeout()); err != nil {
 			return manager.failStart(state, fmt.Errorf("Tailscale URL did not become ready: %w", err))
+		}
+		if script.ReviewRoute != nil {
+			reviewCtx, cancelReview := context.WithTimeout(ctx, 90*time.Second)
+			defer cancelReview()
+			if err := manager.startReviewRoute(
+				reviewCtx, &state, *script.ReviewRoute, reviewHostname, script.HealthPath(),
+			); err != nil {
+				return manager.failStart(state, err)
+			}
+			if err := manager.prober.Wait(reviewCtx, ProbeTarget{
+				Scheme: "https", Host: state.ReviewHostname, Port: 443, Path: script.HealthPath(),
+			}, 90*time.Second); err != nil {
+				return manager.failStart(state, fmt.Errorf("review URL did not become ready: %w", err))
+			}
 		}
 		state.State = StateRunning
 	} else {
@@ -280,6 +355,7 @@ func (manager *Manager) reserveSession(
 	workspaceID string,
 	runtimeGeneration string,
 	environment []string,
+	reviewTaskID string,
 ) (runtimeState, error) {
 	unlock, err := acquireFileLock(manager.store.portLockPath())
 	if err != nil {
@@ -345,6 +421,7 @@ func (manager *Manager) reserveSession(
 		TmuxOwnershipToken: ownershipToken,
 		WorkspaceID:        workspaceID,
 		RuntimeGeneration:  runtimeGeneration,
+		ReviewTaskID:       reviewTaskID,
 		LocalPort:          localPort,
 		PortlessName:       portlessName(identity),
 		PublicPort:         publicPort,
@@ -395,7 +472,12 @@ func (manager *Manager) checkRuntime(ctx context.Context, state runtimeState, sc
 			return transientRuntime(fmt.Errorf("inspect Tailscale TCP route: %w", err))
 		}
 		if !routeMatches {
-			return fmt.Errorf("Tailscale TCP port %d no longer targets local port %d", state.PublicPort, state.LocalPort)
+			return fmt.Errorf("Tailscale port %d no longer targets local port %d", state.PublicPort, state.LocalPort)
+		}
+		if state.ReviewRouteID != "" && !manager.processes.Alive(ProcessRef{
+			PID: state.ReviewPID, Identity: state.ReviewProcessID,
+		}) {
+			return fmt.Errorf("review route heartbeat is no longer running")
 		}
 	}
 	if err := manager.prober.Check(ctx, ProbeTarget{
@@ -448,6 +530,9 @@ func (manager *Manager) cleanupRuntimeVerified(state runtimeState) error {
 		return fmt.Errorf("refusing cleanup because recorded process %d is alive without its owned tmux session", state.PID)
 	}
 	var failures []error
+	if err := manager.cleanupReviewRoute(ctx, state); err != nil {
+		failures = append(failures, err)
+	}
 	if state.PortlessURL != "" {
 		if err := manager.stopPortlessRoute(ctx, state); err != nil {
 			failures = append(failures, err)
@@ -494,10 +579,7 @@ func (manager *Manager) failStart(state runtimeState, cause error) (ServeResult,
 	}
 	state.State = StateError
 	if cleanupErr == nil {
-		state.PID, state.ProcessID = 0, ""
-		state.LocalPort, state.PublicPort = 0, 0
-		state.PortlessName, state.PortlessURL = "", ""
-		state.TailscaleIPv4 = ""
+		clearRuntimeResources(&state)
 	}
 	state.StartedAt = ""
 	state.CheckedAt = manager.timestamp()

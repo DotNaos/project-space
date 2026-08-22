@@ -61,7 +61,7 @@ const projectItems: WorkspaceNavItem[] = [
 
 const globalItems: WorkspaceNavItem[] = [
   { icon: FolderKanban, id: 'projects', label: 'Projects' },
-  { icon: Monitor, id: 'machines', label: 'Compute' }
+  { icon: Monitor, id: 'machines', label: 'Hosts' }
 ];
 
 function isVisibleProject(project: ProjectSpaceRecord) {

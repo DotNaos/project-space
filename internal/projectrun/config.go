@@ -49,12 +49,19 @@ type SetupStep struct {
 }
 
 type Script struct {
-	Label             string            `yaml:"label,omitempty"`
-	Command           []string          `yaml:"command"`
-	Environment       map[string]string `yaml:"environment,omitempty"`
-	SecretEnvironment map[string]string `yaml:"secretEnvironment,omitempty"`
-	HealthCheck       *HealthCheck      `yaml:"healthCheck,omitempty"`
-	PrototypeSurface  string            `yaml:"prototypeSurface,omitempty"`
+	Label               string             `yaml:"label,omitempty"`
+	Command             []string           `yaml:"command"`
+	Environment         map[string]string  `yaml:"environment,omitempty"`
+	ExternalEnvironment map[string]string  `yaml:"externalEnvironment,omitempty"`
+	SecretEnvironment   map[string]string  `yaml:"secretEnvironment,omitempty"`
+	ReviewRoute         *ReviewRouteConfig `yaml:"reviewRoute,omitempty"`
+	HealthCheck         *HealthCheck       `yaml:"healthCheck,omitempty"`
+	PrototypeSurface    string             `yaml:"prototypeSurface,omitempty"`
+}
+
+type ReviewRouteConfig struct {
+	ProjectSlug string `yaml:"projectSlug"`
+	APIToken    string `yaml:"apiToken"`
 }
 
 type HealthCheck struct {
@@ -223,6 +230,9 @@ func validateScriptsConfig(config ScriptsConfig) error {
 		if _, exists := declarations[name]; exists {
 			return fmt.Errorf("command and server name %q must be distinct", name)
 		}
+		if declaration.ReviewRoute != nil {
+			return fmt.Errorf("command %q cannot declare a reviewRoute", name)
+		}
 		declarations[name] = declaration
 	}
 	if len(servers) > maximumServers {
@@ -244,11 +254,24 @@ func validateScriptsConfig(config ScriptsConfig) error {
 		if err := validateScriptEnvironment(name, script.Environment); err != nil {
 			return err
 		}
+		if err := validateScriptEnvironment(name, script.ExternalEnvironment); err != nil {
+			return err
+		}
 		if err := validateScriptEnvironment(name, script.SecretEnvironment); err != nil {
 			return err
 		}
-		if err := validateScriptSecretEnvironment(name, script.Environment, script.SecretEnvironment); err != nil {
+		externalPlainEnvironment := mergeStringMaps(script.Environment, script.ExternalEnvironment)
+		if err := validateScriptSecretEnvironment(name, externalPlainEnvironment, script.SecretEnvironment); err != nil {
 			return err
+		}
+		if script.ReviewRoute != nil {
+			projectSlug, err := normalizeReviewRouteLabel(script.ReviewRoute.ProjectSlug)
+			if err != nil || projectSlug != script.ReviewRoute.ProjectSlug {
+				return fmt.Errorf("server %q reviewRoute projectSlug must be one normalized DNS label", name)
+			}
+			if _, err := infisicalref.Parse(script.ReviewRoute.APIToken, "REVIEW_ROUTE_API_TOKEN"); err != nil {
+				return fmt.Errorf("server %q reviewRoute apiToken must be one Infisical reference: %w", name, err)
+			}
 		}
 		if script.HealthCheck != nil {
 			if err := validateHealthCheck(*script.HealthCheck); err != nil {
@@ -282,18 +305,18 @@ func validateScriptSecretEnvironment(name string, environment, secrets map[strin
 			return fmt.Errorf("declaration %q secretEnvironment value %q must be one matching Infisical reference: %w", name, key, err)
 		}
 	}
-	var projectID, infisicalEnvironment string
-	for key, source := range secrets {
-		reference, _ := infisicalref.Parse(source, key)
-		if projectID == "" {
-			projectID, infisicalEnvironment = reference.ProjectID, reference.Environment
-			continue
-		}
-		if reference.ProjectID != projectID || reference.Environment != infisicalEnvironment {
-			return fmt.Errorf("declaration %q secretEnvironment must use one Infisical project and environment", name)
-		}
-	}
 	return nil
+}
+
+func mergeStringMaps(base, overrides map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(overrides))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range overrides {
+		merged[key] = value
+	}
+	return merged
 }
 
 func validateScriptEnvironment(name string, environment map[string]string) error {
@@ -301,6 +324,7 @@ func validateScriptEnvironment(name string, environment map[string]string) error
 		"PROJECT_HOST": true, "PROJECT_PORT": true, "PROJECT_SPACE_MANAGED_SERVE": true,
 		"PROJECT_SPACE_SERVE_MODE": true, "PROJECT_SPACE_APIS": true,
 		"PROJECT_SPACE_DATA": true, "PROJECT_SPACE_SIMULATION_STATE": true,
+		"PROJECT_SPACE_EXTERNAL_SECRETS":         true,
 		"PROJECT_SPACE_RUNTIME_ACCESS_URL":       true,
 		"PROJECT_ALLOWED_HOSTS":                  true,
 		"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": true, "PWD": true,

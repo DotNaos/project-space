@@ -25,7 +25,7 @@ export function WorktreeGitClientPanel({
           onPress={() => window.location.assign('/settings')}
         >
           <ExternalLink className="size-4" />
-          Open Compute
+          Open Hosts
         </Button>
       </div>
     </Surface>

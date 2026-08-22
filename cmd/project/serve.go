@@ -25,6 +25,7 @@ type projectServeOptions struct {
 	Script       string
 	Configured   bool
 	Follow       bool
+	ReviewTaskID string
 }
 
 type projectServeReconciler interface {
@@ -57,11 +58,6 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 			if err != nil {
 				return err
 			}
-			if apis == projectrun.APIsModeExternal {
-				return fmt.Errorf(
-					"external APIs are reserved but the required Infisical project mapping is not configured yet",
-				)
-			}
 			manager, err := managerFactory()
 			if err != nil {
 				return err
@@ -71,6 +67,7 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 				LocalOnly:    options.LocalOnly || options.NoTailnet,
 				APIs:         apis,
 				Data:         data,
+				ReviewTaskID: options.ReviewTaskID,
 			})
 			if err := printServeResult(cmd, result, format); err != nil {
 				return err
@@ -79,12 +76,13 @@ func newServeCommandWithManager(managerFactory projectManagerFactory) *cobra.Com
 		},
 	}
 	bindServeOutputFlags(cmd, &options)
-	cmd.Flags().StringArrayVar(&options.AllowedHosts, "allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
+	cmd.Flags().StringArrayVar(&options.AllowedHosts, "allowed-host", nil, "explicit additional Vite host allowed to reach this session (repeatable)")
 	cmd.Flags().BoolVar(&options.LocalOnly, "local-only", false, "deprecated alias for --no-tailnet")
 	cmd.Flags().BoolVar(&options.NoTailnet, "no-tailnet", false, "keep the server on this machine instead of publishing it through Tailscale")
 	cmd.Flags().BoolVar(&options.Tailnet, "tailnet", false, "publish through Tailscale (the default; retained for compatibility)")
 	cmd.Flags().StringVar(&options.APIs, "apis", "simulated", "backend API binding: simulated or external")
 	cmd.Flags().StringVar(&options.Data, "data", "local", "backend data binding: local or remote")
+	cmd.Flags().StringVar(&options.ReviewTaskID, "review-task-id", os.Getenv("PROJECT_REVIEW_TASK_ID"), "task identifier used for the exact private HTTPS review route")
 	must(cmd.RegisterFlagCompletionFunc("apis", fixedValuesCompletion("simulated", "external")))
 	must(cmd.RegisterFlagCompletionFunc("data", fixedValuesCompletion("local", "remote")))
 	cmd.AddCommand(newServeReconcileCommand(managerFactory))
@@ -384,7 +382,11 @@ func printServeResult(cmd *cobra.Command, result projectrun.ServeResult, format 
 		fmt.Fprintf(cmd.OutOrStdout(), "Local: %s\n", *result.LocalURL)
 	}
 	if result.PublicURL != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "Tailscale: %s\n", *result.PublicURL)
+		if result.ReviewURL != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "Review: %s\n", *result.PublicURL)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "Tailscale: %s\n", *result.PublicURL)
+		}
 	}
 	if result.LastError != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "Error: %s\n", *result.LastError)

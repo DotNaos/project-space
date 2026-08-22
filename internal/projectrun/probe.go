@@ -2,12 +2,14 @@ package projectrun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -26,7 +28,7 @@ func (prober NetworkProber) Wait(ctx context.Context, target ProbeTarget, timeou
 			return nil
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return errors.Join(ctx.Err(), lastErr)
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("probe %s:%d timed out: %w", target.Host, target.Port, lastErr)
@@ -64,8 +66,23 @@ func (prober NetworkProber) Check(ctx context.Context, target ProbeTarget) error
 	}
 	client := prober.Client
 	if client == nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		if strings.HasSuffix(target.Host, ".review.vpn.os-home.net") {
+			resolver := &net.Resolver{
+				PreferGo: true,
+				Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					return (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext(
+						ctx, "udp", "1.1.1.1:53",
+					)
+				},
+			}
+			transport.DialContext = (&net.Dialer{
+				Timeout: 500 * time.Millisecond, Resolver: resolver,
+			}).DialContext
+		}
 		client = &http.Client{
-			Timeout: 750 * time.Millisecond,
+			Transport: transport,
+			Timeout:   750 * time.Millisecond,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},

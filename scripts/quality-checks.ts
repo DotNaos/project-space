@@ -23,6 +23,7 @@ export type QualityCheckId =
   | 'shell-syntax'
   | 'tests'
   | 'typecheck'
+  | 'ui-copy'
   | 'web-build';
 
 export type QualityCheck = {
@@ -35,6 +36,7 @@ export const preCommitCheckIds: QualityCheckId[] = [
   'diff-hygiene',
   'package-manager-policy',
   'docs-specs',
+  'ui-copy',
 ];
 
 export function sharedCheckCommand(id: QualityCheckId) {
@@ -177,6 +179,14 @@ export function resolveQualityCheck(
     typecheck: {
       command: ['bun', 'run', 'check'],
     },
+    'ui-copy': {
+      command: [
+        'bun',
+        'scripts/audit-ui-copy.ts',
+        '--max-warnings=0',
+        ...(options.staged ? ['--staged'] : []),
+      ],
+    },
     'web-build': {
       command: ['bun', 'run', 'build:web'],
     },
@@ -194,6 +204,7 @@ export function qualityCheckIds(): QualityCheckId[] {
     'locked-root-dependencies',
     'tests',
     'typecheck',
+    'ui-copy',
     'web-build',
     'project-build',
     'generated-cli-docs',

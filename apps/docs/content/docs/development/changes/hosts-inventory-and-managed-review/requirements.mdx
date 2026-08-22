@@ -1,0 +1,71 @@
+---
+title: Requirement delta
+description: Requirements for the Host-first inventory and managed review surface.
+---
+
+## ADDED Requirements
+
+### HOSTS-INVENTORY-001 — One Host-first inventory
+
+Project Space MUST show each resource in one coherent visible inventory and MUST keep GitHub
+Codespaces, assigned Hosts, available Tailnet devices, and excluded devices in distinct sections.
+
+#### Scenario: A Tailnet device is not assigned
+
+- **Given** a supported Tailnet device has no Host assignment
+- **When** the owner opens Hosts
+- **Then** the device appears once in Available Tailnet devices and does not appear as a Host
+
+### HOSTS-INVENTORY-002 — Explicit device assignment
+
+Project Space MUST create a Host only with at least one manually selected Tailnet device and MUST
+allow an available device to be assigned to a new or existing Host through the assignment drawer.
+
+#### Scenario: Create a Host from a device
+
+- **Given** an available Tailnet device is visible
+- **When** the owner assigns it and chooses a new Host name
+- **Then** the Host is created with that exact device assignment and the device leaves the available section
+
+### HOSTS-INVENTORY-003 — Truthful independent states
+
+Project Space MUST report Tailnet connectivity, operating system, Host association, host-agent
+telemetry, and provider lifecycle independently and MUST NOT label an online device unavailable only
+because runtime or telemetry evidence is absent.
+
+#### Scenario: Online device has no telemetry observation
+
+- **Given** a Tailnet device is currently online and has no fresh host-agent observation
+- **When** the device workspace is opened
+- **Then** connectivity remains Online while telemetry is described as unavailable separately
+
+### HOSTS-INVENTORY-004 — Compact responsive interaction
+
+Project Space MUST provide the same information hierarchy on desktop and mobile, MUST keep sections
+collapsible, and MUST derive search, filters, sorting, counts, empty states, and errors from the same
+visible inventory.
+
+#### Scenario: Review on a narrow viewport
+
+- **Given** the Hosts page is opened on a mobile-width viewport
+- **When** the owner searches, filters, sorts, expands a section, or opens assignment
+- **Then** the primary controls and rows remain usable without overlapping or clipped content
+
+### HOSTS-INVENTORY-005 — Managed private review route
+
+Project CLI MUST register one exact task review hostname, renew its bounded lease while serving,
+remove it when serving stops, and MUST allow only the returned hostname at the development server.
+
+#### Scenario: Managed serve lifecycle
+
+- **Given** a Project-managed issue worktree and an authorized private review-route service
+- **When** Project CLI starts and later stops the development server
+- **Then** it presents the returned HTTPS URL, renews the lease while active, and removes the route on stop
+
+## CHANGED Requirements
+
+None.
+
+## REMOVED Requirements
+
+None.

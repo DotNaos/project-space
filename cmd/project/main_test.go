@@ -30,6 +30,7 @@ func TestProjectTerminationSignalsIncludeHangup(t *testing.T) {
 func TestRootCommandIncludesExpectedCommands(t *testing.T) {
 	want := []string{
 		"__docs-model",
+		"__review-route-heartbeat",
 		"__runtime-supervisor",
 		"__runtime-tmux",
 		"__update-notice-refresh",

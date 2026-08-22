@@ -63,7 +63,10 @@ func (manager *Manager) resultFromState(
 	}
 	if state.Mode == ServeModeManaged && state.TailscaleIPv4 != "" {
 		result.TailscaleIPv4 = pointer(state.TailscaleIPv4)
-		if state.PublicPort > 0 {
+		if state.ReviewURL != "" {
+			result.PublicURL = pointer(state.ReviewURL)
+			result.ReviewURL = pointer(state.ReviewURL)
+		} else if state.PublicPort > 0 {
 			result.PublicURL = pointer(publicURL(state.TailscaleIPv4, state.PublicPort))
 		}
 	}

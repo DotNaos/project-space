@@ -21,6 +21,10 @@ async function start(
       }
       return { id, ...request, revision: request.expectedRevision + 1 };
     },
+    async setHostAssignment(requestActor, id, request) {
+      calls.push(['assign-host', requestActor, id, request]);
+      return { deviceId: id, hostId: '24000000-0000-4000-8000-000000000001', revision: request.expectedRevision + 1 };
+    },
     async getConnection(owner) {
       calls.push(['get-connection', owner]);
       return { connectionState: 'not_configured', requiredScope: 'devices:core:read', source: 'not_connected' };
@@ -42,6 +46,19 @@ async function start(
 describe('Tailscale inventory HTTP boundary', () => {
   test('allows only exact refresh query and private no-store GET', async () => { const { calls, origin } = await start(); const response = await fetch(`${origin}/api/compute/tailscale/devices?refresh=1`); expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('private, no-store'); expect(calls).toEqual([['list', 'owner', true]]); expect((await fetch(`${origin}/api/compute/tailscale/devices?refresh=true`)).status).toBe(400); });
   test('enforces strict JSON human classification and never refreshes source', async () => { const { calls, origin } = await start(); const url = `${origin}/api/compute/tailscale/devices/device-a/classification`; expect((await fetch(url, { body: JSON.stringify({ classification: 'environment', expectedRevision: 0 }), headers: { 'Content-Type': 'application/json' }, method: 'POST' })).status).toBe(200); expect(calls[0]).toEqual(['classify', expect.objectContaining({ kind: 'human' }), 'device-a', { classification: 'environment', expectedRevision: 0 }]); expect((await fetch(url, { body: JSON.stringify({ classification: 'ignored', expectedRevision: 0, extra: true }), headers: { 'Content-Type': 'application/json' }, method: 'POST' })).status).toBe(400); });
+  test('accepts only explicit assign, create, and unassign Host transitions', async () => {
+    const { calls, origin } = await start();
+    const url = `${origin}/api/compute/tailscale/devices/device-a/host`;
+    const post = (body: unknown) => fetch(url, {
+      body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, method: 'POST'
+    });
+    expect((await post({ action: 'create', expectedRevision: 0, name: 'MacBook' })).status).toBe(200);
+    expect(calls[0]).toEqual(['assign-host', expect.objectContaining({ kind: 'human' }), 'device-a', {
+      action: 'create', expectedRevision: 0, name: 'MacBook'
+    }]);
+    expect((await post({ action: 'assign', expectedRevision: 1, hostId: 'not-a-host' })).status).toBe(400);
+    expect((await post({ action: 'unassign', expectedRevision: 1, extra: true })).status).toBe(400);
+  });
   test('exposes deployment connection status as read-only metadata', async () => {
     const { calls, origin } = await start();
     const route = `${origin}/api/compute/tailscale/connection`;

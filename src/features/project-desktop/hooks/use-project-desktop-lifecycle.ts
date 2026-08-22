@@ -12,6 +12,7 @@ import { parseProjectChatRoute } from '../../project-chat/project-chat-route';
 import { parseCodexSessionRoute } from '../../codex-sessions/codex-session-route';
 import { shouldPreserveUnresolvedProjectRoute } from './project-route-model';
 import { loadProjectDesktopBootstrap } from './project-desktop-bootstrap';
+import { supportsLocalLauncherApps } from '../launcher-apps-runtime';
 import {
   parseProjectNavigationRoute,
   parseProjectRoute,
@@ -176,6 +177,13 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
             throw new Error('Runtime binding evidence is unavailable.');
           }
           setAppMeta(nextMeta);
+          if (supportsLocalLauncherApps(nextMeta)) {
+            void projectSpaceClient.loadLauncherApps()
+              .then(setLauncherApps)
+              .catch(() => setLauncherApps([]));
+          } else {
+            setLauncherApps([]);
+          }
           const sanitizedDiscovery = sanitizeDiscovery(nextDiscovery);
           const isDefaultEntry = initialRoute.view === 'root' || initialRoute.view === 'projects';
           const routeProject =
@@ -330,29 +338,6 @@ export function useProjectDesktopLifecycle(options: LifecycleOptions) {
         window.removeEventListener('popstate', handlePopState);
       };
     }, [pinnedProjectIds, projects, recentProjectIds, selectedProjectId]);
-  
-    useEffect(() => {
-      let canceled = false;
-  
-      void projectSpaceClient
-        .loadLauncherApps()
-        .then((nextLauncherApps) => {
-          if (canceled) {
-            return;
-          }
-  
-          setLauncherApps(nextLauncherApps);
-        })
-        .catch(() => {
-          if (!canceled) {
-            setLauncherApps([]);
-          }
-        });
-  
-      return () => {
-        canceled = true;
-      };
-    }, []);
   
     useEffect(() => {
       if (!hasLoaded) {

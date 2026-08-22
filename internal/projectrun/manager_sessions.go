@@ -373,7 +373,10 @@ func (manager *Manager) persistCleanupFailure(
 }
 
 func (manager *Manager) deleteSessionArtifacts(state runtimeState) error {
-	if err := manager.store.deleteLog(state.ServerID); err != nil {
+	if err := errors.Join(
+		manager.store.deleteLog(state.ServerID),
+		manager.store.deleteReviewLog(state.ServerID),
+	); err != nil {
 		return err
 	}
 	return manager.store.delete(state.ServerID)
@@ -381,14 +384,19 @@ func (manager *Manager) deleteSessionArtifacts(state runtimeState) error {
 
 func clearRuntimeResources(state *runtimeState) {
 	state.PID, state.ProcessID = 0, ""
+	state.ReviewPID, state.ReviewProcessID = 0, ""
 	state.LocalPort, state.PublicPort = 0, 0
 	state.PortlessName, state.PortlessURL = "", ""
 	state.TailscaleIPv4 = ""
+	state.ReviewTaskID, state.ReviewRouteID = "", ""
+	state.ReviewHostname, state.ReviewURL, state.ReviewExpiresAt = "", "", ""
+	state.ReviewLeaseToken, state.ReviewAPITokenRef = "", ""
 	state.StartedAt = ""
 }
 
 func hasRuntimeResources(state runtimeState) bool {
-	return state.PID > 0 || state.LocalPort > 0 || state.PublicPort > 0 || state.PortlessURL != ""
+	return state.PID > 0 || state.ReviewPID > 0 || state.LocalPort > 0 || state.PublicPort > 0 ||
+		state.PortlessURL != "" || state.ReviewRouteID != ""
 }
 
 func identityFromState(state runtimeState) ServerIdentity {

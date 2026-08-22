@@ -362,12 +362,12 @@ export function ProjectDetail({
             variant="tertiary"
             className="flex min-h-64 flex-col items-start justify-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950/45 p-6"
           >
-            <Text className="text-lg font-semibold text-neutral-100">Compute</Text>
+            <Text className="text-lg font-semibold text-neutral-100">Hosts</Text>
             <Text className="max-w-xl text-sm leading-6 text-neutral-500">
-              Environment instances and Workspace Runtime details now live in the canonical Compute view.
+              Host and device details now live in the canonical Hosts view.
             </Text>
             <a href="/settings">
-              <Button size="sm" variant="secondary">Open Compute</Button>
+              <Button size="sm" variant="secondary">Open Hosts</Button>
             </a>
           </Surface>
         ) : null}
@@ -421,9 +421,9 @@ export function ProjectDetail({
                 <Surface variant="tertiary" className="rounded-lg border border-neutral-800 bg-neutral-950/45 p-4">
                   <Text className="block text-sm font-semibold text-neutral-100">Template setup</Text>
                   <Text className="mt-1 block text-sm leading-6 text-neutral-500">
-                    Template writes are available through the canonical Workspace Runtime. Open Compute to inspect the runtime first.
+                    Template writes are available through the canonical Workspace Runtime. Open Hosts to inspect the runtime first.
                   </Text>
-                  <a className="mt-3 inline-flex" href="/settings"><Button size="sm" variant="secondary">Open Compute</Button></a>
+                  <a className="mt-3 inline-flex" href="/settings"><Button size="sm" variant="secondary">Open Hosts</Button></a>
                 </Surface>
                 <ProjectTemplateAdherencePanel
                   refreshKey={templateRefreshKey}

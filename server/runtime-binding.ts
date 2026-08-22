@@ -8,7 +8,7 @@ export interface RuntimeBindingEvidence {
   apis: RuntimeApiBinding;
   data: RuntimeDataBinding;
   network: 'loopback-only' | 'external';
-  secrets: 'none' | 'unresolved';
+  secrets: 'none' | 'resolved';
   simulationStatePath?: string;
 }
 
@@ -31,12 +31,6 @@ export function resolveManagedRuntimeBinding(
     throw new Error('Simulated APIs cannot be bound to remote data.');
   }
 
-  if (apis === 'external') {
-    throw new Error(
-      'External API startup is blocked until detached service-account token delivery is available.'
-    );
-  }
-
   const mode = environment.PROJECT_SPACE_SERVE_MODE;
   if (mode !== 'managed' && mode !== 'local-only') {
     throw new Error('PROJECT_SPACE_SERVE_MODE must be managed or local-only.');
@@ -44,6 +38,19 @@ export function resolveManagedRuntimeBinding(
   const accessUrl = validatedAccessUrl(
     environment.PROJECT_SPACE_RUNTIME_ACCESS_URL ?? environment.PORTLESS_URL
   );
+
+  if (apis === 'external') {
+    if (environment.PROJECT_SPACE_EXTERNAL_SECRETS !== 'resolved') {
+      throw new Error('External APIs require Project-managed resolved secrets.');
+    }
+    return {
+      accessUrl,
+      apis,
+      data,
+      network: mode === 'managed' ? 'external' : 'loopback-only',
+      secrets: 'resolved'
+    };
+  }
 
   const simulationStatePath = environment.PROJECT_SPACE_SIMULATION_STATE?.trim();
   if (!simulationStatePath || !isAbsolute(simulationStatePath)) {

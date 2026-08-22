@@ -13,6 +13,7 @@ describe('shared local and CI quality checks', () => {
       'diff-hygiene',
       'package-manager-policy',
       'docs-specs',
+      'ui-copy',
     ]);
     expect(resolveQualityCheck('diff-hygiene', { staged: true }).command).toEqual([
       'git',
@@ -33,6 +34,12 @@ describe('shared local and CI quality checks', () => {
       '--staged',
       '--base',
       'origin/main',
+    ]);
+    expect(resolveQualityCheck('ui-copy', { staged: true }).command).toEqual([
+      'bun',
+      'scripts/audit-ui-copy.ts',
+      '--max-warnings=0',
+      '--staged',
     ]);
   });
 
@@ -83,7 +90,7 @@ describe('shared local and CI quality checks', () => {
     };
 
     expect(config).toContain('min_version: 2.1.10');
-    expect(config.match(/bun run ci:check -- --staged/g)).toHaveLength(3);
+    expect(config.match(/bun run ci:check -- --staged/g)).toHaveLength(4);
     expect(config).not.toContain('stage_fixed');
     expect(packageJson.devDependencies.lefthook).toBe('2.1.10');
     expect(packageJson.trustedDependencies).toContain('lefthook');

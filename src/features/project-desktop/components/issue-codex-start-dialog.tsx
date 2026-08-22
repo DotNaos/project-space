@@ -162,7 +162,7 @@ function DestinationWarning({
               className="w-fit text-xs text-blue-300 no-underline hover:text-blue-200"
               href={computeHref}
             >
-              Open Compute
+              Open Hosts
             </Link>
           ) : null}
         </span>

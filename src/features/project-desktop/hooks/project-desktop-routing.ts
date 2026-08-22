@@ -213,6 +213,10 @@ export function parseProjectRoute(pathname: string): ParsedProjectRoute {
     return { view: 'settings' };
   }
 
+  if (pathname.startsWith(`${settingsPath}/devices/`)) {
+    return { view: 'settings' };
+  }
+
   if (isLegacyMachinesRoute(pathname)) {
     return { view: 'settings' };
   }

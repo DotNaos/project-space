@@ -46,6 +46,7 @@ export interface LocalSimulationState {
   tailscale?: {
     classifications: Record<string, TailscaleDeviceClassification>;
     connectedAt: string;
+    revisions?: Record<string, number>;
   };
   projectsState: ProjectsState;
   revision: number;

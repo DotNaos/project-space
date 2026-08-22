@@ -119,7 +119,7 @@ export function createLocalSimulationRequestHandler(options: {
             state: device.online ? 'online' : 'offline'
           },
           os: device.os,
-          revision: state.revision,
+          revision: state.tailscale?.revisions?.[device.id] ?? 0,
           tags: ['tag:development']
         })) : [],
         provider: state.tailscale ? {
@@ -141,15 +141,20 @@ export function createLocalSimulationRequestHandler(options: {
       const deviceId = decodeURIComponent(simulatedClassification[1] ?? '');
       const payload = await readJson<{ classification?: unknown; expectedRevision?: unknown }>(request);
       const classifications = new Set<string>(tailscaleDeviceClassifications);
+      const currentRevision = state.tailscale?.revisions?.[deviceId] ?? 0;
       if (!state.tailscale || !simulatedTailscaleDevices.some((device) => device.id === deviceId) ||
         typeof payload.classification !== 'string' || !classifications.has(payload.classification) ||
-        payload.expectedRevision !== state.revision) {
+        payload.expectedRevision !== currentRevision) {
         writeJson(response, 409, { error: 'The simulated Tailnet device changed.' });
         return;
       }
       await store.update((current) => {
         if (current.tailscale) {
           current.tailscale.classifications[deviceId] = payload.classification as TailscaleDeviceClassification;
+          current.tailscale.revisions = {
+            ...current.tailscale.revisions,
+            [deviceId]: currentRevision + 1
+          };
         }
       });
       const updated = await store.read();
@@ -161,7 +166,7 @@ export function createLocalSimulationRequestHandler(options: {
         name: device.name,
         network: { checkedAt: updated.updatedAt, freshUntil: new Date(Date.now() + 60_000).toISOString(), state: device.online ? 'online' : 'offline' },
         os: device.os,
-        revision: updated.revision,
+        revision: updated.tailscale?.revisions?.[deviceId] ?? currentRevision + 1,
         tags: ['tag:development']
       });
       return;

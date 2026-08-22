@@ -22,10 +22,12 @@ func TestServeCommandsExposeStableJSONContract(t *testing.T) {
 	startOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
 		"dev", "/tmp/worktree", "--json",
 		"--allowed-host", "preview.example.com", "--allowed-host", "app.example.com",
+		"--review-task-id", "732-2",
 	})
 	assertServeJSONKeys(t, startOutput)
 	if manager.startDirectory != "/tmp/worktree" || manager.startScript != "dev" ||
-		!reflect.DeepEqual(manager.allowedHosts, []string{"preview.example.com", "app.example.com"}) {
+		!reflect.DeepEqual(manager.allowedHosts, []string{"preview.example.com", "app.example.com"}) ||
+		manager.reviewTaskID != "732-2" {
 		t.Fatalf("start call = directory %q script %q hosts %#v", manager.startDirectory, manager.startScript, manager.allowedHosts)
 	}
 	localOutput := executeProjectCommand(t, newServeCommandWithManager(factory), []string{
@@ -80,8 +82,6 @@ func TestServeBindingsFailClosedBeforeStartup(t *testing.T) {
 		message string
 	}{
 		{[]string{"--apis=simulated", "--data=remote"}, "cannot be combined"},
-		{[]string{"--apis=external", "--data=local"}, "required Infisical project mapping"},
-		{[]string{"--apis=external", "--data=remote"}, "required Infisical project mapping"},
 		{[]string{"--apis=unknown"}, "unknown APIs binding"},
 		{[]string{"--data=unknown"}, "unknown data binding"},
 		{[]string{"--no-tailnet", "--tailnet"}, "cannot be combined"},
@@ -107,6 +107,16 @@ func TestServeBindingsFailClosedBeforeStartup(t *testing.T) {
 				t.Fatalf("manager calls = %d", managerCalls)
 			}
 		})
+	}
+}
+
+func TestServePassesExternalRemoteBindingToManager(t *testing.T) {
+	manager := &fakeProjectCommandManager{serveResult: runningServeFixture()}
+	executeProjectCommand(t, newServeCommandWithManager(
+		func() (projectCommandManager, error) { return manager, nil },
+	), []string{"dev", "/tmp/worktree", "--apis=external", "--data=remote"})
+	if manager.apis != projectrun.APIsModeExternal || manager.data != projectrun.DataModeRemote {
+		t.Fatalf("bindings = APIs=%q data=%q", manager.apis, manager.data)
 	}
 }
 
@@ -233,7 +243,7 @@ func assertServeJSONKeys(t *testing.T, output string) {
 	for _, key := range []string{
 		"schemaVersion", "operation", "mode", "serverId", "serverKey", "script", "directory", "repository", "tmuxSession", "capability", "state",
 		"apis", "data", "secrets",
-		"pid", "localPort", "localUrl", "portlessName", "publicPort", "publicUrl", "tailscaleIPv4",
+		"pid", "localPort", "localUrl", "portlessName", "publicPort", "publicUrl", "reviewUrl", "tailscaleIPv4",
 		"allowedHosts", "startedAt", "checkedAt", "lastError",
 	} {
 		if _, exists := payload[key]; !exists {
@@ -253,6 +263,7 @@ type fakeProjectCommandManager struct {
 	localOnly        bool
 	apis             projectrun.APIsMode
 	data             projectrun.DataMode
+	reviewTaskID     string
 	reconcileCalls   int
 	statusDirectory  string
 	statusScript     string
@@ -300,6 +311,7 @@ func (manager *fakeProjectCommandManager) StartWithOptions(
 	manager.localOnly = options.LocalOnly
 	manager.apis = options.APIs
 	manager.data = options.Data
+	manager.reviewTaskID = options.ReviewTaskID
 	return manager.Start(ctx, directory, script, options.AllowedHosts)
 }
 

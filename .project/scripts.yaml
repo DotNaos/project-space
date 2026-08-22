@@ -27,6 +27,9 @@ commands:
 servers:
   dev:
     label: Project Space
+    reviewRoute:
+      projectSlug: project-space
+      apiToken: infisical://27956188-6fce-45c8-ae39-4fff09336e65/prod/REVIEW_ROUTE_API_TOKEN
     command:
       - bun
       - x
@@ -39,9 +42,20 @@ servers:
     environment:
       VITE_PROJECT_SPACE_AUTH_DISABLED: "1"
       PROJECT_SPACE_AUTH_DISABLED: "1"
-      PROJECT_SPACE_PUBLIC_ORIGIN: ""
+    externalEnvironment:
+      VITE_PROJECT_SPACE_AUTH_DISABLED: "0"
+      PROJECT_SPACE_AUTH_DISABLED: "0"
+      VITE_DOTNAOS_UI_DEVTOOLS: "1"
     secretEnvironment:
-      GITHUB_OAUTH_CLIENT_ID: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID
+      DATABASE_URL: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/DATABASE_URL
+      CLERK_SECRET_KEY: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/CLERK_SECRET_KEY
+      GITHUB_OAUTH_CLIENT_ID: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/GITHUB_OAUTH_CLIENT_ID
+      PROJECT_SPACE_ALLOWED_EMAILS: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_SPACE_ALLOWED_EMAILS
+      PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET
+      PROJECT_SPACE_TOKEN_ENCRYPTION_KEY: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/PROJECT_SPACE_TOKEN_ENCRYPTION_KEY
+      TAILSCALE_OAUTH_CLIENT_ID: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/TAILSCALE_OAUTH_CLIENT_ID
+      TAILSCALE_OAUTH_CLIENT_SECRET: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/TAILSCALE_OAUTH_CLIENT_SECRET
+      VITE_CLERK_PUBLISHABLE_KEY: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/VITE_CLERK_PUBLISHABLE_KEY
     healthCheck:
       path: /
       timeoutSeconds: 45

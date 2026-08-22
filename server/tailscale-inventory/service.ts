@@ -1,5 +1,6 @@
 import type {
   TailscaleClassificationRequest,
+  TailscaleHostAssignmentRequest,
   TailscaleInventoryResult,
   TailscaleProviderNetworkState
 } from '../../src/shared/tailscale-inventory-api';
@@ -11,12 +12,14 @@ import type { TailscaleInventorySource } from './source';
 import type { StoredTailscaleDevice, TailscaleInventoryReconciliation } from './store';
 import {
   TailscaleClassificationRevisionConflict,
+  TailscaleHostAssignmentRevisionConflict,
   UnknownTailscaleDevice
 } from './store';
+import { UnknownTailscaleHost } from './store';
 
 export class TailscaleInventoryServiceError extends Error {
   constructor(
-    readonly code: 'connection-unavailable' | 'machine-forbidden' | 'unknown-device',
+    readonly code: 'connection-unavailable' | 'machine-forbidden' | 'unknown-device' | 'unknown-host',
     message: string
   ) {
     super(message);
@@ -25,12 +28,19 @@ export class TailscaleInventoryServiceError extends Error {
 }
 
 export interface TailscaleInventoryStore {
-  list(ownerUserId: string): Promise<StoredTailscaleDevice[]>;
+  list(deviceOwnerUserId: string, hostOwnerUserId: string): Promise<StoredTailscaleDevice[]>;
   reconcile(ownerUserId: string, input: TailscaleInventoryReconciliation): Promise<unknown>;
   setClassification(input: {
     actorId: string; classification: TailscaleDeviceClassification; deviceId: string;
     expectedRevision: number; ownerUserId: string;
   }): Promise<{ classification: TailscaleDeviceClassification; id: string; revision: number }>;
+  setHostAssignment(input: {
+    actorId: string;
+    deviceId: string;
+    deviceOwnerUserId: string;
+    ownerUserId: string;
+    request: TailscaleHostAssignmentRequest;
+  }): Promise<{ deviceId: string; hostId?: string; revision: number }>;
 }
 
 export function createTailscaleInventoryService(options: {
@@ -111,12 +121,12 @@ export function createTailscaleInventoryService(options: {
           });
         }
       }
+      const canExposeStoredDevices = ['configured', 'connected', 'legacy'].includes(descriptor.connectionState) ||
+        (refreshState === 'unavailable' && descriptor.source !== 'not_connected');
       return {
-        devices: (!['configured', 'connected', 'legacy'].includes(descriptor.connectionState) ||
-          (descriptor.source === 'tailscale_oauth_api' && refreshState === 'unavailable')
-          ? [] : await options.store.list(storageScope)).map((device) =>
-          toPublicDevice(device, refreshState === 'unavailable' ||
-            !['configured', 'connected', 'legacy'].includes(descriptor.connectionState))
+        devices: (!canExposeStoredDevices
+          ? [] : await options.store.list(storageScope, ownerUserId)).map((device) =>
+          toPublicDevice(device, refreshState === 'unavailable')
         ),
         provider: {
           ...(descriptor.connectionId ? { connectionId: descriptor.connectionId } : {}),
@@ -155,6 +165,42 @@ export function createTailscaleInventoryService(options: {
         }
         throw error;
       }
+    },
+    async setHostAssignment(
+      actor: { actorId: string; kind: 'human' | 'machine'; ownerUserId: string },
+      deviceId: string,
+      request: TailscaleHostAssignmentRequest
+    ) {
+      if (actor.kind !== 'human') {
+        throw new TailscaleInventoryServiceError(
+          'machine-forbidden',
+          'Only a person may assign Tailnet devices to Hosts.'
+        );
+      }
+      const descriptor = await options.source.describe?.(actor.ownerUserId);
+      if (descriptor && !['configured', 'connected', 'legacy'].includes(descriptor.connectionState)) {
+        throw new TailscaleInventoryServiceError(
+          'connection-unavailable',
+          'A Tailscale provider connection is required before devices can be assigned to Hosts.'
+        );
+      }
+      try {
+        return await options.store.setHostAssignment({
+          actorId: actor.actorId,
+          deviceId,
+          deviceOwnerUserId: inventoryScope(actor.ownerUserId),
+          ownerUserId: actor.ownerUserId,
+          request
+        });
+      } catch (error) {
+        if (error instanceof UnknownTailscaleDevice) {
+          throw new TailscaleInventoryServiceError('unknown-device', 'Tailnet device was not found.');
+        }
+        if (error instanceof UnknownTailscaleHost) {
+          throw new TailscaleInventoryServiceError('unknown-host', 'Host was not found.');
+        }
+        throw error;
+      }
     }
   };
 }
@@ -169,6 +215,9 @@ function toPublicDevice(device: StoredTailscaleDevice, providerUnavailable: bool
       : device.online ? 'online' : 'offline';
   return {
     addresses: [...device.addresses], classification: device.classification, id: device.id,
+    ...(device.environmentId ? { environmentId: device.environmentId } : {}),
+    hostAssignmentRevision: device.hostAssignmentRevision,
+    ...(device.hostId ? { hostId: device.hostId } : {}),
     ...(device.observedName ? { name: device.observedName } : {}),
     network: {
       checkedAt: freshness.observedAt, freshUntil: freshness.freshUntil,
@@ -178,4 +227,4 @@ function toPublicDevice(device: StoredTailscaleDevice, providerUnavailable: bool
   };
 }
 
-export { TailscaleClassificationRevisionConflict };
+export { TailscaleClassificationRevisionConflict, TailscaleHostAssignmentRevisionConflict };

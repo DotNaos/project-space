@@ -56,9 +56,26 @@ describe('managed runtime binding', () => {
     });
   });
 
+  test('accepts Project-managed external APIs with resolved secrets and remote data', () => {
+    const { PROJECT_SPACE_SIMULATION_STATE: _ignored, ...externalManaged } = managed;
+    expect(resolveManagedRuntimeBinding({
+      ...externalManaged,
+      PROJECT_SPACE_APIS: 'external',
+      PROJECT_SPACE_DATA: 'remote',
+      PROJECT_SPACE_EXTERNAL_SECRETS: 'resolved',
+      PROJECT_SPACE_RUNTIME_ACCESS_URL: 'http://100.64.0.8:44419',
+      PROJECT_SPACE_SERVE_MODE: 'managed'
+    })).toEqual({
+      accessUrl: 'http://100.64.0.8:44419',
+      apis: 'external',
+      data: 'remote',
+      network: 'external',
+      secrets: 'resolved'
+    });
+  });
+
   test.each([
     [{ ...managed, PROJECT_SPACE_APIS: 'simulated', PROJECT_SPACE_DATA: 'remote' }],
-    [{ ...managed, PROJECT_SPACE_APIS: 'external', PROJECT_SPACE_DATA: 'local' }],
     [{ ...managed, PROJECT_SPACE_APIS: 'external', PROJECT_SPACE_DATA: 'remote' }],
     [{ ...managed, PROJECT_SPACE_APIS: 'simulated', PROJECT_SPACE_DATA: 'local', PROJECT_SPACE_RUNTIME_ACCESS_URL: '' }],
     [{ ...managed, PROJECT_SPACE_APIS: 'simulated', PROJECT_SPACE_DATA: 'local', PROJECT_SPACE_SERVE_MODE: '' }],

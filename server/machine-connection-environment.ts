@@ -38,6 +38,17 @@ export function readMachineConnectionPublicOrigin(
   }
 }
 
+export function deriveMachineConnectionPublicOrigin(value: string | undefined) {
+  if (!value) return null;
+  try {
+    return readMachineConnectionPublicOrigin({
+      [machineConnectionPublicOriginEnvironment]: value
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function readMachineConnectionRateLimitSecret(
   environment: NodeJS.ProcessEnv = process.env
 ) {

@@ -1,0 +1,41 @@
+---
+title: Tasks
+description: Implementation and verification checklist for issue 732.
+---
+
+## 1. Host-first inventory
+
+- [x] 1.1 Build one normalized inventory and compact collapsible sections
+  - **Evidence:** Focused model and UI tests cover Codespaces, Hosts, available devices, excluded devices, counts, filters, and online-first sorting.
+- [x] 1.2 Persist explicit Tailnet-device assignments
+  - **Evidence:** The owner-scoped assignment store and migration are covered by store, service, HTTP, and database tests.
+- [x] 1.3 Add the assignment drawer
+  - **Evidence:** Drawer and Host workspace tests cover new-Host assignment, token-backed surface styling, dismissal, and focus restoration.
+
+## 2. Device workspace and review access
+
+- [x] 2.1 Add truthful device details and utilization bars
+  - **Evidence:** Device model, workspace, metric chart, and project-hostd tests separate connectivity from available telemetry.
+- [x] 2.2 Add managed private review-route lifecycle
+  - **Evidence:** Go tests cover exact-host registration, renewal, state persistence, and cleanup; the private HTTPS review URL served the authenticated page.
+- [x] 2.3 Apply DotNaos UI policy and copy linting
+  - **Evidence:** Package boundaries, token CSS, Devtools, generic local UI modules, and UI-copy audit checks are present in the staged change.
+
+## 3. Verification
+
+- [x] 3.1 Run focused model, UI, Go, and Rust tests
+  - **Evidence:** Focused Bun tests, Go tests, Rust tests, TypeScript checks, and copy lint passed before this checkpoint.
+- [x] 3.2 Dogfood live provider data on desktop and mobile
+  - **Evidence:** The authenticated managed review displayed real Codespaces and Tailnet inventory, and the Hosts and device routes were inspected at desktop and mobile widths.
+- [ ] 3.3 Complete final review and delivery gates
+  - **Status:** Blocked
+  - **Reason:** User review, pull-request revision, merge, release, and production delivery are intentionally outside the current checkpoint.
+  - **Blocked by:** #732
+  - **Unblocked when:** The user declares the experience ready and requests the next delivery step.
+
+## 4. Deferred follow-ups
+
+- [ ] 4.1 Add client-owned SSH control
+  - **Issue:** #724
+  - **Reason:** Real SSH requires a client-owned trust and transport boundary and must not become a Project Space server relay.
+  - **Acceptance criteria:** The viewing client owns credentials, host-key verification, sockets, and terminal bytes while Project Space authorizes an exact current device identity.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
+import { useAuth, useClerk, useUser } from '@clerk/react';
+import { useSignIn } from '@clerk/react/legacy';
 import {
   FolderKanban,
   PanelLeft,
@@ -13,6 +14,7 @@ import {
   setProjectSpaceAuthTokenProvider
 } from '@/api/project-space-client';
 import { isClerkConfigured } from '@/auth/clerk-provider';
+import { clerkOAuthRedirectUrls } from '@/auth/oauth-redirects';
 import type { ProjectSpaceAuthSessionResult } from '@/shared/project-space-api';
 import { PullRequestChangelogDialog } from '@/features/pr-preview-changelog/pull-request-changelog-dialog';
 import { ReleaseChangelogDialog } from '@/features/release-changelog/release-changelog-dialog';
@@ -438,16 +440,12 @@ function ClerkProjectDesktopShell() {
         await signOut();
       }
 
-      const { error } = await signIn.sso({
-        redirectCallbackUrl: '/sso-callback',
-        redirectUrl: '/',
+      const redirectUrls = clerkOAuthRedirectUrls(window.location);
+      await signIn.authenticateWithRedirect({
+        redirectUrl: redirectUrls.callbackUrl,
+        redirectUrlComplete: redirectUrls.completeUrl,
         strategy: 'oauth_google'
       });
-
-      if (error) {
-        setIsRedirectingToGoogle(false);
-        setMessage(error.message || 'Could not start Google sign-in.');
-      }
     } catch (error) {
       setIsRedirectingToGoogle(false);
       setMessage(error instanceof Error ? error.message : 'Could not start Google sign-in.');

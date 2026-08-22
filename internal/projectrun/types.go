@@ -81,6 +81,7 @@ type ServeResult struct {
 	PortlessName      string           `json:"portlessName"`
 	PublicPort        *int             `json:"publicPort"`
 	PublicURL         *string          `json:"publicUrl"`
+	ReviewURL         *string          `json:"reviewUrl"`
 	TailscaleIPv4     *string          `json:"tailscaleIPv4"`
 	AllowedHosts      []string         `json:"allowedHosts"`
 	StartedAt         *string          `json:"startedAt"`
@@ -96,6 +97,7 @@ type StartOptions struct {
 	WorkspaceID       string
 	RuntimeGeneration string
 	Environment       []string
+	ReviewTaskID      string
 }
 
 type RunOptions struct {
@@ -149,6 +151,7 @@ type ProcessRunner interface {
 }
 
 type Tailnet interface {
+	DeviceName(context.Context) (string, error)
 	IPv4(context.Context) (string, error)
 	OccupiedTCPPorts(context.Context) (map[int]bool, error)
 	MatchesTCP(context.Context, int, int) (bool, error)

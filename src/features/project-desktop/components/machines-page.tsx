@@ -1,381 +1,226 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Chip, Container, Icon, Input, Select, Spinner, Text } from '@dotnaos/ui/base';
+import type { ProjectCliComputeInventory, ProjectCliHost } from '@/shared/compute-inventory-cli-api';
+import type { TailscaleInventoryDevice } from '@/shared/tailscale-inventory-api';
+import { DataTable, type DataTableColumn } from '../../../components/ui/data-table';
+import { CollapsibleSection } from '../../../components/ui/collapsible-section';
 import {
-  Boxes,
-  CheckCircle2,
-  ChevronRight,
-  CircleAlert,
-  Cloud,
-  Copy,
-  Cpu,
-  LoaderCircle,
-  MonitorCog,
-  Plus,
-  RefreshCw
-} from 'lucide-react';
-import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
+  useTailnetComputeInventory,
+  type TailnetHostAssignmentDraft
+} from '../hooks/use-tailnet-compute-inventory';
 import {
-  Button,
-  Chip,
-  SearchField,
-  SearchFieldClearButton,
-  SearchFieldGroup,
-  SearchFieldInput,
-  SearchFieldSearchIcon,
-  Text
-} from '@/app/dotnaos-ui';
-import { cn } from '@/lib/utils';
-import {
-  computeEnvironmentKindLabels,
-  computeInventoryCounts,
-  computePlatformSections,
-  countComputePlatformRows,
-  filterComputePlatformSections,
-  isComputeInventoryStale,
-  type ComputePlatformSection,
-  type ComputeRow,
-  type MachineFilter
-} from './machines-page-model';
+  buildComputeHostInventory,
+  countVisibleComputeHostInventory,
+  filterComputeHostInventory,
+  sortComputeHostInventory,
+  type CodespaceRow,
+  type ComputeHostGroup,
+  type ComputeHostSectionFilter,
+  type ComputeHostSortOrder,
+  type ComputeHostStatusFilter,
+  type TailnetDeviceRow,
+  type TailnetDeviceStatus
+} from './compute-host-inventory-model';
+import { isComputeInventoryStale } from './machines-page-model';
 import type { SettingsMachineGroupsStatus } from './settings-machine-groups-view-model';
+import { TailnetProviderStatus } from './tailscale-device-classification';
+import { TailnetHostAssignmentDrawer } from './tailnet-host-assignment-drawer';
 import { LegacyConnectorCleanup } from './legacy-connector-cleanup';
-import { TailscaleDeviceClassification } from './tailscale-device-classification';
+import {
+  codespaceDeviceDescriptor,
+  hostsDeviceRoute,
+  parseHostsDeviceRoute,
+  tailnetDeviceDescriptor,
+  type HostsDeviceKind,
+  type HostsDeviceRoute
+} from './hosts-device-model';
+import { OperatingSystem } from './hosts-device-visuals';
+import { HostsDeviceWorkspace } from './hosts-device-workspace';
 
-const filters: Array<{ id: MachineFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'available', label: 'Available' },
-  { id: 'attention', label: 'Needs attention' }
+const statusFilterOptions: Array<{ value: ComputeHostStatusFilter; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'available', label: 'Online' },
+  { value: 'attention', label: 'Needs attention' }
+];
+const sectionFilterOptions: Array<{ value: ComputeHostSectionFilter; label: string }> = [
+  { value: 'all', label: 'All sections' },
+  { value: 'hosts', label: 'Hosts' },
+  { value: 'available', label: 'Available devices' },
+  { value: 'codespaces', label: 'Codespaces' }
+];
+const sortOptions: Array<{ value: ComputeHostSortOrder; label: string }> = [
+  { value: 'online', label: 'Online first' },
+  { value: 'name', label: 'Name A–Z' }
 ];
 
-function StatusChip({ label, status }: { label: string; status: ComputeRow['status'] }) {
+function emptyComputeInventory(): ProjectCliComputeInventory {
+  return {
+    checkedAt: new Date(0).toISOString(), environmentCatalog: [], environmentInstances: [],
+    hosts: [], inventoryState: 'ready', platforms: [], privateNetworks: [], schemaVersion: 3,
+    violations: []
+  };
+}
+
+function StatusChip({ label, status }: { label: string; status: TailnetDeviceStatus }) {
   return (
     <Chip
+      icon={status === 'available' ? 'check-circle' : status === 'attention' ? 'alert-triangle' : 'circle'}
+      label={label}
       size="sm"
-      className={cn(
-        'shrink-0 gap-1.5',
-        status === 'available' && 'text-emerald-300',
-        status === 'attention' && 'text-amber-300',
-        status === 'unknown' && 'text-neutral-500'
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          'size-1.5 rounded-full',
-          status === 'available' && 'bg-emerald-400',
-          status === 'attention' && 'bg-amber-400',
-          status === 'unknown' && 'bg-neutral-700'
-        )}
-      />
-      {label}
-    </Chip>
+      tone={status === 'available' ? 'success' : status === 'attention' ? 'warning' : 'default'}
+      variant="soft"
+    />
   );
 }
 
-function evidenceLabel(value: string | undefined) {
-  switch (value) {
-    case 'available': return 'Available';
-    case 'stale': return 'Stale';
-    case 'unavailable': return 'Unavailable';
-    case 'verified': return 'Verified';
-    case 'unverified': return 'Not verified';
-    default: return 'Unknown';
-  }
-}
-
-function providerLabel(value: string | undefined) {
-  switch (value) {
-    case 'provider_native': return 'Provider';
-    case 'tailscale': return 'Tailscale';
-    case 'wireguard': return 'WireGuard';
-    case 'other': return 'Private network';
-    default: return 'Unavailable';
-  }
-}
-
-function HostRow({ row }: { row: ComputeRow }) {
-  const capabilities = row.hostCapabilities;
-  return (
-    <div className="flex min-w-0 items-center gap-3 px-1 py-3">
-      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
-        <Cpu className="size-4 text-emerald-300" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-neutral-200">{row.name}</span>
-        <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-600">
-          {capabilities ? (
-            <span className="truncate">
-              Power {evidenceLabel(capabilities.power)} · Reset {evidenceLabel(capabilities.reset)} · Wake-on-LAN {evidenceLabel(capabilities.wakeOnLan)} · Console {evidenceLabel(capabilities.console)} · {capabilities.provider === 'jetkvm' ? 'JetKVM' : 'Console provider unavailable'}
-            </span>
-          ) : <span className="truncate">Host capabilities unavailable</span>}
-          {row.resourcesSummary ? <span className="truncate">· {row.resourcesSummary}</span> : null}
-          {row.resourceSource ? <span className="truncate">· {row.resourceSource}</span> : null}
-        </span>
-      </span>
-      <StatusChip label={row.hostStatus ?? 'Host status unavailable'} status={row.status} />
-    </div>
-  );
-}
-
-function EnvironmentRow({ row, onSelect }: { row: ComputeRow; onSelect(): void }) {
-  const instance = row.environment!;
+function DeviceName({ onOpen, row }: { onOpen(): void; row: TailnetDeviceRow }) {
   return (
     <button
       type="button"
-      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg py-3 pr-1 text-left transition hover:bg-neutral-900/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60"
-      style={{ paddingLeft: `${0.25 + row.depth * 1.25}rem` }}
-      onClick={onSelect}
+      onClick={onOpen}
+      className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md text-left outline-none transition hover:text-accent focus-visible:ring-2 focus-visible:ring-accent"
     >
-      <span className="flex min-w-0 items-start gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-900">
-          <Boxes className="size-4 text-violet-300" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {row.depth > 0 ? <ChevronRight className="size-3 shrink-0 text-neutral-700" /> : null}
-            <span className="truncate text-sm font-medium text-neutral-200">{row.name}</span>
-            <Chip size="sm" className="shrink-0 gap-1 text-neutral-500">
-              {computeEnvironmentKindLabels[instance.kind]}
-            </Chip>
-            {row.relationship === 'dual-boot' ? (
-              <Chip size="sm" className="shrink-0 text-sky-300">Dual-boot alternative</Chip>
-            ) : row.relationship === 'nested' ? (
-              <Chip size="sm" className="shrink-0 text-violet-300">Nested</Chip>
-            ) : null}
-          </span>
-          <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-600">
-            <span>{row.environmentStatus}</span>
-            <span>· {row.hostResolutionLabel ?? 'Environment Instance'}</span>
-            {row.accessSummary ? <span>· {providerLabel(row.accessSummary.providerKind)}</span> : null}
-            {row.resourcesSummary ? <span>· {row.resourcesSummary}</span> : null}
-            {row.resourceSource ? <span>· {row.resourceSource}</span> : null}
-            {row.workspaces.length > 0 ? (
-              <span>· {row.workspaces.length} Workspace Runtime{row.workspaces.length === 1 ? '' : 's'}</span>
-            ) : null}
-          </span>
-          {row.workspaces.length > 0 ? (
-            <span className="mt-1 block truncate text-[11px] text-neutral-500">
-              {row.workspaces.map((workspace) => (
-                <span key={workspace.id} className="mr-2 inline-block max-w-full truncate align-bottom">
-                  Workspace Runtime · {workspace.name}
-                  {workspace.repository && workspace.repository !== workspace.name
-                    ? ` · ${workspace.repository}`
-                    : ''}
-                </span>
-              ))}
-            </span>
-          ) : null}
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-1.5">
-        <StatusChip label={row.environmentStatus ?? 'Status unavailable'} status={row.status} />
-        <ChevronRight aria-hidden className="hidden size-4 text-neutral-700 sm:block" />
-      </span>
+      <Icon
+        color={row.status === 'available' ? 'success' : row.status === 'attention' ? 'warning' : 'text'}
+        name="globe"
+        size="m"
+      />
+      <span className="truncate font-medium text-text">{row.name}</span>
     </button>
   );
 }
 
-function ComputePlatformSectionView({
-  onSelectEnvironment,
-  section
-}: {
-  onSelectEnvironment(id: string): void;
-  section: ComputePlatformSection;
+function DeviceDetails({ device }: {
+  device: TailscaleInventoryDevice;
 }) {
   return (
-    <div className="border-b border-neutral-800/70 pb-1 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2 px-1 pt-4 pb-1">
-        <Cloud className="size-3.5 shrink-0 text-sky-300" />
-        <Text className="truncate text-[11px] font-medium uppercase tracking-[.06em] text-neutral-500">
-          {section.name} · {section.platformKindLabel}
-        </Text>
-        <span className="ml-auto shrink-0 text-[11px] text-neutral-600">
-          {section.environmentCount} Environment{section.environmentCount === 1 ? '' : 's'}
-          {section.hostCount ? ` · ${section.hostCount} Host${section.hostCount === 1 ? '' : 's'}` : ''}
-        </span>
-      </div>
-      <div className="divide-y divide-neutral-800/50">
-        {section.rows.map((row) => (
-          row.kind === 'host'
-            ? <HostRow key={row.id} row={row} />
-            : <EnvironmentRow key={row.id} row={row} onSelect={() => onSelectEnvironment(row.id)} />
+    <Container.Stack gap={2} customize={{
+      reason: 'Keep source-specific network evidence secondary to the compact device row.',
+      className: 'min-w-0'
+    }}>
+      <Container.Stack direction="horizontal" align="center" gap={2} customize={{
+        reason: 'Allow direct Tailnet addresses to wrap on narrow screens.',
+        className: 'min-w-0 flex-wrap'
+      }}>
+        <Icon color="text" name="globe" size="s" />
+        {device.addresses.map((address) => (
+          <span key={address} className="break-all font-mono text-xs text-text-muted">{address}</span>
         ))}
-      </div>
-    </div>
+      </Container.Stack>
+    </Container.Stack>
   );
 }
 
-function EnvironmentDetails({
-  inventory,
-  instance,
-  onClose
-}: {
-  inventory: ProjectCliComputeInventory;
-  instance: NonNullable<ComputeRow['environment']>;
-  onClose(): void;
+function DeviceTable({ assignmentDisabled, hosts, onAssign, onOpenDevice, readOnly = false, rows }: {
+  assignmentDisabled: boolean;
+  hosts: readonly ProjectCliHost[];
+  onAssign(device: TailscaleInventoryDevice, request: TailnetHostAssignmentDraft): Promise<unknown>;
+  onOpenDevice(kind: HostsDeviceKind, id: string): void;
+  readOnly?: boolean;
+  rows: readonly TailnetDeviceRow[];
 }) {
-  const [copied, setCopied] = useState(false);
-  const host = instance.hostId
-    ? inventory.hosts.find((entry) => entry.id === instance.hostId)
-    : undefined;
-  const parent = instance.parentEnvironmentInstanceId
-    ? inventory.environmentInstances.find((entry) => entry.id === instance.parentEnvironmentInstanceId)
-    : undefined;
-  const hostLabel = host?.name ?? (
-    instance.hostResolution === 'not_applicable'
-      ? 'Provider managed'
-      : instance.hostResolution === 'conflict'
-        ? 'Host needs review'
-        : instance.hostResolution === 'unresolved'
-          ? 'Host not assigned'
-          : 'Host unavailable'
-  );
-  const hostStatus = host?.capabilities.state === 'available'
-    ? 'Host reachable'
-    : host?.capabilities.state === 'unavailable'
-      ? 'Host unavailable'
-      : 'Host status unavailable';
-  const resources = instance.resources
-    ? `${instance.resources.cpuCores} CPU · ${formatDetailBytes(instance.resources.memoryLimitBytes ?? instance.resources.memoryTotalBytes)} · ${formatDetailBytes(instance.resources.storageTotalBytes)}`
-    : 'Not reported';
-  const definition = inventory.environmentCatalog.find((entry) => entry.id === instance.environmentDefinitionId);
-  const access = instance.accessSummary ?? {
-    providerKind: instance.hostResolution === 'not_applicable' ? 'provider_native' as const : 'none' as const,
-    route: instance.accessRoutes.some((route) => route.type !== 'connector') ? 'unknown' as const : 'unavailable' as const,
-    ssh: {
-      hostKey: 'unknown' as const,
-      projectCli: 'unknown' as const,
-      readiness: 'unknown' as const
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [assignmentDevice, setAssignmentDevice] = useState<TailscaleInventoryDevice>();
+  function toggle(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  const columns: DataTableColumn<TailnetDeviceRow>[] = [
+    { id: 'device', header: 'Device', width: '48%', cell: (row) => <DeviceName onOpen={() => onOpenDevice('tailnet', row.id)} row={row} /> },
+    {
+      id: 'os', header: 'Operating system', width: '22%', hideOnMobile: true,
+      cell: (row) => <OperatingSystem value={row.operatingSystem} />
+    },
+    {
+      id: 'status', header: 'Status', width: '18%',
+      cell: (row) => <StatusChip label={row.statusLabel} status={row.status} />
+    },
+    {
+      id: 'action', header: '', width: '6rem',
+      cell: (row) => (
+        <Button
+          accessibilityLabel={readOnly
+            ? `${expanded.has(row.id) ? 'Hide' : 'Show'} details for ${row.name}`
+            : `${row.device.hostId ? 'Move' : 'Assign'} ${row.name} ${row.device.hostId ? 'to another Host' : 'to a Host'}`}
+          disabled={!readOnly && assignmentDisabled}
+          icon={readOnly ? (expanded.has(row.id) ? 'chevron-down' : 'chevron-right') : row.device.hostId ? 'arrow-right' : 'plus'}
+          label={readOnly ? 'Details' : row.device.hostId ? 'Move' : 'Assign'}
+          onPress={() => readOnly ? toggle(row.id) : setAssignmentDevice(row.device)}
+          variant="ghost"
+        />
+      )
     }
-  };
-  const command = `project ssh ${instance.alias}`;
-
-  async function copyCommand() {
-    if (!navigator.clipboard) return;
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_500);
-  }
-
+  ];
   return (
-    <aside aria-label="Environment Instance details" className="border-t border-neutral-800/70 bg-neutral-950/60 px-4 py-4 sm:px-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Text className="text-[11px] font-medium uppercase tracking-[.08em] text-neutral-500">
-            Environment Instance
-          </Text>
-          <Text as="h2" className="mt-1 truncate text-lg font-semibold text-neutral-100">
-            {instance.alias}
-          </Text>
-        </div>
-        <Button size="sm" variant="ghost" onPress={onClose}>Close</Button>
-      </div>
-      <div className="mt-4 grid gap-x-6 gap-y-3 text-xs sm:grid-cols-2">
-        <DetailSectionLabel label="Identity" />
-        <DetailValue label="Definition" value={definition?.name ?? computeEnvironmentKindLabels[instance.kind]} />
-        <DetailValue label="Definition type" value={definition?.slug ?? computeEnvironmentKindLabels[instance.kind]} />
-        <DetailValue label="Bootstrap" value={definition?.bootstrapStrategy.replace('_', ' ')} />
-        <DetailValue label="Ownership" value={definition?.ownership.replace('_', ' ')} />
-        <DetailValue label="Operating system" value={definition?.operatingSystemFamily} />
-        <DetailValue label="Supported architectures" value={definition?.supportedArchitectures.join(' · ')} />
-        <DetailValue label="Platform" value={inventory.platforms.find((platform) => platform.id === instance.platformId)?.name} />
-        <DetailValue label="Host" value={hostLabel} />
-        <DetailValue label="Host status" value={host ? hostStatus : instance.hostResolution === 'not_applicable' ? 'Provider managed' : 'Not reported'} />
-        <DetailValue label="Parent environment" value={parent?.alias ?? 'None'} />
-        <DetailSectionLabel label="Access" />
-        <DetailValue label="Provider" value={providerLabel(access.providerKind)} />
-        <DetailValue label="Route readiness" value={evidenceLabel(access.route)} />
-        <DetailValue label="SSH readiness" value={evidenceLabel(access.ssh.readiness)} />
-        <DetailValue label="SSH host key" value={evidenceLabel(access.ssh.hostKey)} />
-        <DetailValue label="Project CLI" value={evidenceLabel(access.ssh.projectCli)} />
-        <DetailSectionLabel label="Resources" />
-        <DetailValue label="Capacity" value={resources} />
-        <DetailValue label="Resource source" value={resourceSourceLabel(instance.resources, instance.hostd.state)} />
-      </div>
-      <div className="mt-4 border-t border-neutral-800/70 pt-3">
-        <Text className="block text-[11px] font-medium uppercase tracking-[.08em] text-neutral-500">Workspace Runtimes</Text>
-        <Text className="mt-1 block text-xs text-neutral-500">
-          {instance.workspaceInventory.state === 'available' ? `${instance.workspaces.length} available` : 'Not reported'}
-        </Text>
-        {instance.workspaces.length > 0 ? (
-          <div className="mt-2 space-y-2">
-            {instance.workspaces.map((workspace) => (
-              <div key={workspace.id} className="border-l border-neutral-800 pl-3 text-xs">
-                <Text className="block truncate text-neutral-200">{workspace.name}</Text>
-                {workspace.repository !== workspace.name ? (
-                  <Text className="mt-0.5 block truncate text-neutral-500">{workspace.repository ?? 'Repository unavailable'}</Text>
-                ) : null}
-                {workspace.runtime ? (
-                  <>
-                    <Text className="mt-1 block text-neutral-400">
-                      Lifecycle {workspace.runtime.lifecycle} · Codex {evidenceLabel(workspace.runtime.codex)} · Connection {workspace.runtime.connection}
-                    </Text>
-                    {workspace.runtime.devServers.length > 0 ? (
-                      <Text className="mt-0.5 block truncate text-neutral-500">
-                        Development servers · {workspace.runtime.devServers.map((server) => `${server.name} (${server.state})`).join(' · ')}
-                      </Text>
-                    ) : (
-                      <Text className="mt-0.5 block text-neutral-500">No declared development servers</Text>
-                    )}
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Text className="mt-2 text-xs text-neutral-500">No Workspace Runtimes reported.</Text>
-        )}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800/70 bg-neutral-900/40 px-3 py-2">
-        <code className="min-w-0 flex-1 truncate text-xs text-neutral-300">{command}</code>
-        <Button size="sm" variant="secondary" onPress={() => void copyCommand()}>
-          <Copy className="size-3.5" />
-          {copied ? 'Copied' : 'Copy command'}
-        </Button>
-      </div>
-    </aside>
+    <>
+      <DataTable
+        caption="Tailnet devices"
+        columns={columns}
+        details={readOnly ? (row) => expanded.has(row.id) ? <DeviceDetails device={row.device} /> : null : undefined}
+        rowKey={(row) => row.id}
+        rows={rows}
+      />
+      <TailnetHostAssignmentDrawer
+        device={assignmentDevice}
+        disabled={assignmentDisabled}
+        hosts={hosts}
+        onAssign={onAssign}
+        onClose={() => setAssignmentDevice(undefined)}
+      />
+    </>
   );
 }
 
-function resourceSourceLabel(
-  resources: NonNullable<NonNullable<ComputeRow['environment']>['resources']> | undefined,
-  hostdState: NonNullable<ComputeRow['environment']>['hostd']['state']
-) {
-  if (hostdState === 'stale') return 'Stale';
-  switch (resources?.source) {
-    case 'connector': return 'SSH snapshot';
-    case 'configured': return 'SSH snapshot';
-    case 'hostd': return 'project-hostd';
-    case 'provider': return 'Provider';
-    default: return 'Unavailable';
-  }
-}
-
-function DetailValue({ label, value }: { label: string; value?: string }) {
+function HostGroupView({ assignmentDisabled, group, hosts, onAssign, onOpenDevice }: {
+  assignmentDisabled: boolean;
+  group: ComputeHostGroup;
+  hosts: readonly ProjectCliHost[];
+  onAssign(device: TailscaleInventoryDevice, request: TailnetHostAssignmentDraft): Promise<unknown>;
+  onOpenDevice(kind: HostsDeviceKind, id: string): void;
+}) {
+  const online = group.devices.filter(({ status }) => status === 'available').length;
   return (
-    <div className="min-w-0">
-      <Text className="block text-[11px] text-neutral-600">{label}</Text>
-      <Text className="mt-0.5 block truncate text-neutral-300">{value ?? 'Unavailable'}</Text>
-    </div>
+    <CollapsibleSection
+      id={`compute-host-${group.id}`}
+      leading={<Icon color={group.status === 'available' ? 'success' : group.status === 'attention' ? 'warning' : 'text'} name="box" size="s" />}
+      summary={`${online}/${group.devices.length} online`}
+      title={group.name}
+    >
+      <DeviceTable assignmentDisabled={assignmentDisabled} hosts={hosts} onAssign={onAssign} onOpenDevice={onOpenDevice} rows={group.devices} />
+    </CollapsibleSection>
   );
 }
 
-function DetailSectionLabel({ label }: { label: string }) {
-  return (
-    <Text className="block border-b border-neutral-800/70 pb-1 text-[11px] font-medium uppercase tracking-[.08em] text-neutral-500 sm:col-span-2">
-      {label}
-    </Text>
-  );
+function CodespacesTable({ onOpenDevice, rows }: {
+  onOpenDevice(kind: HostsDeviceKind, id: string): void;
+  rows: readonly CodespaceRow[];
+}) {
+  const columns: DataTableColumn<CodespaceRow>[] = [
+    {
+      id: 'codespace', header: 'Codespace', width: '70%', cell: (row) => (
+        <button
+          type="button"
+          onClick={() => onOpenDevice('codespace', row.id)}
+          className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md text-left outline-none transition hover:text-accent focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Icon.Brand appearance="monochrome" color="text" name="github" size="m" />
+          <span className="truncate font-medium text-text">{row.name}</span>
+        </button>
+      )
+    },
+    {
+      id: 'os', header: 'Operating system', width: '30%',
+      cell: (row) => <OperatingSystem value={row.operatingSystem} />
+    }
+  ];
+  return <DataTable caption="GitHub Codespaces" columns={columns} rowKey={(row) => row.id} rows={rows} />;
 }
 
-function formatDetailBytes(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return 'Unavailable';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let amount = value;
-  let unit = 0;
-  while (amount >= 1_024 && unit < units.length - 1) {
-    amount /= 1_024;
-    unit += 1;
-  }
-  return `${amount >= 10 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unit]}`;
+function EmptySection({ text }: { text: string }) {
+  return <p className="px-3 py-3 text-xs text-text-muted">{text}</p>;
 }
 
 export interface MachinesPageProps {
@@ -386,105 +231,189 @@ export interface MachinesPageProps {
   onRefresh(): Promise<unknown>;
 }
 
-export function MachinesPage({
-  computeInventory,
-  inventoryStatus,
-  localSimulation,
-  loadError,
-  onRefresh
-}: MachinesPageProps) {
-  const [filter, setFilter] = useState<MachineFilter>('all');
+export function MachinesPage({ computeInventory, inventoryStatus, localSimulation, loadError, onRefresh }: MachinesPageProps) {
   const [query, setQuery] = useState('');
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>();
-  const platformSections = useMemo(
-    () => (computeInventory ? computePlatformSections(computeInventory) : []),
-    [computeInventory]
+  const [sectionFilter, setSectionFilter] = useState<ComputeHostSectionFilter>('all');
+  const [sortOrder, setSortOrder] = useState<ComputeHostSortOrder>('online');
+  const [statusFilter, setStatusFilter] = useState<ComputeHostStatusFilter>('all');
+  const [selectedDevice, setSelectedDevice] = useState<HostsDeviceRoute | undefined>(() =>
+    typeof window === 'undefined' ? undefined : parseHostsDeviceRoute(window.location.pathname)
   );
-  const visibleSections = useMemo(
-    () => filterComputePlatformSections(platformSections, query, filter),
-    [filter, platformSections, query]
+  const onRefreshRef = useRef(onRefresh);
+  const tailnet = useTailnetComputeInventory(onRefresh);
+  const tailnetDevices = tailnet.result?.devices ?? [];
+  const sourceInventory = computeInventory ?? emptyComputeInventory();
+  const inventory = useMemo(
+    () => buildComputeHostInventory(sourceInventory, tailnetDevices),
+    [sourceInventory, tailnetDevices]
   );
-  const counts = computeInventoryCounts(platformSections);
-  const selectedEnvironment = computeInventory?.environmentInstances.find(
-    (instance) => instance.id === selectedEnvironmentId
+  const assignableHosts = useMemo(
+    () => inventory.hosts.flatMap(({ host }) => host ? [host] : []),
+    [inventory.hosts]
   );
-  const isReady = computeInventory?.inventoryState === 'ready' && computeInventory.violations.length === 0;
+  const visible = useMemo(() => sortComputeHostInventory(filterComputeHostInventory(inventory, {
+    query, section: sectionFilter, status: statusFilter
+  }), sortOrder), [inventory, query, sectionFilter, sortOrder, statusFilter]);
   const isStale = Boolean(computeInventory && isComputeInventoryStale(computeInventory.checkedAt));
-  const showBlockingLoading = inventoryStatus === 'loading' && !computeInventory;
-  const showBlockingError = inventoryStatus === 'error' && !computeInventory;
-  const showEmpty = isReady && counts.environments === 0 && counts.hosts === 0;
+  const hasInventory = countVisibleComputeHostInventory(inventory) > 0;
+  const visibleCount = countVisibleComputeHostInventory(visible);
+  const blockingLoading = !hasInventory && (inventoryStatus === 'loading' || tailnet.status === 'loading');
+  const blockingError = !hasInventory && inventoryStatus === 'error' && tailnet.status === 'error';
+  const connectionState = tailnet.result?.provider.connectionState;
+  const providerRefreshState = tailnet.result?.provider.refreshState;
+  const assignmentDisabled = localSimulation || tailnet.status === 'error' ||
+    !['configured', 'connected', 'legacy'].includes(connectionState ?? '') ||
+    !['available', 'partial'].includes(providerRefreshState ?? '');
+  const checkedAt = [computeInventory?.checkedAt, ...tailnetDevices.map((device) => device.network.checkedAt)]
+    .filter((value): value is string => Boolean(value)).sort().at(-1);
+  const showCodespaces = sectionFilter === 'all' || sectionFilter === 'codespaces';
+  const showHosts = sectionFilter === 'all' || sectionFilter === 'hosts';
+  const showAvailable = sectionFilter === 'all' || sectionFilter === 'available';
+
+  useEffect(() => {
+    const syncRoute = () => setSelectedDevice(parseHostsDeviceRoute(window.location.pathname));
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, []);
+
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
+
+  useEffect(() => {
+    if (!selectedDevice) return;
+    const refresh = () => void onRefreshRef.current();
+    refresh();
+    const interval = window.setInterval(refresh, 10_000);
+    return () => window.clearInterval(interval);
+  }, [selectedDevice?.id, selectedDevice?.kind]);
+
+  const selectedDescriptor = useMemo(() => {
+    if (!selectedDevice) return undefined;
+    if (selectedDevice.kind === 'codespace') {
+      const row = inventory.codespaces.find(({ id }) => id === selectedDevice.id);
+      return row ? codespaceDeviceDescriptor(row) : undefined;
+    }
+    const devices = [
+      ...inventory.available,
+      ...inventory.excluded,
+      ...inventory.hosts.flatMap(({ devices: hostDevices }) => hostDevices)
+    ];
+    const row = devices.find(({ id }) => id === selectedDevice.id);
+    return row ? tailnetDeviceDescriptor(row, sourceInventory) : undefined;
+  }, [inventory, selectedDevice, sourceInventory]);
+
+  function openDevice(kind: HostsDeviceKind, id: string) {
+    const next = { id, kind } satisfies HostsDeviceRoute;
+    window.history.pushState(null, '', hostsDeviceRoute(kind, id));
+    setSelectedDevice(next);
+  }
+
+  function closeDevice() {
+    window.history.pushState(null, '', '/settings');
+    setSelectedDevice(undefined);
+  }
+
+  async function refreshAll() {
+    await Promise.allSettled([onRefresh(), tailnet.refresh(true)]);
+  }
+
+  if (selectedDescriptor) {
+    return <HostsDeviceWorkspace device={selectedDescriptor} onBack={closeDevice} />;
+  }
+
+  if (selectedDevice && blockingLoading) {
+    return <div className="flex min-h-64 items-center justify-center gap-3 text-text-muted"><Spinner size="s" /><span>Loading device…</span></div>;
+  }
+
+  if (selectedDevice && hasInventory) {
+    return (
+      <div className="grid min-h-64 place-items-center gap-3 px-6 text-center">
+        <div>
+          <Text text="Device not found" variant="heading" level={1} size="m" />
+          <p className="mt-2 text-sm text-text-muted">This device is no longer present in the current inventory.</p>
+        </div>
+        <Button icon="arrow-left" label="Back to Hosts" onPress={closeDevice} variant="secondary" />
+      </div>
+    );
+  }
 
   return (
-    <section className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-neutral-800/70 pb-4">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Text as="h1" className="block text-2xl font-semibold tracking-[-.02em] text-neutral-50">Compute</Text>
-            <Text className="mt-1 block text-sm text-neutral-500">Platforms, Hosts, Environment Instances, and Workspace Runtimes.</Text>
-          </div>
-          {!localSimulation ? (
-            <a href="/docs/environments/setup">
-              <Button size="sm" variant="primary"><Plus className="size-4" />Add environment</Button>
-            </a>
-          ) : null}
-          <TailscaleDeviceClassification />
-        </div>
+    <Container.Stack as="section" fullWidth gap={0} customize={{
+      reason: 'Fill the settings content region without adding a framed page surface.', className: 'h-full min-h-0'
+    }}>
+      <header className="shrink-0 border-b border-border/80 pb-2">
+        <Container.Stack direction="horizontal" align="center" gap={2}>
+          <Icon color="accent" name="box" size="m" />
+          <span className="[&>h1]:mb-0"><Text text="Hosts" variant="heading" level={1} size="m" /></span>
+        </Container.Stack>
         <LegacyConnectorCleanup onChanged={onRefresh} />
       </header>
 
-      <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-800/70 py-4 lg:flex-row lg:items-center lg:justify-between">
-        <SearchField aria-label="Search compute environments" className="w-full lg:max-w-sm" onChange={setQuery} value={query}>
-          <SearchFieldGroup className="h-10 rounded-full bg-neutral-900/80">
-            <SearchFieldSearchIcon />
-            <SearchFieldInput placeholder="Search platforms and environments" spellCheck={false} />
-            <SearchFieldClearButton />
-          </SearchFieldGroup>
-        </SearchField>
-        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {filters.map(({ id, label }) => (
-            <Button key={id} size="sm" variant={filter === id ? 'secondary' : 'ghost'} className="shrink-0 rounded-full" onPress={() => setFilter(id)}>
-              {label}
-            </Button>
-          ))}
-          <Button aria-label="Refresh compute inventory" isIconOnly size="sm" variant="ghost" className="ml-1 size-8 shrink-0 rounded-full px-0" onPress={() => void onRefresh()}>
-            <RefreshCw className={cn('size-3.5', inventoryStatus === 'refreshing' && 'animate-spin')} />
-          </Button>
+      <Container.Stack direction="horizontal" align="center" gap={1} padding={1} customize={{
+        reason: 'Keep search, filters, sorting, and refresh in one compact responsive toolbar.',
+        className: 'shrink-0 flex-wrap border-b border-border/80'
+      }}>
+        <div className="min-w-40 flex-1">
+          <Input accessibilityLabel="Search Hosts inventory" fullWidth onValueChange={setQuery} placeholder="Search Hosts" size="sm" type="search" value={query} />
         </div>
-      </div>
+        <div className="w-36 shrink-0"><Select accessibilityLabel="Filter by status" fullWidth onValueChange={(value) => setStatusFilter(value as ComputeHostStatusFilter)} options={statusFilterOptions} size="sm" value={statusFilter} /></div>
+        <div className="w-40 shrink-0"><Select accessibilityLabel="Filter by section" fullWidth onValueChange={(value) => setSectionFilter(value as ComputeHostSectionFilter)} options={sectionFilterOptions} size="sm" value={sectionFilter} /></div>
+        <div className="w-32 shrink-0"><Select accessibilityLabel="Sort Hosts inventory" fullWidth onValueChange={(value) => setSortOrder(value as ComputeHostSortOrder)} options={sortOptions} size="sm" value={sortOrder} /></div>
+        <Button accessibilityLabel="Refresh Hosts inventory" disabled={inventoryStatus === 'refreshing' || tailnet.status === 'refreshing'} icon="refresh" onPress={() => void refreshAll()} variant="icon" />
+      </Container.Stack>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {loadError && computeInventory ? (
-          <div role="alert" className="mt-3 flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[.07] px-4 py-3">
-            <CircleAlert className="size-4 shrink-0 text-amber-300" />
-            <Text className="block text-xs text-amber-200">{loadError} Showing the last known inventory.</Text>
-          </div>
-        ) : null}
-        {isStale && computeInventory ? (
-          <div role="status" className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/[.05] px-4 py-3 text-xs text-sky-200">
-            This inventory may be out of date. Refresh to check again.
-          </div>
-        ) : null}
+        {loadError && (computeInventory || tailnet.result) ? <p role="alert" className="border-y border-warning/30 px-3 py-2 text-xs text-warning">{loadError} Showing the last known Hosts data.</p> : null}
+        {tailnet.error && (tailnet.result || computeInventory) ? <p role="alert" className="border-y border-warning/30 px-3 py-2 text-xs text-warning">{tailnet.error} Showing the last known Tailnet devices.</p> : null}
+        {providerRefreshState === 'partial' ? <p role="status" className="border-y border-warning/30 px-3 py-2 text-xs text-warning">Tailnet returned a partial inventory. Available device evidence remains visible.</p> : null}
+        {tailnet.result ? <TailnetProviderStatus provider={tailnet.result.provider} /> : null}
+        {isStale ? <p role="status" className="border-y border-accent/30 px-3 py-2 text-xs text-accent">Hosts data may be out of date. Refresh to check again.</p> : null}
 
-        {showBlockingLoading ? (
-          <div className="flex min-h-48 items-center justify-center gap-2 text-neutral-500"><LoaderCircle className="size-4 animate-spin" /><Text className="text-sm">Loading compute inventory…</Text></div>
-        ) : showBlockingError ? (
-          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center"><MonitorCog className="size-6 text-neutral-700" /><Text className="max-w-md text-sm text-neutral-500">{loadError || 'Compute is temporarily unavailable.'}</Text><Button size="sm" variant="secondary" onPress={() => void onRefresh()}>Try again</Button></div>
-        ) : !isReady ? (
-          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center"><MonitorCog className="size-6 text-neutral-700" /><Text className="max-w-md text-sm text-neutral-500">Compute details are not available right now.</Text></div>
-        ) : showEmpty ? (
-          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center"><CheckCircle2 className="size-6 text-neutral-700" /><Text className="text-sm text-neutral-500">No compute environments are configured yet.</Text></div>
-        ) : visibleSections.length === 0 ? (
-          <div className="grid min-h-48 place-items-center px-6 text-center"><Text className="text-sm text-neutral-500">No environments match this search or filter.</Text></div>
+        {blockingLoading ? (
+          <div className="flex min-h-48 items-center justify-center gap-3 text-text-muted"><Spinner size="s" /><span>Loading inventory…</span></div>
+        ) : blockingError ? (
+          <div className="grid min-h-48 place-items-center gap-3 px-6 text-center"><p className="max-w-md text-sm text-text-muted">Hosts and Tailnet inventory are temporarily unavailable.</p><Button label="Try again" onPress={() => void refreshAll()} variant="secondary" /></div>
+        ) : !hasInventory ? (
+          <div className="grid min-h-48 place-items-center px-6 text-center text-sm text-text-muted">No Hosts or devices were reported.</div>
         ) : (
-          visibleSections.map((section) => <ComputePlatformSectionView key={section.id} section={section} onSelectEnvironment={setSelectedEnvironmentId} />)
+          <Container.Stack gap={5} padding={3} customize={{
+            reason: 'Present one compact hierarchy of independently collapsible Compute sections.',
+            className: 'min-w-0'
+          }}>
+            {showCodespaces ? (
+              <CollapsibleSection separated id="compute-codespaces" leading={<Icon.Brand appearance="monochrome" color="muted" name="github" size="s" />} summary={`${visible.codespaces.length} items`} title="GitHub Codespaces">
+                {visible.codespaces.length > 0 ? <CodespacesTable onOpenDevice={openDevice} rows={visible.codespaces} /> : <EmptySection text="No Codespaces match the current filters." />}
+              </CollapsibleSection>
+            ) : null}
+            {showHosts ? (
+              <CollapsibleSection separated id="compute-hosts" leading={<Icon color="muted" name="box" size="s" />} summary={`${visible.hosts.length} Hosts`} title="Hosts">
+                {visible.hosts.length > 0 ? visible.hosts.map((group) => (
+                  <HostGroupView key={group.id} assignmentDisabled={assignmentDisabled} group={group} hosts={assignableHosts} onAssign={tailnet.assignHost} onOpenDevice={openDevice} />
+                )) : <EmptySection text="No Hosts match the current filters. Assign an available device to create one." />}
+              </CollapsibleSection>
+            ) : null}
+            {showAvailable ? (
+              <CollapsibleSection separated id="compute-available-devices" leading={<Icon color="muted" name="globe" size="s" />} summary={`${visible.available.length} devices`} title="Available Tailnet devices">
+                {visible.available.length > 0 ? <DeviceTable assignmentDisabled={assignmentDisabled} hosts={assignableHosts} onAssign={tailnet.assignHost} onOpenDevice={openDevice} rows={visible.available} /> : <EmptySection text="No available devices match the current filters." />}
+              </CollapsibleSection>
+            ) : null}
+            {showAvailable && inventory.excluded.length > 0 ? (
+              <CollapsibleSection separated defaultExpanded={false} id="compute-excluded-devices" leading={<Icon color="muted" name="eye-off" size="s" />} summary={`${visible.excluded.length} devices`} title="Excluded Tailnet devices">
+                {visible.excluded.length > 0 ? <DeviceTable assignmentDisabled hosts={assignableHosts} onAssign={tailnet.assignHost} onOpenDevice={openDevice} readOnly rows={visible.excluded} /> : <EmptySection text="No excluded devices match the current filters." />}
+              </CollapsibleSection>
+            ) : null}
+            {visibleCount === 0 ? <div className="grid min-h-24 place-items-center px-6 text-center text-sm text-text-muted">No resources match this search or filter.</div> : null}
+          </Container.Stack>
         )}
+        <Container.Stack as="footer" direction="horizontal" align="center" justify="between" gap={2} padding={3} customize={{
+          reason: 'Keep totals in document flow so they never cover inventory rows.',
+          className: 'flex-wrap border-t border-border/80'
+        }}>
+          <Text color="muted" size="s" text={`${visible.hosts.length} Hosts · ${visible.available.length} available · ${visible.codespaces.length} Codespaces · ${visible.excluded.length} excluded`} />
+          {checkedAt ? <span className="hidden sm:block"><Text color="muted" size="s" text={`Updated ${new Date(checkedAt).toLocaleTimeString()}`} /></span> : null}
+        </Container.Stack>
       </div>
-
-      {computeInventory && selectedEnvironment ? <EnvironmentDetails inventory={computeInventory} instance={selectedEnvironment} onClose={() => setSelectedEnvironmentId(undefined)} /> : null}
-      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-neutral-800/70 py-3 text-xs text-neutral-600">
-        <span>{countComputePlatformRows(visibleSections)} visible · {counts.hosts} Host{counts.hosts === 1 ? '' : 's'} · {counts.environments} Environment{counts.environments === 1 ? '' : 's'} · {counts.workspaces} Workspace Runtime{counts.workspaces === 1 ? '' : 's'}</span>
-        {computeInventory ? <span>Checked {new Date(computeInventory.checkedAt).toLocaleString()}</span> : null}
-      </footer>
-    </section>
+    </Container.Stack>
   );
 }

@@ -2,12 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   tailscaleDeviceClassifications,
-  type TailscaleDeviceClassification
+  type TailscaleDeviceClassification,
+  type TailscaleHostAssignmentRequest
 } from '../../src/shared/tailscale-inventory-api';
 import { writeJson } from '../project-space-http-response';
 import { CodexMachineTasksAuthError } from '../codex-machine-tasks/auth-context';
 import {
   TailscaleClassificationRevisionConflict,
+  TailscaleHostAssignmentRevisionConflict,
   TailscaleInventoryServiceError
 } from './service';
 
@@ -22,6 +24,11 @@ export function createTailscaleInventoryHttpApi(
     setClassification(actor: { actorId: string; kind: 'human' | 'machine'; ownerUserId: string }, deviceId: string, request: {
       classification: TailscaleDeviceClassification; expectedRevision: number;
     }): Promise<unknown>;
+    setHostAssignment(
+      actor: { actorId: string; kind: 'human' | 'machine'; ownerUserId: string },
+      deviceId: string,
+      request: TailscaleHostAssignmentRequest
+    ): Promise<unknown>;
     getConnection?(ownerUserId: string): Promise<unknown>;
   },
   resolveActor: (request: IncomingMessage) => Promise<{ actorId: string; kind: 'human' | 'machine'; ownerUserId: string }>
@@ -33,8 +40,10 @@ export function createTailscaleInventoryHttpApi(
     }
     response.setHeader('Cache-Control', 'private, no-store');
     try {
-      const deviceId = classificationDeviceId(url.pathname);
-      if (url.pathname !== connectionRoute && url.pathname !== devicesRoute && !deviceId) {
+      const classificationDevice = classificationDeviceId(url.pathname);
+      const hostDevice = hostDeviceId(url.pathname);
+      if (url.pathname !== connectionRoute && url.pathname !== devicesRoute &&
+        !classificationDevice && !hostDevice) {
         writeJson(response, 404, { error: { code: 'not_found', message: 'Not found.' } });
         return true;
       }
@@ -56,11 +65,24 @@ export function createTailscaleInventoryHttpApi(
         }
       } else if (url.pathname === devicesRoute && request.method === 'GET') {
         writeJson(response, 200, await service.list(actor.ownerUserId, parseRefresh(url)));
-      } else if (deviceId && request.method === 'POST') {
+      } else if (classificationDevice && request.method === 'POST') {
         if ([...url.searchParams.keys()].length > 0) {
           throw new HttpInputError('The Tailscale classification request is invalid.');
         }
-        writeJson(response, 200, await service.setClassification(actor, deviceId, parseClassification(await readBody(request))));
+        writeJson(response, 200, await service.setClassification(
+          actor,
+          classificationDevice,
+          parseClassification(await readBody(request))
+        ));
+      } else if (hostDevice && request.method === 'POST') {
+        if ([...url.searchParams.keys()].length > 0) {
+          throw new HttpInputError('The Tailnet device Host assignment request is invalid.');
+        }
+        writeJson(response, 200, await service.setHostAssignment(
+          actor,
+          hostDevice,
+          parseHostAssignment(await readBody(request))
+        ));
       } else {
         writeJson(response, 405, { error: { code: 'method_not_allowed', message: 'Method not allowed.' } });
       }
@@ -69,10 +91,11 @@ export function createTailscaleInventoryHttpApi(
         writeJson(response, error.statusCode, {
           error: { code: 'authentication_failed', message: 'Authentication failed.' }
         });
-      } else if (error instanceof TailscaleClassificationRevisionConflict) {
+      } else if (error instanceof TailscaleClassificationRevisionConflict ||
+        error instanceof TailscaleHostAssignmentRevisionConflict) {
         writeJson(response, 409, { error: { code: 'revision_conflict', message: error.message } });
       } else if (error instanceof TailscaleInventoryServiceError) {
-        writeJson(response, error.code === 'unknown-device' ? 404 :
+        writeJson(response, ['unknown-device', 'unknown-host'].includes(error.code) ? 404 :
           error.code === 'connection-unavailable' ? 409 : 403, {
           error: { code: error.code.replaceAll('-', '_'), message: error.message }
         });
@@ -88,6 +111,22 @@ export function createTailscaleInventoryHttpApi(
 
 function classificationDeviceId(pathname: string) {
   const prefix = `${devicesRoute}/`; const suffix = '/classification';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return undefined;
+  const encodedId = pathname.slice(prefix.length, -suffix.length);
+  let id: string;
+  try {
+    id = decodeURIComponent(encodedId);
+  } catch {
+    throw new HttpInputError('The Tailscale device id is invalid.');
+  }
+  if (!identifier.test(id) || id.includes('/')) throw new HttpInputError('The Tailscale device id is invalid.');
+  return id;
+}
+function hostDeviceId(pathname: string) {
+  return deviceIdForSuffix(pathname, '/host');
+}
+function deviceIdForSuffix(pathname: string, suffix: string) {
+  const prefix = `${devicesRoute}/`;
   if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return undefined;
   const encodedId = pathname.slice(prefix.length, -suffix.length);
   let id: string;
@@ -131,5 +170,27 @@ function parseClassification(body: Record<string, unknown>) {
     throw new HttpInputError('The Tailscale classification request is invalid.');
   }
   return { classification: body.classification as TailscaleDeviceClassification, expectedRevision: Number(body.expectedRevision) };
+}
+function parseHostAssignment(body: Record<string, unknown>): TailscaleHostAssignmentRequest {
+  const expectedRevision = body.expectedRevision;
+  if (!Number.isSafeInteger(expectedRevision) || Number(expectedRevision) < 0 ||
+    typeof body.action !== 'string') {
+    throw new HttpInputError('The Tailnet device Host assignment request is invalid.');
+  }
+  if (body.action === 'assign' && Object.keys(body).length === 3 &&
+    typeof body.hostId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.hostId)) {
+    return { action: 'assign', expectedRevision: Number(expectedRevision), hostId: body.hostId };
+  }
+  if (body.action === 'create' && Object.keys(body).length === 3 && typeof body.name === 'string') {
+    const name = body.name.trim();
+    if (name && name.length <= 80 && !/[\u0000-\u001f\u007f]/.test(name)) {
+      return { action: 'create', expectedRevision: Number(expectedRevision), name };
+    }
+  }
+  if (body.action === 'unassign' && Object.keys(body).length === 2) {
+    return { action: 'unassign', expectedRevision: Number(expectedRevision) };
+  }
+  throw new HttpInputError('The Tailnet device Host assignment request is invalid.');
 }
 class HttpInputError extends Error {}

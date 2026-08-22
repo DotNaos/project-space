@@ -28,7 +28,7 @@ class InventoryDatabase implements DatabaseQueryClient {
       return { rows: [] as Row[] };
     }
     if (sql.includes('from tailscale_device_observations observations')) return { rows: [...this.observations.entries()].filter(([key]) => key.startsWith(`${owner}:`)).map(([, device]) => {
-      const classification = this.classifications.get(this.key(owner, device.id)); return { addresses: device.addresses, classification: classification?.classification ?? null, device_id: device.id, fresh_until: device.freshUntil, inventory_state: device.state, last_seen_at: null, observed_at: device.observedAt, observed_name: device.name ?? null, online: true, os: null, revision: classification?.revision ?? null, stale_at: device.staleAt ?? null, tags: ['tag:owner'] };
+      const classification = this.classifications.get(this.key(owner, device.id)); return { addresses: device.addresses, classification: classification?.classification ?? null, device_id: device.id, environment_id: this.projections.get(this.key(owner, device.id)) ?? null, fresh_until: device.freshUntil, inventory_state: device.state, last_seen_at: null, observed_at: device.observedAt, observed_name: device.name ?? null, online: true, os: null, revision: classification?.revision ?? null, stale_at: device.staleAt ?? null, tags: ['tag:owner'] };
     }) as Row[] };
     if (sql.includes('from tailscale_compute_environment_projections projection') && sql.includes("classification.classification = 'environment'")) { const current = this.classifications.get(this.key(owner, id)); const environmentId = this.projections.get(this.key(owner, id)); return { rows: current?.classification === 'environment' && environmentId ? [{ revision: current.revision } as Row] : [] }; }
     if (sql.includes('select observed_name, os from tailscale_device_observations')) { const device = this.observations.get(this.key(owner, id)); return { rows: device ? [{ observed_name: device.name ?? null, os: device.os ?? null } as Row] : [] }; }
@@ -106,6 +106,9 @@ describe('Tailscale inventory store', () => {
     expect(environment?.sql).toContain("'unresolved', 'none'");
     expect(environment?.values.join(' ')).not.toContain('100.64.9.9');
     expect(db.calls.some(({ sql }) => sql.includes('compute_hosts') || sql.includes('connector_compute_environments'))).toBe(false);
+    expect(await store.list('owner-one')).toEqual([
+      expect.objectContaining({ environmentId: expect.any(String), id: 'wsl-device' })
+    ]);
   });
   test('does not reuse a Tailscale built-in definition with an incompatible blueprint field', async () => {
     const fields = [

@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 import type { DatabaseQueryClient } from '../database/client';
 import { isTailscaleAddress } from './status-decoder';
 import {
@@ -16,6 +18,7 @@ import {
   reconcileTailscaleEnvironmentOwnership,
   tailscaleDeploymentOwner
 } from '../database/tailscale-environment-ownership-reconciler';
+import type { TailscaleHostAssignmentRequest } from '../../src/shared/tailscale-inventory-api';
 
 export type TailscaleInventoryReconciliation =
   | { complete: boolean; kind: 'snapshot'; snapshot: TailscaleStatusSnapshot }
@@ -23,7 +26,10 @@ export type TailscaleInventoryReconciliation =
 
 export interface StoredTailscaleDevice extends TailscaleDeviceObservation {
   classification: TailscaleDeviceClassification;
+  environmentId?: string;
   freshness: TailscaleStatusSnapshot['freshness'];
+  hostAssignmentRevision: number;
+  hostId?: string;
   revision: number;
   staleAt?: string;
   state: 'current' | 'stale';
@@ -31,6 +37,8 @@ export interface StoredTailscaleDevice extends TailscaleDeviceObservation {
 
 interface DeviceRow {
   addresses: unknown; classification: string | null; device_id: string;
+  environment_id: string | null;
+  host_assignment_revision: number | string | null; host_id: string | null;
   fresh_until: Date | string; inventory_state: 'current' | 'stale';
   last_seen_at: Date | string | null; observed_at: Date | string;
   observed_name: string | null; online: boolean; os: string | null;
@@ -38,6 +46,7 @@ interface DeviceRow {
 }
 
 interface ClassificationRow { classification: string; revision: number | string; }
+interface HostAssignmentRow { host_id: string | null; revision: number | string; }
 
 export class TailscaleClassificationRevisionConflict extends Error {
   constructor(readonly current: Pick<StoredTailscaleDevice, 'classification' | 'id' | 'revision'>) {
@@ -50,6 +59,20 @@ export class UnknownTailscaleDevice extends Error {
   constructor() {
     super('No observed Tailscale device exists for this classification change.');
     this.name = 'UnknownTailscaleDevice';
+  }
+}
+
+export class UnknownTailscaleHost extends Error {
+  constructor() {
+    super('The selected Host does not exist for this account.');
+    this.name = 'UnknownTailscaleHost';
+  }
+}
+
+export class TailscaleHostAssignmentRevisionConflict extends Error {
+  constructor(readonly current: { deviceId: string; hostId?: string; revision: number }) {
+    super('The Tailnet device Host assignment changed before this update was saved.');
+    this.name = 'TailscaleHostAssignmentRevisionConflict';
   }
 }
 
@@ -124,8 +147,9 @@ export class PostgresTailscaleInventoryStore {
     return { complete, kind: 'reconciled' as const, observedAt, observedDeviceCount: devices.length };
   }
 
-  async list(ownerUserId: string): Promise<StoredTailscaleDevice[]> {
-    requireIdentifier(ownerUserId, 'owner user id');
+  async list(deviceOwnerUserId: string, hostOwnerUserId = deviceOwnerUserId): Promise<StoredTailscaleDevice[]> {
+    requireIdentifier(deviceOwnerUserId, 'device owner user id');
+    requireIdentifier(hostOwnerUserId, 'host owner user id');
     const result = await this.client.query<DeviceRow>(
       `select observations.device_id, observations.observed_name,
               array(
@@ -135,13 +159,22 @@ export class PostgresTailscaleInventoryStore {
               ) as addresses,
               observations.online, observations.os, observations.tags, observations.observed_at,
               observations.fresh_until, observations.last_seen_at, observations.inventory_state,
-              observations.stale_at, classifications.classification, classifications.revision
+              observations.stale_at, classifications.classification, classifications.revision,
+              projections.environment_id, host_assignments.host_id,
+              host_assignments.revision as host_assignment_revision
          from tailscale_device_observations observations
          left join tailscale_device_classifications classifications
            on classifications.owner_user_id = observations.owner_user_id
           and classifications.device_id = observations.device_id
+         left join tailscale_compute_environment_projections projections
+           on projections.owner_user_id = observations.owner_user_id
+          and projections.device_id = observations.device_id
+         left join tailscale_device_host_assignments host_assignments
+           on host_assignments.device_owner_user_id = observations.owner_user_id
+          and host_assignments.device_id = observations.device_id
+          and host_assignments.owner_user_id = $2
         where observations.owner_user_id = $1 order by observations.device_id`,
-      [ownerUserId]
+      [deviceOwnerUserId, hostOwnerUserId]
     );
     const now = this.now();
     return result.rows
@@ -221,6 +254,118 @@ export class PostgresTailscaleInventoryStore {
     return this.transaction(run);
   }
 
+  async setHostAssignment(input: {
+    actorId: string;
+    deviceId: string;
+    deviceOwnerUserId: string;
+    ownerUserId: string;
+    request: TailscaleHostAssignmentRequest;
+  }): Promise<{ deviceId: string; hostId?: string; revision: number }> {
+    requireIdentifier(input.actorId, 'actor id');
+    requireIdentifier(input.deviceId, 'device id');
+    requireIdentifier(input.deviceOwnerUserId, 'device owner user id');
+    requireIdentifier(input.ownerUserId, 'owner user id');
+    const { request } = input;
+    if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 0) {
+      throw new Error('The expected Tailnet device Host assignment revision is invalid.');
+    }
+    const run = async (client: DatabaseQueryClient) => {
+      const observed = await client.query<{ device_id: string }>(
+        `select device_id from tailscale_device_observations
+          where owner_user_id = $1 and device_id = $2 for update`,
+        [input.deviceOwnerUserId, input.deviceId]
+      );
+      if (!observed.rows[0]) throw new UnknownTailscaleDevice();
+      const current = (await client.query<HostAssignmentRow>(
+        `select host_id, revision from tailscale_device_host_assignments
+          where owner_user_id = $1 and device_owner_user_id = $2 and device_id = $3
+          for update`,
+        [input.ownerUserId, input.deviceOwnerUserId, input.deviceId]
+      )).rows[0];
+      const revision = Number(current?.revision ?? 0);
+      const record = {
+        deviceId: input.deviceId,
+        ...(current?.host_id ? { hostId: current.host_id } : {}),
+        revision
+      };
+      if (revision !== request.expectedRevision) {
+        throw new TailscaleHostAssignmentRevisionConflict(record);
+      }
+
+      let hostId: string | undefined;
+      if (request.action === 'assign') {
+        const host = await client.query<{ id: string }>(
+          `select id from physical_machines
+            where owner_user_id = $1 and id = $2 for update`,
+          [input.ownerUserId, request.hostId]
+        );
+        hostId = host.rows[0]?.id;
+        if (!hostId) throw new UnknownTailscaleHost();
+      } else if (request.action === 'create') {
+        const name = validHostName(request.name);
+        const platform = await client.query<{ id: string }>(
+          `insert into compute_platforms (id, owner_user_id, kind, name)
+           values ($1, $2, 'local', 'Local & self-hosted')
+           on conflict (owner_user_id, kind, name) do update set updated_at = now()
+           returning id`,
+          [randomUUID(), input.ownerUserId]
+        );
+        const platformId = platform.rows[0]?.id;
+        if (!platformId) throw new Error('The local Compute platform could not be reconciled.');
+        hostId = randomUUID();
+        const host = await client.query<{ id: string }>(
+          `insert into physical_machines (id, owner_user_id, name)
+           values ($1, $2, $3)
+           returning id`,
+          [hostId, input.ownerUserId, name]
+        );
+        if (!host.rows[0]) throw new Error('The Host could not be created.');
+        await client.query(
+          `insert into compute_hosts (
+             id, owner_user_id, platform_id, identity_version, identity_key, name
+           ) values ($1, $2, $3, 1, $4, $5)`,
+          [hostId, input.ownerUserId, platformId,
+            accountScopedIdentity(input.ownerUserId, `manual:${hostId}`), name]
+        );
+      }
+
+      const saved = await client.query<HostAssignmentRow>(
+        `insert into tailscale_device_host_assignments (
+           owner_user_id, device_owner_user_id, device_id, host_id, revision, actor_id
+         ) values ($1, $2, $3, $4, 1, $5)
+         on conflict (owner_user_id, device_owner_user_id, device_id) do update set
+           host_id = excluded.host_id,
+           revision = tailscale_device_host_assignments.revision + 1,
+           actor_id = excluded.actor_id,
+           updated_at = now()
+         where tailscale_device_host_assignments.revision = $6
+         returning host_id, revision`,
+        [input.ownerUserId, input.deviceOwnerUserId, input.deviceId, hostId ?? null,
+          input.actorId, request.expectedRevision]
+      );
+      const next = saved.rows[0];
+      if (!next) throw new TailscaleHostAssignmentRevisionConflict(record);
+      const nextRevision = Number(next.revision);
+      if (!Number.isSafeInteger(nextRevision) || nextRevision < 1) {
+        throw new Error('The Tailnet device Host assignment revision is invalid.');
+      }
+      await client.query(
+        `insert into tailscale_device_host_assignment_audits (
+           owner_user_id, device_owner_user_id, device_id, actor_id,
+           previous_host_id, next_host_id, revision
+         ) values ($1, $2, $3, $4, $5, $6, $7)`,
+        [input.ownerUserId, input.deviceOwnerUserId, input.deviceId, input.actorId,
+          current?.host_id ?? null, next.host_id, nextRevision]
+      );
+      return {
+        deviceId: input.deviceId,
+        ...(next.host_id ? { hostId: next.host_id } : {}),
+        revision: nextRevision
+      };
+    };
+    return this.transaction(run);
+  }
+
   private transaction<Result>(operation: (client: DatabaseQueryClient) => Promise<Result>) {
     if (!this.client.transaction) {
       throw new Error('The Tailscale inventory store requires transactional database access.');
@@ -263,13 +408,25 @@ function hasControlCharacter(value: string) { return /[\u0000-\u001f\u007f]/.tes
 function validClassification(value: unknown): value is TailscaleDeviceClassification {
   return typeof value === 'string' && tailscaleDeviceClassifications.includes(value as TailscaleDeviceClassification);
 }
+function validHostName(value: string) {
+  const name = value.trim();
+  if (!name || name.length > 80 || hasControlCharacter(name)) {
+    throw new Error('The Host name is invalid.');
+  }
+  return name;
+}
+function accountScopedIdentity(ownerUserId: string, value: string) {
+  return `account:${createHash('sha256').update(ownerUserId).update('\0').update(value).digest('hex')}`;
+}
 function mapDeviceRow(row: DeviceRow, now: Date): StoredTailscaleDevice | undefined {
   const classification = row.classification ?? 'unclassified';
   if (!validClassification(classification) || !Array.isArray(row.addresses) ||
     row.addresses.some((address) => typeof address !== 'string') || !Array.isArray(row.tags) ||
     row.tags.some((tag) => typeof tag !== 'string')) return undefined;
   const revision = Number(row.revision ?? 0);
-  if (!Number.isSafeInteger(revision) || revision < 0) return undefined;
+  const hostAssignmentRevision = Number(row.host_assignment_revision ?? 0);
+  if (!Number.isSafeInteger(revision) || revision < 0 ||
+    !Number.isSafeInteger(hostAssignmentRevision) || hostAssignmentRevision < 0) return undefined;
   const observedAt = isoDate(row.observed_at);
   const freshUntil = isoDate(row.fresh_until);
   if (freshUntil <= observedAt) return undefined;
@@ -290,7 +447,10 @@ function mapDeviceRow(row: DeviceRow, now: Date): StoredTailscaleDevice | undefi
     return {
       ...observation,
       classification,
+      ...(row.environment_id ? { environmentId: row.environment_id } : {}),
       freshness: { observedAt, freshUntil, state: freshnessState },
+      hostAssignmentRevision,
+      ...(row.host_id ? { hostId: row.host_id } : {}),
       revision,
       ...(staleAt ? { staleAt } : {}),
       state: row.inventory_state

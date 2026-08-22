@@ -9,3 +9,5 @@ pre-commit:
       run: bun run ci:check -- --staged package-manager-policy
     - name: documentation and change specifications
       run: bun run ci:check -- --staged docs-specs
+    - name: UI copy conventions
+      run: bun run ci:check -- --staged ui-copy

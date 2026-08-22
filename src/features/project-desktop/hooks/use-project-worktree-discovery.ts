@@ -25,7 +25,7 @@ export function useProjectWorktreeDiscovery({
     const requestScope = project.id;
     const blocked: ProjectWorktreeDiscoveryState = {
       checkedAt: new Date().toISOString(),
-      message: 'Workspace Runtime is unavailable. Open Compute to connect a canonical runtime.',
+      message: 'Workspace Runtime is unavailable. Open Hosts to connect a canonical runtime.',
       reason: 'canonical-runtime-required',
       state: 'blocked'
     };

@@ -190,7 +190,7 @@ export function ProjectWorkspacesPanel({
   }, [repository?.fullName]);
 
   function createWorktree() {
-    setActionMessage('Connect an exact Environment Instance and Workspace Runtime in Compute first.');
+    setActionMessage('Connect an exact Environment Instance and Workspace Runtime in Hosts first.');
   }
 
   return (
@@ -208,7 +208,7 @@ export function ProjectWorkspacesPanel({
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
             <Button size="sm" variant="outline" onPress={() => window.location.assign('/settings')}>
-              Open Compute
+              Open Hosts
             </Button>
             <Button
               size="sm"
@@ -303,11 +303,11 @@ export function ProjectWorkspacesPanel({
                 Workspace Runtime is unavailable.
               </Text>
               <Text className="mt-1 block text-xs leading-5 text-amber-200/70">
-                Connect an exact Environment Instance and Workspace Runtime from canonical Compute before using worktree actions.
+                Connect an exact Environment Instance and Workspace Runtime from Hosts before using worktree actions.
               </Text>
             </div>
             <Button size="sm" variant="outline" onPress={() => window.location.assign('/settings')}>
-              Open Compute
+              Open Hosts
             </Button>
           </div>
         ) : connectorUpdateRequired ? (

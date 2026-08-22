@@ -1,0 +1,12 @@
+@import "@dotnaos/design/tokens.css";
+@import "@dotnaos/design/theme.css";
+@import "@dotnaos/design/styles.css";
+@import "@dotnaos/ui/styles.css";
+@import "@dotnaos/design/tailwind-theme.css";
+
+/*
+ * @dotnaos/ui@0.0.13 does not yet include the Tailwind utilities emitted by
+ * @dotnaos/ui-base in its published stylesheet. Keep the compatibility scan
+ * behind this single project-neutral boundary until DotNaos/ui#80 ships.
+ */
+@source "../../../node_modules/@dotnaos/ui-base/dist";

@@ -13,7 +13,7 @@ export interface IssueCodexHostWakeState {
 }
 
 export const canonicalComputeWakeMessage =
-  'An exact Environment Instance and Workspace Runtime must be selected in Compute before a project task can start.';
+  'An exact Environment Instance and Workspace Runtime must be selected in Hosts before a project task can start.';
 
 /**
  * Project issue tasks retain their read-only inventory and discussion paths, but

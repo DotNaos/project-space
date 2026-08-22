@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertDialog, Checkbox, Modal } from '@heroui/react';
-import { AlertTriangle, Check, LoaderCircle, Trash2 } from 'lucide-react';
-import { Button, Chip, Text } from '@/app/dotnaos-ui';
+import { Button, Checkbox, Chip, Dialog, Icon, Spinner } from '@dotnaos/ui/base';
 import { projectSpaceClient } from '@/api/project-space-client';
 import type {
   LegacyConnectorCleanupBlocker,
@@ -110,36 +108,29 @@ function CleanupRecordRow({
     <li className="border-b border-neutral-800/70 py-3 last:border-b-0">
       <div className="flex min-w-0 items-start gap-3">
         <Checkbox
-          aria-label={`Select ${record.label}`}
-          className="mt-0.5 shrink-0"
-          isDisabled={!removable}
-          isSelected={selected}
-          onChange={(nextSelected) => onSelectedChange(record, nextSelected)}
-        >
-          <Checkbox.Content>
-            <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
-            <span className="sr-only">Select {record.label}</span>
-          </Checkbox.Content>
-        </Checkbox>
+          checked={selected}
+          disabled={!removable}
+          label={`Select ${record.label}`}
+          onCheckedChange={(nextSelected) => onSelectedChange(record, nextSelected)}
+        />
         <span className="min-w-0 flex-1">
-          <Text className="block truncate text-sm font-medium text-neutral-100">{record.label}</Text>
-          <Text className="mt-1 block text-xs text-neutral-500">
-            {replacement ?? 'No canonical replacement is recorded.'}
-          </Text>
+          <span className="block truncate text-sm font-medium text-neutral-100">{record.label}</span>
+          <span className="mt-1 block text-xs text-neutral-500">{replacement ?? 'No canonical replacement is recorded.'}</span>
           {blockers.length > 0 ? (
             <span className="mt-2 flex flex-wrap gap-1.5">
-              {blockers.map((blocker) => <Chip key={blocker.kind} size="sm" className="text-amber-300">{blockerLabel(blocker)}</Chip>)}
+              {blockers.map((blocker) => <Chip key={blocker.kind} label={blockerLabel(blocker)} size="sm" tone="warning" variant="soft" />)}
             </span>
           ) : null}
         </span>
         <span className="flex shrink-0 items-center gap-2">
-          <Chip size="sm" className={outcome?.outcome === 'removed' || outcome?.outcome === 'already_removed' ? 'text-emerald-300' : removable ? 'text-sky-300' : 'text-amber-300'}>
-            {cleanupRecordState(record, result)}
-          </Chip>
+          <Chip
+            label={cleanupRecordState(record, result)}
+            size="sm"
+            tone={outcome?.outcome === 'removed' || outcome?.outcome === 'already_removed' ? 'success' : removable ? 'accent' : 'warning'}
+            variant="soft"
+          />
           {removable ? (
-            <Button size="sm" variant="ghost" onPress={() => onRemove(record)}>
-              <Trash2 className="size-3.5" />{retryable ? 'Retry' : 'Remove'}
-            </Button>
+            <Button icon="trash" label={retryable ? 'Retry' : 'Remove'} variant="ghost" onPress={() => onRemove(record)} />
           ) : null}
         </span>
       </div>
@@ -226,93 +217,95 @@ export function LegacyConnectorCleanup({
     <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-neutral-800/70 pt-3">
       {hasRecords ? (
         <>
-          <Text className="text-xs text-neutral-500">Legacy records · {snapshot!.records.length}</Text>
-          <Button size="sm" variant="ghost" isDisabled={loading} onPress={() => { setResult(undefined); setResultLabels({}); setReviewOpen(true); }}>
-            Review
-          </Button>
+          <span className="text-xs text-neutral-500">Legacy records · {snapshot!.records.length}</span>
+          <Button disabled={loading} label="Review" variant="ghost" onPress={() => { setResult(undefined); setResultLabels({}); setReviewOpen(true); }} />
         </>
       ) : null}
 
-      <Modal isOpen={reviewOpen} onOpenChange={(open) => { if (!removing) setReviewOpen(open); }}>
-        <Modal.Backdrop variant="blur" className="z-[120] bg-black/75">
-          <Modal.Container placement="auto" scroll="inside" size="md" className="p-3 sm:p-5">
-            <Modal.Dialog className="overflow-hidden border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl shadow-black/70 sm:max-w-2xl">
-              <Modal.Header className="items-start border-b border-neutral-800 px-5 py-4 sm:px-6">
-                <span className="min-w-0 flex-1">
-                  <Modal.Heading className="text-base font-semibold">Review legacy Connector records</Modal.Heading>
-                  <Text className="mt-1 block text-xs leading-5 text-neutral-500">{legacyConnectorRemovalScope}</Text>
-                </span>
-                {!removing ? <Modal.CloseTrigger aria-label="Close legacy record review" className="text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100" /> : null}
-              </Modal.Header>
-              <Modal.Body className="px-5 py-2 sm:px-6">
-                {result ? (
-                  <div role="status" className="border-b border-neutral-800/70 py-3 text-xs text-neutral-400">
-                    {result.results.map((entry) => {
-                      const record = snapshot?.records.find((candidate) => candidate.connectorId === entry.connectorId)
-                        ?? confirmRecords.find((candidate) => candidate.connectorId === entry.connectorId);
-                      return <Text key={entry.connectorId} className="block">{record?.label ?? resultLabels[entry.connectorId] ?? 'Legacy record'} · {cleanupOutcomeLabel(entry.outcome)}</Text>;
-                    })}
-                  </div>
-                ) : null}
-                {snapshot?.records.length ? (
-                  <ul aria-label="Legacy Connector records" className="divide-y divide-neutral-800/70">
-                    {snapshot.records.map((record) => (
-                      <CleanupRecordRow
-                        key={record.connectorId}
-                        onRemove={(nextRecord) => setConfirmRecords([nextRecord])}
-                        onSelectedChange={changeSelection}
-                        record={record}
-                        result={result}
-                        selected={selected.has(record.connectorId)}
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="py-8 text-center"><Check className="mx-auto size-5 text-emerald-300" /><Text className="mt-2 block text-sm text-neutral-400">No legacy Connector records remain.</Text></div>
-                )}
-                {error ? <Text role="alert" className="py-3 text-xs text-red-300">{error}</Text> : null}
-              </Modal.Body>
-              <Modal.Footer className="flex-row items-center justify-between border-t border-neutral-800 px-5 py-4 sm:px-6">
-                <Text className="text-xs text-neutral-500">{selectedRecords.length} eligible selected</Text>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="ghost" isDisabled={removing} onPress={() => setReviewOpen(false)}>Done</Button>
-                  <Button size="sm" variant="danger" isDisabled={removing || selectedRecords.length === 0} onPress={() => setConfirmRecords(selectedRecords)}>
-                    <Trash2 className="size-3.5" />Remove eligible
-                  </Button>
-                </div>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog.Surface
+        closeLabel="Close legacy record review"
+        closeOnBackdrop={!removing}
+        label="Review legacy Connector records"
+        onClose={() => { if (!removing) setReviewOpen(false); }}
+        open={reviewOpen}
+        width="large"
+      >
+        <Dialog.Header>
+          <div>
+            <h2 className="text-base font-semibold text-neutral-100">Review legacy Connector records</h2>
+            <p className="mt-1 text-xs leading-5 text-neutral-500">{legacyConnectorRemovalScope}</p>
+          </div>
+        </Dialog.Header>
+        <div className="max-h-[60vh] overflow-y-auto px-1 py-2">
+          {result ? (
+            <div role="status" className="border-b border-neutral-800/70 py-3 text-xs text-neutral-400">
+              {result.results.map((entry) => {
+                const record = snapshot?.records.find((candidate) => candidate.connectorId === entry.connectorId)
+                  ?? confirmRecords.find((candidate) => candidate.connectorId === entry.connectorId);
+                return <span key={entry.connectorId} className="block">{record?.label ?? resultLabels[entry.connectorId] ?? 'Legacy record'} · {cleanupOutcomeLabel(entry.outcome)}</span>;
+              })}
+            </div>
+          ) : null}
+          {snapshot?.records.length ? (
+            <ul aria-label="Legacy Connector records" className="divide-y divide-neutral-800/70">
+              {snapshot.records.map((record) => (
+                <CleanupRecordRow
+                  key={record.connectorId}
+                  onRemove={(nextRecord) => setConfirmRecords([nextRecord])}
+                  onSelectedChange={changeSelection}
+                  record={record}
+                  result={result}
+                  selected={selected.has(record.connectorId)}
+                />
+              ))}
+            </ul>
+          ) : (
+            <div className="py-8 text-center">
+              <Icon name="check" color="success" />
+              <p className="mt-2 text-sm text-neutral-400">No legacy Connector records remain.</p>
+            </div>
+          )}
+          {error ? <p role="alert" className="py-3 text-xs text-red-300">{error}</p> : null}
+        </div>
+        <Dialog.Footer>
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
+            <span className="text-xs text-neutral-500">{selectedRecords.length} eligible selected</span>
+            <div className="flex items-center gap-2">
+              <Button disabled={removing} label="Done" variant="ghost" onPress={() => setReviewOpen(false)} />
+              <Button disabled={removing || selectedRecords.length === 0} icon="trash" label="Remove eligible" variant="primary" onPress={() => setConfirmRecords(selectedRecords)} />
+            </div>
+          </div>
+        </Dialog.Footer>
+      </Dialog.Surface>
 
-      <AlertDialog isOpen={confirmRecords.length > 0} onOpenChange={(open) => {
-        if (!open && !removing) setConfirmRecords([]);
-      }}>
-        <AlertDialog.Backdrop isDismissable={false} isKeyboardDismissDisabled={removing} variant="blur" className="z-[130] bg-black/80">
-          <AlertDialog.Container placement="center" size="md" className="px-3 py-3 sm:px-5 sm:py-6">
-            <AlertDialog.Dialog className="border border-neutral-800 bg-neutral-950 text-neutral-100">
-              <AlertDialog.Header>
-                <AlertDialog.Icon status="warning"><AlertTriangle className="size-5" /></AlertDialog.Icon>
-                <AlertDialog.Heading>Remove {confirmRecords.length === 1 ? 'this legacy record' : `${confirmRecords.length} legacy records`}?</AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
-                <ul className="mb-3 list-disc space-y-1 pl-5 text-sm text-neutral-200">
-                  {confirmRecords.map((record) => <li key={record.connectorId}>{record.label}</li>)}
-                </ul>
-                <Text className="block text-sm leading-6 text-neutral-300">{legacyConnectorRemovalScope}</Text>
-              </AlertDialog.Body>
-              <AlertDialog.Footer className="flex-col-reverse gap-2 min-[420px]:flex-row min-[420px]:justify-end">
-                <Button variant="ghost" isDisabled={removing} onPress={() => setConfirmRecords([])}>Cancel</Button>
-                <Button variant="danger" isDisabled={removing} onPress={() => void remove()}>
-                  {removing ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                  {removing ? 'Removing…' : 'Remove records'}
-                </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
-      </AlertDialog>
+      <Dialog.Surface
+        closeLabel="Cancel legacy record removal"
+        closeOnBackdrop={false}
+        label="Confirm legacy record removal"
+        onClose={() => { if (!removing) setConfirmRecords([]); }}
+        open={confirmRecords.length > 0}
+        width="medium"
+      >
+        <Dialog.Header>
+          <div className="flex items-center gap-3">
+            <Icon name="alert-triangle" color="warning" />
+            <h2 className="text-base font-semibold text-neutral-100">Remove {confirmRecords.length === 1 ? 'this legacy record' : `${confirmRecords.length} legacy records`}?</h2>
+          </div>
+        </Dialog.Header>
+        <div>
+          <ul className="mb-3 list-disc space-y-1 pl-5 text-sm text-neutral-200">
+            {confirmRecords.map((record) => <li key={record.connectorId}>{record.label}</li>)}
+          </ul>
+          <p className="text-sm leading-6 text-neutral-300">{legacyConnectorRemovalScope}</p>
+        </div>
+        <Dialog.Footer>
+          <div className="flex w-full flex-col-reverse gap-2 min-[420px]:flex-row min-[420px]:justify-end">
+            <Button disabled={removing} label="Cancel" variant="ghost" onPress={() => setConfirmRecords([])} />
+            {removing ? <Spinner size="s" /> : null}
+            <Button disabled={removing} icon="trash" label={removing ? 'Removing…' : 'Remove records'} variant="primary" onPress={() => void remove()} />
+          </div>
+        </Dialog.Footer>
+      </Dialog.Surface>
     </div>
   );
 }

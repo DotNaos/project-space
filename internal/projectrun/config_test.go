@@ -98,6 +98,9 @@ servers:
       VITE_PROJECT_SPACE_AUTH_DISABLED: "1"
       PROJECT_SPACE_AUTH_DISABLED: "1"
       PROJECT_SPACE_PUBLIC_ORIGIN: ""
+    externalEnvironment:
+      VITE_PROJECT_SPACE_AUTH_DISABLED: "0"
+      PROJECT_SPACE_AUTH_DISABLED: "0"
     secretEnvironment:
       GITHUB_OAUTH_CLIENT_ID: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID
 `)
@@ -115,9 +118,46 @@ servers:
 		server.SecretEnvironment["GITHUB_OAUTH_CLIENT_ID"] != "infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/GITHUB_OAUTH_CLIENT_ID" {
 		t.Fatalf("managed local preview environment = %#v", server)
 	}
+	if server.ExternalEnvironment["PROJECT_SPACE_AUTH_DISABLED"] != "0" ||
+		server.ExternalEnvironment["VITE_PROJECT_SPACE_AUTH_DISABLED"] != "0" {
+		t.Fatalf("external environment = %#v", server.ExternalEnvironment)
+	}
 	if _, _, err := LoadCommand(project, "dev"); err == nil ||
 		!strings.Contains(err.Error(), "long-running servers require project serve") {
 		t.Fatalf("server escaped through project run: %v", err)
+	}
+}
+
+func TestExternalServeUsesOverridesAndNamedSecretsAcrossInfisicalProjects(t *testing.T) {
+	project := t.TempDir()
+	writeScriptsBody(t, project, `version: 1
+scripts:
+  dev:
+    command: [bun, x, vite]
+    environment:
+      PROJECT_SPACE_AUTH_DISABLED: "1"
+    externalEnvironment:
+      PROJECT_SPACE_AUTH_DISABLED: "0"
+    secretEnvironment:
+      DATABASE_URL: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/DATABASE_URL
+      CLERK_SECRET_KEY: infisical://467bbc88-262a-4ea0-a238-9666d6e7e359/prod/CLERK_SECRET_KEY
+`)
+	_, script, err := LoadScript(project, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := serverCommandFor(
+		script, project, "127.0.0.1", 43117, nil, ServeModeManaged,
+		"http://project.localhost:1355", "http://100.64.0.8:44419",
+		APIsModeExternal, DataModeRemote,
+	)
+	if !containsEnvironment(command.Env, "PROJECT_SPACE_AUTH_DISABLED=0") ||
+		!containsEnvironment(command.Env, "PROJECT_SPACE_EXTERNAL_SECRETS=resolved") {
+		t.Fatalf("external environment = %#v", command.Env)
+	}
+	if len(command.SecretEnvironment) != 2 || command.SecretEnvironment["DATABASE_URL"] == "" ||
+		command.SecretEnvironment["CLERK_SECRET_KEY"] == "" {
+		t.Fatalf("external secrets = %#v", command.SecretEnvironment)
 	}
 }
 

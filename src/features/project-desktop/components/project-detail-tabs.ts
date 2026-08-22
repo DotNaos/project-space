@@ -21,7 +21,7 @@ export const projectTabItems: Array<{
   { icon: LayoutDashboard, id: 'overview', label: 'Overview' },
   { icon: ListChecks, id: 'issues', label: 'Issues' },
   { icon: Workflow, id: 'roadmap', label: 'Roadmap' },
-  { icon: Server, id: 'machines', label: 'Compute' },
+  { icon: Server, id: 'machines', label: 'Hosts' },
   { icon: GitBranchPlus, id: 'workspaces', label: 'Workspaces' },
   { icon: MessageSquareText, id: 'chat', label: 'Chat' },
   { icon: GitGraph, id: 'history', label: 'History' },

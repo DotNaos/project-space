@@ -1,16 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import { createTailscaleInventoryService, TailscaleClassificationRevisionConflict } from '../server/tailscale-inventory/service';
 
-const base = (online = true, state: 'fresh' | 'stale' | 'unknown' = 'fresh') => ({ addresses: ['100.64.0.1'], classification: 'unclassified' as const, freshness: { observedAt: '2026-08-14T09:00:00.000Z', freshUntil: '2026-08-14T09:01:00.000Z', state }, id: 'device-a', online, revision: 0, state: 'current' as const, tags: ['tag:owner'] });
+const base = (online = true, state: 'fresh' | 'stale' | 'unknown' = 'fresh') => ({ addresses: ['100.64.0.1'], classification: 'unclassified' as const, freshness: { observedAt: '2026-08-14T09:00:00.000Z', freshUntil: '2026-08-14T09:01:00.000Z', state }, hostAssignmentRevision: 0, id: 'device-a', online, revision: 0, state: 'current' as const, tags: ['tag:owner'] });
 function setup() {
   const calls: unknown[] = []; let devices = [base()];
   const service = createTailscaleInventoryService({
     now: () => new Date('2026-08-14T09:02:00.000Z'),
     source: { async describe() { return { connectionState: 'connected' as const, source: 'tailscale_oauth_api' as const }; }, async observe() { return { available: true as const, snapshot: { backendState: 'running' as const, deviceErrors: [], devices: [], freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const }, source: 'tailscale_status_json' as const } }; } },
     store: {
-      async list(owner) { calls.push(['list', owner]); return devices; },
+      async list(deviceOwner, hostOwner) { calls.push(['list', deviceOwner, hostOwner]); return devices; },
       async reconcile(owner, input) { calls.push(['reconcile', owner, input]); },
-      async setClassification(input) { calls.push(['classify', input]); return { classification: input.classification, id: input.deviceId, revision: input.expectedRevision + 1 }; }
+      async setClassification(input) { calls.push(['classify', input]); return { classification: input.classification, id: input.deviceId, revision: input.expectedRevision + 1 }; },
+      async setHostAssignment(input) { calls.push(['assign-host', input]); return { deviceId: input.deviceId, revision: input.request.expectedRevision + 1 }; }
     }
   });
   return { calls, service, setDevices: (next: typeof devices) => { devices = next; } };
@@ -40,7 +41,7 @@ describe('Tailscale inventory service', () => {
       store: {
         async list() { return []; },
         async reconcile(owner, input) { storeCalls.push([owner, input]); },
-        async setClassification() { throw new Error(); }
+        async setClassification() { throw new Error(); }, async setHostAssignment() { throw new Error(); }
       }
     });
     const first = service.list('owner', true);
@@ -72,7 +73,7 @@ describe('Tailscale inventory service', () => {
       store: {
         async list() { return []; },
         async reconcile(owner) { reconciled.push(owner); },
-        async setClassification() { throw new Error(); }
+        async setClassification() { throw new Error(); }, async setHostAssignment() { throw new Error(); }
       }
     });
     await Promise.all([service.list('owner-a', true), service.list('owner-b', true)]);
@@ -97,8 +98,8 @@ describe('Tailscale inventory service', () => {
         async observe(owner) { calls.push(['observe', owner]); return { available: true as const, snapshot }; }
       },
       store: {
-        async list(owner) {
-          calls.push(['list', owner]);
+        async list(deviceOwner, hostOwner) {
+          calls.push(['list', deviceOwner, hostOwner]);
           return [{ ...base(), classification, revision }];
         },
         async reconcile(owner) { calls.push(['reconcile', owner]); },
@@ -113,6 +114,10 @@ describe('Tailscale inventory service', () => {
           revision += 1;
           audits.push({ actorId: input.actorId, classification });
           return { classification, id: input.deviceId, revision };
+        },
+        async setHostAssignment(input) {
+          calls.push(['assign-host', input]);
+          return { deviceId: input.deviceId, hostId: '24000000-0000-4000-8000-000000000001', revision: 1 };
         }
       }
     });
@@ -131,7 +136,7 @@ describe('Tailscale inventory service', () => {
     )).rejects.toBeInstanceOf(TailscaleClassificationRevisionConflict);
 
     expect(calls).toContainEqual(['reconcile', 'project-space:tailscale-deployment']);
-    expect(calls).toContainEqual(['list', 'project-space:tailscale-deployment']);
+    expect(calls).toContainEqual(['list', 'project-space:tailscale-deployment', 'user-b']);
     expect(calls).toContainEqual(['classify', expect.objectContaining({
       actorId: 'user-a',
       ownerUserId: 'project-space:tailscale-deployment'
@@ -140,6 +145,18 @@ describe('Tailscale inventory service', () => {
       expect.objectContaining({ classification: 'environment', revision: 1 })
     ]);
     expect(audits).toEqual([{ actorId: 'user-a', classification: 'environment' }]);
+
+    await service.setHostAssignment(
+      { actorId: 'user-b', kind: 'human', ownerUserId: 'user-b' },
+      'device-a',
+      { action: 'create', expectedRevision: 0, name: 'MacBook' }
+    );
+    expect(calls).toContainEqual(['assign-host', expect.objectContaining({
+      actorId: 'user-b',
+      deviceOwnerUserId: 'project-space:tailscale-deployment',
+      ownerUserId: 'user-b',
+      request: { action: 'create', expectedRevision: 0, name: 'MacBook' }
+    })]);
   });
   test('fences cached evidence when the same owner rotates their connection', async () => {
     let revision = 1;
@@ -155,7 +172,7 @@ describe('Tailscale inventory service', () => {
         async observe() { observeCalls += 1; return { available: true as const, snapshot }; }
       },
       store: {
-        async list() { return []; }, async reconcile() {}, async setClassification() { throw new Error(); }
+        async list() { return []; }, async reconcile() {}, async setClassification() { throw new Error(); }, async setHostAssignment() { throw new Error(); }
       }
     });
     await service.list('owner', true);
@@ -188,14 +205,16 @@ describe('Tailscale inventory service', () => {
   test('makes decoder errors partial and provider failures cached/unavailable without fabricated writes', async () => {
     const fixture = setup();
     (fixture.service as never); // source replacement is exercised by a fresh service below.
-    const calls: unknown[] = []; const store = { async list() { return [base(true, 'stale')]; }, async reconcile(_: string, input: unknown) { calls.push(input); }, async setClassification() { throw new Error(); } };
+    const calls: unknown[] = []; const store = { async list() { return [base(true, 'stale')]; }, async reconcile(_: string, input: unknown) { calls.push(input); }, async setClassification() { throw new Error(); }, async setHostAssignment() { throw new Error(); } };
     const descriptor = async () => ({ connectionState: 'connected' as const, source: 'tailscale_oauth_api' as const });
     const partial = createTailscaleInventoryService({ source: { describe: descriptor, async observe() { return { available: true as const, snapshot: { backendState: 'running' as const, deviceErrors: [{ code: 'invalid_device' as const, source: 'peer' as const }], devices: [], freshness: { freshUntil: '2026-08-14T09:01:00.000Z', observedAt: '2026-08-14T09:00:00.000Z', state: 'fresh' as const }, source: 'tailscale_status_json' as const } }; } }, store });
     expect((await partial.list('owner', true)).provider).toEqual({ connectionState: 'connected', errorCount: 1, refreshState: 'partial', source: 'tailscale_oauth_api' });
     const failed = createTailscaleInventoryService({ now: () => new Date('2026-08-14T09:02:00.000Z'), source: { describe: descriptor, async observe() { return { available: false as const, error: { code: 'command_failed' as const, source: 'command' as const } }; } }, store });
     const unavailable = await failed.list('owner', true);
     expect(unavailable.provider).toEqual({ connectionState: 'unavailable', reasonCode: 'command_failed', refreshState: 'unavailable', source: 'tailscale_oauth_api' });
-    expect(unavailable.devices).toEqual([]);
+    expect(unavailable.devices).toEqual([
+      expect.objectContaining({ id: 'device-a', network: expect.objectContaining({ state: 'unknown' }) })
+    ]);
     expect(calls).toHaveLength(2);
   });
   test('does not return cached devices when deployment configuration is missing or invalid', async () => {
@@ -206,7 +225,7 @@ describe('Tailscale inventory service', () => {
           async observe() { throw new Error('observe must not run'); }
         },
         store: {
-          async list() { return [base()]; }, async reconcile() {}, async setClassification() { throw new Error(); }
+          async list() { return [base()]; }, async reconcile() {}, async setClassification() { throw new Error(); }, async setHostAssignment() { throw new Error(); }
         }
       });
       expect((await service.list('owner')).devices).toEqual([]);
@@ -219,5 +238,13 @@ describe('Tailscale inventory service', () => {
     expect(fixture.calls).toContainEqual(['classify', expect.objectContaining({ ownerUserId: 'owner' })]);
     const conflict = new TailscaleClassificationRevisionConflict({ classification: 'environment', id: 'device-a', revision: 1 });
     expect(conflict.name).toBe('TailscaleClassificationRevisionConflict');
+  });
+  test('requires a human owner for Host assignment', async () => {
+    const fixture = setup();
+    await expect(fixture.service.setHostAssignment(
+      { actorId: 'machine', kind: 'machine', ownerUserId: 'owner' },
+      'device-a',
+      { action: 'create', expectedRevision: 0, name: 'MacBook' }
+    )).rejects.toMatchObject({ code: 'machine-forbidden' });
   });
 });

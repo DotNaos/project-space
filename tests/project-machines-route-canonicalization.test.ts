@@ -45,6 +45,8 @@ describe('legacy Machines route canonicalization', () => {
 
   test('starts Settings directly even when unrelated discovery data is unavailable', () => {
     expect(initialProjectMainView('/settings')).toBe('settings');
+    expect(initialProjectMainView('/settings/devices/tailnet/device%3Aos-macbook')).toBe('settings');
+    expect(initialProjectMainView('/settings/devices/codespace/project-space-572')).toBe('settings');
     expect(initialProjectMainView('/machines/connector-id')).toBe('settings');
   });
 

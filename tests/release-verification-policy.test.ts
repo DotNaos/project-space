@@ -162,7 +162,7 @@ describe('release verification policy', () => {
     expect(mobile).not.toContain('needs:');
     expect(go).not.toContain('needs:');
     expect(rust).not.toContain('needs:');
-    expect(typescript).toContain('bun run ci:check -- typecheck tests web-build');
+    expect(typescript).toContain('bun run ci:check -- ui-copy typecheck tests web-build');
     expect(mobile).toContain('bun run ci:check -- mobile-dependencies');
     expect(mobile).toContain("hashFiles('apps/mobile/bun.lock')");
     expect(mobile).toContain('bun run ci:check -- mobile-build');

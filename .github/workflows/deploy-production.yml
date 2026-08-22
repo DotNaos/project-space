@@ -105,7 +105,7 @@ jobs:
 
       - name: Validate TypeScript
         if: steps.current-main.outputs.superseded != 'true'
-        run: bun run ci:check -- tests typecheck project-build
+        run: bun run ci:check -- ui-copy tests typecheck project-build
 
       - name: Validate Go and build the Project CLI
         if: steps.current-main.outputs.superseded != 'true'

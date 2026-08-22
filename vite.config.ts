@@ -19,6 +19,7 @@ import { createProjectSpaceRequestHandler } from './server/project-space-http';
 import { writeJson } from './server/project-space-http-response';
 import { createPrototypeReviewLocalRuntime } from './server/prototype-review-local-runtime';
 import { createConfiguredMachineConnectionRuntime } from './server/machine-connection-runtime';
+import { deriveMachineConnectionPublicOrigin } from './server/machine-connection-environment';
 import { readReleaseCatalog } from './apps/docs/lib/releases/catalog';
 import { generatedReleaseChangelogSource } from './apps/docs/lib/releases/changelog-source';
 import { createLocalSimulationRequestHandler } from './server/local-simulation/http';
@@ -85,7 +86,13 @@ function projectSpaceApiPlugin(binding: RuntimeBindingEvidence): Plugin {
       const machineConnectionRuntime = createConfiguredMachineConnectionRuntime({
         ...process.env,
         PROJECT_SPACE_PUBLIC_ORIGIN:
-          process.env.PROJECT_SPACE_PUBLIC_ORIGIN ?? process.env.PORTLESS_URL,
+          process.env.PROJECT_SPACE_PUBLIC_ORIGIN ||
+          deriveMachineConnectionPublicOrigin(
+            process.env.PROJECT_SPACE_RUNTIME_ACCESS_URL
+          ) ||
+          (binding.network === 'loopback-only'
+            ? deriveMachineConnectionPublicOrigin(process.env.PORTLESS_URL)
+            : undefined) || undefined,
         PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET:
           process.env.PROJECT_SPACE_MACHINE_RATE_LIMIT_SECRET ??
           (process.env.PORTLESS_URL || process.env.PROJECT_SPACE_AUTH_DISABLED === '1'
@@ -216,6 +223,10 @@ export default defineConfig(({ command }) => {
   ],
   resolve: {
     alias: {
+      ...(command === 'build' ? {
+        '@dotnaos/ui/code-editor': resolve(__dirname, 'src/components/ui/dotnaos-ui-code-editor-build-stub.ts'),
+        '@dotnaos/ui/devtools': resolve(__dirname, 'src/components/ui/dotnaos-ui-devtools-build-stub.tsx')
+      } : {}),
       '@': resolve(__dirname, 'src')
     },
     dedupe: ['react', 'react-dom']

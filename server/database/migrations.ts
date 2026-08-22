@@ -167,6 +167,10 @@ import {
   tailscaleEnvironmentOwnershipMigrationId,
   tailscaleEnvironmentOwnershipMigrationSql
 } from './tailscale-environment-ownership-migration';
+import {
+  tailscaleHostAssignmentMigrationId,
+  tailscaleHostAssignmentMigrationSql
+} from './tailscale-host-assignment-migration';
 
 export interface DatabaseMigration {
   id: string;
@@ -915,6 +919,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
   {
     id: tailscaleEnvironmentOwnershipMigrationId,
     sql: tailscaleEnvironmentOwnershipMigrationSql
+  },
+  {
+    id: tailscaleHostAssignmentMigrationId,
+    sql: tailscaleHostAssignmentMigrationSql
   }
 ];
 

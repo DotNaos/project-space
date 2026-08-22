@@ -105,6 +105,7 @@ describe('canonical local CI preflight', () => {
       'docs-build',
       'typecheck',
       'tests',
+      'ui-copy',
       'web-build',
       'mobile-build',
       'go-race',

@@ -58,6 +58,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newProjectPathCommand())
 	root.AddCommand(newPrepareCommand())
 	root.AddCommand(newRuntimeLogCommand())
+	root.AddCommand(newReviewRouteHeartbeatCommand())
 	root.AddCommand(newRuntimeTmuxCommand())
 	root.AddCommand(newUpdateNoticeRefreshCommand())
 	root.AddCommand(newRunCommand())

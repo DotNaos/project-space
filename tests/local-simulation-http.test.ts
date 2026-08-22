@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { createLocalSimulationRequestHandler } from '../server/local-simulation/http';
+import { LocalSimulationStore } from '../server/local-simulation/store';
 
 let baseUrl = '';
 let directory = '';
@@ -67,6 +68,27 @@ describe('local simulation HTTP runtime', () => {
     };
     expect(inventory.provider).toMatchObject({ connectionState: 'not_configured', source: 'not_connected' });
     expect(inventory.devices).toHaveLength(0);
+  });
+
+  test('keeps simulated classification revisions scoped to one Tailnet device', async () => {
+    const store = new LocalSimulationStore(statePath, directory);
+    await store.update((state) => {
+      state.tailscale = { classifications: {}, connectedAt: state.updatedAt };
+    });
+    const inventory = await json('/api/compute/tailscale/devices') as {
+      devices: Array<{ id: string; revision: number }>;
+    };
+    const device = inventory.devices[0]!;
+    expect(device.revision).toBe(0);
+
+    await store.update((state) => { state.devServer.state = 'stopped'; });
+    const classified = await json(`/api/compute/tailscale/devices/${device.id}/classification`, {
+      body: JSON.stringify({ classification: 'deployment_destination', expectedRevision: device.revision }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST'
+    });
+    expect(classified).toMatchObject({ classification: 'deployment_destination', revision: 1 });
+    await store.reset();
   });
 
   test('persists mutations and fully resets optional scenario state', async () => {

@@ -29,7 +29,7 @@ func newServeCommand() *cobra.Command {
 		"wsl.exe --distribution <distribution> -- project serve",
 	)
 	addWindowsRuntimeOutputFlags(cmd)
-	cmd.Flags().StringArray("allowed-host", nil, "explicit Vite host allowed to reach this session (repeatable)")
+	cmd.Flags().StringArray("allowed-host", nil, "explicit additional Vite host allowed to reach this session (repeatable)")
 	cmd.Flags().Bool("local-only", false, "deprecated alias for --no-tailnet")
 	cmd.Flags().Bool("no-tailnet", false, "keep the server on this machine instead of publishing it through Tailscale")
 	cmd.Flags().Bool("tailnet", false, "publish through Tailscale (the default; retained for compatibility)")

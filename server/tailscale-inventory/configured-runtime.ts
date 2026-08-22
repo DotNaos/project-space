@@ -70,6 +70,9 @@ export function createConfiguredTailscaleInventoryHandler(options: {
     async setClassification(actor, deviceId, request) {
       return (await getRuntime()).inventory.setClassification(actor, deviceId, request);
     },
+    async setHostAssignment(actor, deviceId, request) {
+      return (await getRuntime()).inventory.setHostAssignment(actor, deviceId, request);
+    },
     async getConnection(ownerUserId) {
       const source = (await getRuntime()).source;
       const descriptor = await source.describe?.(ownerUserId) ?? {

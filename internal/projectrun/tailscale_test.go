@@ -24,6 +24,23 @@ func TestRunOutputKeepsSuccessfulStderrWarningsOutOfStructuredStdout(t *testing.
 	}
 }
 
+func TestTailscaleCLIDerivesCanonicalPrivateVPNDeviceName(t *testing.T) {
+	tailscale := TailscaleCLI{Run: func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "tailscale" || strings.Join(args, " ") != "status --json" {
+			return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+		}
+		return `{"Self":{"HostName":"OS-MacBook","DNSName":"os-macbook.tailnet.ts.net."}}`, nil
+	}}
+
+	name, err := tailscale.DeviceName(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "os-macbook" {
+		t.Fatalf("device name = %q", name)
+	}
+}
+
 func TestTailscaleCLIStartsVerifiesAndStopsOnlyExactTCPRoute(t *testing.T) {
 	runner := newFakeTailscaleCommands()
 	tailscale := TailscaleCLI{Run: runner.run}

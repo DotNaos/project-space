@@ -1,6 +1,5 @@
 @import "tailwindcss";
-@import "@heroui/styles";
-@import "@dotnaos/ui/styles.css";
+@import "../components/ui/dotnaos-ui.css";
 @source "..";
 
 @theme {

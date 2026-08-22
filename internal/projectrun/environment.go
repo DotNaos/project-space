@@ -34,11 +34,11 @@ func validateAllowedHost(host string) error {
 	if net.ParseIP(host) != nil {
 		return nil
 	}
-	if strings.HasPrefix(host, ".") {
-		return fmt.Errorf("host suffixes are not allowed; name each trusted host explicitly")
-	}
 	if strings.ContainsAny(host, "*,/:?#@\\\r\n\t ") || strings.Contains(host, "..") {
 		return fmt.Errorf("use a hostname without scheme, port, path, wildcard, or comma")
+	}
+	if strings.HasPrefix(host, ".") {
+		return fmt.Errorf("host suffixes are not allowed; name each trusted host explicitly")
 	}
 	labels := strings.Split(host, ".")
 	for _, label := range labels {
@@ -109,8 +109,12 @@ func serverCommandFor(
 	apis APIsMode,
 	data DataMode,
 ) Command {
+	effectiveScript := script
+	if apis == APIsModeExternal {
+		effectiveScript.Environment = mergeStringMaps(script.Environment, script.ExternalEnvironment)
+	}
 	command := commandForWithSecrets(
-		script,
+		effectiveScript,
 		directory,
 		host,
 		port,
@@ -118,13 +122,19 @@ func serverCommandFor(
 		apis == APIsModeExternal,
 	)
 	command.Env = mergeEnvironment(command.Env, map[string]string{
-		"PROJECT_SPACE_MANAGED_SERVE":      "1",
-		"PROJECT_SPACE_SERVE_MODE":         string(mode),
-		"PROJECT_SPACE_APIS":               string(apis),
-		"PROJECT_SPACE_DATA":               string(data),
-		"PROJECT_SPACE_RUNTIME_ACCESS_URL": runtimeAccessURL,
-		"PORTLESS_URL":                     portlessURL,
+		"PROJECT_SPACE_MANAGED_SERVE":          "1",
+		"PROJECT_SPACE_SERVE_MODE":             string(mode),
+		"PROJECT_SPACE_APIS":                   string(apis),
+		"PROJECT_SPACE_DATA":                   string(data),
+		"PROJECT_SPACE_RUNTIME_ACCESS_URL":     runtimeAccessURL,
+		"PORTLESS_URL":                         portlessURL,
+		"VITE_PROJECT_SPACE_SECURE_REVIEW_URL": runtimeAccessURL,
 	})
+	if apis == APIsModeExternal && len(command.SecretEnvironment) > 0 {
+		command.Env = mergeEnvironment(command.Env, map[string]string{
+			"PROJECT_SPACE_EXTERNAL_SECRETS": "resolved",
+		})
+	}
 	return command
 }
 

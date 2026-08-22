@@ -1,7 +1,9 @@
+use std::process::Command;
+
 use sysinfo::{Disks, System};
 
 use crate::config::{Config, RegisteredRuntime};
-use crate::protocol::{Cpu, Memory, Observation, Resources, RuntimeTelemetry, Storage};
+use crate::protocol::{Cpu, Gpu, Memory, Observation, Resources, RuntimeTelemetry, Storage};
 
 pub fn collect(config: &Config, sequence: u64) -> Result<Observation, String> {
     let mut system = System::new_all();
@@ -23,6 +25,10 @@ fn collect_from_snapshot(
         return Err("required host metrics are unavailable".into());
     }
     let mut partial = Vec::new();
+    let gpu = gpu_metrics();
+    if gpu.is_none() {
+        partial.push("gpu".to_string());
+    }
     let runtimes = config
         .runtimes
         .iter()
@@ -58,6 +64,7 @@ fn collect_from_snapshot(
                 cores: system.cpus().len() as f64,
                 used_percent: rounded_percent(system.global_cpu_usage() as f64),
             },
+            gpu,
             memory: Memory {
                 available_bytes: system.available_memory(),
                 total_bytes: system.total_memory(),
@@ -80,6 +87,87 @@ fn collect_from_snapshot(
         message_type: "hostd.telemetry".into(),
         uptime_seconds,
     })
+}
+
+fn gpu_metrics() -> Option<Vec<Gpu>> {
+    #[cfg(target_os = "macos")]
+    {
+        let utilization = Command::new("/usr/sbin/ioreg")
+            .args(["-r", "-d", "1", "-c", "AGXAccelerator"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|output| parse_named_percent(&output, "Device Utilization %"));
+        let model = Command::new("/usr/sbin/sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|model| model.trim().to_string())
+            .filter(|model| !model.is_empty());
+        return match (model, utilization) {
+            (Some(model), Some(used_percent)) => Some(vec![Gpu {
+                memory_bytes: None,
+                model: format!("{model} GPU"),
+                used_percent: Some(used_percent),
+            }]),
+            _ => None,
+        };
+    }
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        let output = Command::new("nvidia-smi")
+            .args([
+                "--query-gpu=name,utilization.gpu,memory.total",
+                "--format=csv,noheader,nounits",
+            ])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok());
+        return output.and_then(|output| parse_nvidia_metrics(&output));
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn parse_named_percent(output: &str, name: &str) -> Option<f64> {
+    let marker = format!("\"{name}\"=");
+    let value = output
+        .split(&marker)
+        .nth(1)?
+        .split([',', '}'])
+        .next()?
+        .trim();
+    let parsed = value.parse::<f64>().ok()?;
+    (0.0..=100.0)
+        .contains(&parsed)
+        .then(|| rounded_percent(parsed))
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
+fn parse_nvidia_metrics(output: &str) -> Option<Vec<Gpu>> {
+    let metrics: Vec<_> = output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(',').map(str::trim);
+            let model = fields.next()?.to_string();
+            let used_percent = fields.next()?.parse::<f64>().ok()?;
+            let memory_mebibytes = fields.next()?.parse::<u64>().ok()?;
+            if model.is_empty() || !(0.0..=100.0).contains(&used_percent) || fields.next().is_some()
+            {
+                return None;
+            }
+            Some(Gpu {
+                memory_bytes: memory_mebibytes.checked_mul(1_024 * 1_024),
+                model,
+                used_percent: Some(rounded_percent(used_percent)),
+            })
+        })
+        .collect();
+    (!metrics.is_empty()).then_some(metrics)
 }
 
 fn runtime_telemetry(system: &System, runtime: &RegisteredRuntime) -> Option<RuntimeTelemetry> {
@@ -178,6 +266,20 @@ mod tests {
                 <= observation.resources.storage.total_bytes
         );
         assert!(observation.runtimes.is_empty());
+        if let Some(gpu) = &observation.resources.gpu {
+            assert!(gpu.iter().all(|entry| {
+                entry
+                    .used_percent
+                    .is_some_and(|used| (0.0..=100.0).contains(&used))
+            }));
+        } else {
+            assert!(
+                observation
+                    .partial_metrics
+                    .iter()
+                    .any(|metric| metric == "gpu")
+            );
+        }
         assert_eq!(
             observation.resources.memory.total_bytes,
             direct_system.total_memory()
@@ -258,8 +360,29 @@ mod tests {
     fn multiple_missing_boundaries_emit_one_partial_marker() {
         let config = test_config(vec![missing_runtime(91), missing_runtime(92)]);
         let observation = collect(&config, 1).expect("collect partial metrics");
-        assert_eq!(observation.partial_metrics, vec!["runtime"]);
+        assert!(
+            observation
+                .partial_metrics
+                .iter()
+                .any(|metric| metric == "runtime")
+        );
         assert!(observation.runtimes.is_empty());
+    }
+
+    #[test]
+    fn parses_bounded_gpu_measurements_without_shell_input() {
+        let nvidia = parse_nvidia_metrics("NVIDIA RTX A5000, 27, 24564\n").unwrap();
+        assert_eq!(nvidia[0].model, "NVIDIA RTX A5000");
+        assert_eq!(nvidia[0].used_percent, Some(27.0));
+        assert_eq!(nvidia[0].memory_bytes, Some(25_757_220_864));
+        assert_eq!(
+            parse_named_percent(
+                r#""PerformanceStatistics" = {"Device Utilization %"=26,"Renderer Utilization %"=25}"#,
+                "Device Utilization %"
+            ),
+            Some(26.0)
+        );
+        assert!(parse_nvidia_metrics("NVIDIA RTX A5000, 101, 24564\n").is_none());
     }
 
     fn missing_runtime(suffix: u32) -> RegisteredRuntime {

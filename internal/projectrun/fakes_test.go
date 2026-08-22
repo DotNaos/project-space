@@ -269,6 +269,7 @@ func (router *fakeLocalRouter) Remove(
 }
 
 type fakeTailnet struct {
+	device   string
 	ip       string
 	routes   map[int]int
 	started  [][2]int
@@ -277,7 +278,11 @@ type fakeTailnet struct {
 }
 
 func newFakeTailnet() *fakeTailnet {
-	return &fakeTailnet{ip: "100.80.135.9", routes: map[int]int{}}
+	return &fakeTailnet{device: "os-macbook", ip: "100.80.135.9", routes: map[int]int{}}
+}
+
+func (tailnet *fakeTailnet) DeviceName(context.Context) (string, error) {
+	return tailnet.device, nil
 }
 
 func (tailnet *fakeTailnet) IPv4(context.Context) (string, error) {

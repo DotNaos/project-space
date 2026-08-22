@@ -96,7 +96,7 @@ describe('production deployment workflow contract', () => {
     expect(workflow.indexOf('Activate exact trusted Preview assets')).toBeLessThan(
       workflow.indexOf('Independently confirm exact live commit')
     );
-    expect(workflow).toContain('bun run ci:check -- tests typecheck project-build');
+    expect(workflow).toContain('bun run ci:check -- ui-copy tests typecheck project-build');
     expect(workflow).toContain('bun run ci:check -- go-test go-vet');
     expect(workflow).toContain("steps.current-main.outputs.superseded != 'true'");
     expect(workflow).toContain('persist-credentials: false');

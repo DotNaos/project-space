@@ -49,6 +49,7 @@ export function preflightPlan(input: {
     { id: 'diff-hygiene', command: sharedCheckCommand('diff-hygiene') },
     { id: 'package-manager-policy', command: sharedCheckCommand('package-manager-policy') },
     { id: 'docs-specs', command: sharedCheckCommand('docs-specs') },
+    { id: 'ui-copy', command: sharedCheckCommand('ui-copy') },
     { id: 'locked-root-dependencies', command: sharedCheckCommand('locked-root-dependencies') },
     {
       id: 'changelog',
@@ -207,6 +208,9 @@ export function preflightLaneEnvironment(input: {
   }
   if (input.laneId === 'docs-specs') {
     return { ...environment, DOCS_SPECS_BASE: input.baseSha };
+  }
+  if (input.laneId === 'ui-copy') {
+    return { ...environment, UI_COPY_BASE: input.baseSha };
   }
   if (input.laneId === 'diff-hygiene') {
     return {

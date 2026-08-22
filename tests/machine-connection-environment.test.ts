@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  deriveMachineConnectionPublicOrigin,
   readMachineConnectionPublicOrigin,
   machineConnectionRateLimitSecretEnvironment,
   readMachineConnectionRateLimitSecret
@@ -35,6 +36,15 @@ describe('machine connection environment', () => {
         readMachineConnectionPublicOrigin({ PROJECT_SPACE_PUBLIC_ORIGIN: value })
       ).toThrow('not configured securely');
     }
+  });
+
+  test('disables the optional runtime when a derived managed origin is insecure', () => {
+    expect(deriveMachineConnectionPublicOrigin('https://review.vpn.os-home.net'))
+      .toBe('https://review.vpn.os-home.net');
+    expect(deriveMachineConnectionPublicOrigin('http://project-space.localhost:1355'))
+      .toBe('http://project-space.localhost:1355');
+    expect(deriveMachineConnectionPublicOrigin('http://100.80.135.9:44000')).toBeNull();
+    expect(deriveMachineConnectionPublicOrigin(undefined)).toBeNull();
   });
 
   test('requires an independent bounded secret and returns a private copy', () => {

@@ -271,6 +271,9 @@ commands:
 servers:
   dev:
     label: Project Space
+    reviewRoute:
+      projectSlug: project-space
+      apiToken: infisical://27956188-6fce-45c8-ae39-4fff09336e65/prod/REVIEW_ROUTE_API_TOKEN
     command:
       - bun
       - x
@@ -342,7 +345,7 @@ project serve --apis external --data local
 project serve --apis external --data remote
 project serve --tailnet
 project serve --no-tailnet
-project serve dev <directory>
+project serve dev <directory> --review-task-id 732-2
 project serve dev <directory> --allowed-host preview.example.com
 project serve status <directory> --script dev --json
 project serve list --json
@@ -398,10 +401,16 @@ blocked until secure detached credential delivery is implemented.
 
 Managed servers listen on a free `127.0.0.1` port. The CLI registers one exact
 Portless alias such as `http://612-managed-dev.project-space.localhost:1355`
-for normal local use. When the separate Tailnet transport is enabled, it also
-creates one exact raw Tailscale TCP route and reports a DNS-free URL such as
-`http://100.80.135.9:44000`; MagicDNS and Tailscale certificate domains are not
-required. Stop removes only the recorded Portless alias and any owned Tailscale port when
+for explicit local use. A server with a declared `reviewRoute` requires a
+`--review-task-id`, creates one exact HTTPS hostname such as
+`https://project-space-732-2.review.vpn.os-home.net`, and reports that URL as
+`reviewUrl`. The CLI supplies only that returned hostname to Vite, renews the
+server-owned route lease, and deletes it immediately on stop. The platform API
+owns DNS, TLS, and Traefik; Project Space receives only its dedicated Infisical
+API-token reference. MagicDNS and `.ts.net` names are not used.
+
+The private route targets the CLI's exact Tailnet IPv4 and owned TCP port.
+Stop removes only the recorded Portless alias and any owned Tailscale port when
 their current targets still match the recorded local server. It never resets
 unrelated Portless or Tailscale routes, and it never stops the shared Portless
 proxy.
@@ -416,7 +425,7 @@ no longer matches the persisted generation.
 
 Tailnet mode is fail-closed. A start is not `running` until the tmux process,
 local listener, exact Portless alias, exact Tailscale route, and direct,
-Portless, and Tailnet health checks all
+Portless, Tailnet, and declared HTTPS review health checks all
 agree. If publication fails, the CLI compensates the resources created by that
 start and reports `failed`. It never silently leaves a local server running.
 The default local-only mode reports `local-only` and never returns a public URL

@@ -83,6 +83,8 @@ import type {
 import type { ProjectCliComputeInventory } from '@/shared/compute-inventory-cli-api';
 import type {
   TailscaleClassificationRequest,
+  TailscaleHostAssignmentRequest,
+  TailscaleHostAssignmentResult,
   TailscaleInventoryResult,
   TailscaleProviderConnectionResult
 } from '@/shared/tailscale-inventory-api';
@@ -215,6 +217,16 @@ export class HttpProjectSpaceClient extends GitHubProjectSpaceClient implements 
     request: TailscaleClassificationRequest
   ): Promise<{ classification: TailscaleClassificationRequest['classification']; id: string; revision: number }> {
     return this.request(`/api/compute/tailscale/devices/${encodeURIComponent(deviceId)}/classification`, {
+      body: JSON.stringify(request),
+      method: 'POST'
+    });
+  }
+
+  setTailscaleDeviceHost(
+    deviceId: string,
+    request: TailscaleHostAssignmentRequest
+  ): Promise<TailscaleHostAssignmentResult> {
+    return this.request(`/api/compute/tailscale/devices/${encodeURIComponent(deviceId)}/host`, {
       body: JSON.stringify(request),
       method: 'POST'
     });

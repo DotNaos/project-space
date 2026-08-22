@@ -27,7 +27,9 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 		started.PortlessName == "" || portless.routes[started.PortlessName] != 43117 {
 		t.Fatalf("Portless route = %#v routes=%#v", started, portless.routes)
 	}
-	if !reflect.DeepEqual(started.AllowedHosts, []string{"app.example.com", "preview.example.com"}) {
+	if !reflect.DeepEqual(started.AllowedHosts, []string{
+		"app.example.com", "os-macbook.vpn.os-home.net", "preview.example.com",
+	}) {
 		t.Fatalf("allowed hosts = %#v", started.AllowedHosts)
 	}
 	command := processes.started[0]
@@ -37,7 +39,7 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 	if got := strings.Join(command.Argv, " "); got != "test-server --host 127.0.0.1 --port 43117" {
 		t.Fatalf("command = %q", got)
 	}
-	if !containsEnvironment(command.Env, "PROJECT_ALLOWED_HOSTS=app.example.com,preview.example.com") ||
+	if !containsEnvironment(command.Env, "PROJECT_ALLOWED_HOSTS=app.example.com,os-macbook.vpn.os-home.net,preview.example.com") ||
 		!containsEnvironment(command.Env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=") ||
 		!containsEnvironment(command.Env, "PROJECT_SPACE_MANAGED_SERVE=1") ||
 		!containsEnvironment(command.Env, "PROJECT_SPACE_SERVE_MODE=managed") ||
@@ -93,16 +95,21 @@ func TestServeLifecycleIsIdempotentAndExact(t *testing.T) {
 	}
 }
 
-func TestSingleAllowedHostUsesViteCompatibilityVariable(t *testing.T) {
+func TestManagedServeAllowsTheExactCurrentDeviceHostnameWithoutUsingItAsThePublicURL(t *testing.T) {
 	project := writeTestScripts(t)
 	manager, processes, _, _ := newTestManager(t)
-	if _, err := manager.Start(context.Background(), project, "dev", []string{"preview.example.com"}); err != nil {
+	started, err := manager.Start(context.Background(), project, "dev", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	command := processes.started[0]
-	if !containsEnvironment(command.Env, "PROJECT_ALLOWED_HOSTS=preview.example.com") ||
-		!containsEnvironment(command.Env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=preview.example.com") {
+	if !reflect.DeepEqual(started.AllowedHosts, []string{"os-macbook.vpn.os-home.net"}) ||
+		!containsEnvironment(command.Env, "PROJECT_ALLOWED_HOSTS=os-macbook.vpn.os-home.net") ||
+		!containsEnvironment(command.Env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=os-macbook.vpn.os-home.net") {
 		t.Fatalf("managed environment = %#v", command.Env)
+	}
+	if started.PublicURL == nil || *started.PublicURL == "https://os-macbook.vpn.os-home.net" {
+		t.Fatalf("public URL = %#v", started.PublicURL)
 	}
 }
 
@@ -367,7 +374,7 @@ func TestPublishExpectedReplacesOnlyExactOwnedLocalGeneration(t *testing.T) {
 	}
 }
 
-func TestExternalBindingsFailBeforeStartingProcessesOrTailnet(t *testing.T) {
+func TestExternalBindingsRequireDeclaredSecretsBeforeStartingRuntime(t *testing.T) {
 	project := writeTestScripts(t)
 	for _, data := range []DataMode{DataModeLocal, DataModeRemote} {
 		t.Run(string(data), func(t *testing.T) {
@@ -376,13 +383,44 @@ func TestExternalBindingsFailBeforeStartingProcessesOrTailnet(t *testing.T) {
 				APIs: APIsModeExternal,
 				Data: data,
 			})
-			if err == nil || !strings.Contains(err.Error(), "service-account delivery") {
+			if err == nil || !strings.Contains(err.Error(), "declared Infisical secret environment") {
 				t.Fatalf("external start error = %v", err)
 			}
 			if result.State != StateFailed || len(processes.started) != 0 || len(tailnet.started) != 0 {
 				t.Fatalf("external start touched runtime: result=%#v processes=%d tailnet=%d", result, len(processes.started), len(tailnet.started))
 			}
 		})
+	}
+}
+
+func TestExternalRemoteBindingStartsWithDeclaredSecrets(t *testing.T) {
+	project := t.TempDir()
+	writeScriptsBody(t, project, `version: 1
+scripts:
+  dev:
+    command: [test-server, --host, "{host}", --port, "{port}"]
+    secretEnvironment:
+      DATABASE_URL: infisical://d786940c-96a1-4937-981a-dc8729effcf4/dev/DATABASE_URL
+    healthCheck:
+      path: /health
+      timeoutSeconds: 2
+`)
+	manager, processes, tailnet, _ := newTestManager(t)
+	result, err := manager.StartWithOptions(context.Background(), project, "dev", StartOptions{
+		APIs: APIsModeExternal,
+		Data: DataModeRemote,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != StateRunning || result.APIs != APIsModeExternal || result.Data != DataModeRemote ||
+		result.Secrets != "required" || len(processes.started) != 1 || len(tailnet.started) != 1 {
+		t.Fatalf("external result=%#v processes=%#v tailnet=%#v", result, processes.started, tailnet.started)
+	}
+	command := processes.started[0]
+	if command.SecretEnvironment["DATABASE_URL"] == "" ||
+		!containsEnvironment(command.Env, "PROJECT_SPACE_EXTERNAL_SECRETS=resolved") {
+		t.Fatalf("external command = %#v", command)
 	}
 }
 

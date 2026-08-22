@@ -26,6 +26,9 @@ export type TailscaleProviderConnectionState =
 export interface TailscaleInventoryDevice {
   addresses: string[];
   classification: TailscaleDeviceClassification;
+  environmentId?: string;
+  hostAssignmentRevision: number;
+  hostId?: string;
   id: string;
   name?: string;
   network: {
@@ -61,4 +64,15 @@ export interface TailscaleProviderConnectionResult {
 export interface TailscaleClassificationRequest {
   classification: TailscaleDeviceClassification;
   expectedRevision: number;
+}
+
+export type TailscaleHostAssignmentRequest =
+  | { action: 'assign'; expectedRevision: number; hostId: string }
+  | { action: 'create'; expectedRevision: number; name: string }
+  | { action: 'unassign'; expectedRevision: number };
+
+export interface TailscaleHostAssignmentResult {
+  deviceId: string;
+  hostId?: string;
+  revision: number;
 }

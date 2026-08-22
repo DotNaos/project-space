@@ -21,13 +21,47 @@ func (manager *Manager) startLocalRuntime(
 	workspaceID string,
 	runtimeGeneration string,
 	environment []string,
+	reviewTaskID string,
+	reviewHostname string,
 ) (runtimeState, ServeResult, error) {
 	for attempt := 1; attempt <= maximumPortRaceAttempts; attempt++ {
 		state, err := manager.reserveSession(
-			ctx, identity, requestedDirectory, mode, allowedHosts, apis, data, workspaceID, runtimeGeneration, environment,
+			ctx, identity, requestedDirectory, mode, allowedHosts, apis, data, workspaceID,
+			runtimeGeneration, environment, reviewTaskID,
 		)
 		if err != nil {
-			return runtimeState{}, manager.runtimeErrorResult("start", root, identity.ServerKey, err), err
+			generation, generationErr := manager.token()
+			ownershipToken, ownershipErr := manager.token()
+			if generationErr != nil || ownershipErr != nil {
+				err = errors.Join(err, generationErr, ownershipErr)
+			}
+			failedState := runtimeState{
+				ServerID:           identity.ServerID,
+				RepositoryPath:     identity.RepositoryPath,
+				Directory:          identity.WorktreePath,
+				RequestedDirectory: requestedDirectory,
+				Script:             identity.ServerKey,
+				Mode:               mode,
+				APIs:               apis,
+				Data:               data,
+				State:              StateError,
+				Generation:         generation,
+				TmuxSession:        identity.TmuxSession,
+				TmuxOwnershipToken: ownershipToken,
+				WorkspaceID:        workspaceID,
+				RuntimeGeneration:  runtimeGeneration,
+				ReviewTaskID:       reviewTaskID,
+				AllowedHosts:       append([]string{}, allowedHosts...),
+				CheckedAt:          manager.timestamp(),
+				LastError:          err.Error(),
+			}
+			if generationErr == nil && ownershipErr == nil {
+				if saveErr := manager.store.save(failedState); saveErr != nil {
+					err = errors.Join(err, fmt.Errorf("persist failed serve preflight: %w", saveErr))
+				}
+			}
+			failure := manager.resultFromState("start", CapabilityConfigured, failedState, err)
+			return runtimeState{}, failure, err
 		}
 		state.PortlessURL, err = manager.startPortlessRoute(ctx, state)
 		if err != nil {
@@ -39,7 +73,9 @@ func (manager *Manager) startLocalRuntime(
 			return runtimeState{}, failure, failErr
 		}
 		runtimeAccessURL := state.PortlessURL
-		if mode == ServeModeManaged {
+		if mode == ServeModeManaged && reviewHostname != "" {
+			runtimeAccessURL = "https://" + reviewHostname
+		} else if mode == ServeModeManaged {
 			runtimeAccessURL = publicURL(state.TailscaleIPv4, state.PublicPort)
 		}
 		command := serverCommandFor(

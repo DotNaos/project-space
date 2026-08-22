@@ -5,9 +5,21 @@ use serde::{Deserialize, Serialize};
 pub struct Resources {
     pub architecture: String,
     pub cpu: Cpu,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<Vec<Gpu>>,
     pub memory: Memory,
     pub operating_system: String,
     pub storage: Storage,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Gpu {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+    pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_percent: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
